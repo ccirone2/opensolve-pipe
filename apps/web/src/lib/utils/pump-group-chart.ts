@@ -629,8 +629,8 @@ export interface GroupNotes {
 	dashed: string | null;
 	/**
 	 * Other cases' station duties (slice 4d): what a ring is, when one is called a point of the
-	 * group system curve shown, the rings, and the cases without one and why (empty with no
-	 * other case).
+	 * group system curve shown, the rings, and the cases without one and why; one line while
+	 * they are not asked for (empty with no other case).
 	 */
 	others: string[];
 }
@@ -846,7 +846,16 @@ export function groupNotes({
 /**
  * The notes on the other cases' station duties (slice 4d), in order: what a ring is (while one
  * is drawn), when one is called a point of the group system curve shown (while a ring and that
- * curve are drawn), the rings, and the other cases without one with the reason.
+ * curve are drawn), the rings, and the other cases without one with the reason. While the other
+ * cases' duties are not asked for (the box off: every case `off`), one line instead of a list:
+ * a project whose scenarios have nothing to do with pumps would otherwise list every case on
+ * every card and image.
+ *
+ * The frame holds for any number of pumps running and any arrangement: a ring is the station's
+ * point, at the station's flow (in parallel the sum of the running pumps' flows, so with two or
+ * more running it lies beyond each one's own flow, never below "their curves"), and it lies on
+ * the drawn group curve when its case differs only outside the station (the group curve depends
+ * on head differences and flows inside only, D21).
  */
 function otherNotes(
 	data: GroupChartData,
@@ -854,13 +863,33 @@ function otherNotes(
 	station: PumpGroupCurveResponse | null,
 	project: Project
 ): string[] {
+	if (others.length && others.every((o) => o.state === 'off')) {
+		const n = others.length;
+		return [
+			`Other cases' station duties are not on the chart: tick “Also show the other cases' station duties” to compute them (${n} other ${n === 1 ? 'case' : 'cases'} with results).`
+		];
+	}
 	const lines: string[] = [];
 	const cases = data.others.flatMap((ring) => ring.cases).sort((a, b) => a.number - b.number);
 	if (cases.length && station) {
 		const s = stationPortWords(station.station.inlet, project);
 		const d = stationPortWords(station.station.outlet, project);
+		const arrangement = station.station.arrangement;
 		lines.push(
-			`Each numbered slate ring is another case's station duty: that case's station flow and its rise from ${s} to ${d}. With a pump off, the station's flow is the running pumps' flow, so a ring lies below their curves by their losses on the way: it is not a pump's own point, and not on this case's group curve, which is drawn with this case's pumps running. Each pump's own flow and head in each case are in Running combinations.`
+			[
+				`Each numbered slate ring is another case's station duty: that case's station flow and its rise from ${s} to ${d}, drawn against the station's flow as the group curve is, not a pump's own point.`,
+				...(arrangement === 'parallel'
+					? [
+							"In parallel that flow is the sum of the flows of the pumps running in that case, and that rise is each running pump's own head less its loss on the way."
+						]
+					: arrangement === 'series'
+						? [
+								'In series that flow passes through every pump, and that rise is their heads added together less the head across the elements between them.'
+							]
+						: []),
+				"Each pump's own flow and head in each case are in Running combinations.",
+				"A ring lies on its own case's group curve wherever the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
+			].join(' ')
 		);
 	}
 	if (cases.length && data.system?.some((p) => p.y !== null)) lines.push(DUTY_CLAIM_RULE);

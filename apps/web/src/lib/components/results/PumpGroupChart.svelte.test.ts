@@ -1272,14 +1272,22 @@ describe('one pump off (slice 4d)', () => {
 		expect(rows).toHaveLength(3);
 		const pb = rows[2]!;
 		expect(within(pb).getByRole('rowheader')).toHaveTextContent('Pump PB');
+		// A long name wraps on a phone (the list has no sideways scroll; the e2e measures it).
+		expect(within(pb).getByRole('rowheader')).toHaveClass(
+			'max-sm:whitespace-normal',
+			'max-sm:break-words'
+		);
 		const cells = within(pb).getAllByRole('cell');
 		expect(cells[0]).toHaveTextContent('No flow (system head above shutoff)');
-		expect(cells[1]).toHaveAttribute('data-label', 'Flow (L/s)');
-		expect(cells[1]).toHaveTextContent('physically invalid:');
+		// Speed next (Pump PB at another speed), then the flow, marked.
+		expect(cells[1]).toHaveAttribute('data-label', 'Speed (%)');
+		expect(cells[2]).toHaveAttribute('data-label', 'Flow (L/s)');
+		expect(cells[2]).toHaveTextContent('physically invalid:');
 		expect(cells.at(-1)).toHaveTextContent('Invalid');
 		// Not marked where the pump has no invalid flag.
 		const pa = within(groups[1]!).getAllByRole('row')[1]!;
-		expect(within(pa).getAllByRole('cell')[1]).not.toHaveTextContent('physically invalid');
+		expect(within(pa).getAllByRole('cell')[2]).toHaveAttribute('data-label', 'Flow (L/s)');
+		expect(within(pa).getAllByRole('cell')[2]).not.toHaveTextContent('physically invalid');
 		expect(within(groups[4]!).getAllByRole('row')).toHaveLength(1);
 		const extremes = screen.getByLabelText('Extremes over these cases');
 		expect(extremes.tagName).toBe('DL');
@@ -1332,9 +1340,45 @@ describe('one pump off (slice 4d)', () => {
 			'Yes: the same rest of the network'
 		]);
 		expect(rows[2]![3]).toBe(
-			'No: it changes the rest of the network; its own group system curve is not drawn'
+			"No: the rest of the network differs from this case's; its own group system curve is not drawn"
 		);
 		expect(rows[3]!.slice(1, 3)).toEqual(['0', '19']);
+		// The box off: one note for every other case, no list, and no table of them.
+		const off = otherGroupCases({
+			valued: ['S1', 'S2', 'S3', 'S4'].map((id) => ({
+				key: id,
+				caseId: id,
+				name: c.project.scenarios!.find((s) => s.id === id)!.name,
+				stale: false,
+				group: undefined,
+				system: undefined,
+				shared: id !== 'S3',
+				solved: null
+			})),
+			shownKeys: new Set(['S1', 'S2', 'S3', 'S4']),
+			othersOn: false,
+			shownSettled: true,
+			station,
+			systemShown: c.systemCurve!.body as PumpGroupCurveResponse,
+			memberIds: ['PA', 'PB'],
+			project: c.project,
+			boxes: ['PA', 'PB']
+		});
+		await view.rerender(
+			base({ otherCases: off, othersOn: false, onothers: () => {}, image: image() })
+		);
+		expect(
+			screen.getByText(
+				"Other cases' station duties are not on the chart: tick “Also show the other cases' station duties” to compute them (4 other cases with results)."
+			)
+		).toBeVisible();
+		expect(screen.queryByText(/not computed: tick/)).toBeNull();
+		expect(screen.queryByText(/^Not on the chart:/)).toBeNull();
+		expect(screen.queryByRole('table', { name: "Other cases' station duties" })).toBeNull();
+		expect(
+			screen.getByRole('table', { name: "Each pump's point (flow through it)" })
+		).toBeVisible();
+
 		// While the other cases' duties are computed: no image, and the figure is busy.
 		await view.rerender(
 			base({

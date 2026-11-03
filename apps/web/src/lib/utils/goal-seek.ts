@@ -168,6 +168,41 @@ export function calculatingReason(
 		: `A solve is running; ${cancel}`;
 }
 
+/**
+ * Why Solve all is unavailable ('' when it can run): the Scenarios menu's words (CaseMenu.svelte),
+ * which the Pumps together card's One pump off block repeats (PumpsView.svelte, CLAUDE.md D21),
+ * from one function so the two never differ. In order: an empty network; a goal seek or a run
+ * (calculatingReason); a single solve, named by its case, which need not be the one shown; then
+ * nothing to solve, with the cases left out for an error named.
+ */
+export function solveAllReason(state: {
+	empty: boolean;
+	calculating: Calculating;
+	/** The case whose solve is in flight (store.solvingCase). */
+	solvingCase: CaseId | undefined;
+	/** How many cases a run would solve (store.casesToSolve()). */
+	toSolve: number;
+	/** The cases left out for an error (store.casesWithErrors()). */
+	errors: readonly CaseId[];
+	caseName: (caseId: CaseId) => string;
+}): string {
+	if (state.empty) return 'Add a component to the network first.';
+	if (state.calculating === 'goalSeek' || state.calculating === 'solveAll') {
+		return calculatingReason(state.calculating, 'solve');
+	}
+	if (state.calculating === 'solve') {
+		return state.solvingCase === undefined
+			? calculatingReason('solve', 'solve')
+			: `A solve of ${state.caseName(state.solvingCase)} is running; Cancel in the header stops it.`;
+	}
+	if (state.toSolve) return '';
+	if (!state.errors.length) return "Every case's results are current.";
+	const names = state.errors.map(state.caseName);
+	const list =
+		names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+	return `Every case is solved except ${list}, which ${names.length === 1 ? 'has' : 'have'} an error to fix first.`;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Goals
 // ---------------------------------------------------------------------------------------------

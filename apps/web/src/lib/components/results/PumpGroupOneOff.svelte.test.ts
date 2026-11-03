@@ -309,7 +309,7 @@ describe('one pump off on the Pumps together card', () => {
 			/2 · Pump PB off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network\)/
 		);
 		expect(name).toMatch(
-			/3 · Delivery tank 5 m higher, [\d.]+ L\/s at a rise of [\d.]+ m \(No: it changes the rest of the network; its own group system curve is not drawn\)/
+			/3 · Delivery tank 5 m higher, [\d.]+ L\/s at a rise of [\d.]+ m \(No: the rest of the network differs from this case's; its own group system curve is not drawn\)/
 		);
 		expect(name).toMatch(
 			/4 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state \(D13\)\)/
@@ -323,7 +323,7 @@ describe('one pump off on the Pumps together card', () => {
 		expect(claims).toEqual([
 			'Yes: the same rest of the network',
 			'Yes: the same rest of the network',
-			'No: it changes the rest of the network; its own group system curve is not drawn',
+			"No: the rest of the network differs from this case's; its own group system curve is not drawn",
 			'Not said: at zero station flow the rest can hold more than one state (D13)'
 		]);
 		// Running combinations: every case, the shown first, with its station line and ring.
@@ -382,8 +382,44 @@ describe('one pump off on the Pumps together card', () => {
 		expect(ws.scenarios).toHaveLength(19);
 	});
 
-	it('words Solve all as the Scenarios menu does', async () => {
+	it('tells two pumps of the same name apart: the cases it makes, its notes and the extremes', async () => {
+		// Synthetic: a duty and a standby unit both named "Booster pump" (names need not be unique).
+		const project = withoutScenarios();
+		for (const c of project.components) if (c.type === 'pump') c.name = 'Booster pump';
+		const { ws, calls, solves } = setup(project);
+		await openCard(ws, calls);
+		await fireEvent.click(
+			within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
+		);
+		expect(ws.scenarios.map((s) => [s.id, s.name])).toEqual([
+			['S1', 'Booster pump (PA) off'],
+			['S2', 'Booster pump (PB) off']
+		]);
+		expect(
+			within(block())
+				.getAllByText(/has its case already/)
+				.map((p) => p.textContent)
+		).toEqual([
+			'Booster pump (PA) has its case already: Booster pump (PA) off.',
+			'Booster pump (PB) has its case already: Booster pump (PB) off.'
+		]);
+		await fireEvent.click(within(block()).getByRole('button', { name: 'Solve all (2)' }));
+		await waitFor(() => expect(solves).toEqual([null, 'S1', 'S2']));
+		const extremes = await within(card()).findByLabelText('Extremes over these cases');
+		expect([...extremes.querySelectorAll('dt')].map((dt) => dt.textContent)).toEqual([
+			'Booster pump (PA), largest flow:',
+			'Booster pump (PA), largest shaft power:',
+			'Booster pump (PA), smallest NPSH margin:',
+			'Booster pump (PB), largest flow:',
+			'Booster pump (PB), largest shaft power:',
+			'Booster pump (PB), smallest NPSH margin:'
+		]);
+	});
+
+	it('words Solve all as the Scenarios menu does, in every state', async () => {
 		const failing = structuredClone(oneOff.project);
+		/** A solve waits for this while it is set. */
+		let held: ReturnType<typeof deferred<void>> | null = null;
 		const { ws, calls } = setup(failing, {
 			solve: async (_p, _o, request) => {
 				if (request?.scenarioId === 'S3') {
@@ -394,23 +430,29 @@ describe('one pump off on the Pumps together card', () => {
 						'VALIDATION_ERROR'
 					);
 				}
+				if (held) await held.promise;
 				const id = request?.scenarioId;
-				return structuredClone((id ? oneOff.scenarioCases[id]! : oneOff).solve);
+				return structuredClone(((id && oneOff.scenarioCases[id]) || oneOff).solve);
 			}
 		});
 		await ws.store.solveAll();
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
 		await waitFor(() => expect(calls.filter((c) => c.scenarioId === null)).toHaveLength(2));
-		const ours = within(block()).getByRole('button', { name: /^Solve all/ });
-		await fireEvent.click(screen.getByRole('button', { name: /^Scenarios/ }));
-		const menu = screen.getByRole('group', { name: 'Case' });
-		const theirs = within(menu).getByRole('button', { name: 'Solve all' });
-		const words =
-			'Every case is solved except Delivery tank 5 m higher, which has an error to fix first.';
-		expect(theirs).toHaveAccessibleDescription(words);
-		expect(ours).toHaveAccessibleDescription(words);
-		expect(ours).toHaveAttribute('aria-disabled', 'true');
+		// Each read again: the block's button is drawn anew when the case shown changes, and the
+		// menu closes when a run ends (its focus goes to Solve).
+		const ours = () => within(block()).getByRole('button', { name: /^Solve all/ });
+		const menu = () => screen.queryByRole('group', { name: 'Case' });
+		const theirs = () => within(menu()!).getByRole('button', { name: 'Solve all' });
+		const same = async (words: string) => {
+			if (!menu()) await fireEvent.click(screen.getByRole('button', { name: /^Scenarios/ }));
+			await waitFor(() => expect(theirs()).toHaveAccessibleDescription(words));
+			expect(ours()).toHaveAccessibleDescription(words);
+			expect(ours()).toHaveAttribute('aria-disabled', 'true');
+		};
+		await same(
+			'Every case is solved except Delivery tank 5 m higher, which has an error to fix first.'
+		);
 		// Fixed: every case current.
 		ws.store.update(
 			(p) =>
@@ -420,9 +462,31 @@ describe('one pump off on the Pumps together card', () => {
 				),
 			'delete scenario'
 		);
-		await waitFor(() =>
-			expect(theirs).toHaveAccessibleDescription("Every case's results are current.")
+		await same("Every case's results are current.");
+		// A solve of another case than the one shown, in flight: both name that case.
+		held = deferred<void>();
+		const release = held.resolve;
+		ws.setCase('S1');
+		const solving = ws.solve();
+		ws.setCase(null);
+		await same('A solve of Pump PA off is running; Cancel in the header stops it.');
+		held = null;
+		release();
+		await solving;
+		await same("Every case's results are current.");
+		// A Solve all run, held on the one case it solves.
+		ws.store.update(
+			(p) => withScenarios(p, [...scenariosOf(p), { id: 'S5', name: 'Copy', overrides: [] }]),
+			'add scenario'
 		);
-		expect(ours).toHaveAccessibleDescription("Every case's results are current.");
-	});
+		held = deferred<void>();
+		const end = held.resolve;
+		const run = ws.solveAll();
+		await same('Solve all is running; Cancel in the header stops it.');
+		held = null;
+		end();
+		await run;
+		await same("Every case's results are current.");
+		// Six states, each awaited: the budget of the card's other long tests.
+	}, 20_000);
 });

@@ -71,6 +71,7 @@ import {
 	reservedIds,
 	rowIssues,
 	runProblems,
+	solveAllReason,
 	stateChangeText,
 	toleranceBounds,
 	toleranceProblem,
@@ -682,6 +683,44 @@ describe("Run's reasons (§6.8) and the request", () => {
 		expect(calculatingReason('goalSeek', 'export')).toBe(
 			'A goal seek is running; export when it finishes, or Cancel in the header stops it.'
 		);
+	});
+
+	it('says why Solve all waits, in the one set of words the Scenarios menu and the Pumps card use', () => {
+		const names: Record<string, string> = { S1: 'Winter', S2: 'Summer' };
+		const state = (values: Partial<Parameters<typeof solveAllReason>[0]> = {}) =>
+			solveAllReason({
+				empty: false,
+				calculating: null,
+				solvingCase: undefined,
+				toSolve: 0,
+				errors: [],
+				caseName: (c) => (c === null ? 'Base case' : names[c]!),
+				...values
+			});
+		expect(state({ empty: true, calculating: 'solve', solvingCase: 'S1' })).toBe(
+			'Add a component to the network first.'
+		);
+		expect(state({ calculating: 'goalSeek' })).toBe(
+			'A goal seek is running; Cancel in the header stops it.'
+		);
+		expect(state({ calculating: 'solveAll', solvingCase: 'S1' })).toBe(
+			'Solve all is running; Cancel in the header stops it.'
+		);
+		// A single solve names its case, which need not be the one shown.
+		expect(state({ calculating: 'solve', solvingCase: 'S1' })).toBe(
+			'A solve of Winter is running; Cancel in the header stops it.'
+		);
+		expect(state({ calculating: 'solve', solvingCase: null })).toBe(
+			'A solve of Base case is running; Cancel in the header stops it.'
+		);
+		expect(state({ toSolve: 2, errors: ['S1'] })).toBe('');
+		expect(state({ errors: ['S1'] })).toBe(
+			'Every case is solved except Winter, which has an error to fix first.'
+		);
+		expect(state({ errors: [null, 'S1', 'S2'] })).toBe(
+			'Every case is solved except Base case, Winter and Summer, which have an error to fix first.'
+		);
+		expect(state()).toBe("Every case's results are current.");
 	});
 
 	it('marks a goal or variable already chosen, by the published uniqueBy keys', () => {

@@ -611,6 +611,26 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 	}
 });
 
+test('Running combinations wraps a long pump name on a phone, with no sideways scroll', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(!isMobile, 'phone layout');
+	// Names may be up to 100 characters: one of 60 must wrap in the list, not scroll it.
+	const project = structuredClone(projectOf('one-off'));
+	const long = 'Chilled water primary pump CHWP-1A, duty, variable speed (A)';
+	expect(long).toHaveLength(60);
+	project.components.find((c) => c.id === 'PA')!.name = long;
+	await open(page, project);
+	await solveConverged(page);
+	const { card, toggle } = await openCard(page);
+	await answersOf(page, () => toggle.click());
+	const region = card.getByRole('region', { name: 'Running combinations' });
+	await expect(region.getByRole('rowheader', { name: long }).first()).toBeVisible();
+	expect(await region.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+	await noSidewaysScroll(page);
+});
+
 test('one pump off is offered for pumps in parallel only', async ({ page }) => {
 	await open(page, projectOf('series'));
 	await solveConverged(page);

@@ -881,24 +881,25 @@
 					{#if notes.frame}<p class="text-xs text-slate-700">{notes.frame}</p>{/if}
 					{#if notes.system}<p class="text-xs text-slate-700">{notes.system}</p>{/if}
 					<p class="text-xs text-slate-600">{notes.axes}</p>
-					{#each notes.duty as note, i (note)}
+					{#each notes.duty as note, i (i)}
 						<p class="text-xs text-slate-600">
 							{note}{#if i === 0 && shown?.dutyCheck && !shown.dutyCheck.agrees}<IssueDetail
 									detail={shown.dutyCheck.message}
 								/>{/if}
 						</p>
 					{/each}
-					{#each notes.systemDuty as note, i (note)}
+					{#each notes.systemDuty as note, i (i)}
 						<p class="text-xs text-slate-600">
 							{note}{#if i === 0 && systemShown?.systemDutyCheck && !systemShown.systemDutyCheck.agrees}<IssueDetail
 									detail={systemShown.systemDutyCheck.message}
 								/>{/if}
 						</p>
 					{/each}
-					{#each notes.others as note (note)}
+					<!-- Keyed by index, never by words: a pump's name need not be unique. -->
+					{#each notes.others as note, i (i)}
 						<p class="text-xs text-slate-600">{note}</p>
 					{/each}
-					{#each notes.members as note (note)}
+					{#each notes.members as note, i (i)}
 						<p class="text-xs text-slate-600">{note}</p>
 					{/each}
 					{#if notes.dashed}<p class="text-xs text-slate-600">{notes.dashed}</p>{/if}
@@ -1062,7 +1063,7 @@
 				{#if table.footer.length}
 					<!-- The table's footer: the station as a whole, with its two ports named. -->
 					<dl class="space-y-0.5 text-xs text-slate-700" aria-label="The station">
-						{#each table.footer as line (line.label)}
+						{#each table.footer as line, i (i)}
 							<div>
 								<dt class="inline">{line.label}:</dt>
 								<dd class="inline font-medium tabular-nums">{line.value}</dd>
@@ -1083,7 +1084,7 @@
 							<p class="text-xs text-slate-700">{oneOff.gate}</p>
 						{:else}
 							<p class="text-xs text-slate-700">{oneOff.about}</p>
-							{#each oneOff.notes as note (note)}
+							{#each oneOff.notes as note, i (i)}
 								<p class="text-xs text-slate-600">{note}</p>
 							{/each}
 						{/if}
@@ -1208,7 +1209,7 @@
 												scope="row"
 												class={[
 													'sticky left-0 z-10 border-r border-b border-slate-200 px-2 py-1 text-left font-medium whitespace-nowrap',
-													'max-sm:static max-sm:block max-sm:w-full max-sm:border-0 max-sm:px-0',
+													'max-sm:static max-sm:block max-sm:w-full max-sm:border-0 max-sm:px-0 max-sm:break-words max-sm:whitespace-normal',
 													group.stale ? 'bg-amber-50' : 'bg-white'
 												]}
 												><span aria-hidden="true" style:color={row.style.color}
@@ -1278,7 +1279,7 @@
 						<div class="space-y-1">
 							<h5 class="text-xs font-semibold">Extremes over these cases (current results)</h5>
 							<dl class="space-y-0.5 text-xs text-slate-700" aria-label="Extremes over these cases">
-								{#each extremes.lines as line (line.term)}
+								{#each extremes.lines as line (line.key)}
 									<div>
 										<dt class="inline">{line.term}:</dt>
 										<dd class="inline font-medium tabular-nums">
@@ -1402,8 +1403,9 @@
 								{/if}
 							</p>
 						{/if}
-						{#if others.length}
-							<!-- The other cases' station duties (slice 4d): the rings, and why a case has none. -->
+						{#if othersOn && others.length}
+							<!-- The other cases' station duties (slice 4d): the rings, and why a case has none;
+								none while they are not asked for (the notes' one line says so). -->
 							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 							<div
 								class="relative overflow-auto rounded-md border border-slate-200 bg-white"

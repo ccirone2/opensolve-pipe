@@ -11,12 +11,16 @@
  * - Other cases' station duties: each from that case's own group-curve answer (never computed
  *   here), drawn as a numbered ring only when its station is the one shown; a ring is called a
  *   point of the group system curve shown only when that case, as solved, is the same as this one
- *   outside the station (hydraulicFingerprint of each project without the station's interior: D21,
- *   the curve depends on nothing inside), its flow is above zero, the curve has a rise at the
- *   computed flows on both sides of it, and the shown case's own system duty check agrees (D13).
+ *   outside the station (hydraulicFingerprint of each project without the station's interior, the
+ *   design checks and the library entries no element outside refers to: D21, the curve depends on
+ *   nothing inside), its flow is above zero, the curve has a rise at the computed flows on both
+ *   sides of it, and the shown case's own system duty check agrees (D13).
  * - Running combinations: every case's members, with the group table's cell rules applied to that
  *   case's own solve (Compare's rule says which responses have values), and the extremes over the
  *   current cases (screen only, never in the image or the export: D17).
+ *
+ * Names need not be unique: two members of one name are told apart by their ids wherever words
+ * alone name them (the cases made, the block's notes, the extremes; memberLabels).
  *
  * Pure: every value is the API's; the store's fingerprint is passed in (no util imports the store).
  */
@@ -71,12 +75,33 @@ export function isOnePumpOff(scenario: Scenario, pumpId: string): boolean {
 	return overrides.length === 1 && sameValue(overrides[0], offOverride(pumpId));
 }
 
-/** "Pump PA off", cut to the name limit as copyName cuts. */
-export function offName(pumpName: string): string {
-	const suffix = ' off';
+/**
+ * "Pump PA off", or with the pump's id when another member has its name ("Booster pump (PA)
+ * off"), the name cut to the scenario name limit as copyName cuts (never the id).
+ */
+export function offName(pumpName: string, id?: string): string {
+	const suffix = id === undefined ? ' off' : ` (${id}) off`;
 	return pumpName.length + suffix.length <= SCENARIO_NAME_LIMIT
 		? `${pumpName}${suffix}`
 		: `${pumpName.slice(0, SCENARIO_NAME_LIMIT - suffix.length)}${suffix}`;
+}
+
+/**
+ * Each member's name in words, by id: its name, with its id after it where another member has the
+ * same name ("Booster pump (PA)"), since names need not be unique (a duty and a standby unit often
+ * share one).
+ */
+export function memberLabels(
+	members: readonly { id: string; name: string }[]
+): Map<string, { name: string; shared: boolean }> {
+	const count = new Map<string, number>();
+	for (const m of members) count.set(m.name, (count.get(m.name) ?? 0) + 1);
+	return new Map(
+		members.map((m) => {
+			const shared = (count.get(m.name) ?? 0) > 1;
+			return [m.id, { name: shared ? `${m.name} (${m.id})` : m.name, shared }];
+		})
+	);
 }
 
 export interface OnePumpOffInput {
@@ -103,7 +128,7 @@ export interface OnePumpOffPlan {
 	existing: { pumpId: string; scenarioId: string; scenarioName: string }[];
 	/** Members on but held at zero flow in the base case: no case. */
 	idle: string[];
-	/** The idle and "has its case already" sentences, in member order. */
+	/** The idle and "has its case already" sentences, in member order (keyed by index). */
 	notes: string[];
 	/** Why the add is refused: nothing to add, or past the scenario limit (null: it can be made). */
 	refusal: string | null;
@@ -163,7 +188,10 @@ export function onePumpOffPlan(input: OnePumpOffInput): OnePumpOffPlan {
 	const members = [...input.memberIds].sort(
 		(a, b) => (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity)
 	);
-	const name = (id: string) => componentById(project, id)?.name ?? id;
+	const labels = memberLabels(
+		members.map((id) => ({ id, name: componentById(project, id)?.name ?? id }))
+	);
+	const name = (id: string) => labels.get(id)?.name ?? id;
 	const results = base.response.solvedState.pumpResults;
 	const on = members.filter((id) => results[id] && results[id].status !== 'off');
 	if (on.length < 2) {
@@ -198,7 +226,8 @@ export function onePumpOffPlan(input: OnePumpOffInput): OnePumpOffPlan {
 				existing.push({ pumpId: id, scenarioId: found.id, scenarioName: found.name });
 				notes.push(`${name(id)} has its case already: ${found.name}.`);
 			} else {
-				wanted.push({ pumpId: id, name: offName(name(id)) });
+				const plain = componentById(project, id)?.name ?? id;
+				wanted.push({ pumpId: id, name: offName(plain, labels.get(id)?.shared ? id : undefined) });
 			}
 		}
 	}
@@ -265,21 +294,55 @@ export function addedNotice(names: readonly string[]): string {
 // The rest of the network, and whether a ring is a point of the group system curve shown
 // ---------------------------------------------------------------------------------------------
 
-/** The project without the station's interior (its components and connections). */
+/** Every string in `value`, at any depth (the ids an element refers to among them). */
+function stringsIn(value: unknown, into: Set<string> = new Set()): Set<string> {
+	if (typeof value === 'string') into.add(value);
+	else if (Array.isArray(value)) for (const item of value) stringsIn(item, into);
+	else if (value && typeof value === 'object') {
+		for (const item of Object.values(value)) stringsIn(item, into);
+	}
+	return into;
+}
+
+/**
+ * The project as the rest of the network sees it: without the station's interior (its components
+ * and connections), and without what changes no value outside it: the design checks (D19: a check
+ * never changes a solved value) and the library entries no element outside refers to (D22: a pump
+ * curve only members use, a pipe spec or resistance entry used only inside; an edit to one reaches
+ * only its users). An entry is kept when its id is any string of the elements outside, so a
+ * reference of any kind keeps it (ids are one namespace: factory.ts usedIds); a name that happens
+ * to equal an id keeps one entry more, which can only withhold a "Yes". The fluid, the settings
+ * the solve reads and every element outside (boundaries, assigned flows, relief valves) stay.
+ */
 export function restOf(project: Project, station: PumpGroupStation): Project {
-	const components = new Set(station.interiorComponentIds);
-	const connections = new Set(station.interiorConnectionIds);
-	return {
+	const inside = new Set(station.interiorComponentIds);
+	const insideConnections = new Set(station.interiorConnectionIds);
+	const components = project.components.filter((c) => !inside.has(c.id));
+	const connections = project.connections.filter((c) => !insideConnections.has(c.id));
+	const used = stringsIn([components, connections]);
+	const settings = { ...project.settings };
+	delete settings.designChecks;
+	const rest: Project = {
 		...project,
-		components: project.components.filter((c) => !components.has(c.id)),
-		connections: project.connections.filter((c) => !connections.has(c.id))
+		settings,
+		components,
+		connections,
+		pumpLibrary: project.pumpLibrary.filter((c) => used.has(c.id))
 	};
+	// Absent when none is left, as in a project without a library (hydraulicFingerprint).
+	const pipeLibrary = (project.pipeLibrary ?? []).filter((s) => used.has(s.id));
+	const resistanceLibrary = (project.resistanceLibrary ?? []).filter((e) => used.has(e.id));
+	if (pipeLibrary.length) rest.pipeLibrary = pipeLibrary;
+	else delete rest.pipeLibrary;
+	if (resistanceLibrary.length) rest.resistanceLibrary = resistanceLibrary;
+	else delete rest.resistanceLibrary;
+	return rest;
 }
 
 /**
  * Two cases, each as solved, are the same outside the station: the fingerprints of their rests
- * are equal (false when either is missing). The group system curve holds everything inside
- * closed (D21), so with equal rests the curve shown is the other case's too.
+ * (restOf) are equal (false when either is missing). The group system curve holds everything
+ * inside closed (D21), so with equal rests the curve shown is the other case's too.
  */
 export function sharedRest(
 	shown: Project | null,
@@ -311,7 +374,9 @@ export type DutyClaim =
 
 export const DUTY_CLAIM_WORDS: Readonly<Record<DutyClaim, string>> = {
 	on: 'Yes: the same rest of the network',
-	rest_differs: 'No: it changes the rest of the network; its own group system curve is not drawn',
+	// Symmetric: whichever case is shown, the two rests differ (neither is said to change it).
+	rest_differs:
+		"No: the rest of the network differs from this case's; its own group system curve is not drawn",
 	no_curve: 'Not said: no group system curve is drawn for this case',
 	zero_flow: 'Not said: at zero station flow the rest can hold more than one state (D13)',
 	beyond_range: 'Not said: its flow is beyond the flows this curve was computed for',
@@ -474,11 +539,12 @@ export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 			if (s.status === 'error') return as('error', `failed: ${s.message}`, true);
 			return null;
 		};
-		if (!base.onChart)
-			return as('unticked', 'not on the chart (unticked under Cases on this chart)');
+		// The box off first: "Cases on this chart" is not shown then.
 		if (!input.othersOn) {
 			return as('off', "not computed: tick “Also show the other cases' station duties”");
 		}
+		if (!base.onChart)
+			return as('unticked', 'not on the chart (unticked under Cases on this chart)');
 		const group = pending(v.group);
 		if (group) return group;
 		let response: PumpGroupCurveResponse | null = null;
@@ -611,8 +677,13 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 		(a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity)
 	);
 	const valued = input.cases.filter((c) => hasValues(c.response));
+	// As the group table shows it: a member that is on, under a speed control or at a speed other
+	// than 1, in some case with values (an off pump's speed is never shown).
 	const speed = valued.some((c) =>
-		members.some((m) => c.response!.solvedState.pumpResults[m.id]?.control)
+		members.some((m) => {
+			const r = c.response!.solvedState.pumpResults[m.id];
+			return !!r && r.status !== 'off' && (!!r.control || r.speed !== 1);
+		})
 	);
 	const checks = valued.some((c) =>
 		c.response!.solvedState.designChecks.some((r) => members.some((m) => m.id === r.componentId))
@@ -681,7 +752,9 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 }
 
 export interface ExtremeLine {
-	/** "Pump PA, largest flow". */
+	/** The member's id and the measure: "PA:operatingFlow" (a name need not be unique). */
+	key: string;
+	/** "Pump PA, largest flow" ("Booster pump (PA), largest flow" where two share a name). */
 	term: string;
 	/** "40.75 L/s in Pump PB off; beyond its curve data (over 5 of 5 cases)". */
 	value: string;
@@ -709,6 +782,7 @@ export function combinationExtremes(input: CombinationsInput): {
 		(a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity)
 	);
 	const total = current.length;
+	const labels = memberLabels(members);
 	const measures = [
 		{ what: 'largest flow', key: 'operatingFlow', category: 'flow', largest: true },
 		{ what: 'largest shaft power', key: 'shaftPower', category: 'power', largest: true },
@@ -717,14 +791,15 @@ export function combinationExtremes(input: CombinationsInput): {
 	const lines: ExtremeLine[] = [];
 	for (const m of members) {
 		for (const measure of measures) {
-			const term = `${m.name}, ${measure.what}`;
+			const key = `${m.id}:${measure.key}`;
+			const term = `${labels.get(m.id)?.name ?? m.name}, ${measure.what}`;
 			const found = current.flatMap((c) => {
 				const r = c.response!.solvedState.pumpResults[m.id];
 				const v = r ? r[measure.key] : null;
 				return typeof v === 'number' && Number.isFinite(v) ? [{ c, r: r!, v }] : [];
 			});
 			if (!found.length) {
-				lines.push({ term, value: 'no case gives one', invalid: false });
+				lines.push({ key, term, value: 'no case gives one', invalid: false });
 				continue;
 			}
 			const best = found.reduce(
@@ -748,6 +823,7 @@ export function combinationExtremes(input: CombinationsInput): {
 			];
 			const missing = total - found.length;
 			lines.push({
+				key,
 				term,
 				value: `${f.value(best, measure.category)} in ${where}${qualifiers.length ? `; ${qualifiers.join('; ')}` : ''} (over ${found.length} of ${total} cases${missing ? `; no value in ${missing}` : ''})`,
 				invalid

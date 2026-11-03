@@ -39,7 +39,7 @@
 	} from '$lib/state/project.svelte';
 	import { caseResponse } from '$lib/utils/compare';
 	import type { ChartImageSource } from '$lib/utils/export/chart-image';
-	import { calculatingReason } from '$lib/utils/goal-seek';
+	import { calculatingReason, solveAllReason } from '$lib/utils/goal-seek';
 	import { settingsSourceLabel } from '$lib/utils/design-checks';
 	import { componentById } from '$lib/utils/graph';
 	import {
@@ -58,7 +58,6 @@
 	} from '$lib/utils/results';
 	import { defaultGroup, pressureControlOnly, suggestGroups } from '$lib/utils/pump-groups';
 	import {
-		andList,
 		dutyFlow,
 		namesProject,
 		stationResponse,
@@ -582,21 +581,22 @@
 		}
 	}
 
-	/** Solve all in the One pump off block: the Scenarios menu's reasons (CaseMenu.svelte). */
+	/**
+	 * Solve all in the One pump off block: the Scenarios menu's reasons, from the one function
+	 * CaseMenu.svelte calls (a single solve named by its case).
+	 */
 	const toSolve = $derived(ws.store.casesToSolve());
 	const caseErrors = $derived(ws.store.casesWithErrors());
 	const solveAll = $derived.by(() => {
 		const count = toSolve.length;
-		const busy = calculatingReason(ws.store.calculating, 'solve');
-		const reason = !ws.store.project.components.length
-			? 'Add a component to the network first.'
-			: busy
-				? busy
-				: count
-					? ''
-					: caseErrors.length
-						? `Every case is solved except ${andList(caseErrors.map((c) => ws.caseName(c)))}, which ${caseErrors.length === 1 ? 'has' : 'have'} an error to fix first.`
-						: "Every case's results are current.";
+		const reason = solveAllReason({
+			empty: !ws.store.project.components.length,
+			calculating: ws.store.calculating,
+			solvingCase: ws.store.solvingCase,
+			toSolve: count,
+			errors: caseErrors,
+			caseName: (c) => ws.caseName(c)
+		});
 		return {
 			count,
 			canRun: !reason,

@@ -19,6 +19,7 @@ import fixture from './__fixtures__/pump-groups-input.json';
 import { ratedCurveRange } from './pump-chart';
 import { CHART_COLORS, pumpGroupConfig, type PumpChartConfig } from './pump-chart-config';
 import {
+	DUTY_CHECK_FLOOR,
 	DUTY_CLAIM_RULE,
 	GROUP_OTHER,
 	groupChartData,
@@ -28,6 +29,7 @@ import {
 	groupSummary,
 	OTHER_SYMBOL,
 	stationResponse,
+	SYSTEM_DUTY_CHECK_FLOOR,
 	type GroupMemberInput
 } from './pump-group-chart';
 import { otherGroupCases, type OtherGroupCase } from './pump-group-one-off';
@@ -100,6 +102,19 @@ const moved = (o: OtherGroupCase, flow: number, head: number): OtherGroupCase =>
 	...o,
 	duty: { flow, head }
 });
+
+/** The frame's words for a station between `s` and `d` (pump-group-chart.ts otherNotes). */
+const PARALLEL =
+	"In parallel that flow is the sum of the flows of the pumps running in that case, and that rise is each running pump's own head less its loss on the way.";
+const frame = (s: string, d: string, arrangement = '') =>
+	[
+		`Each numbered slate ring is another case's station duty: that case's station flow and its rise from ${s} to ${d}, drawn against the station's flow as the group curve is, not a pump's own point.`,
+		arrangement,
+		"Each pump's own flow and head in each case are in Running combinations.",
+		"A ring lies on its own case's group curve wherever the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
+	]
+		.filter((x) => x)
+		.join(' ');
 
 describe('the rings', () => {
 	it('puts each case drawn at its duty, in display units, numbered in case order', () => {
@@ -188,7 +203,7 @@ describe('the rings', () => {
 					'S3',
 					3,
 					duty('S3').flow * 1000,
-					'No: it changes the rest of the network; its own group system curve is not drawn'
+					"No: the rest of the network differs from this case's; its own group system curve is not drawn"
 				),
 				line(
 					'S4',
@@ -240,9 +255,9 @@ describe('the notes', () => {
 		};
 		const notes = notesOf(list);
 		expect(notes.others).toEqual([
-			"Each numbered slate ring is another case's station duty: that case's station flow and its rise from Tee T1 (run inlet) to Tee T2 (run outlet). With a pump off, the station's flow is the running pumps' flow, so a ring lies below their curves by their losses on the way: it is not a pump's own point, and not on this case's group curve, which is drawn with this case's pumps running. Each pump's own flow and head in each case are in Running combinations.",
+			frame('Tee T1 (run inlet)', 'Tee T2 (run outlet)', PARALLEL),
 			DUTY_CLAIM_RULE,
-			`Other cases on the chart (slate rings, numbered): 1 · Pump PA off, ${f4(duty('S1').flow * 1000)} L/s at a rise of ${f4(duty('S1').head)} m: Yes: the same rest of the network; 2 · Pump PB off, ${f4(duty('S2').flow * 1000)} L/s at a rise of ${f4(duty('S2').head)} m: Yes: the same rest of the network; 3 · Delivery tank 5 m higher, ${f4(duty('S3').flow * 1000)} L/s at a rise of ${f4(duty('S3').head)} m: No: it changes the rest of the network; its own group system curve is not drawn.`,
+			`Other cases on the chart (slate rings, numbered): 1 · Pump PA off, ${f4(duty('S1').flow * 1000)} L/s at a rise of ${f4(duty('S1').head)} m: Yes: the same rest of the network; 2 · Pump PB off, ${f4(duty('S2').flow * 1000)} L/s at a rise of ${f4(duty('S2').head)} m: Yes: the same rest of the network; 3 · Delivery tank 5 m higher, ${f4(duty('S3').flow * 1000)} L/s at a rise of ${f4(duty('S3').head)} m: No: the rest of the network differs from this case's; its own group system curve is not drawn.`,
 			'Not on the chart: Both pumps off (not on the chart (unticked under Cases on this chart)).'
 		]);
 		// The image's footer: after the system duty notes, before the members'.
@@ -250,6 +265,135 @@ describe('the notes', () => {
 		const at = lines.indexOf(notes.others[0]!);
 		expect(lines.slice(at, at + 4)).toEqual(notes.others);
 		expect(lines.indexOf(notes.systemDuty.at(-1)!)).toBeLessThan(at);
+	});
+
+	it('words the frame for any number of pumps running: a station of three (the ladder)', () => {
+		// Three pumps in parallel, all running: a ring of a case with one of N ≥ 3 off has two or
+		// more running, so it lies at their summed flow, beyond each one's own flow, never below
+		// "their curves" (the frame once said so, true with one pump running only).
+		const ladder = cases.find((c) => c.name === 'ladder')!;
+		const answer = body(ladder.groupCurve);
+		expect(answer.station.memberIds).toEqual(['P1', 'P2', 'P3']);
+		expect(answer.station.arrangement).toBe('parallel');
+		const duty = answer.duty!;
+		const running = duty.members.filter((m) => m.status === 'running');
+		expect(running).toHaveLength(3);
+		// The frame's two statements on the API's own numbers: the station's flow is the sum of
+		// the running pumps' flows (the duty check's floor, D21), beyond each one's own; its rise
+		// is each one's head less its loss on the way (D6's floor of the rise).
+		const sum = running.reduce((total, m) => total + m.flow!, 0);
+		expect(Math.abs(sum - duty.flow)).toBeLessThanOrEqual(DUTY_CHECK_FLOOR);
+		for (const m of running) {
+			expect(m.flow!).toBeLessThan(duty.flow);
+			expect(Math.abs(m.head! - m.routeHeadLoss! - duty.head)).toBeLessThanOrEqual(
+				SYSTEM_DUTY_CHECK_FLOOR
+			);
+		}
+		const ladderMembers: GroupMemberInput[] = ladder.memberIds.map((id, slot) => {
+			const pump = ladder.project.components.find((x) => x.id === id)!;
+			return {
+				id,
+				name: pump.name,
+				result: ladder.solve.solvedState.pumpResults[id] as PumpResult,
+				ratedRange: ratedCurveRange(ladder.project, id),
+				curveId: pump.type === 'pump' ? pump.curveId : null,
+				slot,
+				flags: []
+			};
+		});
+		// A ring at the ladder's own duty (synthetic: another case, the same inside).
+		const [ring] = otherGroupCases({
+			valued: [
+				{
+					key: 'S1',
+					caseId: 'S1',
+					name: 'Pump P2 off',
+					stale: false,
+					group: ready(ladder.groupCurve),
+					system: undefined,
+					shared: false,
+					solved: null
+				}
+			],
+			shownKeys: new Set(['S1']),
+			othersOn: true,
+			shownSettled: true,
+			station: answer.station,
+			systemShown: null,
+			memberIds: ladder.memberIds,
+			project: ladder.project,
+			boxes: ladder.memberIds
+		});
+		const ladderPrefs = ladder.project.settings.units;
+		const notes = groupNotes({
+			data: groupChartData(ladderMembers, ladderPrefs, answer, null, [ring!]),
+			members: ladderMembers,
+			state: ready(ladder.groupCurve),
+			project: ladder.project,
+			prefs: ladderPrefs,
+			others: [ring!]
+		});
+		expect(notes.others[0]).toBe(frame('Tee TS1 (run inlet)', 'Tee TD1 (run outlet)', PARALLEL));
+		expect(notes.others[0]).not.toMatch(/below/);
+		// In series the flow is each pump's; in a mixed station neither is said.
+		const series = cases.find((c) => c.name === 'series')!;
+		const seriesAnswer = body(series.groupCurve);
+		const seriesNotes = groupNotes({
+			data: groupChartData([], prefs, seriesAnswer, null, [{ ...ring!, key: 'S2' }]),
+			members: [],
+			state: ready(series.groupCurve),
+			project: series.project,
+			prefs,
+			others: [{ ...ring!, key: 'S2' }]
+		});
+		expect(seriesNotes.others[0]).toContain(
+			'In series that flow passes through every pump, and that rise is their heads added together less the head across the elements between them.'
+		);
+		const mixed = { ...answer, station: { ...answer.station, arrangement: 'mixed' as const } };
+		const mixedNotes = groupNotes({
+			data: groupChartData(ladderMembers, ladderPrefs, mixed, null, [ring!]),
+			members: ladderMembers,
+			state: { status: 'ready', response: mixed },
+			project: ladder.project,
+			prefs: ladderPrefs,
+			others: [ring!]
+		});
+		expect(mixedNotes.others[0]).toBe(frame('Tee TS1 (run inlet)', 'Tee TD1 (run outlet)'));
+	});
+
+	it('gives one line, never a list, while the other cases’ duties are not asked for', () => {
+		const off = otherGroupCases({
+			valued: ['S1', 'S2', 'S3', 'S4'].map((id) => ({
+				key: id,
+				caseId: id,
+				name: nameOf(id),
+				stale: id === 'S2',
+				group: undefined,
+				system: undefined,
+				shared: id !== 'S3',
+				solved: applyScenario(oneOff.project, id).project
+			})),
+			// S4 unticked: with the box off, it is not listed either.
+			shownKeys: new Set(['S1', 'S2', 'S3']),
+			othersOn: false,
+			shownSettled: true,
+			station: group.station,
+			systemShown: system,
+			memberIds: oneOff.memberIds,
+			project: oneOff.project,
+			boxes: oneOff.memberIds
+		});
+		expect(off.map((o) => o.state)).toEqual(['off', 'off', 'off', 'off']);
+		const notes = notesOf(off);
+		expect(notes.others).toEqual([
+			"Other cases' station duties are not on the chart: tick “Also show the other cases' station duties” to compute them (4 other cases with results)."
+		]);
+		for (const id of ['S1', 'S2', 'S3', 'S4']) expect(notes.others[0]).not.toContain(nameOf(id));
+		// The image's footer: that one line.
+		expect(groupNoteLines(notes).filter((l) => l.includes('Also show'))).toEqual(notes.others);
+		expect(notesOf(off.slice(0, 1)).others).toEqual([
+			"Other cases' station duties are not on the chart: tick “Also show the other cases' station duties” to compute them (1 other case with results)."
+		]);
 	});
 
 	it('leaves out the rule without a group system curve, and says nothing without other cases', () => {

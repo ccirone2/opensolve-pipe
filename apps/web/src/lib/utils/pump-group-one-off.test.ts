@@ -9,10 +9,12 @@
 import { describe, expect, it } from 'vitest';
 import type {
 	Flag,
+	PipeSpec,
 	Project,
 	PumpGroupCurveResponse,
 	PumpGroupStation,
 	PumpResult,
+	ResistanceSpec,
 	Scenario,
 	SolveResponse,
 	TopologyIssue
@@ -177,6 +179,34 @@ describe('the cases with one pump off', () => {
 		expect(offName(long)).toBe(`${'P'.repeat(96)} off`);
 		expect(offName(long)).toHaveLength(SCENARIO_NAME_LIMIT);
 		expect(offName('Pump PA')).toBe('Pump PA off');
+		// With the id that tells it apart: the name is cut, never the id.
+		expect(offName(long, 'PA')).toBe(`${'P'.repeat(91)} (PA) off`);
+		expect(offName(long, 'PA')).toHaveLength(SCENARIO_NAME_LIMIT);
+	});
+
+	it('tells two pumps of the same name apart by their ids, in the cases it makes and its words', () => {
+		// Synthetic: a duty and a standby unit both named "Booster pump" (names need not be unique).
+		const project = withoutScenarios(oneOff.project);
+		for (const c of project.components) if (c.type === 'pump') c.name = 'Booster pump';
+		const plan = planFor(project);
+		expect(plan.add).toEqual([
+			{ pumpId: 'PA', id: 'S1', name: 'Booster pump (PA) off' },
+			{ pumpId: 'PB', id: 'S2', name: 'Booster pump (PB) off' }
+		]);
+		expect(plan.about).toBe(
+			'Makes one scenario per pump running in the base case (Booster pump (PA) and Booster pump (PB)): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.'
+		);
+		const made = withOnePumpOffCases(project, plan.add);
+		const again = planFor(made);
+		expect(again.notes).toEqual([
+			'Booster pump (PA) has its case already: Booster pump (PA) off.',
+			'Booster pump (PB) has its case already: Booster pump (PB) off.'
+		]);
+		expect(new Set(again.notes).size).toBe(2);
+		// A name only one member has keeps its plain words.
+		const one = structuredClone(project);
+		one.components.find((c) => c.id === 'PB')!.name = 'Pump PB';
+		expect(planFor(one).add.map((a) => a.name)).toEqual(['Booster pump off', 'Pump PB off']);
 	});
 
 	it('tells a case with one pump off by its one change', () => {
@@ -335,6 +365,67 @@ describe('the rest of the network and the duty claim', () => {
 		expect(shared(solvedAs(edited, null), solvedAs(base, 'S1'))).toBe(false);
 	});
 
+	it('leaves out what changes no value outside: the design checks, library entries only the inside uses', () => {
+		// The base edited since S2 was solved (synthetic edits), then solved again.
+		const checks = structuredClone(base);
+		checks.settings.designChecks!.npshMargin!.minimumMargin = 2.0;
+		expect(hydraulicFingerprint(checks)).not.toBe(hydraulicFingerprint(base));
+		expect(shared(solvedAs(checks, null), solvedAs(base, 'S2'))).toBe(true);
+		// Curve PC-A: only PA and PB, inside the station, use it.
+		const curve = structuredClone(base);
+		for (const p of curve.pumpLibrary[0]!.points) p.head *= 1.02;
+		expect(shared(solvedAs(curve, null), solvedAs(base, 'S2'))).toBe(true);
+		expect(restOf(base, station).pumpLibrary).toEqual([]);
+		// A pipe spec on an interior pipe only, added since: no library outside either way.
+		const spec: PipeSpec = {
+			id: 'PS1',
+			name: 'Bore of LA1',
+			source: 'synthetic',
+			materialId: 'custom',
+			innerDiameter: base.connections.find((c) => c.id === 'LA1')!.piping.pipes[0]!.innerDiameter!,
+			roughness: null
+		};
+		const inside = structuredClone(base);
+		inside.pipeLibrary = [spec];
+		inside.connections.find((c) => c.id === 'LA1')!.piping.pipes[0]!.specId = 'PS1';
+		expect(shared(solvedAs(inside, null), solvedAs(base, 'S2'))).toBe(true);
+		// The same spec on an outside pipe, edited: another rest.
+		const outside = structuredClone(inside);
+		outside.connections.find((c) => c.id === 'L2')!.piping.pipes[0]!.specId = 'PS1';
+		const respec = structuredClone(outside);
+		respec.pipeLibrary![0]!.innerDiameter = 0.2;
+		expect(restOf(outside, station).pipeLibrary!.map((s) => s.id)).toEqual(['PS1']);
+		expect(shared(solvedAs(respec, null), solvedAs(outside, 'S2'))).toBe(false);
+		// A resistance entry on an interior fitting, then on an outside one, edited.
+		const entry: ResistanceSpec = {
+			id: 'RS1',
+			name: 'Elbow',
+			source: 'synthetic',
+			kind: 'Cv',
+			value: 400
+		};
+		const valved = structuredClone(base);
+		valved.resistanceLibrary = [entry];
+		valved.connections.find((c) => c.id === 'LA1')!.piping.fittings[0]!.resistanceId = 'RS1';
+		const revalued = structuredClone(valved);
+		revalued.resistanceLibrary![0]!.value = 500;
+		expect(shared(solvedAs(revalued, null), solvedAs(valved, 'S2'))).toBe(true);
+		const outer = structuredClone(valved);
+		outer.connections.find((c) => c.id === 'L2')!.piping.fittings[0]!.resistanceId = 'RS1';
+		const outerRevalued = structuredClone(outer);
+		outerRevalued.resistanceLibrary![0]!.value = 500;
+		expect(shared(solvedAs(outerRevalued, null), solvedAs(outer, 'S2'))).toBe(false);
+		// A pump outside the station on the members' curve (synthetic, unconnected): its curve
+		// edited changes the rest.
+		const pa = base.components.find((c) => c.id === 'PA')!;
+		const booster = structuredClone(base);
+		booster.components.push({ ...structuredClone(pa), id: 'PX', name: 'Booster PX' });
+		const reshaped = structuredClone(booster);
+		for (const p of reshaped.pumpLibrary[0]!.points) p.head *= 1.02;
+		expect(restOf(booster, station).pumpLibrary.map((c) => c.id)).toEqual(['PC-A']);
+		expect(shared(solvedAs(reshaped, null), solvedAs(booster, 'S2'))).toBe(false);
+	});
+
 	it('takes a reservoir taken whole as an outside element (not in the interior)', () => {
 		const whole: PumpGroupStation = {
 			...station,
@@ -383,11 +474,30 @@ describe('the rest of the network and the duty claim', () => {
 		expect(dutyClaim({ shared: true, duty: duty('S1'), system: off })).toBe('shown_duty');
 	});
 
+	it('words a different rest as the two cases’ difference, whichever is shown', () => {
+		// "Delivery tank 5 m higher" shown: the base and "Pump PA off" change nothing outside, yet
+		// their rests differ from the case shown's, so neither is said to change it.
+		const s3 = solvedAs(base, 'S3');
+		const s3System = body(scenarioCase('S3').systemCurve);
+		const baseDuty = body(oneOff.groupCurve).duty!;
+		const claim = dutyClaim({
+			shared: shared(s3, solvedAs(base, null)),
+			duty: baseDuty,
+			system: s3System
+		});
+		expect(claim).toBe('rest_differs');
+		expect(DUTY_CLAIM_WORDS[claim]).toBe(
+			"No: the rest of the network differs from this case's; its own group system curve is not drawn"
+		);
+		expect(DUTY_CLAIM_WORDS[claim]).not.toMatch(/it changes/);
+		expect(shared(s3, solvedAs(base, 'S1'))).toBe(false);
+	});
+
 	it('words each claim and the rule', () => {
 		expect(DUTY_CLAIM_WORDS).toEqual({
 			on: 'Yes: the same rest of the network',
 			rest_differs:
-				'No: it changes the rest of the network; its own group system curve is not drawn',
+				"No: the rest of the network differs from this case's; its own group system curve is not drawn",
 			no_curve: 'Not said: no group system curve is drawn for this case',
 			zero_flow: 'Not said: at zero station flow the rest can hold more than one state (D13)',
 			beyond_range: 'Not said: its flow is beyond the flows this curve was computed for',
@@ -482,6 +592,12 @@ describe('the other cases on the chart', () => {
 			false
 		]);
 		expect(words(one(undefined, { othersOn: false }))).toEqual([
+			'off',
+			"not computed: tick “Also show the other cases' station duties”",
+			false
+		]);
+		// With the box off, "Cases on this chart" is not shown: an unticked case is off too.
+		expect(words(one(undefined, { othersOn: false, shownKeys: new Set() }))).toEqual([
 			'off',
 			"not computed: tick “Also show the other cases' station duties”",
 			false
@@ -620,8 +736,10 @@ describe('Running combinations', () => {
 			'Delivery tank 5 m higher',
 			'Both pumps off'
 		]);
+		// Pump PB runs at 0.85 in the base: the speed column, as the group table has it.
 		expect(table.columns.map((c) => c.key)).toEqual([
 			'state',
+			'speed',
 			'flow',
 			'head',
 			'shaftPower',
@@ -640,7 +758,7 @@ describe('Running combinations', () => {
 		for (const [i, row] of shown.rows.entries()) {
 			const expected = group.rows[i]!;
 			expect(row.id).toBe(expected.id);
-			for (const key of ['state', 'flow', 'head', 'shaftPower', 'npshMargin', 'inCurve']) {
+			for (const key of ['state', 'speed', 'flow', 'head', 'shaftPower', 'npshMargin', 'inCurve']) {
 				expect(row.cells[key], key).toBe(expected.cells[key]);
 			}
 			expect(row.flags).toEqual(expected.flags);
@@ -706,28 +824,45 @@ describe('Running combinations', () => {
 		]);
 	});
 
-	it('adds the speed column only with a controlled pump', () => {
-		const c = named('controlled');
-		const table = runningCombinations({
-			members,
-			cases: [
-				{
-					key: '',
-					name: 'Base case',
-					shown: true,
-					status: 'solved',
-					response: c.solve,
-					stale: false,
-					station: null
-				}
-			],
-			prefs: c.project.settings.units,
-			project: c.project
-		});
+	it('adds the speed column when a pump that is on runs at another speed or under a control', () => {
+		const only = (c: FixtureCase) =>
+			runningCombinations({
+				members,
+				cases: [
+					{
+						key: '',
+						name: 'Base case',
+						shown: true,
+						status: 'solved',
+						response: c.solve,
+						stale: false,
+						station: null
+					}
+				],
+				prefs: c.project.settings.units,
+				project: c.project
+			});
+		expect(only(named('controlled')).columns.map((col) => col.key)).toContain('speed');
+		// Pump PB at a fixed 0.85 in every case of `one-off`; off in "Pump PB off".
+		const table = runningCombinations(combinationsInput());
 		expect(table.columns.map((col) => col.key)).toContain('speed');
-		expect(runningCombinations(combinationsInput()).columns.map((col) => col.key)).not.toContain(
-			'speed'
-		);
+		// In % as the group table gives it (its cells for the case shown are compared above).
+		expect(table.columns.find((col) => col.key === 'speed')!.unit).toBe('%');
+		expect(table.groups[0]!.rows.map((r) => r.cells.speed)).toEqual(['100', '85']);
+		expect(table.groups[2]!.rows.map((r) => r.cells.speed)).toEqual(['100', '—']);
+		// Both pumps at speed 1 without a control: no column.
+		const plain = named('refused-own-loops');
+		expect(
+			Object.values(plain.solve.solvedState.pumpResults).map((r) => [r.speed, r.control])
+		).toEqual([
+			[1, null],
+			[1, null]
+		]);
+		expect(only(plain).columns.map((col) => col.key)).not.toContain('speed');
+		// Off at another speed: its speed is never shown, so no column for it alone.
+		const off = named('off');
+		expect(off.solve.solvedState.pumpResults.PB).toMatchObject({ status: 'off', speed: 0.85 });
+		expect(only(off).columns.map((col) => col.key)).not.toContain('speed');
 	});
 
 	it('heads each group with its state and ring, an out-of-date one tinted', () => {
@@ -787,6 +922,30 @@ describe('the extremes over the cases', () => {
 			'Pump PB, largest shaft power',
 			'Pump PB, smallest NPSH margin'
 		]);
+	});
+
+	it('keys each line by the pump and the measure, and tells two pumps of the same name apart', () => {
+		// Synthetic: both members named "Booster pump" (names need not be unique).
+		const twins = { ...all(), members: members.map((m) => ({ ...m, name: 'Booster pump' })) };
+		const { lines } = combinationExtremes(twins);
+		expect(lines.map((l) => l.key)).toEqual([
+			'PA:operatingFlow',
+			'PA:shaftPower',
+			'PA:npshMargin',
+			'PB:operatingFlow',
+			'PB:shaftPower',
+			'PB:npshMargin'
+		]);
+		expect(lines.map((l) => l.term)).toEqual([
+			'Booster pump (PA), largest flow',
+			'Booster pump (PA), largest shaft power',
+			'Booster pump (PA), smallest NPSH margin',
+			'Booster pump (PB), largest flow',
+			'Booster pump (PB), largest shaft power',
+			'Booster pump (PB), smallest NPSH margin'
+		]);
+		// Names of their own: the plain words.
+		expect(combinationExtremes(all()).lines[0]!.term).toBe('Pump PA, largest flow');
 	});
 
 	it('names the other cases on equal doubles', () => {

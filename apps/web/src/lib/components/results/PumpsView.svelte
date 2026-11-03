@@ -17,9 +17,11 @@
 	Slice 4d (one pump off): for a parallel station, while the base case is shown and current, "Add
 	cases with one pump off" makes one scenario per member running in the base case, in one undo
 	step, and turns on "Also show the other cases' station duties": each other case's group curve
-	is asked for (one request at a time, after the case shown's curves; at most six cases), its
-	duty drawn as a numbered ring. "Running combinations" lists every case's members. The card asks
-	again for the curves a solve, Solve all or goal seek cancelled, once no calculation runs.
+	is asked for (one request at a time, after the case shown's curves and while no calculation
+	runs; at most six cases), its duty drawn as a numbered ring. "Running combinations" lists every
+	case's members. The card asks again for the curves a solve, Solve all or goal seek cancelled,
+	once no calculation runs; a change of members or of the case shown withdraws the other cases'
+	requests (those still waiting, on a case switch), which are asked again after the shown case's.
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
@@ -387,15 +389,14 @@
 	const groupSystemShown = $derived(
 		!groupUnavailable && groupSystemState?.status === 'ready' ? groupSystemState.response : null
 	);
-	/** The case shown's curves have answered: the other cases' requests come after them. */
-	const shownSettled = $derived(
-		!!groupState &&
-			groupState.status !== 'loading' &&
-			(!wantsSystem || (!!groupSystemState && groupSystemState.status !== 'loading'))
-	);
 	/** A curve a calculation (a solve, Solve all, a goal seek) cancelled: asked again after it. */
 	const cancelledByCalculation = (state: GroupCurveState | undefined) =>
 		state?.status === 'cancelled' && state.by !== 'user';
+	/** Answered, or failed or cancelled by the user (one a calculation cancelled is asked again). */
+	const settled = (state: GroupCurveState | undefined) =>
+		!!state && state.status !== 'loading' && !cancelledByCalculation(state);
+	/** The case shown's curves have answered: the other cases' requests come after them. */
+	const shownSettled = $derived(settled(groupState) && (!wantsSystem || settled(groupSystemState)));
 
 	/**
 	 * The other cases with values by Compare's rule (a failed or not reached case's earlier
@@ -513,13 +514,14 @@
 		});
 	});
 
-	// Asked for (the box ticked), once the shown case's curves have answered: each other case's
+	// Asked for (the box ticked), once the shown case's curves have answered and while no
+	// calculation runs (its end may ask again for the shown case's first): each other case's
 	// group curve on the chart, and for a case refused only for an active PRV or PSV inside, its
 	// group system curve (its duty). One request at a time, on the store's queue.
 	$effect(() => {
 		const ids = groupList ? groupList.split('\u0000') : [];
 		if (!ws.pumpGroupOpen || !ws.pumpGroupOthers || ids.length < 2 || groupUnavailable) return;
-		if (!shownSettled) return;
+		if (ws.store.calculating !== null || !shownSettled) return;
 		const wanted = chartResponses.map(({ caseId, response }) => ({
 			caseId,
 			group: ws.store.groupCurve(response, ids),
@@ -539,12 +541,20 @@
 		});
 	});
 
-	/** Cancel a case's group curve and group system curve while they are computed (or wait). */
-	function cancelCase(caseId: CaseId, ids: readonly string[] = groupMembers) {
-		ws.store.cancelGroupCurve(ids, { caseId });
-		ws.store.cancelGroupSystemCurve(ids, { caseId });
+	/**
+	 * Cancel a case's group curve and group system curve while they are computed (or wait): by
+	 * the user, or withdrawn by the card (`forget`, only those still waiting with `waiting`).
+	 */
+	function cancelCase(
+		caseId: CaseId,
+		ids: readonly string[] = groupMembers,
+		options: { forget?: boolean; waiting?: boolean } = {}
+	) {
+		ws.store.cancelGroupCurve(ids, { caseId, ...options });
+		ws.store.cancelGroupSystemCurve(ids, { caseId, ...options });
 	}
-	// A change of members: the other cases' requests for the members before are cancelled.
+	// A change of members: the other cases' requests for the members before are withdrawn, never
+	// cancelled by the user; they read as never asked, so going back to those members asks again.
 	let membersBefore: string[] = [];
 	$effect(() => {
 		const ids = groupList ? groupList.split('\u0000') : [];
@@ -552,7 +562,26 @@
 		membersBefore = ids;
 		if (before.length < 2 || before.join('\u0000') === ids.join('\u0000')) return;
 		untrack(() => {
-			for (const c of ws.store.caseIds) if (c !== ws.store.activeCase) cancelCase(c, before);
+			for (const c of ws.store.caseIds) {
+				if (c !== ws.store.activeCase) cancelCase(c, before, { forget: true });
+			}
+		});
+	});
+	// Another case shown, also when this view is drawn anew after it (the views visited are kept
+	// per solve, so a case switched on another view draws this one anew): the other cases'
+	// requests still waiting their turn are withdrawn, so the curves of the case now shown go
+	// first in the one queue; the one being computed goes on. They are asked again after the
+	// shown case's curves, as first requests.
+	let caseBefore: CaseId | undefined;
+	$effect(() => {
+		const active = ws.store.activeCase;
+		const before = caseBefore;
+		caseBefore = active;
+		if (before === active) return;
+		untrack(() => {
+			for (const c of ws.store.caseIds) {
+				if (c !== active) cancelCase(c, groupMembers, { forget: true, waiting: true });
+			}
 		});
 	});
 

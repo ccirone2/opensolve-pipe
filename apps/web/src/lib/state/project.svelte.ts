@@ -267,6 +267,17 @@ export type GroupCurveState =
  */
 export type GroupSystemCurveState = GroupCurveState;
 
+/**
+ * How cancelGroupCurve() and cancelGroupSystemCurve() cancel: for a case (default: the active
+ * one); with `waiting`, only a request still waiting its turn (one sent goes on); with `forget`,
+ * withdrawn by the card (read as never asked) rather than cancelled by the user.
+ */
+export interface GroupCancelOptions {
+	caseId?: CaseId;
+	waiting?: boolean;
+	forget?: boolean;
+}
+
 /** The key of a group of pumps: its ids sorted, NUL-separated (the order ticked never matters). */
 export function groupKey(pumpIds: readonly string[]): string {
 	return [...pumpIds].sort().join('\u0000');
@@ -497,8 +508,16 @@ export class ProjectStore {
 	/** Resolves when the run in progress ends (curve requests wait for it). */
 	#runDone: Promise<void> = Promise.resolve();
 	#endRun: () => void = () => {};
-	/** The system-curve requests in flight or queued, to abort them. */
-	#curveRequests: readonly { caseKey: string; key: string; controller: AbortController }[] = [];
+	/**
+	 * The system-curve requests in flight or queued, to abort them; `sent` once its request has
+	 * gone to the server (before that it waits its turn: cancelGroupCurve()'s `waiting`).
+	 */
+	#curveRequests: readonly {
+		caseKey: string;
+		key: string;
+		controller: AbortController;
+		sent: boolean;
+	}[] = [];
 	/** The system-curve requests, one after the other. */
 	#curveQueue: Promise<unknown> = Promise.resolve();
 	/** Case projects of solved projects (for the inputs a case was solved with). */
@@ -1352,7 +1371,8 @@ export class ProjectStore {
 		set({ status: 'loading' });
 		const controller = new AbortController();
 		this.#abortCurveRequests(slot(caseId), key);
-		this.#curveRequests = [...this.#curveRequests, { caseKey: slot(caseId), key, controller }];
+		const entry = { caseKey: slot(caseId), key, controller, sent: false };
+		this.#curveRequests = [...this.#curveRequests, entry];
 		const { signal } = controller;
 		const request = async () => {
 			try {
@@ -1361,6 +1381,7 @@ export class ProjectStore {
 				// And after a solve in flight (dropped unsent if it replaced the response).
 				if (this.#solvingCase !== undefined) await this.#solveDone;
 				if (signal.aborted || this.#case(caseId).results.response !== response) return;
+				entry.sent = true;
 				const curve = await solver.systemCurve!(project, pumpId, {
 					signal,
 					...(caseId === null ? {} : { scenarioId: caseId }),
@@ -1493,10 +1514,8 @@ export class ProjectStore {
 		const controller = new AbortController();
 		const requestKey = groupRequestKey(key, kind);
 		this.#abortCurveRequests(slot(caseId), requestKey);
-		this.#curveRequests = [
-			...this.#curveRequests,
-			{ caseKey: slot(caseId), key: requestKey, controller }
-		];
+		const entry = { caseKey: slot(caseId), key: requestKey, controller, sent: false };
+		this.#curveRequests = [...this.#curveRequests, entry];
 		const { signal } = controller;
 		const ids = [...pumpIds].sort();
 		const request = async () => {
@@ -1506,6 +1525,7 @@ export class ProjectStore {
 				// And after a solve in flight (dropped unsent if it replaced the response).
 				if (this.#solvingCase !== undefined) await this.#solveDone;
 				if (signal.aborted || this.#case(caseId).results.response !== response) return;
+				entry.sent = true;
 				const curve = await solver.groupCurve!(project, ids, {
 					signal,
 					...(caseId === null ? {} : { scenarioId: caseId }),
@@ -1538,29 +1558,40 @@ export class ProjectStore {
 	 * Cancel the group curve of `pumpIds` while it is computed or waits its turn (the card's
 	 * Cancel): its request is aborted, an answer that still arrives is dropped, and the curve is
 	 * marked cancelled by the user until it is asked for again (loadGroupCurve with `retry`).
+	 * With `waiting`, only while it waits its turn: a request already sent goes on. With
+	 * `forget`, the card withdraws its own request instead (CLAUDE.md D21 slice 4d: a change of
+	 * members, another case shown): the curve reads as never asked (undefined), so it is asked
+	 * for again as a first request, without `retry`, and never reads as cancelled by the user.
 	 */
-	cancelGroupCurve(pumpIds: readonly string[], options: { caseId?: CaseId } = {}): void {
+	cancelGroupCurve(pumpIds: readonly string[], options: GroupCancelOptions = {}): void {
 		this.#cancelGroup('group', pumpIds, options);
 	}
 
 	/** Cancel the group system curve of `pumpIds`, as cancelGroupCurve() its group curve. */
-	cancelGroupSystemCurve(pumpIds: readonly string[], options: { caseId?: CaseId } = {}): void {
+	cancelGroupSystemCurve(pumpIds: readonly string[], options: GroupCancelOptions = {}): void {
 		this.#cancelGroup('system', pumpIds, options);
 	}
 
 	#cancelGroup(
 		kind: GroupCurveKind,
 		pumpIds: readonly string[],
-		options: { caseId?: CaseId }
+		options: GroupCancelOptions
 	): void {
 		const caseId = options.caseId === undefined ? this.activeCase : options.caseId;
 		const map = GROUP_MAPS[kind];
 		const key = groupKey(pumpIds);
 		const state = this.#case(caseId);
 		if (state[map][key]?.status !== 'loading') return;
-		this.#abortCurveRequests(slot(caseId), groupRequestKey(key, kind));
+		const requestKey = groupRequestKey(key, kind);
+		const sent = this.#curveRequests.some(
+			(r) => r.caseKey === slot(caseId) && r.key === requestKey && r.sent
+		);
+		if (options.waiting && sent) return;
+		this.#abortCurveRequests(slot(caseId), requestKey);
 		this.#setCase(caseId, {
-			[map]: { ...state[map], [key]: { status: 'cancelled', by: 'user' } }
+			[map]: options.forget
+				? Object.fromEntries(Object.entries(state[map]).filter(([k]) => k !== key))
+				: { ...state[map], [key]: { status: 'cancelled', by: 'user' } }
 		});
 	}
 

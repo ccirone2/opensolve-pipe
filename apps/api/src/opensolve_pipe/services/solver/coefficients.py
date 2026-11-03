@@ -62,12 +62,16 @@ at every flow but zero and NaN at zero flow (inf · 0), and the GGA stops at the
 that evaluates the law (``gga.DIVERGED``: a slope must be a finite number). So the element is
 refused before the solve, named, as one whose c is not a finite number is: its law cannot be
 evaluated at any flow (an orifice plate's at any flow but zero), whatever the network, the
-starting flows or the iteration limit. Every c up to the bound is evaluated: from 1 ft/s, Newton
-halves the flow at each step towards √(ΔH/c), so a valve, a fitting or an equipment item of
-c = 8.988465674311578e307 converged in 505 iterations (within ``maxIterations``' 1000), and one
-just above it failed at the first (the item-2 verification of 2026-11-03). The test is monotone
-in c, as c is in each value it comes from, like the finiteness tests it extends; so an orifice
-plate's builds at a goal-seek variable's bounds still prove every trial between them."""
+starting flows or the iteration limit. An orifice plate's K varies with its C, so the plate is
+refused on its K at an upper bound of every C its law takes (``orifice.refusal`` rule (d), a
+lower bound of every K it takes); that bound need not be reached, so a plate whose K is past
+the bound only at the C its law takes, at some flows or at every flow, is not refused but named
+at the iterate that evaluates it (D7, D20). Every c up to the bound is evaluated: from 1 ft/s,
+Newton halves the flow at each step towards √(ΔH/c), so a valve, a fitting or an equipment item
+of c = 8.988465674311578e307 converged in 505 iterations (within ``maxIterations``' 1000), and
+one just above it failed at the first (the item-2 verification of 2026-11-03). The test is
+monotone in c, as c is in each value it comes from, like the finiteness tests it extends; so an
+orifice plate's builds at a goal-seek variable's bounds still prove every trial between them."""
 
 
 def slope_overflows(coefficient: float) -> bool:

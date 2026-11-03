@@ -35,9 +35,17 @@ Its law acts on the energy grade line (D7):
 
 ``refusal`` gives decision 17's bounds (``ORIFICE_OUT_OF_RANGE``): a plate the law cannot represent
 physically, for any flow. Every number here is ISO 5167-2's as fluids 1.3.1 implements it, or
-the proposal's. Rule (d) also refuses a plate whose K at its smallest C_L is above
-``coefficients.SLOPE_COEFFICIENT_MAX``: ``OrificeLaw.evaluate`` forms 2.0 · K before
-1/(2 g A²), so its slope is then not a finite number at any flow but zero.
+the proposal's. Rule (d) also refuses a plate whose K at c_high, an upper bound of every C the
+law takes (so a lower bound of every K it takes), is above ``coefficients.SLOPE_COEFFICIENT_MAX``:
+``OrificeLaw.evaluate`` forms 2.0 · K before 1/(2 g A²), so its slope is then not a finite number
+at any flow but zero (where the rounding of eq. (4) puts a C a few units in the last place above
+c_high, through dK/dC; ``refusal``). c_high need not be reached (r_max can be 1, above every r
+a moved C's law takes: D 1 m, bore 0.5 m, corner or flange taps), so a plate the rule accepts
+can still have K past the bound at some flows or at every flow, and its slope can overflow in
+dK/dC above Re_lo while K is within the bound; where an iterate reaches such a flow, the
+divergence message names the plate (D7). Rule (d)'s first test, K/(2 g A²) at c_low, is taken
+at a closed-form bound the law need not reach either, so it can refuse a plate whose law gives a
+finite K/(2 g A²) (``refusal``).
 """
 
 import math
@@ -475,15 +483,16 @@ class Refusal:
 
     rule: Rule
     """beta: β ≥ 1; iso_coefficient: eq. (4) can exceed 1 (at ``where``); moved_coefficient: an
-    entered C moved from corner or flange taps can exceed 1; coefficient: K/(2 g A²) at the
-    smallest C_L is not a finite positive double (or computing it raises); slope: it is, but K
-    there is above ``coefficients.SLOPE_COEFFICIENT_MAX``, so the law's slope, which forms
+    entered C moved from corner or flange taps can exceed 1; coefficient: K/(2 g A²) at c_low,
+    the smallest bound of C_L, is not a finite positive double (or computing it raises); slope:
+    it is, but K at c_high, an upper bound of every C the law takes (so a lower bound of every K
+    it takes), is above ``coefficients.SLOPE_COEFFICIENT_MAX``, so the law's slope, which forms
     2.0 · K, is not a finite number at any flow but zero; fluid: the case's fluid leaves the
     plate's Reynolds number unrepresentable (``fluid_refusal``, ``fluid``)."""
     beta: float
     coefficient: float | None = None
-    """The C bound broken: the largest C (iso_coefficient, moved_coefficient) or the smallest
-    C_L (coefficient)."""
+    """The C bound broken: the largest C (iso_coefficient, moved_coefficient), c_high (slope) or
+    c_low, the smallest bound of C_L (coefficient)."""
     where: str | None = None
     """iso_coefficient: the tap set where eq. (4) can exceed 1."""
     ratio: float | None = None
@@ -494,7 +503,8 @@ class Refusal:
     in the move's ratio, C above 1 is eq. (4) extrapolated far beyond ISO's range (its largest C
     there is below 0.7), on which the reading or the move would rest."""
     loss: float | None = None
-    """slope: K at the smallest C_L (``coefficient``), the K the bound is broken by."""
+    """slope: K at c_high (``coefficient``), a lower bound of every K the law takes (c_high need
+    not be reached), which breaks the bound."""
     fluid: FluidReason | None = None
     """fluid: which of ``fluid_refusal``'s tests the case's fluid breaks."""
     fluid_values: tuple[float, float] | None = None
@@ -577,19 +587,29 @@ def refusal(
     except (ZeroDivisionError, OverflowError, ValueError):
         return Refusal("coefficient", beta)
     # (d): K decreases in C, so h's coefficient is largest at the smallest C_L; both ends finite
-    # and positive bound every flow's.
+    # and positive bound every flow's. c_low is a closed-form bound the law need not reach
+    # (entered × r_min can lie below every C a moved C's law takes), so this test can refuse a
+    # plate whose law gives a finite K/(2 g A²) (recorded, unchanged since 1.4.0: TSD §4.10).
     try:
         ends = [loss_factor(d_pipe, d_bore, c, g) for c in (c_low, c_high)] if c_low > 0.0 else []
     except (ZeroDivisionError, OverflowError, ValueError):
         ends = []
     if len(ends) != 2 or not all(math.isfinite(x) and x > 0.0 for x in ends):
         return Refusal("coefficient", beta, c_low)
-    # (d), the slope: OrificeLaw.evaluate forms 2.0 · K before 1/(2 g A²), so K must stay at or
-    # below half the largest double at the smallest C_L, where it is largest (SLOPE_COEFFICIENT_
-    # MAX); above it the slope is +inf at every flow but zero, whatever the plate's flow.
-    k_largest = k_of_c(d_pipe, d_bore, c_low)
-    if slope_overflows(k_largest):
-        return Refusal("slope", beta, c_low, loss=k_largest)
+    # (d), the slope: OrificeLaw.evaluate forms 2.0 · K before 1/(2 g A²). Every C the law takes
+    # is at most c_high (held below Re_lo, and the move's r at most r_max) up to the rounding of
+    # eq. (4), so K at c_high is at most every K it takes (c_high need not be reached): past half
+    # the largest double (SLOPE_COEFFICIENT_MAX) there, the slope is not a finite number at any
+    # flow but zero, whatever the plate's flow. Where rounding puts a C a few units in the last
+    # place above c_high (fluids' r one ulp above r_max from Re_D about 1e45 on D 1 m, bore
+    # 0.65 m, corner taps), K is within a few ulps of the bound and dK/dC = −2K(1/C + β²/S)
+    # overflows instead, so the slope is still not finite. A K past the bound only at smaller C,
+    # which can be every C the law takes, is not refused: where an iterate reaches it, the
+    # divergence message names the plate (D7); c_low can be a bound below every C the law takes
+    # (entered × r_min for a moved C).
+    k_high = k_of_c(d_pipe, d_bore, c_high)
+    if slope_overflows(k_high):
+        return Refusal("slope", beta, c_high, loss=k_high)
     return None
 
 

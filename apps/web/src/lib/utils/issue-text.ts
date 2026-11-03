@@ -445,12 +445,12 @@ function orificeIssue(
 		const loss = ORIFICE_LOSS.exec(rest);
 		const slope = ORIFICE_SLOPE.exec(rest);
 		if (slope) {
-			const [, low = '', k = '', max = ''] = slope;
-			const words = slopeWords('K', k, max, '', 'its head loss, 2 K|Q|/(2 g A²)', true);
+			const [, high = '', k = '', max = ''] = slope;
+			const words = slopeWords('K', k, max, '', 'its head loss, 2 K|Q|/(2 g A²)', true, true);
 			if (words !== null) {
 				text =
 					`${name}: a bore of ${d} in an inlet pipe of inner diameter ${D} (β = ${b}) gives, with ` +
-					`a discharge coefficient down to ${formatNumber(Number(low), 6)}, ${words} and the ` +
+					`a discharge coefficient of at most ${formatNumber(Number(high), 6)} at every flow, ${words} and the ` +
 					'solver cannot represent this plate. Check its bore and discharge coefficient.';
 			}
 		} else if (iso) {
@@ -685,11 +685,13 @@ function apart(value: string, bound: string): [string, string] | null {
 }
 
 /**
- * "a loss coefficient <symbol> of <c> <unit>, above half the largest floating-point number
- * (<bound> <unit>), so the slope of <slope>, is not a finite floating-point number at any flow":
- * a refusal at the slope bound (the builder's coefficients.slope_bound_text), with c and the bound
- * as the message quotes them (`apart`); null when they are not in the form expected. `butZero`:
- * an orifice plate's slope, which is 0 at zero flow (its law forms 2K|Q| before 1/(2 g A²)).
+ * "a loss coefficient <symbol> of [at least ]<c> <unit>, above half the largest floating-point
+ * number (<bound> <unit>), so the slope of <slope>, is not a finite floating-point number at any
+ * flow": a refusal at the slope bound (the builder's coefficients.slope_bound_text), with c and the
+ * bound as the message quotes them (`apart`); null when they are not in the form expected.
+ * `butZero`: an orifice plate's slope, which is 0 at zero flow (its law forms 2K|Q| before
+ * 1/(2 g A²)). `atLeast`: c is a lower bound of every value the law takes (an orifice plate's K at
+ * the upper bound of its discharge coefficient, the builder's rule (d)), told as "of at least <c>".
  */
 function slopeWords(
 	symbol: string,
@@ -697,13 +699,14 @@ function slopeWords(
 	bound: string,
 	unit: string,
 	slope: string,
-	butZero = false
+	butZero = false,
+	atLeast = false
 ): string | null {
 	const quoted = apart(c, bound);
 	if (quoted === null) return null;
 	const u = unit ? ` ${unit}` : '';
 	return (
-		`a loss coefficient ${symbol} of ${quoted[0]}${u}, above half the largest floating-point ` +
+		`a loss coefficient ${symbol} of ${atLeast ? 'at least ' : ''}${quoted[0]}${u}, above half the largest floating-point ` +
 		`number (${quoted[1]}${u}), so the slope of ${slope}, is not a finite floating-point number ` +
 		`at any flow${butZero ? ' but zero' : ''}`
 	);
@@ -1033,13 +1036,14 @@ function literal(text: string): string {
 }
 /**
  * A refusal at the slope bound (the builder's coefficients.slope_bound_text): "a loss coefficient
- * <symbol> of <c> <unit>, above <bound> <unit>, half the largest floating-point number, so <the
- * slope's words>, is not a finite floating-point number at any flow", c and the bound as groups.
+ * <symbol> of [at least ]<c> <unit>, above <bound> <unit>, half the largest floating-point number,
+ * so <the slope's words>, is not a finite floating-point number at any flow", c and the bound as
+ * groups. `atLeast`: the "at least " before c (an orifice plate's rule (d)).
  */
-function slopeSource(symbol: string, unit: string, slope: string): string {
+function slopeSource(symbol: string, unit: string, slope: string, atLeast = false): string {
 	const u = unit ? ` ${literal(unit)}` : '';
 	return (
-		`a loss coefficient ${literal(symbol)} of ${NUM}${u}, above ${NUM}${u}, half the largest ` +
+		`a loss coefficient ${literal(symbol)} of ${atLeast ? 'at least ' : ''}${NUM}${u}, above ${NUM}${u}, half the largest ` +
 		`floating-point number, so ${literal(slope)}, is not a finite floating-point number at any flow`
 	);
 }
@@ -1119,11 +1123,13 @@ const ORIFICE_LOSS = new RegExp(
 	`^with a discharge coefficient down to ${NUM} it gives a loss coefficient, K/\\(2 g A²\\), that is ` +
 		'not a finite positive floating-point number; the solver cannot represent this plate$'
 );
-/** Rule 'slope': K at the smallest C (dimensionless) above the slope bound; the slope is 0 at
- * zero flow, as the law forms 2K|Q| before 1/(2 g A²). */
+/** Rule 'slope': the plate's C bound c_high, quoted "of at most <C> at every flow" (an upper
+ * bound of every C the law takes, which need not be reached), and K there (dimensionless), quoted
+ * "of at least <K>" (a lower bound of every K the law takes), above the slope bound; the slope is
+ * 0 at zero flow, as the law forms 2K|Q| before 1/(2 g A²). */
 const ORIFICE_SLOPE = new RegExp(
-	`^with a discharge coefficient down to ${NUM} it gives ` +
-		slopeSource('K', '', 'the slope of its head loss, 2 K|Q|/(2 g A²)') +
+	`^with a discharge coefficient of at most ${NUM} at every flow it gives ` +
+		slopeSource('K', '', 'the slope of its head loss, 2 K|Q|/(2 g A²)', true) +
 		' but zero; the solver cannot represent this plate$'
 );
 /**

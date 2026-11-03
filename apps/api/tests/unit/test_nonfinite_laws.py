@@ -33,6 +33,7 @@ import fluids.friction
 import pytest
 from fluids.constants import foot, g
 
+from opensolve_pipe.models.components import OrificeTaps
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.results import Flag, SolvedState
 from opensolve_pipe.services.fluids import fluid_properties
@@ -48,7 +49,14 @@ from opensolve_pipe.services.solver.errors import TopologyError
 from opensolve_pipe.services.solver.fittings import ResolvedFitting
 from opensolve_pipe.services.solver.gga import solve_gga
 from opensolve_pipe.services.solver.network import NORMAL, LinkLaw, LinkState
-from opensolve_pipe.services.solver.orifice import OrificeLaw, k_of_c
+from opensolve_pipe.services.solver.orifice import (
+    OrificeLaw,
+    dk_dc,
+    k_of_c,
+    ratio_range,
+    re_lo,
+    refusal,
+)
 from opensolve_pipe.services.solver.status import active_state
 
 from .helpers import (
@@ -147,10 +155,12 @@ def assert_quotes(message: str, unit: str, value: float) -> None:
 
 def quoted_pair(message: str, unit: str) -> tuple[float, float]:
     """The coefficient and the bound a refusal quotes: '... of X <unit>, above Y <unit>, half
-    the largest floating-point number'."""
+    the largest floating-point number' (an orifice plate's: 'of at least X')."""
     after = f" {re.escape(unit)}" if unit else ""
     match = re.search(
-        rf"of {NUM}{after}, above {NUM}{after}, half the largest floating-point number", message
+        rf"of (?:at least )?{NUM}{after}, above {NUM}{after}, half the largest floating-point "
+        "number",
+        message,
     )
     assert match is not None, message
     return float(match[1]), float(match[2])
@@ -606,8 +616,8 @@ def test_an_orifice_plate_at_the_slope_bound_is_accepted_and_one_past_it_refused
     assert (found.code, found.component_ids) == ("ORIFICE_OUT_OF_RANGE", ["O1"])
     assert found.message.startswith(
         f"orifice 'O1': a bore diameter of {past:g} m in an inlet pipe of inner diameter 1 m "
-        f"(β = d/D = {past:.6g}): with a discharge coefficient down to 0.6 it gives a loss "
-        "coefficient K of "
+        f"(β = d/D = {past:.6g}): with a discharge coefficient of at most 0.6 at every flow it "
+        "gives a loss coefficient K of at least "
     )
     assert found.message.endswith(
         ", half the largest floating-point number, so the slope of its head loss, "
@@ -615,6 +625,155 @@ def test_an_orifice_plate_at_the_slope_bound_is_accepted_and_one_past_it_refused
         "solver cannot represent this plate"
     )
     assert_quotes(found.message, "", k_of(past))
+
+
+# An entered C at corner or flange taps is moved to D and D/2 tappings by ISO's ratio r (D20,
+# decision 13): C_L = C_e r(Re_eff), held at C_e r(Re_lo) below Re_lo (5000 here), r within
+# the closed-form bounds [r_min, r_max] of ``orifice.ratio_range``. Rule (d) takes K at
+# C_e r_max, a lower bound of every K the law takes; K at C_e r_min, below every C the law takes,
+# can be past the slope bound on a plate whose law never forms an infinite 2K.
+MOVED_D, MOVED_BORE = 1.0, 0.5
+VISCOUS = (1000.0, 10.0)
+"""kg/m³, Pa·s: Re_D = 4ρ|Q|/(π D μ) is 127 per m³/s on 1 m, so Re_lo, 5000, is at 39 m³/s,
+far above the line's flows from its start, 1 ft/s (0.24 m³/s), down: C_L is held."""
+
+
+def _moved_plate(taps: OrificeTaps) -> tuple[float, float, float]:
+    """(C_e, r_min, r_max): the smallest entered C at ``taps`` whose K at the held C_L, the law's
+    own ``low_k`` in the ``VISCOUS`` liquid, is within the slope bound (by bisection over the
+    doubles), and the move's bounds at the plate."""
+    d, bore = MOVED_D, MOVED_BORE
+    beta = bore / d
+    # K = u² ≈ (1 − β⁴)/(C β²)² while C β² ≪ S (k_of_c), so K is the bound near this C.
+    estimate = math.sqrt((1.0 - beta**4) / (beta**4 * BOUND))
+
+    def low_k(entered: float) -> float:
+        return OrificeLaw(d, bore, *VISCOUS, entered, taps, g).low_k
+
+    entered, _ = _adjacent(0.5 * estimate, 2.0 * estimate, low_k)
+    r_min, r_max = ratio_range(d, bore, taps, re_lo(beta, d, "d_and_d_2"))
+    return entered, r_min, r_max
+
+
+def _moved_line(entered: float, taps: OrificeTaps, fluid: tuple[float, float]) -> Project:
+    plate = element(
+        "orifice", "O1", boreDiameter=MOVED_BORE, dischargeCoefficient=entered, taps=taps
+    )
+    return line(plate, d=MOVED_D, max_iterations=1000, fluid=custom_fluid(*fluid))
+
+
+@pytest.mark.parametrize("taps", ["flange", "corner"])
+def test_a_moved_c_past_the_slope_bound_only_below_every_c_the_law_takes_solves(
+    taps: OrificeTaps,
+) -> None:
+    """D = 1 m, bore 0.5 m, an entered C_e at flange or corner taps, the smallest whose held K
+    is within the slope bound: K at C_e r_min is past it, but every C the law takes is at least
+    the held C_e r(Re_lo) (r is above r(Re_lo) at every Re_D sampled, to 1e20), so K at every
+    flow is within it. Rule (d), taken at C_e r_max, accepts the plate (taken at C_e r_min it
+    would refuse a plate whose 2K is finite at every flow); in the viscous liquid the line
+    solves (Newton halves the flow from 1 ft/s, about 500 iterations), as 7fcbdb8 solved it."""
+    d, bore = MOVED_D, MOVED_BORE
+    entered, r_min, r_max = _moved_plate(taps)
+    assert slope_overflows(k_of_c(d, bore, entered * r_min))
+    assert not slope_overflows(k_of_c(d, bore, entered * r_max))
+    assert refusal(d, bore, entered, taps, g) is None
+    project = _moved_line(entered, taps, VISCOUS)
+    law = built(project).orifices["O1"].law
+    assert law.low_ratio is not None
+    assert r_min < law.low_ratio < r_max
+    assert law.low_k == k_of_c(d, bore, entered * law.low_ratio)
+    assert not slope_overflows(law.low_k)
+    per_flow = 4.0 * VISCOUS[0] / (math.pi * d * VISCOUS[1])  # Re_D per m³/s
+    for reynolds in (1.001 * law.re_lo, *(10.0**n for n in range(4, 21))):
+        at = law.state(reynolds / per_flow)
+        assert at.coefficient_reynolds is not None
+        assert at.coefficient_reynolds > law.re_lo
+        assert at.loss_c >= law.low_c
+        assert at.k <= law.low_k
+    state = solve_project(project)
+    assert state.converged, state.convergence.message
+
+
+@pytest.mark.parametrize("taps", ["flange", "corner"])
+def test_a_moved_c_whose_k_at_its_largest_c_passes_the_slope_bound_is_refused(
+    taps: OrificeTaps,
+) -> None:
+    """The same plate: every C the law takes is at most C_e r_max, so K there is at most every K
+    it takes, and rule (d) refuses the plate whose K at C_e r_max is past the slope bound, quoting
+    C_e r_max: its slope is not finite at any flow but zero. Found by bisection over C_e: at the
+    largest K at C_e r_max up to the bound the plate builds, at the next smaller C_e it is
+    refused. r_max is 1 here (eq. (4)'s tap difference ΔC = C(D and D/2) − C(taps) is at most
+    0 at Re_lo and as Re → ∞, and the bound takes max(ΔC, 0)), above every r the law takes, so
+    the plate that builds has its held K past the bound too: in the viscous liquid its line
+    stops at the first iterate, naming the plate (D7). On 7fcbdb8, which had no slope bound,
+    both were a 200 NOT_CONVERGED whose message named nothing."""
+    d, bore = MOVED_D, MOVED_BORE
+    _, r_min, r_max = _moved_plate(taps)
+    assert r_max == 1.0
+    assert r_min < 1.0
+
+    def k_high(entered: float) -> float:
+        return k_of_c(d, bore, entered * r_max)
+
+    estimate = math.sqrt((1.0 - (bore / d) ** 4) / ((bore / d) ** 4 * BOUND))
+    at, past = _adjacent(0.5 * estimate, 2.0 * estimate, k_high)
+    assert refusal(d, bore, at, taps, g) is None
+    project = _moved_line(at, taps, VISCOUS)
+    assert slope_overflows(built(project).orifices["O1"].law.low_k)
+    flag = not_converged(solve_project(project))
+    assert flag.details["nonFiniteLawAt"] == "O1"
+    q0 = foot * area(d)
+    assert flag.message.startswith(
+        f"the solve did not converge: {DIVERGED}: not a finite number in the law of 'O1' "
+        f"(slope dh/dQ at a flow of {q0:.3g} m³/s; "
+    )
+    found = refused(_moved_line(past, taps, VISCOUS))
+    assert (found.code, found.component_ids) == ("ORIFICE_OUT_OF_RANGE", ["O1"])
+    assert found.message.startswith(
+        "orifice 'O1': a bore diameter of 0.5 m in an inlet pipe of inner diameter 1 m "
+        f"(β = d/D = 0.5): with a discharge coefficient of at most {past * r_max:.6g} at every "
+        "flow it gives a loss coefficient K of at least "
+    )
+    assert found.message.endswith(
+        ", half the largest floating-point number, so the slope of its head loss, "
+        "2 K|Q|/(2 g A²), is not a finite floating-point number at any flow but zero; the "
+        "solver cannot represent this plate"
+    )
+    assert_quotes(found.message, "", k_high(past))
+
+
+@pytest.mark.parametrize("taps", ["flange", "corner"])
+def test_a_moved_c_whose_slope_overflows_above_re_lo_is_named(taps: OrificeTaps) -> None:
+    """The accepted plate (``_moved_plate``) in a water-like liquid (1000 kg/m³, 1 mPa·s): the
+    start flow, 1 ft/s in the 1 m pipe, is at Re_D about 3e5, above Re_lo, where C_L follows
+    eq. (4). K there is within the slope bound (C_L is above the held C), but the slope's other
+    term is not finite: dK/dC = −2K(1/C + β²/S), with K about 9e307 and 1/C about 2.4e153, is
+    −inf. The plate is not refused (its slope is finite below Re_lo, at every flow
+    of the viscous case); this flow-dependent overflow stops the iteration at its first iterate
+    and the message names the plate with its K/(2 g A²) there (D7). 7fcbdb8 stopped there too,
+    naming nothing."""
+    d, bore = MOVED_D, MOVED_BORE
+    entered, _, _ = _moved_plate(taps)
+    project = _moved_line(entered, taps, (1000.0, 1.0e-3))
+    law = built(project).orifices["O1"].law
+    q0 = foot * area(d)
+    at = law.state(q0)
+    assert at.reynolds > law.re_lo
+    assert not slope_overflows(at.k)
+    assert dk_dc(d, bore, at.loss_c, at.k) == -math.inf
+    h, slope = law.evaluate(q0)
+    assert math.isfinite(h)
+    assert not math.isfinite(slope)
+    state = solve_project(project)
+    flag = not_converged(state)
+    assert flag.details["nonFiniteLawAt"] == "O1"
+    assert flag.details["nonFiniteLawFlow"] == pytest.approx(q0, rel=1e-15)
+    c = flag.details["nonFiniteLawCoefficient"]
+    assert c == pytest.approx(at.k / (2.0 * g * area(d) ** 2), rel=1e-12)
+    assert state.convergence.message == (
+        f"{DIVERGED}: not a finite number in the law of 'O1' (slope dh/dQ at a flow of "
+        f"{q0:.3g} m³/s; loss coefficient K/(2 g A²) = {c:.6g} s²/m⁵)"
+    )
 
 
 def test_a_goal_seek_bound_past_the_orifice_slope_bound_is_a_400_without_values() -> None:
@@ -685,7 +844,8 @@ def test_a_pipe_whose_reynolds_denominator_underflows_is_refused_not_a_500() -> 
 # A custom fluid's density and viscosity are any positive doubles up to 3e4 kg/m³ and 1e3 Pa·s
 # (schema), so one at the bottom of that range makes some of the laws' arithmetic underflow or
 # overflow before any flow is solved. Each case below was an internal error (500) on 7fcbdb8
-# (the finisher's probe of fluids and sizes at the schema's bounds, 2026-11-03).
+# (the finisher's probe of fluids and sizes at the schema's bounds, 2026-11-03), but the
+# closed-off plate, which solved there.
 
 PLATE_HEAD = (
     "orifice 'O1': a bore diameter of 0.05 m in an inlet pipe of inner diameter 0.1 m "
@@ -757,6 +917,53 @@ def test_a_plate_whose_reynolds_number_is_infinite_at_every_flow_is_refused(
     )
     state = solve_project(line(_plate(dischargeCoefficient=0.6), fluid=fluid))
     assert not_converged(state).details["nonFiniteLawAt"] == "L1, L2"
+
+
+def test_a_closed_off_plate_with_an_infinite_reynolds_number_is_refused() -> None:
+    """D9, D20 rule (e): R1 → R2 through a 0.1 m pipe, and a branch R1 → V1 → O1 → V2 → R2 whose
+    gate valves are isolated, so the solve never evaluates the plate (ISO's C, a 0.5 mm bore on
+    a 1 mm inlet pipe). In a liquid of 1000 kg/m³ and 5e-303 Pa·s the plate's Reynolds number
+    per unit flow, 4ρ/(π D μ), overflows on 1 mm (on 0.1 m it is about 2.5e306, finite). With
+    an active gate valve in the plate's place the project solves; with the plate, which rules
+    (a) to (d) accept, rule (e) refuses it wherever it is, as the slope bound refuses an
+    isolated valve. 7fcbdb8 solved it (converged, as with the gate): a 200 then, a 422 now."""
+    rho, mu = 1000.0, 5.0e-303
+    assert 4.0 * rho / (math.pi * 1.0e-3 * mu) == math.inf
+    assert math.isfinite(4.0 * rho / (math.pi * 0.1 * mu))
+    assert refusal(1.0e-3, 5.0e-4, None, None, g) is None
+
+    def project(middle: dict[str, Any]) -> Project:
+        small = [custom_pipe(1.0, 1.0e-3, 0.0)]
+        data = project_dict(
+            [
+                reservoir("R1", level=10.0, ports=("port_1", "port_2")),
+                element("valve", "V1", valveType="gate", status="isolated"),
+                middle,
+                element("valve", "V2", valveType="gate", status="isolated"),
+                reservoir("R2", level=0.0, ports=("port_1", "port_2")),
+            ],
+            [
+                connection("L1", ("R1", "port_1"), ("R2", "port_1"), length=10.0),
+                connection("L2", ("R1", "port_2"), ("V1", "inlet"), length=10.0),
+                connection("L3", ("V1", "outlet"), (middle["id"], "inlet"), pipes=small),
+                connection("L4", (middle["id"], "outlet"), ("V2", "inlet"), length=10.0),
+                connection("L5", ("V2", "outlet"), ("R2", "port_2"), length=10.0),
+            ],
+            fluid=custom_fluid(rho, mu),
+        )
+        return Project.model_validate(data)
+
+    state = solve_project(project(element("valve", "V3", valveType="gate")))
+    assert state.converged, state.convergence.message
+    found = refused(project(element("orifice", "O1", boreDiameter=5.0e-4)))
+    assert (found.code, found.component_ids) == ("ORIFICE_OUT_OF_RANGE", ["O1"])
+    assert found.message == (
+        "orifice 'O1': a bore diameter of 0.0005 m in an inlet pipe of inner diameter 0.001 m "
+        f"(β = d/D = 0.5): with the fluid's density of {rho:g} kg/m³ and dynamic viscosity of "
+        f"{mu:g} Pa·s, its Reynolds number per unit flow, 4ρ/(π D μ), is not a finite "
+        "floating-point number, so Re_D is infinite at every flow but zero, where ISO 5167-2's "
+        "discharge coefficient cannot be evaluated; the solver cannot represent this plate"
+    )
 
 
 def test_a_law_that_raises_in_the_iteration_is_named() -> None:

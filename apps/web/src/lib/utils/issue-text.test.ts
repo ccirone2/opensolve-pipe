@@ -918,19 +918,19 @@ describe('a loss coefficient above the slope bound (open item 2, CLAUDE.md D18, 
 		});
 	});
 
-	it("tells an orifice plate's K at its smallest C, finite at zero flow only", () => {
+	it("tells an orifice plate's K at its largest C, finite at zero flow only", () => {
 		const message =
 			"orifice 'O1': a bore diameter of 1.32588e-77 m in an inlet pipe of inner diameter 1 m " +
-			'(β = d/D = 1.32588e-77): with a discharge coefficient down to 0.6 it gives a loss ' +
-			'coefficient K of 8.98846567431159e+307, above 8.98846567431158e+307, half the largest ' +
+			'(β = d/D = 1.32588e-77): with a discharge coefficient of at most 0.6 at every flow it ' +
+			'gives a loss coefficient K of at least 8.98846567431159e+307, above 8.98846567431158e+307, half the largest ' +
 			'floating-point number, so the slope of its head loss, 2 K|Q|/(2 g A²), is not a finite ' +
 			'floating-point number at any flow but zero; the solver cannot represent this plate';
 		const told = view(issue('ORIFICE_OUT_OF_RANGE', message, ['O1']), orificeProject());
 		expect(told).toEqual({
 			text:
 				'Bypass orifice: a bore of 1.326e-74 mm in an inlet pipe of inner diameter 1000 mm ' +
-				'(β = 1.32588e-77) gives, with a discharge coefficient down to 0.6, a loss coefficient ' +
-				'K of 8.98846567431159e307, above half the largest floating-point number ' +
+				'(β = 1.32588e-77) gives, with a discharge coefficient of at most 0.6 at every flow, a loss ' +
+				'coefficient K of at least 8.98846567431159e307, above half the largest floating-point number ' +
 				'(8.98846567431158e307), so the slope of its head loss, 2 K|Q|/(2 g A²), is not a ' +
 				'finite floating-point number at any flow but zero and the solver cannot represent ' +
 				'this plate. Check its bore and discharge coefficient.',

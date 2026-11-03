@@ -181,19 +181,32 @@ METHOD_CHANGELOG: list[MethodChange] = [
         "date": "2026-11-03",
         "changes": [
             "A valve, an equipment item, a fitting entry, a connection's fittings or an orifice "
-            "plate whose loss coefficient (c of h = cQ|Q|; a plate's K) is above half the largest "
-            "floating-point number, 8.988465674311579·10³⁰⁷, is refused as a topology issue: the "
-            "slope of its head loss, 2c|Q|, is not a finite number at any flow but zero, so a "
-            "solve that evaluates it could only fail. The refusal holds wherever the element is, "
-            "as it already did for a coefficient that is not a finite number, so a project "
-            "holding one the solve never evaluates (a valve isolated or locked closed, or an "
-            "element in a section that isolated valves close off), which solved before, is now "
-            "refused.",
+            "plate whose loss coefficient (c of h = cQ|Q|; for a plate, its K at the upper bound "
+            "of its discharge coefficient over every flow, so that its K is at least that at "
+            "every flow up to rounding) is above half the largest floating-point number, "
+            "8.988465674311579·10³⁰⁷, is refused as a topology issue: the slope of its head loss, "
+            "2c|Q|, is not a finite number at any flow but zero (for a plate whose K rounding "
+            "leaves just below the bound, the slope's term in the change of K with its "
+            "discharge coefficient is not), so a solve that evaluates it could only fail. A plate "
+            "whose K is past the bound only at the discharge coefficients its law takes, which "
+            "need not reach that upper bound, is not refused: a solve that stops on it names it "
+            "(below). The refusal holds wherever the element is, as it already did for a "
+            "coefficient that is not a finite number, so a project holding one whose slope the "
+            "solve never evaluates (for example a valve isolated, locked closed or failed closed, "
+            "a PRV or PSV its status rules keep from opening, or an element in a section that "
+            "closed valves close off), which solved before, is now refused.",
             "A solve that stops on a value that is not a finite number names in its message each "
-            "element whose law gave one, with the flow and its loss coefficient; inputs at the "
-            "schema's bounds that ended in an internal error are refused or reported as not "
-            "converged. Apart from these, flows, heads, pressures, statuses, traces, messages "
-            "and system curves are unchanged (corpus comparison).",
+            "element whose law gave one, with the flow and its loss coefficient. Inputs at the "
+            "schema's bounds that ended in an internal error are now refused (a pipe or an "
+            "orifice plate whose size and fluid make its Reynolds number unrepresentable), "
+            "reported as not converged (a law that cannot be computed at an iterate) or, in a "
+            "converged solve, left out of the trace (a velocity whose square overflows). The "
+            "orifice plate's refusal also holds wherever the plate is: a plate on which ISO "
+            "5167-2's discharge coefficient is evaluated, in a fluid that makes its Reynolds "
+            "number per unit flow, 4ρ/(πDμ), not a finite number, which solved before where the "
+            "solve never evaluated the plate, is now refused. Apart from these, flows, heads, "
+            "pressures, statuses, traces, messages and system curves are unchanged (corpus "
+            "comparison).",
         ],
     },
 ]

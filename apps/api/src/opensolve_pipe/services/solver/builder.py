@@ -921,9 +921,9 @@ def _unrepresentable_equipment(project: Project) -> list[TopologyIssue]:
     ``coefficients.SLOPE_COEFFICIENT_MAX`` (ΔP_r = 10⁸ Pa at Q_r = 1e-152 m³/s): the law's
     slope, 2c|Q|, is then not a finite number at any flow (an added message form quoting c and
     the bound). Each is refused wherever the element is, as the valves, fittings and orifice
-    plates are: one the solve would never evaluate (in a section isolated valves close off) is
-    refused too (D9). c is monotone in each rating value, so it stays representable between two
-    ratings where it is."""
+    plates are: one whose law the solve would never evaluate (for example in a section that
+    closed valves close off: isolated, locked closed or failed closed) is refused too (D9). c is
+    monotone in each rating value, so it stays representable between two ratings where it is."""
     issues: list[TopologyIssue] = []
     for comp in project.components:
         if not isinstance(comp, Equipment):
@@ -1042,10 +1042,11 @@ def _orifice_issue_text(comp: Orifice, d_pipe: float, why: Refusal) -> str:
         assert why.loss is not None
         value, bound = slope_bound_words(why.loss)
         return (
-            f"{head}: with a discharge coefficient down to {why.coefficient:.6g} it gives a loss "
-            f"coefficient K of {value}, above {bound}, half the largest floating-point number, "
-            "so the slope of its head loss, 2 K|Q|/(2 g A²), is not a finite floating-point "
-            "number at any flow but zero; the solver cannot represent this plate"
+            f"{head}: with a discharge coefficient of at most {why.coefficient:.6g} at every flow "
+            f"it gives a loss coefficient K of at least {value}, above {bound}, half the largest "
+            "floating-point number, so the slope of its head loss, 2 K|Q|/(2 g A²), is not a "
+            "finite floating-point number at any flow but zero; the solver cannot represent this "
+            "plate"
         )
     if why.rule == "fluid":
         return f"{head}: {_orifice_fluid_tail(why)}; the solver cannot represent this plate"

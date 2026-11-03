@@ -247,10 +247,13 @@ def test_method_1_6_0_adds_the_pressure_relief_valve() -> None:
 
 
 def test_method_1_6_1_refuses_coefficients_past_the_slope_bound() -> None:
-    """GOALS §4.3 and CLAUDE.md D9 (TSD §12 item 18): refusing a loss coefficient past half the
-    largest double wherever the element is turns a project that solved on 1.6.0 (the element
-    never evaluated, isolated) into a 422, so it is method 1.6.1, after 1.6.0, with a changelog
-    entry that says so and that every other value is unchanged."""
+    """GOALS §4.3 and CLAUDE.md D9, D20 (TSD §12 item 18): refusing a loss coefficient past half
+    the largest double wherever the element is turns a project that solved on 1.6.0 (the element
+    never evaluated, isolated) into a 422, as does D20's rule (e) for a plate whose Reynolds
+    number per unit flow is not finite, so it is method 1.6.1, after 1.6.0, with a changelog
+    entry that says so, that a plate's bound is on K at its discharge coefficient's upper bound,
+    that a trace value whose square overflows is left out, and that every other value is
+    unchanged."""
     assert METHOD_VERSION == "1.6.1"
     assert [e["version"] for e in METHOD_CHANGELOG] == [
         "1.0.0",
@@ -267,7 +270,16 @@ def test_method_1_6_1_refuses_coefficients_past_the_slope_bound() -> None:
     refusal, naming = entry["changes"]
     assert "8.988465674311579·10³⁰⁷" in refusal
     assert "which solved before, is now refused." in refusal
+    assert "for a plate, its K at the upper bound of its discharge coefficient over every flow" in (
+        refusal
+    )
     assert naming.startswith("A solve that stops on a value that is not a finite number names")
+    assert "in a converged solve, left out of the trace (a velocity whose square overflows)" in (
+        naming
+    )
+    assert "which solved before where the solve never evaluated the plate, is now refused." in (
+        naming
+    )
     assert naming.endswith(
         "Apart from these, flows, heads, pressures, statuses, traces, messages and system curves "
         "are unchanged (corpus comparison)."

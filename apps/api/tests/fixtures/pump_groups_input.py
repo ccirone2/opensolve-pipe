@@ -18,7 +18,9 @@ of the base case, ``groupCurve`` the status and JSON body of the group-curve req
 ``memberIds`` (200: a ``PumpGroupCurveResponse``; 422: the error envelope with its issues), and
 ``systemCurve`` the same for its group system curve (``curve: 'system'``, slice 4b: the request
 the card sends after the group curve's answer), or null for a case the card's tests do not ask
-it of.
+it of. A case whose project has scenarios (slice 4d) also has ``scenarioCases``: for each
+scenario id, ``{solve, groupCurve, systemCurve}``, the same three requests with that
+``scenarioId``.
 
 - ``parallel-ideal``: ``pumps_in_parallel`` (tests/reference/derivations_pumps.py), PA at full
   speed and PB at 85 % between two ideal tees; PB stops above its shutoff head on the curve.
@@ -50,6 +52,13 @@ it of.
 - ``prv-inside``: ``parallel-ideal`` with an active PRV V1 (250 kPa) in PA's discharge leg, inside
   the station: no group curve (422 NOT_A_STATION, PRESSURE_CONTROL_INSIDE only), but a group
   system curve (200).
+- ``one-off``: ``one_off_project()`` (``parallel-ideal`` on water at 20 °C, with efficiency data,
+  a 15 kW motor and two design checks) with four scenarios: S1 "Pump PA off" and S2 "Pump PB off"
+  exactly as the card's "Add cases with one pump off" makes them (slice 4d), S3 "Delivery tank
+  5 m higher" (R2's level 7 m, an outside change) and S4 "Both pumps off" (a duty at zero
+  station flow); with PB off, PA runs beyond its curve data.
+- ``one-off-dead-headed``: ``dead-headed`` with S1 "Pump PA off" as the card makes it: PB, held
+  at zero flow in the base case, runs with PA off.
 """
 
 import copy
@@ -126,6 +135,42 @@ def _solve(client: TestClient, project: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
+def _scenario_case(
+    client: TestClient, project: dict[str, Any], scenario_id: str, members: list[str]
+) -> dict[str, Any]:
+    """A scenario's solve, group curve and group system curve (each with its ``scenarioId``),
+    trimmed and fixed as the base case's are."""
+    response = client.post(
+        "/api/v1/solve",
+        json={
+            "project": project,
+            "scenarioId": scenario_id,
+            "options": {"includeSystemCurve": False},
+        },
+    )
+    assert response.status_code == 200, response.text
+    solve: dict[str, Any] = response.json()
+    assert solve["success"], solve.get("message")
+    assert solve["solvedState"]["converged"], solve.get("message")
+    solve["computeTime"] = COMPUTE_TIME
+    solve["solvedState"]["timestamp"] = SOLVED_AT
+    trace = solve["solvedState"]["trace"]
+    trace["elements"] = {k: v for k, v in trace["elements"].items() if k in members}
+    curves: dict[str, dict[str, Any]] = {}
+    for kind in ("group", "system"):
+        answer = client.post(
+            "/api/v1/pump-group-curve",
+            json={
+                "project": project,
+                "pumpIds": members,
+                "scenarioId": scenario_id,
+                **({"curve": "system"} if kind == "system" else {}),
+            },
+        )
+        curves[kind] = {"status": answer.status_code, "body": answer.json()}
+    return {"solve": solve, "groupCurve": curves["group"], "systemCurve": curves["system"]}
+
+
 def _case(
     client: TestClient,
     name: str,
@@ -134,9 +179,11 @@ def _case(
     members: list[str],
     status: int = 200,
     system: int | None = None,
+    scenarios: list[str] | None = None,
 ) -> dict[str, Any]:
     """The case's solve, its group curve (answered with ``status``) and, when ``system`` is
-    given, its group system curve (answered with that status)."""
+    given, its group system curve (answered with that status); with ``scenarios``, the same for
+    each of those scenario ids (``scenarioCases``)."""
     solve = _solve(client, project)
     trace = solve["solvedState"]["trace"]
     trace["elements"] = {k: v for k, v in trace["elements"].items() if k in members}
@@ -152,7 +199,7 @@ def _case(
         )
         assert answer.status_code == system, (name, answer.text)
         system_curve = {"status": answer.status_code, "body": answer.json()}
-    return {
+    case: dict[str, Any] = {
         "name": name,
         "description": description,
         "project": project,
@@ -161,6 +208,42 @@ def _case(
         "groupCurve": {"status": response.status_code, "body": response.json()},
         "systemCurve": system_curve,
     }
+    if scenarios is not None:
+        case["scenarioCases"] = {
+            sid: _scenario_case(client, project, sid, members) for sid in scenarios
+        }
+    return case
+
+
+def _off(pump_id: str) -> dict[str, Any]:
+    """The override the card's "Add cases with one pump off" makes (slice 4d)."""
+    return {"kind": "component", "componentId": pump_id, "field": "status", "value": "off"}
+
+
+def one_off_project() -> dict[str, Any]:
+    """``parallel-ideal`` (``_parallel()``) on CoolProp water at 20 °C, which has a vapor
+    pressure, so NPSH margins exist; its pump curve PC-A with an efficiency curve and a 15 kW
+    motor, and two design checks (an NPSH margin of 1 m; a preferred operating region of 0.7 to
+    1.2 × the BEP flow), so shaft powers and the checks have values (slice 4d). The efficiency
+    points and the motor rating are illustrative manufacturer data, not from a cited datasheet,
+    as the condenser water example labels its own (D22)."""
+    data = _parallel()
+    data["fluid"] = {"kind": "builtin", "fluidId": "water", "temperature": 293.15}
+    curve = data["pumpLibrary"][0]
+    curve["efficiencyCurve"] = [
+        {"flow": flow, "efficiency": efficiency}
+        for flow, efficiency in ((0.01, 0.50), (0.02, 0.68), (0.03, 0.74), (0.04, 0.70))
+    ]
+    curve["motorRatedPower"] = 15000.0
+    data["settings"]["designChecks"] = {
+        "npshMargin": {"minimumMargin": 1.0, "source": {"kind": "user"}},
+        "operatingRegion": {
+            "preferredMin": 0.7,
+            "preferredMax": 1.2,
+            "source": {"kind": "user"},
+        },
+    }
+    return data
 
 
 def _network(ids: list[str], links: list[tuple[str, str, str]]) -> dict[str, Any]:
@@ -386,6 +469,60 @@ def generate() -> dict[str, Any]:
     issues = case["groupCurve"]["body"]["issues"]
     assert [i["code"] for i in issues] == ["PRESSURE_CONTROL_INSIDE"], issues
     assert case["systemCurve"]["body"]["systemDutyCheck"]["agrees"], case["systemCurve"]
+    cases.append(case)
+
+    one_off = one_off_project()
+    assert _component(one_off, "R2")["liquidLevel"] == 2.0
+    one_off["scenarios"] = [
+        {"id": "S1", "name": "Pump PA off", "overrides": [_off("PA")]},
+        {"id": "S2", "name": "Pump PB off", "overrides": [_off("PB")]},
+        {
+            "id": "S3",
+            "name": "Delivery tank 5 m higher",
+            "overrides": [
+                {"kind": "component", "componentId": "R2", "field": "liquidLevel", "value": 7.0}
+            ],
+        },
+        {"id": "S4", "name": "Both pumps off", "overrides": [_off("PA"), _off("PB")]},
+    ]
+    case = _case(
+        client,
+        "one-off",
+        "parallel-ideal on water with manufacturer data and design checks; each pump off, the "
+        "delivery tank 5 m higher, both pumps off",
+        one_off,
+        ["PA", "PB"],
+        system=200,
+        scenarios=["S1", "S2", "S3", "S4"],
+    )
+    base_station = case["groupCurve"]["body"]["station"]
+    for sid, scenario_case in case["scenarioCases"].items():
+        assert scenario_case["groupCurve"]["status"] == 200, (sid, scenario_case["groupCurve"])
+        assert scenario_case["groupCurve"]["body"]["station"] == base_station, sid
+    s2 = case["scenarioCases"]["S2"]["solve"]["solvedState"]
+    assert s2["pumpResults"]["PA"]["inCurveRange"] is False, s2["pumpResults"]["PA"]
+    assert any(
+        f["code"] == "PUMP_OUTSIDE_CURVE" and f.get("componentId") == "PA" for f in s2["flags"]
+    ), s2["flags"]
+    s4_duty = case["scenarioCases"]["S4"]["groupCurve"]["body"]["duty"]
+    assert abs(s4_duty["flow"]) < 1e-6, s4_duty
+    assert case["solve"]["solvedState"]["designChecks"], case["solve"]["solvedState"]
+    cases.append(case)
+
+    dead_off = _parallel()
+    _component(dead_off, "PB")["speed"] = 0.7
+    dead_off["scenarios"] = [{"id": "S1", "name": "Pump PA off", "overrides": [_off("PA")]}]
+    case = _case(
+        client,
+        "one-off-dead-headed",
+        "dead-headed with PA off: PB, held at zero flow in the base case, runs",
+        dead_off,
+        ["PA", "PB"],
+        scenarios=["S1"],
+    )
+    assert case["solve"]["solvedState"]["pumpResults"]["PB"]["status"] == "no_flow"
+    s1 = case["scenarioCases"]["S1"]["solve"]["solvedState"]
+    assert s1["pumpResults"]["PB"]["status"] == "running", s1["pumpResults"]["PB"]
     cases.append(case)
 
     return {"generatedBy": GENERATED_BY, "cases": cases}

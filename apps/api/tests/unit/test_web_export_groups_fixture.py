@@ -429,7 +429,7 @@ def expected_pump_groups() -> Iterator[tuple[Any, ...]]:
                 *case_columns(case),
                 g.id,
                 "; ".join(n[i] for i in station["memberIds"]),
-                station["arrangement"],  # the API's own word, as the workbook writes it
+                station["arrangement"],  # "parallel": the API's word, as this workbook writes it
                 text_with(n[inlet["componentId"]]),  # stationPortWords names the component
                 inlet["componentId"],
                 inlet["portId"],

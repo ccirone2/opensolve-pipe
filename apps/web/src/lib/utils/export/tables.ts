@@ -15,7 +15,8 @@ import type {
 	EquipmentRating,
 	Flag,
 	OverrideResult,
-	Project
+	Project,
+	PumpGroupCurveResponse
 } from '../../api/types';
 import {
 	compareCells,
@@ -49,6 +50,15 @@ import {
 } from '../design-checks';
 import { DIRECTION_NAMES, flowDirection } from '../assigned-flow';
 import { pumpChartData } from '../pump-chart';
+import {
+	ARRANGEMENT_WORDS,
+	dutyCheckState,
+	groupSampleRows,
+	groupSystemRows,
+	MEMBER_STATUS_WORDS,
+	stationPortWords,
+	systemDutyCheckState
+} from '../pump-group-chart';
 import { TAP_LABELS } from '../orifice';
 import { entryFor, unitOf } from '../field-registry';
 import { componentSchemaName, RELIEF_DATA } from '../model-rules';
@@ -99,9 +109,12 @@ import {
 	connectionById,
 	connectionLabel,
 	elementLabel,
+	groupCurveCell,
+	groupSystemCurveCell,
 	orderedConnections,
 	orderedIds,
 	readyCurves,
+	readyGroups,
 	resultsWord,
 	type CaseView,
 	type ExportContext
@@ -723,6 +736,280 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		}
 	);
 
+	// Pump groups (CLAUDE.md D21, slice 4c): each group the Pumps together card computed for a
+	// case's solve, only as computed, from its group curve's or group system curve's response
+	// (the same station and duty, from the case's own solve). Every number is the API's double;
+	// the words are the card's own helpers', in the file's units.
+	/** "; "-joined ids, or none. */
+	const ids = (list: readonly string[]) => (list.length ? list.join('; ') : null);
+	const pumpGroups = table(
+		ctx,
+		'pump-groups',
+		'Pump groups',
+		[
+			text('Group'),
+			text('Pumps'),
+			text('Arrangement'),
+			text('Inlet S'),
+			text('Inlet component id'),
+			text('Inlet port id'),
+			text('Outlet D'),
+			text('Outlet component id'),
+			text('Outlet port id'),
+			text('Interior component ids'),
+			text('Interior connection ids'),
+			q('Station flow', 'flow'),
+			q('Rise', 'head'),
+			q('Lost in the piping between the pumps', 'head'),
+			bool('Duty check agrees'),
+			text('Duty check'),
+			text('Duty check (as reported, SI)'),
+			bool('System duty check agrees'),
+			text('System duty check'),
+			text('System duty check (as reported, SI)'),
+			text('No duty (as reported, SI)'),
+			text('Group curve'),
+			text('Group system curve'),
+			text('Calculation methods version')
+		],
+		cases,
+		(c) => readyGroups(c).length,
+		function* (c) {
+			for (const g of readyGroups(c)) {
+				const S = g.station!;
+				const G = g.group;
+				const Y = g.system;
+				const station = S.station;
+				yield [
+					g.id,
+					station.memberIds.map((id) => componentName(c, id)).join('; '),
+					ARRANGEMENT_WORDS[station.arrangement] ?? humanize(station.arrangement),
+					stationPortWords(station.inlet, c.names),
+					station.inlet.componentId,
+					station.inlet.portId,
+					stationPortWords(station.outlet, c.names),
+					station.outlet.componentId,
+					station.outlet.portId,
+					ids(station.interiorComponentIds),
+					ids(station.interiorConnectionIds),
+					u.value(S.duty?.flow, 'flow'),
+					u.value(S.duty?.head, 'head'),
+					u.value(S.duty?.interstageHeadLoss, 'head'),
+					G?.dutyCheck?.agrees ?? null,
+					G?.dutyCheck ? dutyCheckState(G) : null,
+					G?.dutyCheck?.message ?? null,
+					Y?.systemDutyCheck?.agrees ?? null,
+					Y?.systemDutyCheck ? systemDutyCheckState(Y) : null,
+					Y?.systemDutyCheck?.message ?? null,
+					S.duty === null ? S.message || null : null,
+					groupCurveCell(c, g),
+					groupSystemCurveCell(c, g),
+					S.methodVersion
+				];
+			}
+		}
+	);
+
+	const pumpGroupMembers = table(
+		ctx,
+		'pump-group-members',
+		'Pump group members',
+		[
+			text('Group'),
+			text('Pump id'),
+			text('Pump'),
+			text('State'),
+			q('Speed', 'fraction'),
+			q('Flow', 'flow'),
+			q('Head', 'head'),
+			q('Share', 'fraction'),
+			q('Lost on its way', 'head')
+		],
+		cases,
+		(c) => readyGroups(c).reduce((n, g) => n + (g.station!.duty?.members.length ?? 0), 0),
+		function* (c) {
+			const solved = solvedOf(c);
+			for (const g of readyGroups(c)) {
+				for (const m of g.station!.duty?.members ?? []) {
+					const result = solved.pumpResults[m.pumpId];
+					yield [
+						g.id,
+						m.pumpId,
+						componentName(c, m.pumpId),
+						result
+							? pumpStatusLabel(
+									result,
+									flagsForElement(solved.flags, { kind: 'component', id: m.pumpId })
+								)
+							: (MEMBER_STATUS_WORDS[m.status] ?? humanize(m.status)),
+						m.status === 'off' ? null : u.value(m.speed, 'fraction'),
+						u.value(m.flow, 'flow'),
+						u.value(m.head, 'head'),
+						u.value(m.share, 'fraction'),
+						u.value(m.routeHeadLoss, 'head')
+					];
+				}
+			}
+		}
+	);
+
+	/** A group curve's points in rise order: the card's data table's (groupSampleRows) order. */
+	const byRise = (r: PumpGroupCurveResponse) => [...r.points].sort((a, b) => a.head - b.head);
+	const groupCurves = table(
+		ctx,
+		'group-curves',
+		'Group curves',
+		[
+			text('Group'),
+			q('Rise from', 'head'),
+			q('Rise to', 'head'),
+			number('Point #'),
+			q('Rise', 'head'),
+			q('Station flow', 'flow'),
+			bool('Converged'),
+			bool('At the duty rise'),
+			text('Reason code'),
+			text('Reason'),
+			text('Message (as reported, SI)'),
+			text('Component ids')
+		],
+		cases,
+		(c) => readyGroups(c).reduce((n, g) => n + (g.group?.points.length ?? 0), 0),
+		function* (c) {
+			for (const g of readyGroups(c)) {
+				const G = g.group;
+				if (!G) continue;
+				// The card's own rows (one per point, in rise order): each reason is the text its
+				// data table shows for that point, never a copy of its words.
+				const notes = groupSampleRows(G, G.station.memberIds, u.prefs, c.names);
+				for (const [i, p] of byRise(G).entries()) {
+					yield [
+						g.id,
+						u.value(G.headRange?.min, 'head'),
+						u.value(G.headRange?.max, 'head'),
+						i + 1,
+						u.value(p.head, 'head'),
+						u.value(p.flow, 'flow'),
+						p.converged,
+						p.isDuty,
+						p.reason,
+						notes[i]?.note || null,
+						p.message || null,
+						ids(p.componentIds)
+					];
+				}
+			}
+		}
+	);
+
+	const groupCurveMembers = table(
+		ctx,
+		'group-curve-members',
+		'Group curve members',
+		[
+			text('Group'),
+			number('Point #'),
+			q('Rise', 'head'),
+			text('Pump id'),
+			text('Pump'),
+			text('Status'),
+			text('Control state'),
+			q('Speed', 'fraction'),
+			q('Flow', 'flow'),
+			q('Head', 'head'),
+			bool('Beyond data')
+		],
+		cases,
+		(c) =>
+			readyGroups(c).reduce(
+				(n, g) => n + (g.group?.points.reduce((k, p) => k + p.members.length, 0) ?? 0),
+				0
+			),
+		function* (c) {
+			for (const g of readyGroups(c)) {
+				if (!g.group) continue;
+				for (const [i, p] of byRise(g.group).entries()) {
+					for (const m of p.members) {
+						yield [
+							g.id,
+							i + 1,
+							u.value(p.head, 'head'),
+							m.pumpId,
+							componentName(c, m.pumpId),
+							MEMBER_STATUS_WORDS[m.status] ?? humanize(m.status),
+							m.controlState
+								? (PUMP_CONTROL_STATE_LABELS[m.controlState] ?? humanize(m.controlState))
+								: null,
+							m.status === 'off' ? null : u.value(m.speed, 'fraction'),
+							u.value(m.flow, 'flow'),
+							u.value(m.head, 'head'),
+							m.beyondData
+						];
+					}
+				}
+			}
+		}
+	);
+
+	const groupSystemCurves = table(
+		ctx,
+		'group-system-curves',
+		'Group system curves',
+		[
+			text('Group'),
+			q('Flow from', 'flow'),
+			q('Flow to', 'flow'),
+			number('Point #'),
+			q('Station flow', 'flow'),
+			q('Rise', 'head'),
+			bool('Converged'),
+			bool('At the duty flow'),
+			text('Reason code'),
+			text('Reason'),
+			text('Message (as reported, SI)'),
+			q('Limit flow', 'flow'),
+			q('Passed flow', 'flow'),
+			q('Open-valve rise', 'head'),
+			text('Open-valve rise bound'),
+			text('Starts tried'),
+			text('Component ids'),
+			text('Assigned-flow node ids')
+		],
+		cases,
+		(c) => readyGroups(c).reduce((n, g) => n + (g.system?.systemPoints.length ?? 0), 0),
+		function* (c) {
+			for (const g of readyGroups(c)) {
+				const Y = g.system;
+				if (!Y) continue;
+				// The card's own rows (in flow order), as the System curves sheet reads the chart's.
+				const notes = groupSystemRows(Y, u.prefs, { project: c.names, solved: c.structure });
+				const points = [...Y.systemPoints].sort((a, b) => a.flow - b.flow);
+				for (const [i, p] of points.entries()) {
+					yield [
+						g.id,
+						u.value(Y.flowRange?.min, 'flow'),
+						u.value(Y.flowRange?.max, 'flow'),
+						i + 1,
+						u.value(p.flow, 'flow'),
+						u.value(p.head, 'head'),
+						p.converged,
+						p.isDuty,
+						p.reason,
+						notes[i]?.note || null,
+						p.message || null,
+						u.value(p.limitFlow, 'flow'),
+						u.value(p.passedFlow, 'flow'),
+						u.value(p.openHead, 'head'),
+						p.openHeadBound,
+						ids(p.startsTried),
+						ids(p.componentIds),
+						ids(p.assignedFlowNodeIds)
+					];
+				}
+			}
+		}
+	);
+
 	const valves = table(
 		ctx,
 		'valves',
@@ -1213,6 +1500,11 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		pumps,
 		pumpCurves,
 		systemCurves,
+		pumpGroups,
+		pumpGroupMembers,
+		groupCurves,
+		groupCurveMembers,
+		groupSystemCurves,
 		valves,
 		reliefValves,
 		equipment,

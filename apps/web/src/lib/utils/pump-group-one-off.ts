@@ -1,5 +1,5 @@
 /**
- * One pump off, drawn together (CLAUDE.md D21 slice 4d, proposal pump-groups.md §8 and §16): the
+ * One pump off, drawn together (CLAUDE.md D21 slice 4d, proposal pump-groups.md §8 and §17): the
  * Pumps together card's N−1 for a parallel station.
  *
  * - "Add cases with one pump off": one D15 scenario per member running in the base case, each the

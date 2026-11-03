@@ -24,7 +24,7 @@
 	same. "Read along the curves" steps over the group curve's samples, giving each member's flow
 	and the station's at that rise exactly as the response does, and marks them on the chart.
 
-	Slice 4d (one pump off, proposal §8 and §16): under the group table, "One pump off" adds in one
+	Slice 4d (one pump off, proposal §8 and §17): under the group table, "One pump off" adds in one
 	step the cases of the base case with each running pump off (a parallel station only, while the
 	base case is shown and current) with Solve all beside it; "Also show the other cases' station
 	duties" draws each other case's duty as a numbered slate ring ("Cases on this chart", at most
@@ -50,6 +50,7 @@
 		groupChartData,
 		groupImageTitle,
 		groupLegend,
+		groupMethodsHeading,
 		groupNoteLines,
 		groupNotes,
 		groupReadout,
@@ -934,7 +935,7 @@
 							</summary>
 							<div class="space-y-1 text-slate-700">
 								<p class="font-medium">
-									{shown.methods.title} (calculation methods {shown.methodVersion})
+									{groupMethodsHeading(shown)}
 								</p>
 								{#each shown.methods.items as item, i (i)}<p class="break-words">{item}</p>{/each}
 								{#if shown.methods.references.length}
@@ -961,7 +962,7 @@
 							</summary>
 							<div class="space-y-1 text-slate-700">
 								<p class="font-medium">
-									{systemShown.methods.title} (calculation methods {systemShown.methodVersion})
+									{groupMethodsHeading(systemShown)}
 								</p>
 								{#each systemShown.methods.items as item, i (i)}<p class="break-words">
 										{item}

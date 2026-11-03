@@ -1,18 +1,20 @@
-import { gzipSync, inflateRawSync, inflateSync } from 'node:zlib';
-import { readFile } from 'node:fs/promises';
-import { expect, test, type Download, type Locator, type Page } from '@playwright/test';
+import { gzipSync, inflateSync } from 'node:zlib';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { SolveResponse } from '../src/lib/api/types';
 import { pumpTransferExample } from '../src/lib/utils/examples';
 import {
 	caseGroup,
 	currentHeading,
+	downloadFrom,
+	expectNothingSent,
 	openCases,
+	readWorkbook,
+	readZip,
 	resultsPane,
 	resultsView,
 	showPane,
 	solveConverged
 } from './support';
-import { WEB_ORIGIN } from './servers';
 
 /**
  * Export (proposal export.md §7.3) against the real app and API, on desktop and on a phone: the
@@ -61,80 +63,6 @@ async function openExport(page: Page): Promise<Locator> {
 	const dialog = page.getByRole('dialog', { name: 'Export results' });
 	await expect(dialog).toBeVisible();
 	return dialog;
-}
-
-/**
- * Press `control` and return the download, with every request the page made from the click to
- * the download event.
- */
-async function downloadFrom(
-	page: Page,
-	control: Locator
-): Promise<{ download: Download; bytes: Buffer; requests: { url: string; method: string }[] }> {
-	const requests: { url: string; method: string }[] = [];
-	const listener = (r: { url(): string; method(): string }) =>
-		requests.push({ url: r.url(), method: r.method() });
-	page.on('request', listener);
-	const [download] = await Promise.all([page.waitForEvent('download'), control.click()]);
-	page.off('request', listener);
-	const path = await download.path();
-	return { download, bytes: await readFile(path), requests };
-}
-
-/** No request but a GET of the app's own static chunk (same origin, /_app/immutable/, no query). */
-function expectNothingSent(requests: { url: string; method: string }[]) {
-	for (const request of requests) {
-		const url = new URL(request.url);
-		if (url.protocol === 'blob:' || url.protocol === 'data:') continue;
-		expect(request.method, request.url).toBe('GET');
-		expect(url.origin, request.url).toBe(WEB_ORIGIN);
-		expect(url.pathname, request.url).toMatch(/^\/_app\/immutable\//);
-		expect(url.search, request.url).toBe('');
-	}
-}
-
-/** Every entry of a zip, in central-directory order, read by APPNOTE's offsets. */
-function readZip(bytes: Buffer): { name: string; flags: number; data: Buffer }[] {
-	const end = bytes.length - 22;
-	expect(bytes.readUInt32LE(end)).toBe(0x06054b50);
-	const count = bytes.readUInt16LE(end + 10);
-	let at = bytes.readUInt32LE(end + 16);
-	const entries: { name: string; flags: number; data: Buffer }[] = [];
-	for (let i = 0; i < count; i++) {
-		expect(bytes.readUInt32LE(at)).toBe(0x02014b50);
-		const flags = bytes.readUInt16LE(at + 8);
-		const method = bytes.readUInt16LE(at + 10);
-		const compressed = bytes.readUInt32LE(at + 20);
-		const size = bytes.readUInt32LE(at + 24);
-		const nameLength = bytes.readUInt16LE(at + 28);
-		const extra = bytes.readUInt16LE(at + 30);
-		const comment = bytes.readUInt16LE(at + 32);
-		const offset = bytes.readUInt32LE(at + 42);
-		const name = bytes.subarray(at + 46, at + 46 + nameLength).toString('utf8');
-		expect(bytes.readUInt32LE(offset)).toBe(0x04034b50);
-		const start = offset + 30 + bytes.readUInt16LE(offset + 26) + bytes.readUInt16LE(offset + 28);
-		const raw = bytes.subarray(start, start + compressed);
-		const data = method === 8 ? inflateRawSync(raw) : Buffer.from(raw);
-		expect(data.length).toBe(size);
-		entries.push({ name, flags, data });
-		at += 46 + nameLength + extra + comment;
-	}
-	return entries;
-}
-
-/** A workbook's sheets by name: their XML, and the shared strings. */
-function readWorkbook(bytes: Buffer): { sheets: Map<string, string>; strings: string } {
-	const parts = new Map(readZip(bytes).map((e) => [e.name, e.data.toString('utf8')]));
-	const workbook = parts.get('xl/workbook.xml')!;
-	const rels = parts.get('xl/_rels/workbook.xml.rels')!;
-	const sheets = new Map<string, string>();
-	for (const [, name, rid] of workbook.matchAll(/<sheet name="([^"]+)"[^>]*r:id="([^"]+)"/g)) {
-		const target = new RegExp(
-			`Id="${rid}"[^>]*Target="([^"]+)"|Target="([^"]+)"[^>]*Id="${rid}"`
-		).exec(rels)!;
-		sheets.set(name!, parts.get(`xl/${(target[1] ?? target[2])!.replace(/^\/?xl\//, '')}`)!);
-	}
-	return { sheets, strings: parts.get('xl/sharedStrings.xml') ?? '' };
 }
 
 /** The Pressure of the pump's suction port in the response, Pa gauge. */

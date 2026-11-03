@@ -2,18 +2,21 @@
  * The export's snapshot (proposal export.md §2.1): what exportInput takes from the workspace's
  * public getters, with the real ProjectStore and a fake solver (testing/workspace.ts): the cases
  * the choice exports, each response by Compare's rule, its staleness, the projects as sent and as
- * solved, its system curves, the Compare rows, the goal seek and the page's facts.
+ * solved, its system curves and group curves, the Compare rows, the goal seek and the page's facts.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { version } from '$app/environment';
 import { TopologyError } from '../../api/client';
+import type { Project, PumpGroupCurveResponse, SolveResponse } from '../../api/types';
 import { serverSourceHref } from '../../components/links';
+import { groupKey } from '../../state/project.svelte';
 import { pumpTransferSolved, response, systemCurveResponse } from '../../testing/results';
 import { testWorkspace } from '../../testing/workspace';
 import { defaultRows } from '../compare';
 import { CANONICAL_ORIGIN } from '../encoding';
 import { pumpTransferExample } from '../examples';
 import { withScenarios } from '../scenarios';
+import groupFixture from '../__fixtures__/pump-groups-input.json';
 import { exportInput, pageFacts } from './input';
 import type { ExportOptions } from './model';
 
@@ -124,7 +127,9 @@ describe('the snapshot', () => {
 			keptResponse: true,
 			sent: null,
 			inputs: null,
-			systemCurves: {}
+			systemCurves: {},
+			groupCurves: {},
+			groupSystemCurves: {}
 		});
 	});
 
@@ -142,6 +147,40 @@ describe('the snapshot', () => {
 		const input = exportInput(ws, SHOWN, NOW, PAGE);
 		expect(input.cases[0]!.systemCurves).toEqual({ P1: { status: 'ready', curve } });
 		expect(input.goalSeek).toBeNull();
+	});
+
+	it('takes the case’s group curves, as computed (CLAUDE.md D21, slice 4c)', async () => {
+		const parallel = (
+			groupFixture.cases as unknown as {
+				name: string;
+				project: Project;
+				solve: SolveResponse;
+				groupCurve: { body: unknown };
+				systemCurve: { body: unknown };
+			}[]
+		).find((c) => c.name === 'parallel-ideal')!;
+		const group = parallel.groupCurve.body as PumpGroupCurveResponse;
+		const system = parallel.systemCurve.body as PumpGroupCurveResponse;
+		const ws = testWorkspace(parallel.project, {
+			solver: {
+				solve: async () => structuredClone(parallel.solve),
+				groupCurve: async (_project, _ids, options = {}) =>
+					options.curve === 'system' ? system : group
+			}
+		});
+		const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+		await ws.store.solve();
+		expect(exportInput(ws, SHOWN, NOW, PAGE).cases[0]!.groupCurves).toEqual({});
+		ws.store.loadGroupCurve(['PA', 'PB']);
+		await settle();
+		ws.store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		const [c] = exportInput(ws, SHOWN, NOW, PAGE).cases;
+		const key = groupKey(['PA', 'PB']);
+		expect(c!.groupCurves).toBe(ws.store.groupCurvesFor(null));
+		expect(c!.groupSystemCurves).toBe(ws.store.groupSystemCurvesFor(null));
+		expect(c!.groupCurves).toEqual({ [key]: { status: 'ready', response: group } });
+		expect(c!.groupSystemCurves).toEqual({ [key]: { status: 'ready', response: system } });
 	});
 });
 

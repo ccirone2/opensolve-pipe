@@ -93,7 +93,15 @@ GATES: tuple[Gate, ...] = (
         "Web Playwright (desktop 1280×800 and mobile 390×844, one worker)",
         WEB,
         ("pnpm", "test:e2e"),
-        ((r"(\d+) passed(?:.*?(\d+) skipped)?", "{0} passed, {1} skipped by design"),),
+        # Playwright's summary gives "  15 skipped" on a line before "  215 passed (9.2m)", and
+        # no skipped line when none was skipped.
+        (
+            (
+                r"(?m)^\s+(\d+) skipped$.*?^\s+(\d+) passed \(",
+                "{1} passed, {0} skipped by design",
+            ),
+            (r"(?m)^\s+(\d+) passed \(", "{0} passed, 0 skipped by design"),
+        ),
     ),
 )
 
@@ -104,6 +112,17 @@ def _git(*args: str) -> str:
     ).stdout.strip()
 
 
+def summarize(gate: Gate, text: str) -> str:
+    """A passing gate's summary from its output: the first of its patterns that matches fills
+    its template (a group that matched nothing reads 0); "clean" when none does."""
+    for pattern, template in gate.summary:
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            groups = tuple("0" if g is None else g for g in match.groups())
+            return template.format(*groups)
+    return "clean"
+
+
 def run_gate(gate: Gate, log_dir: Path) -> tuple[bool, str]:
     """Run one gate; return (passed, summary) and keep its output in ``log_dir``."""
     log = log_dir / f"{gate.name}.log"
@@ -111,17 +130,9 @@ def run_gate(gate: Gate, log_dir: Path) -> tuple[bool, str]:
         code = subprocess.run(
             gate.command, cwd=gate.cwd, stdout=out, stderr=subprocess.STDOUT, check=False
         ).returncode
-    text = log.read_text()
-    summary = "clean"
-    for pattern, template in gate.summary:
-        match = re.search(pattern, text, re.DOTALL)
-        if match:
-            groups = tuple("0" if g is None else g for g in match.groups())
-            summary = template.format(*groups)
-            break
     if code != 0:
         return False, f"**FAILED** (exit {code}; see {log})"
-    return True, summary
+    return True, summarize(gate, log.read_text())
 
 
 def render(rows: list[tuple[str, str]], skipped: list[Gate]) -> str:

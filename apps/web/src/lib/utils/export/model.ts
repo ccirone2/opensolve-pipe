@@ -15,7 +15,13 @@
  * without a response is a line in About.
  */
 import type { Project, SolveResponse, UnitPreferences } from '../../api/types';
-import type { GoalSeekFinished, CaseStatus, SystemCurveState } from '../../state/project.svelte';
+import type {
+	GoalSeekFinished,
+	CaseStatus,
+	GroupCurveState,
+	GroupSystemCurveState,
+	SystemCurveState
+} from '../../state/project.svelte';
 import type { CompareRow } from '../compare';
 import type { CaseId } from '../scenarios';
 import { aboutSheet, goalSeekSheet, methodsSheet, readmeLines } from './about';
@@ -133,6 +139,10 @@ export interface ExportCase {
 	inputs: Project | null;
 	/** Its computed system curves (the case's slot: pump id, or pump id NUL min NUL max). */
 	systemCurves: Readonly<Record<string, SystemCurveState>>;
+	/** Its group curves, by groupKey, as computed for the case's response (CLAUDE.md D21). */
+	groupCurves: Readonly<Record<string, GroupCurveState>>;
+	/** Its group system curves, by groupKey, as computed for the case's response. */
+	groupSystemCurves: Readonly<Record<string, GroupSystemCurveState>>;
 }
 
 /** Everything an export reads, taken at the click (§2.1). */

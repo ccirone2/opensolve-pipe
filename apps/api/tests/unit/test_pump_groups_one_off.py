@@ -1,11 +1,11 @@
-"""Pump groups, one pump off (CLAUDE.md D21 slice 4d; docs/proposals/pump-groups.md §8 and §16):
+"""Pump groups, one pump off (CLAUDE.md D21 slice 4d; docs/proposals/pump-groups.md §8 and §17):
 the facts the web's "Pumps together" card relies on when it makes cases with one pump off and
 draws their station duties beside the case shown, proven against the real API through its
 TestClient (``POST /api/v1/solve`` and ``/api/v1/pump-group-curve``, curves 'group' and
 'system', with and without ``scenarioId``).
 
 Written by a tester who read neither ``services/`` nor the web source: from D6, D13, D15 and D21
-(``docs/decisions``), SDD §4.17, and the slice's design as the proposal's §16 records it ("the
+(``docs/decisions``), SDD §4.17, and the slice's design as the proposal's §17 records it ("the
 design" below: its API test, §6.2; its duty claim, §2.6; its other cases, §2.3). The networks
 are the shared fixture's (``tests/fixtures/pump_groups_input.py``, cases ``parallel-ideal``,
 ``parallel-crane``, ``ladder``, ``dead-headed``, ``one-off`` and ``prv-inside``), built by its
@@ -23,7 +23,7 @@ delivery tank is raised by, and the static rise between the reservoirs at zero f
   one-pump-off case of five networks, the base's group system curve, requested on a grid that
   holds that case's station flow Q (``flowMin`` 0, ``flowMax`` 4Q, ``numPoints`` 5), gives the
   case's rise ΔH_st at Q within D6; so does every one-pump-off case's own curve for the base's
-  duty and the other one-pump-off duties ("it holds for whichever case is shown", proposal §16,
+  duty and the other one-pump-off duties ("it holds for whichever case is shown", proposal §17,
   departure 3). On the curve the card draws (the API's default flows), each such duty lies inside
   the range with a rise on both sides, and the polyline's chord at Q is within D6 of ΔH_st.
 - **An outside change moves the duty off it:** raising the delivery tank 5 m puts the duty
@@ -350,7 +350,7 @@ def test_a_one_pump_off_duty_lies_on_the_base_group_system_curve(api: Api, netwo
     curve requested on a grid holding the case's station flow Q gives its rise at Q within D6.
     On the curve the card draws (the default flows) the duty lies inside the range with a rise
     on both sides, and the drawn chord at Q is within D6 of the duty's rise. The base's own
-    system duty check agrees (the web says "on the curve" only then, proposal §16, departure 3)."""
+    system duty check agrees (the web says "on the curve" only then, proposal §17, departure 3)."""
     case = one_off(api, network)
     assert case.running, f"{network}: no pump runs in the base case"
     drawn = api.system(case.project, case.members)
@@ -391,7 +391,7 @@ def test_a_one_pump_off_duty_lies_on_the_base_group_system_curve(api: Api, netwo
 
 @pytest.mark.parametrize("network", list(NETWORKS))
 def test_every_other_duty_lies_on_a_one_pump_off_cases_curve(api: Api, network: str) -> None:
-    """The same with a one-pump-off case shown (proposal §16, departure 3: the claim holds for
+    """The same with a one-pump-off case shown (proposal §17, departure 3: the claim holds for
     whichever case is shown): that case's group system curve (with its ``scenarioId``),
     requested on a grid holding another case's station flow, gives the other case's rise there
     within D6, for the base's duty and every other one-pump-off duty; and its own system duty
@@ -610,7 +610,7 @@ def test_an_idle_members_off_case_repeats_the_base(api: Api) -> None:
     off the solve is the base's state (D13: every flow, head and pressure within D6; only PB's
     label at zero flow differs), and so is the station's duty (its flow, rise and inlet EGL, and
     each member's flow and head), with the same station: so the card makes no case for an idle
-    member (proposal §16, departure 2). The comparison is not vacuous: the running member off
+    member (proposal §17, departure 2). The comparison is not vacuous: the running member off
     (PA) fails it."""
     project = _dead_headed()
     base = api.solve(project)

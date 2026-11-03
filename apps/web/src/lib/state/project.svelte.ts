@@ -566,6 +566,19 @@ export class ProjectStore {
 		return this.#case(caseId).systemCurves;
 	}
 
+	/**
+	 * A case's group curves (read only), for the solve of its latest response, by groupKey: the
+	 * export lists them as computed and never computes one (CLAUDE.md D21, slice 4c).
+	 */
+	groupCurvesFor(caseId: CaseId): Readonly<Record<string, GroupCurveState>> {
+		return this.#case(caseId).groupCurves;
+	}
+
+	/** A case's group system curves (read only), by groupKey, as `groupCurvesFor`. */
+	groupSystemCurvesFor(caseId: CaseId): Readonly<Record<string, GroupSystemCurveState>> {
+		return this.#case(caseId).groupSystemCurves;
+	}
+
 	/** The latest solved state of the active case, if any (check results.stale before relying on it). */
 	get solved(): SolvedState | null {
 		return this.results.response?.solvedState ?? null;

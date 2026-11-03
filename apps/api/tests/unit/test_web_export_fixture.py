@@ -19,7 +19,9 @@ the design states and what the API returns, never against the web's code:
   ``-``), and nothing is a formula or a hyperlink;
 - About records each solve (§2.7) and its project link decodes to the exported project.
 
-The design commits no CSV zip, so no CSV file is read here.
+The design commits no CSV zip, so no CSV file is read here. The pump group sheets (CLAUDE.md D21,
+slice 4c) are not in this workbook, whose project has no pumps: the group sheets are read by
+test_web_export_groups_fixture.py, from the second committed workbook.
 """
 
 import base64
@@ -1158,9 +1160,18 @@ def test_the_document_properties_are_the_title_creator_and_time_only() -> None:
 # --- sheets, captions, headers and panes -----------------------------------------------------
 
 
+def _ready(case: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """The ready responses of a case's group map (``groupCurves`` or ``groupSystemCurves``)."""
+    return [s["response"] for s in case[key].values() if s.get("status") == "ready"]
+
+
 def expected_sheet_names() -> list[str]:
     """§2.5's sheets in their order, each present by its rule, for this fixture's content."""
     states = [state(c) for c in cases()]
+    # CLAUDE.md D21, slice 4c: each group the card computed, from its ready responses.
+    group_curves = [r for c in cases() for r in _ready(c, "groupCurves")]
+    system_curves = [r for c in cases() for r in _ready(c, "groupSystemCurves")]
+    stations = group_curves + system_curves
     scenario_cases = [c for c in cases() if c["id"] is not None]
     project = fixture_input()["project"]
     pumps = any(s["pumpResults"] for s in states)
@@ -1179,6 +1190,12 @@ def expected_sheet_names() -> list[str]:
         ("Pumps", pumps),
         ("Pump curves", pumps),
         ("System curves", curves),
+        # proposal pump-groups.md §8 and §16 (slice 4c): five sheets after System curves
+        ("Pump groups", bool(stations)),
+        ("Pump group members", any(r["duty"] and r["duty"]["members"] for r in stations)),
+        ("Group curves", any(r["points"] for r in group_curves)),
+        ("Group curve members", any(p["members"] for r in group_curves for p in r["points"])),
+        ("Group system curves", any(r["systemPoints"] for r in system_curves)),
         ("Valves", any(s["valveResults"] for s in states)),
         # proposal pressure-relief-valve.md decision 21: after Valves
         ("Relief valves", any(_relief_ids(c) for c in cases())),

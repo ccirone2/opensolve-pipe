@@ -635,6 +635,29 @@ describe('the other cases on the chart', () => {
 			"waits for this case's curves",
 			false
 		]);
+		// Not asked yet while a calculation runs: no other case is asked then, so it waits for it
+		// (then for the case shown's curves, while those are still to answer).
+		expect(words(one(undefined, { calculating: 'solveAll' }))).toEqual([
+			'waiting',
+			'waits for Solve all to end',
+			false
+		]);
+		expect(words(one(undefined, { calculating: 'solve', shownSettled: false }))).toEqual([
+			'waiting',
+			"waits for the solve to end, then for this case's curves",
+			false
+		]);
+		expect(words(one(undefined, { calculating: 'goalSeek' }))).toEqual([
+			'waiting',
+			'waits for the goal seek to end',
+			false
+		]);
+		// Not asked yet with no calculation and the case shown's curves answered: asked this turn.
+		expect(words(one(undefined, { calculating: null }))).toEqual([
+			'loading',
+			'being computed',
+			false
+		]);
 		expect(words(one({ status: 'loading' }))).toEqual(['loading', 'being computed', false]);
 		expect(words(one({ status: 'cancelled', by: 'user' }))).toEqual([
 			'cancelled',
@@ -955,6 +978,19 @@ describe('the extremes over the cases', () => {
 	it('keys each line by the pump and the measure, and tells two pumps of the same name apart', () => {
 		// Synthetic: both members named "Booster pump" (names need not be unique).
 		const twins = { ...all(), members: members.map((m) => ({ ...m, name: 'Booster pump' })) };
+		// Running combinations' row headers too (the slot's symbol is hidden from screen readers).
+		const rows = runningCombinations(twins).groups.map((g) => g.rows.map((r) => [r.id, r.name]));
+		expect(rows).toHaveLength(5);
+		for (const group of rows) {
+			expect(group).toEqual([
+				['PA', 'Booster pump (PA)'],
+				['PB', 'Booster pump (PB)']
+			]);
+		}
+		expect(runningCombinations(all()).groups[0]!.rows.map((r) => r.name)).toEqual([
+			'Pump PA',
+			'Pump PB'
+		]);
 		const { lines } = combinationExtremes(twins);
 		expect(lines.map((l) => l.key)).toEqual([
 			'PA:operatingFlow',

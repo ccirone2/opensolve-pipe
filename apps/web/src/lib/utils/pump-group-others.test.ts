@@ -12,7 +12,8 @@ import type {
 	Project,
 	PumpGroupCurveResponse,
 	PumpResult,
-	SolveResponse
+	SolveResponse,
+	TopologyIssue
 } from '$lib/api/types';
 import type { GroupCurveState } from '$lib/state/project.svelte';
 import fixture from './__fixtures__/pump-groups-input.json';
@@ -111,7 +112,7 @@ const frame = (s: string, d: string, arrangement = '') =>
 		`Each numbered slate ring is another case's station duty: that case's station flow and its rise from ${s} to ${d}, drawn against the station's flow as the group curve is, not a pump's own point.`,
 		arrangement,
 		"Each pump's own flow and head in each case are in Running combinations.",
-		"A ring lies on its own case's group curve wherever the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
+		"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
 	]
 		.filter((x) => x)
 		.join(' ');
@@ -359,6 +360,98 @@ describe('the notes', () => {
 			others: [ring!]
 		});
 		expect(mixedNotes.others[0]).toBe(frame('Tee TS1 (run inlet)', 'Tee TD1 (run outlet)'));
+	});
+
+	it('words the frame without a group curve drawn: an active PRV inside (prv-inside), or no flow', () => {
+		// The group curve refused for the PRV alone: the station and its duty come from the group
+		// system answer, and no group curve is drawn. A ring at that duty (synthetic: another case
+		// with the same station), its case's duty from its own group system answer.
+		const prv = cases.find((c) => c.name === 'prv-inside')!;
+		const issues = (prv.groupCurve.body as { issues: TopologyIssue[] }).issues;
+		expect(issues.map((i) => i.code)).toEqual(['PRESSURE_CONTROL_INSIDE']);
+		const refused: GroupCurveState = { status: 'refused', message: 'PRV', issues };
+		const answer = body(prv.systemCurve!);
+		expect(stationResponse(refused, ready(prv.systemCurve!))).toBe(answer);
+		const [ring] = otherGroupCases({
+			valued: [
+				{
+					key: 'S1',
+					caseId: 'S1',
+					name: 'Pump PA off',
+					stale: false,
+					group: refused,
+					system: ready(prv.systemCurve!),
+					shared: false,
+					solved: null
+				}
+			],
+			shownKeys: new Set(['S1']),
+			othersOn: true,
+			shownSettled: true,
+			station: answer.station,
+			systemShown: answer,
+			memberIds: prv.memberIds,
+			project: prv.project,
+			boxes: prv.memberIds
+		});
+		expect(ring!.state).toBe('ready');
+		const prvMembers: GroupMemberInput[] = prv.memberIds.map((id, slot) => {
+			const pump = prv.project.components.find((x) => x.id === id)!;
+			return {
+				id,
+				name: pump.name,
+				result: prv.solve.solvedState.pumpResults[id] as PumpResult,
+				ratedRange: ratedCurveRange(prv.project, id),
+				curveId: pump.type === 'pump' ? pump.curveId : null,
+				slot,
+				flags: []
+			};
+		});
+		const prvPrefs = prv.project.settings.units;
+		const data = groupChartData(prvMembers, prvPrefs, null, answer, [ring!]);
+		expect(data.curve).toBeNull();
+		expect(data.system!.some((p) => p.y !== null)).toBe(true);
+		const notes = groupNotes({
+			data,
+			members: prvMembers,
+			state: refused,
+			system: ready(prv.systemCurve!),
+			project: prv.project,
+			prefs: prvPrefs,
+			others: [ring!]
+		});
+		expect(notes.curve?.kind).toBe('refused');
+		expect(notes.others[0]).toBe(
+			[
+				"Each numbered slate ring is another case's station duty: that case's station flow and its rise from Tee T1 (run inlet) to Tee T2 (run outlet), drawn against the station's flow as the group system curve is, not a pump's own point.",
+				PARALLEL,
+				"Each pump's own flow and head in each case are in Running combinations.",
+				"With an active PRV or PSV inside, the station has no group curve, so none is drawn here; each ring is its case's duty from its group system curve where one is active in that case too, else from its group curve."
+			].join(' ')
+		);
+		// No group curve drawn for another reason (synthetic: no point of `one-off`'s with a flow):
+		// said against the group system curve, and that none is drawn.
+		const flowless = structuredClone(group);
+		flowless.points = flowless.points.map((point) => ({ ...point, flow: null }));
+		const list = others(['S1']);
+		const plain = groupNotes({
+			data: groupChartData(members, prefs, flowless, system, list),
+			members,
+			state: { status: 'ready', response: flowless },
+			system: ready(oneOff.systemCurve!),
+			project: oneOff.project,
+			prefs,
+			others: list
+		});
+		expect(plain.curve?.kind).toBe('missing');
+		expect(plain.others[0]).toBe(
+			[
+				"Each numbered slate ring is another case's station duty: that case's station flow and its rise from Tee T1 (run inlet) to Tee T2 (run outlet), drawn against the station's flow as the group system curve is, not a pump's own point.",
+				PARALLEL,
+				"Each pump's own flow and head in each case are in Running combinations.",
+				"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13); no group curve is drawn here."
+			].join(' ')
+		);
 	});
 
 	it('gives one line, never a list, while the other cases’ duties are not asked for', () => {

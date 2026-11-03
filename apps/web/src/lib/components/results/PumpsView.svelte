@@ -391,7 +391,14 @@
 	/** A curve a calculation (a solve, Solve all, a goal seek) cancelled: asked again after it. */
 	const cancelledByCalculation = (state: GroupCurveState | undefined) =>
 		state?.status === 'cancelled' && state.by !== 'user';
-	/** Answered, or failed or cancelled by the user (one a calculation cancelled is asked again). */
+	/**
+	 * Answered, or failed or cancelled by the user: one a calculation cancelled is still to answer,
+	 * since it is asked again once the calculation ends. That is what a case not asked yet says
+	 * during a calculation ("…, then for this case's curves": otherGroupCases). It does not keep
+	 * the order of the requests: the first requests wait while a calculation runs, and when it
+	 * ends the effect that asks again runs first in the same flush and turns such a curve to
+	 * loading before the first requests' effect reads it; for the order it is only defensive.
+	 */
 	const settled = (state: GroupCurveState | undefined) =>
 		!!state && state.status !== 'loading' && !cancelledByCalculation(state);
 	/** The case shown's curves have answered: the other cases' requests come after them. */
@@ -454,6 +461,7 @@
 			shownKeys: new Set(chartCaseKeys),
 			othersOn: ws.pumpGroupOthers,
 			shownSettled,
+			calculating: ws.store.calculating,
 			station,
 			systemShown: groupSystemShown,
 			memberIds: groupMembers,
@@ -461,11 +469,17 @@
 			boxes: groupPumps.map((p) => p.id)
 		});
 	});
-	/** The other cases' duties being computed: the cases on the chart settled, of them all. */
+	/**
+	 * The other cases' duties being computed: the cases on the chart settled, of them all. None
+	 * while a calculation runs: no other case is asked then (each says what it waits for), so
+	 * nothing is computed for them and there is nothing of theirs to cancel.
+	 */
 	const othersProgress = $derived.by(() => {
 		const onChart = otherCases.filter((o) => o.onChart);
 		const pending = (o: OtherGroupCase) => o.state === 'loading' || o.state === 'waiting';
-		if (!ws.pumpGroupOthers || !onChart.some(pending)) return null;
+		if (!ws.pumpGroupOthers || ws.store.calculating !== null || !onChart.some(pending)) {
+			return null;
+		}
 		return { done: onChart.filter((o) => !pending(o)).length, total: onChart.length };
 	});
 	/** The responses of the cases on the chart, in the chart's order (requests go in that order). */

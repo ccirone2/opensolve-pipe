@@ -20,7 +20,8 @@
  *   current cases (screen only, never in the image or the export: D17).
  *
  * Names need not be unique: two members of one name are told apart by their ids wherever words
- * alone name them (the cases made, the block's notes, the extremes; memberLabels).
+ * alone name them (the cases made, the block's notes, Running combinations' row headers, the
+ * extremes; memberLabels).
  *
  * Pure: every value is the API's; the store's fingerprint is passed in (no util imports the store).
  */
@@ -36,6 +37,7 @@ import type {
 } from '../api/types';
 import type { CaseStatus, GroupCurveState, GroupSystemCurveState } from '../state/project.svelte';
 import { CHECK_TITLES, OUTCOME_ORDER, OUTCOME_TITLES } from './design-checks';
+import type { Calculating } from './goal-seek';
 import { componentById } from './graph';
 import { canonicalJson } from './json';
 import { CASE_STATUS_LABELS } from './labels';
@@ -498,6 +500,11 @@ export interface OtherCasesInput {
 	othersOn: boolean;
 	/** The case shown's curves have answered (its requests go first in the one queue). */
 	shownSettled: boolean;
+	/**
+	 * What the page is calculating (store.calculating; default null): while a solve, Solve all or
+	 * goal seek runs, no other case is asked, so one not asked yet waits for it.
+	 */
+	calculating?: Calculating;
 	/** The station the card shows. */
 	station: PumpGroupStation;
 	/** The case shown's group system curve (ready), else null. */
@@ -518,6 +525,13 @@ const CANCELLED_WORDS: Readonly<Record<'user' | 'solve' | 'goalSeek', string>> =
 	user: 'cancelled: you cancelled it',
 	solve: 'cancelled by a solve; asked again when it ends',
 	goalSeek: 'cancelled by a goal seek; asked again when it ends'
+};
+
+/** A calculation an other case not asked yet waits for, as the Scenarios menu names it. */
+const CALCULATION_WORDS: Readonly<Record<NonNullable<Calculating>, string>> = {
+	solve: 'the solve',
+	solveAll: 'Solve all',
+	goalSeek: 'the goal seek'
 };
 
 /** Each other case with values, in case order, in its state with its words and its ring. */
@@ -542,12 +556,22 @@ export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 			words,
 			retry
 		});
-		/** A state of a request, or null when it is ready (its response). */
+		/**
+		 * A state of a request, or null when it is ready (its response). One not asked yet waits
+		 * for a calculation that runs, then for the case shown's curves; asked in this turn
+		 * otherwise (the Pumps view's first requests).
+		 */
 		const pending = (s: GroupCurveState | undefined): OtherGroupCase | null => {
 			if (s === undefined) {
-				return input.shownSettled
-					? as('loading', 'being computed')
-					: as('waiting', "waits for this case's curves");
+				const shown = input.shownSettled ? '' : "this case's curves";
+				if (input.calculating) {
+					const calculation = CALCULATION_WORDS[input.calculating];
+					return as(
+						'waiting',
+						`waits for ${calculation} to end${shown ? `, then for ${shown}` : ''}`
+					);
+				}
+				return shown ? as('waiting', `waits for ${shown}`) : as('loading', 'being computed');
 			}
 			if (s.status === 'loading') return as('loading', 'being computed');
 			if (s.status === 'cancelled') return as('cancelled', CANCELLED_WORDS[s.by], s.by === 'user');
@@ -639,6 +663,7 @@ export interface CombinationsInput {
 
 export interface CombinationRow {
 	id: string;
+	/** The row header: the member's name, with its id where another member has it (memberLabels). */
 	name: string;
 	style: GroupSlot;
 	cells: Record<string, string>;
@@ -683,7 +708,10 @@ function checksWords(response: SolveResponse, pumpId: string): string {
 
 /**
  * Every case's members, one row group per case (the shown first), one row per member in the
- * stored project's component order; the group table's cell rules on that case's own solve.
+ * stored project's component order, its row header the member's name with its id where another
+ * member has that name (memberLabels: the slot's symbol is hidden from screen readers, so two
+ * members of one name would otherwise give two rows the same header); the group table's cell
+ * rules on that case's own solve.
  */
 export function runningCombinations(input: CombinationsInput): CombinationsTable {
 	const f = new Formatter(input.prefs);
@@ -691,6 +719,8 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 	const members = [...input.members].sort(
 		(a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity)
 	);
+	const labels = memberLabels(members);
+	const nameOf = (m: { id: string; name: string }) => labels.get(m.id)?.name ?? m.name;
 	const valued = input.cases.filter((c) => hasValues(c.response));
 	// As the group table shows it: a member that is on, under a speed control or at a speed other
 	// than 1, in some case with values (an off pump's speed is never shown).
@@ -739,7 +769,7 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 					columns.map((col) => [col.key, '—'])
 				);
 				cells.state = 'No result (closed off)';
-				return { id: m.id, name: m.name, style, cells, invalid: false, flags: [] };
+				return { id: m.id, name: nameOf(m), style, cells, invalid: false, flags: [] };
 			}
 			const flags = flagsForElement(response.solvedState.flags, { kind: 'component', id: m.id });
 			const cells: Record<string, string> = {
@@ -754,7 +784,7 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 			};
 			return {
 				id: m.id,
-				name: m.name,
+				name: nameOf(m),
 				style,
 				cells,
 				invalid: flags.some((flag) => flag.severity === 'invalid'),

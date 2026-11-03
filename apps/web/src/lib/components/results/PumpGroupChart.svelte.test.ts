@@ -1196,6 +1196,24 @@ describe('one pump off (slice 4d)', () => {
 		expect(
 			screen.getByRole('button', { name: "Cancel the other cases' station duties" })
 		).toHaveFocus();
+		// Pressed while a calculation runs, the cases wait for it with no progress line (the Pumps
+		// view gives none then) and no Cancel: the focus goes to the figure.
+		await view.rerender(
+			base({ otherCases: cancelled, othersOn: true, othersProgress: null, ...handlers })
+		);
+		screen.getByRole('button', { name: 'Compute them again' }).focus();
+		await fireEvent.click(screen.getByRole('button', { name: 'Compute them again' }));
+		expect(onretryothers).toHaveBeenCalledTimes(2);
+		await view.rerender(
+			base({ otherCases: loading, othersOn: true, othersProgress: null, ...handlers })
+		);
+		await tick();
+		await tick();
+		expect(screen.queryByRole('button', { name: 'Compute them again' })).toBeNull();
+		expect(
+			screen.queryByRole('button', { name: "Cancel the other cases' station duties" })
+		).toBeNull();
+		expect(screen.getByRole('figure')).toHaveFocus();
 	});
 
 	it('Running combinations: a row group per case, its members’ rows, invalid values marked; the extremes', () => {

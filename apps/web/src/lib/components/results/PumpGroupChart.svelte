@@ -396,7 +396,9 @@
 		if (!retry || document.activeElement !== retry) return;
 		void tick().then(() => (systemCancelButton ?? figure)?.focus());
 	});
-	// The same for the other cases' Cancel and "Compute them again" (slice 4d).
+	// The same for the other cases' Cancel and "Compute them again" (slice 4d). "Compute them
+	// again" also goes without a progress line, when it is pressed while a calculation runs (the
+	// Pumps view gives none then: nothing is computed for the other cases until it ends).
 	$effect.pre(() => {
 		if (othersLoading) return;
 		const cancel = untrack(() => othersCancelButton);
@@ -404,7 +406,7 @@
 		void tick().then(() => (othersRetryButton ?? figure)?.focus());
 	});
 	$effect.pre(() => {
-		if (!othersLoading) return;
+		if (othersRetry && !othersLoading) return;
 		const retry = untrack(() => othersRetryButton);
 		if (!retry || document.activeElement !== retry) return;
 		void tick().then(() => (othersCancelButton ?? figure)?.focus());

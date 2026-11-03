@@ -839,7 +839,10 @@ export function groupNotes({
 		systemCurves:
 			"Each pump's own system curve is on its pump chart above; it crosses that pump's curve, not the group curve.",
 		dashed,
-		others: otherNotes(data, others, stationResponse(state, system), project)
+		others: otherNotes(data, others, stationResponse(state, system), project, {
+			drawn: !!data.curve && data.missing < data.total,
+			pressureControl: undefinedThere
+		})
 	};
 }
 
@@ -854,14 +857,25 @@ export function groupNotes({
  * The frame holds for any number of pumps running and any arrangement: a ring is the station's
  * point, at the station's flow (in parallel the sum of the running pumps' flows, so with two or
  * more running it lies beyond each one's own flow, never below "their curves"), and it lies on
- * the drawn group curve when its case differs only outside the station (the group curve depends
- * on head differences and flows inside only, D21).
+ * its own case's group curve where that case has one, which is the drawn group curve when its
+ * case differs only outside the station (the group curve depends on head differences and flows
+ * inside only, D21). Without a group curve drawn it is said against the group system curve (or
+ * the Group point); with an active PRV or PSV inside, the station has no group curve (refused,
+ * the station and its duty from the group system answer: stationResponse), and a ring is its
+ * case's duty from its group system curve where one is active in that case too
+ * (otherGroupCases), else from its group curve.
  */
 function otherNotes(
 	data: GroupChartData,
 	others: readonly OtherGroupCase[],
 	station: PumpGroupCurveResponse | null,
-	project: Project
+	project: Project,
+	curve: {
+		/** A group curve is drawn (some point with a flow). */
+		drawn: boolean;
+		/** The group curve is refused only for an active PRV or PSV inside. */
+		pressureControl: boolean;
+	}
 ): string[] {
 	if (others.length && others.every((o) => o.state === 'off')) {
 		const n = others.length;
@@ -875,9 +889,16 @@ function otherNotes(
 		const s = stationPortWords(station.station.inlet, project);
 		const d = stationPortWords(station.station.outlet, project);
 		const arrangement = station.station.arrangement;
+		const against = curve.drawn
+			? ' as the group curve is'
+			: data.system?.some((p) => p.y !== null)
+				? ' as the group system curve is'
+				: data.station
+					? ' as the Group point is'
+					: '';
 		lines.push(
 			[
-				`Each numbered slate ring is another case's station duty: that case's station flow and its rise from ${s} to ${d}, drawn against the station's flow as the group curve is, not a pump's own point.`,
+				`Each numbered slate ring is another case's station duty: that case's station flow and its rise from ${s} to ${d}, drawn against the station's flow${against}, not a pump's own point.`,
 				...(arrangement === 'parallel'
 					? [
 							"In parallel that flow is the sum of the flows of the pumps running in that case, and that rise is each running pump's own head less its loss on the way."
@@ -888,7 +909,11 @@ function otherNotes(
 							]
 						: []),
 				"Each pump's own flow and head in each case are in Running combinations.",
-				"A ring lies on its own case's group curve wherever the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
+				curve.drawn
+					? "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
+					: curve.pressureControl
+						? "With an active PRV or PSV inside, the station has no group curve, so none is drawn here; each ring is its case's duty from its group system curve where one is active in that case too, else from its group curve."
+						: "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13); no group curve is drawn here."
 			].join(' ')
 		);
 	}

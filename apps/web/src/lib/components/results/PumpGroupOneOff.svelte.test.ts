@@ -5,9 +5,10 @@
  * the case shown's curves and after any calculation, one at a time, cancelled by the box or a
  * solve and asked again after it, withdrawn by a members change and asked again on going back,
  * those still waiting withdrawn when another case is shown, a failure or the user's cancel never
- * asked again without "Compute them again"); the claims; the block in a scenario; the scenario
- * limit; and the block's Solve all, which keeps the focus through its run and words its reasons
- * as the Scenarios menu does. The solves and curves are the shared fixture's real API answers for
+ * asked again without "Compute them again"); a case not asked yet while a run holds, which waits
+ * for it with no progress line; the claims; the block in a scenario; the scenario limit; two
+ * members of one name; and the block's Solve all, which keeps the focus through its run and words
+ * its reasons as the Scenarios menu does. The solves and curves are the shared fixture's real API answers for
  * the `one-off` case and its scenarios, given by a fake solver by scenario id.
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
@@ -287,6 +288,97 @@ describe('one pump off on the Pumps together card', () => {
 			['S4', 'group']
 		]);
 		// Two runs of five solves: the budget of the card's other long tests.
+	}, 20_000);
+
+	it('while a run holds, a case not asked yet waits for it, and nothing says it is computed', async () => {
+		// The base solved, its group system curve held in flight; then Solve all of the scenarios
+		// (the base current), S2's solve held: S1 has values and is not asked while the run goes on.
+		const baseSystem = deferred<void>();
+		let firstSystem = true;
+		let hold: string | null = 'S2';
+		const release = { S2: deferred<void>(), S6: deferred<void>() };
+		const { ws, calls } = setup(structuredClone(oneOff.project), {
+			hold: (call) => {
+				if (call.scenarioId !== null || call.curve !== 'system' || !firstSystem) return undefined;
+				firstSystem = false;
+				return baseSystem.promise;
+			},
+			solve: async (_p, _o, request) => {
+				const id = request?.scenarioId;
+				if (id && id === hold) await release[id as 'S2' | 'S6'].promise;
+				return structuredClone(((id && oneOff.scenarioCases[id]) || oneOff).solve);
+			}
+		});
+		ws.pumpGroupOthers = true;
+		await openCard(ws, calls);
+		const response = ws.store.results.response;
+		const ids = ['PA', 'PB'];
+		const status = () => within(card()).getByRole('status');
+		const running = ws.solveAll();
+		await waitFor(() => expect(ws.store.resultsFor('S1').response).not.toBeNull());
+		expect(ws.store.calculating).toBe('solveAll');
+		expect(ws.store.groupSystemCurve(response, ids)).toEqual({ status: 'cancelled', by: 'solve' });
+		expect(ws.store.groupCurve(ws.store.resultsFor('S1').response, ids)).toBeUndefined();
+		// Nothing is computed for the other cases while the run goes on, and nothing says so; S1
+		// waits for the run, then for the curve the run cancelled, which is asked again first.
+		expect(status().textContent!.trim()).toBe('');
+		expect(
+			within(card()).queryByRole('button', { name: "Cancel the other cases' station duties" })
+		).toBeNull();
+		const waits = "waits for Solve all to end, then for this case's curves";
+		expect(card().textContent).toContain(`Not on the chart: Pump PA off (${waits}).`);
+		const table = within(card()).getByRole('table', { name: 'Running combinations' });
+		expect(within(table).getByRole('rowheader', { name: /^Pump PA off/ })).toHaveTextContent(waits);
+		expect(card().textContent).not.toContain('being computed');
+		release.S2.resolve();
+		await running;
+		const legend = within(card()).getByRole('list', { name: 'Legend' });
+		await waitFor(() =>
+			expect(within(legend).getByText('4 · Both pumps off (station duty)')).toBeVisible()
+		);
+		expect(calls.map((c) => [c.scenarioId, c.curve])).toEqual([
+			[null, 'group'],
+			[null, 'system'],
+			[null, 'system'],
+			['S1', 'group'],
+			['S2', 'group'],
+			['S3', 'group'],
+			['S4', 'group']
+		]);
+
+		// The case shown's curves answered: two new cases, S6's solve held. S5, solved, waits for
+		// the run alone; it was once said to be computed, with the progress line, before any request.
+		baseSystem.resolve();
+		ws.store.update(
+			(p) =>
+				withScenarios(p, [
+					...scenariosOf(p),
+					{ id: 'S5', name: 'Copy A', overrides: [] },
+					{ id: 'S6', name: 'Copy B', overrides: [] }
+				]),
+			'add scenarios'
+		);
+		hold = 'S6';
+		const before = calls.length;
+		const again = ws.solveAll();
+		await waitFor(() => expect(ws.store.resultsFor('S5').response).not.toBeNull());
+		expect(ws.store.calculating).toBe('solveAll');
+		expect(calls).toHaveLength(before);
+		expect(status().textContent!.trim()).toBe('');
+		expect(
+			within(card()).queryByRole('button', { name: "Cancel the other cases' station duties" })
+		).toBeNull();
+		expect(card().textContent).toContain('Not on the chart: Copy A (waits for Solve all to end).');
+		expect(card().textContent).not.toContain('being computed');
+		release.S6.resolve();
+		await again;
+		const state = (c: string) => ws.store.groupCurve(ws.store.resultsFor(c).response, ids);
+		await waitFor(() => expect(state('S6')?.status).toBe('ready'));
+		expect(state('S5')?.status).toBe('ready');
+		expect(calls.slice(before).map((c) => [c.scenarioId, c.curve])).toEqual([
+			['S5', 'group'],
+			['S6', 'group']
+		]);
 	}, 20_000);
 
 	it('asks for the other cases after the case shown, one at a time, and cancels them as told', async () => {
@@ -632,7 +724,7 @@ describe('one pump off on the Pumps together card', () => {
 		expect(ws.scenarios).toHaveLength(19);
 	});
 
-	it('tells two pumps of the same name apart: the cases it makes, its notes and the extremes', async () => {
+	it('tells two pumps of the same name apart: the cases it makes, its notes, the rows and the extremes', async () => {
 		// Synthetic: a duty and a standby unit both named "Booster pump" (names need not be unique).
 		const project = withoutScenarios();
 		for (const c of project.components) if (c.type === 'pump') c.name = 'Booster pump';
@@ -664,6 +756,15 @@ describe('one pump off on the Pumps together card', () => {
 			'Booster pump (PB), largest shaft power:',
 			'Booster pump (PB), smallest NPSH margin:'
 		]);
+		// Running combinations: each case's two member rows have headers of their own (the slot's
+		// symbol is hidden from screen readers, so the names alone tell them apart).
+		const table = within(card()).getByRole('table', { name: 'Running combinations' });
+		const members = within(table)
+			.getAllByRole('rowheader')
+			.filter((h) => h.getAttribute('scope') === 'row');
+		expect(members).toHaveLength(6);
+		expect(within(table).getAllByRole('rowheader', { name: 'Booster pump (PA)' })).toHaveLength(3);
+		expect(within(table).getAllByRole('rowheader', { name: 'Booster pump (PB)' })).toHaveLength(3);
 	});
 
 	it('words Solve all as the Scenarios menu does, in every state', async () => {

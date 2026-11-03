@@ -90,9 +90,10 @@ _addresses = itertools.count(1)
 
 
 class Api:
-    """POST through the app from a client address of its own, changed every 40 requests: the
-    rate limit (60 a minute per client) is never reached, and no bucket is shared with the rest
-    of the suite."""
+    """POST through the app from a client address of its own, changed every 40 requests, so the
+    rate limit (60 a minute per client) is never reached. The addresses are in 10.76.0.0/16,
+    which no other module sends from (``test_client_addresses.py``), so no bucket is shared
+    with the rest of the suite."""
 
     def __init__(self) -> None:
         self._client = self._new()
@@ -101,7 +102,7 @@ class Api:
     @staticmethod
     def _new() -> TestClient:
         n = next(_addresses)
-        return TestClient(app, client=(f"10.77.{n // 256 % 256}.{n % 256}", 50000))
+        return TestClient(app, client=(f"10.76.{n // 256 % 256}.{n % 256}", 50000))
 
     def post(self, path: str, body: dict[str, Any]) -> httpx.Response:
         if self._sent == 40:

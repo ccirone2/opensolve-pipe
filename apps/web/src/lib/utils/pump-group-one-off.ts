@@ -433,6 +433,21 @@ export function chartPriority(
 	];
 }
 
+/**
+ * The keys of the cases on the chart: chartPriority's order without the cases unticked under
+ * "Cases on this chart", at most MAX_GROUP_CASES, so a case unticked lets the next one in.
+ */
+export function chartKeys(
+	keys: readonly { key: string; caseId: CaseId }[],
+	project: Project,
+	memberIds: readonly string[],
+	unticked: readonly string[]
+): string[] {
+	return chartPriority(keys, project, memberIds)
+		.filter((key) => !unticked.includes(key))
+		.slice(0, MAX_GROUP_CASES);
+}
+
 export interface OtherGroupCase {
 	/** '' for the base, else the scenario id. */
 	key: string;

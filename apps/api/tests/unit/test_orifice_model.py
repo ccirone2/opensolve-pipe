@@ -33,7 +33,7 @@ _clients = iter(range(1, 250))
 
 
 def _client() -> TestClient:
-    return TestClient(app, client=(f"198.51.102.{next(_clients)}", 50000))
+    return TestClient(app, client=(f"198.51.111.{next(_clients)}", 50000))
 
 
 def orifice(cid: str = "O1", **fields: Any) -> dict[str, Any]:

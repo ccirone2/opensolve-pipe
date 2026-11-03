@@ -6,9 +6,9 @@
  * solve and asked again after it, withdrawn by a members change and asked again on going back,
  * those still waiting withdrawn when another case is shown, a failure or the user's cancel never
  * asked again without "Compute them again"); the claims; the block in a scenario; the scenario
- * limit; and the block's Solve all in the Scenarios menu's words. The solves and curves are the
- * shared fixture's real API answers for the `one-off` case and its scenarios, given by a fake
- * solver by scenario id.
+ * limit; and the block's Solve all, which keeps the focus through its run and words its reasons
+ * as the Scenarios menu does. The solves and curves are the shared fixture's real API answers for
+ * the `one-off` case and its scenarios, given by a fake solver by scenario id.
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -226,6 +226,29 @@ describe('one pump off on the Pumps together card', () => {
 			['S1', 'group'],
 			['S2', 'group']
 		]);
+	});
+
+	it('keeps the focus on its Solve all through the run and after, the button in place', async () => {
+		const { ws, calls, solves } = setup(withoutScenarios());
+		await openCard(ws, calls);
+		await fireEvent.click(
+			within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
+		);
+		const solveAll = within(block()).getByRole('button', { name: 'Solve all (2)' });
+		await waitFor(() => expect(solveAll).toHaveFocus());
+		await fireEvent.click(solveAll);
+		await waitFor(() => expect(solves).toEqual([null, 'S1', 'S2']));
+		await waitFor(() => expect(ws.store.calculating).toBeNull());
+		// And after the new cases' duties have answered and been drawn.
+		const legend = within(card()).getByRole('list', { name: 'Legend' });
+		await waitFor(() =>
+			expect(within(legend).getByText('2 · Pump PB off (station duty)')).toBeVisible()
+		);
+		expect(others(calls).every((c) => c.settled)).toBe(true);
+		const after = within(block()).getByRole('button', { name: 'Solve all' });
+		expect(after).toBe(solveAll);
+		expect(after).toHaveAttribute('aria-disabled', 'true');
+		expect(after).toHaveFocus();
 	});
 
 	it('after a run that solves the case shown, asks for its curves before any other case’s', async () => {

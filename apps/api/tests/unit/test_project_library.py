@@ -463,7 +463,7 @@ def test_a_library_project_solves_as_its_hand_typed_twin_bit_for_bit() -> None:
 
 
 def test_the_twin_equality_holds_for_the_api_responses_too() -> None:
-    client = TestClient(app, client=("198.51.104.1", 50000))
+    client = TestClient(app, client=("198.51.113.1", 50000))
     options = {"includeSystemCurve": False}
     project = network()
     library = client.post("/api/v1/solve", json={"project": project, "options": options}).json()
@@ -483,7 +483,7 @@ def test_the_twin_equality_holds_for_the_api_responses_too() -> None:
 
 def test_a_system_curve_through_library_elements_is_the_twins() -> None:
     """POST /system-curve resolves references as /solve does (every point, its reason)."""
-    client = TestClient(app, client=("198.51.104.4", 50000))
+    client = TestClient(app, client=("198.51.113.4", 50000))
     project = network()
     body = {"pumpId": "P1", "numPoints": 9}
     library = client.post("/api/v1/system-curve", json={"project": project, **body})
@@ -564,7 +564,7 @@ def test_dangling_references_are_listed_with_the_other_topology_issues() -> None
             ["L3"],
         ),
     ]
-    client = TestClient(app, client=("198.51.104.2", 50000))
+    client = TestClient(app, client=("198.51.113.2", 50000))
     response = client.post("/api/v1/solve", json={"project": project})
     assert response.status_code == 422, response.text
     body = response.json()
@@ -630,7 +630,7 @@ def test_a_range_issue_on_a_spec_pipe_names_the_spec(
         [_link("L1", ("R1", "port_1"), ("R2", "port_1"), [_spec_pipe("PS1", 5.0), own_pipe])],
     )
     data["pipeLibrary"] = [{"id": "PS1", "name": "10 mm tube", "source": "test input", **spec}]
-    client = TestClient(app, client=("198.51.104.5", 50000))
+    client = TestClient(app, client=("198.51.113.5", 50000))
     response = client.post("/api/v1/solve", json={"project": data})
     assert response.status_code == 422, response.text
     found = [
@@ -651,7 +651,7 @@ def test_an_entry_the_solver_cannot_represent_is_a_topology_issue() -> None:
     """A schema-valid K stated at a bore 10⁻⁹⁰ of the element's overflows (D/d₀)⁴; one stated at
     a bore 10⁹⁰ times larger underflows a valve's K to 0, which no user could type: each is a
     topology issue (422), not a 500, as VALVE_RESISTANCE_OUT_OF_RANGE is for an inline Cv."""
-    client = TestClient(app, client=("198.51.104.3", 50000))
+    client = TestClient(app, client=("198.51.113.3", 50000))
     for d0, code_valve in ((1.0e-91, "VALVE_RESISTANCE_OUT_OF_RANGE"),):
         project = network()
         project["resistanceLibrary"][0]["referenceDiameter"] = d0
@@ -725,7 +725,7 @@ def test_a_fitting_entry_is_tested_as_the_law_uses_it(
         ],
     )
     data["resistanceLibrary"] = [{"id": "RS1", "name": "big", "source": "test input", **entry}]
-    client = TestClient(app, client=("198.51.104.6", 50000))
+    client = TestClient(app, client=("198.51.113.6", 50000))
     response = client.post("/api/v1/solve", json={"project": data})
     assert response.status_code == 422, response.text
     found = [
@@ -746,7 +746,7 @@ def test_a_cited_fitting_beside_an_entry_on_a_bore_no_pipe_can_have_is_the_pipe_
         [_link("L1", ("R1", "port_1"), ("R2", "port_1"), pipes, fittings)],
     )
     data["resistanceLibrary"] = [{**RESISTANCES[0], "referenceDiameter": 0.1}]
-    client = TestClient(app, client=("198.51.104.7", 50000), raise_server_exceptions=False)
+    client = TestClient(app, client=("198.51.113.7", 50000), raise_server_exceptions=False)
     response = client.post("/api/v1/solve", json={"project": data})
     assert response.status_code == 422, response.text
     assert [(i["code"], i["connectionIds"]) for i in response.json()["issues"]] == [

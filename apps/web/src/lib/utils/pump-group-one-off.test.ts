@@ -26,6 +26,7 @@ import { groupTable, type GroupMemberInput } from './pump-group-chart';
 import { refusalWords, wordsText } from './pump-groups';
 import {
 	addedNotice,
+	chartKeys,
 	chartPriority,
 	combinationExtremes,
 	DUTY_CLAIM_RULE,
@@ -538,7 +539,7 @@ describe('the other cases on the chart', () => {
 		};
 	}
 
-	it('puts the cases with one pump off first, then case order, at most six', () => {
+	it('puts the cases with one pump off first, then case order', () => {
 		const project = withScenarios(structuredClone(oneOff.project), [
 			{ id: 'S3', name: 'Tank', overrides: [] },
 			...oneOff.project.scenarios!.filter((s) => s.id !== 'S3')
@@ -547,9 +548,36 @@ describe('the other cases on the chart', () => {
 		expect(chartPriority(order, project, ['PA', 'PB'])).toEqual(['S1', 'S2', '', 'S3', 'S4']);
 		// A member no longer in the group: its case is an ordinary case.
 		expect(chartPriority(order, project, ['PA'])).toEqual(['S1', '', 'S2', 'S3', 'S4']);
+	});
+
+	it('takes at most six cases, those with one pump off first; an unticked case lets the next in', () => {
+		const scenario = (id: string) => oneOff.project.scenarios!.find((s) => s.id === id)!;
+		const level = (id: string, value: number): Scenario => ({
+			id,
+			name: `Delivery tank at ${value} m`,
+			overrides: [{ kind: 'component', componentId: 'R2', field: 'liquidLevel', value }]
+		});
+		// Seven cases with values in case order, the two with one pump off third and fifth.
+		const project = withScenarios(structuredClone(oneOff.project), [
+			scenario('S3'),
+			scenario('S1'),
+			level('S5', 3),
+			scenario('S2'),
+			scenario('S4'),
+			level('S6', 4)
+		]);
+		const valued = ['', 'S3', 'S1', 'S5', 'S2', 'S4', 'S6'].map((key) => ({
+			key,
+			caseId: key || null
+		}));
+		const members = ['PA', 'PB'];
 		expect(MAX_GROUP_CASES).toBe(6);
-		const seven = Array.from({ length: 7 }, (_, i) => ({ key: `X${i}`, caseId: `X${i}` }));
-		expect(chartPriority(seven, project, ['PA']).slice(0, MAX_GROUP_CASES)).toHaveLength(6);
+		expect(chartKeys(valued, project, members, [])).toEqual(['S1', 'S2', '', 'S3', 'S5', 'S4']);
+		// One unticked: the next case in that order comes in.
+		expect(chartKeys(valued, project, members, ['S3'])).toEqual(['S1', 'S2', '', 'S5', 'S4', 'S6']);
+		expect(chartKeys(valued, project, members, ['S1'])).toEqual(['S2', '', 'S3', 'S5', 'S4', 'S6']);
+		// Six or fewer: every case ticked.
+		expect(chartKeys(valued.slice(0, 4), project, members, [''])).toEqual(['S1', 'S3', 'S5']);
 	});
 
 	it('numbers the rings in case order, each with its duty and claim', () => {

@@ -67,9 +67,8 @@
 	} from '$lib/utils/pump-group-chart';
 	import {
 		addedNotice,
-		chartPriority,
+		chartKeys,
 		combinationExtremes,
-		MAX_GROUP_CASES,
 		onePumpOffPlan,
 		otherGroupCases,
 		runningCombinations,
@@ -414,10 +413,8 @@
 			});
 	});
 	/** The cases on the chart: cases with one pump off first, then case order, at most six. */
-	const chartKeys = $derived(
-		chartPriority(valuedOthers, ws.store.project, groupMembers)
-			.filter((key) => !ws.pumpGroupUnticked.includes(key))
-			.slice(0, MAX_GROUP_CASES)
+	const chartCaseKeys = $derived(
+		chartKeys(valuedOthers, ws.store.project, groupMembers, ws.pumpGroupUnticked)
 	);
 	/**
 	 * Whether a case as solved is the same as the one shown outside the station (sharedRest),
@@ -454,7 +451,7 @@
 				shared: shared(v.caseId, station),
 				solved: ws.store.caseInputs(v.caseId)
 			})),
-			shownKeys: new Set(chartKeys),
+			shownKeys: new Set(chartCaseKeys),
 			othersOn: ws.pumpGroupOthers,
 			shownSettled,
 			station,
@@ -473,7 +470,7 @@
 	});
 	/** The responses of the cases on the chart, in the chart's order (requests go in that order). */
 	const chartResponses = $derived(
-		chartKeys.flatMap((key) => {
+		chartCaseKeys.flatMap((key) => {
 			const v = valuedOthers.find((x) => x.key === key);
 			return v ? [{ caseId: v.caseId, response: v.response }] : [];
 		})

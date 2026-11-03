@@ -512,10 +512,9 @@ async function addAndSolve(page: Page) {
 	const [d1, d2] = await Promise.all(duties);
 	for (const d of [d1!, d2!]) expect(d.status).toBe(200);
 	// The run ends with the button in place, unavailable, still focused.
-	await expect(block.getByRole('button', { name: 'Solve all' })).toHaveAttribute(
-		'aria-disabled',
-		'true'
-	);
+	const after = block.getByRole('button', { name: 'Solve all' });
+	await expect(after).toHaveAttribute('aria-disabled', 'true');
+	await expect(after).toBeFocused();
 	return { card, block, base, solves: { S1: s1!, S2: s2! }, duties: [d1!, d2!] };
 }
 

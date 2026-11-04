@@ -716,17 +716,23 @@ describe('one pump off on the Pumps together card', () => {
 		// drawn once all four are, is S3's (in case order it was S4's).
 		await waitFor(() => expect(img()).toHaveAccessibleName(/4 · Delivery tank 5 m higher/));
 		const name = img().getAttribute('aria-label')!;
+		// D24 §9.6: with this case's group curve drawn, each case's part gains "; group curve:
+		// {words}" (its own curve drawn for a case with one pump off, which has flow; the same as this
+		// case's for the delivery tank; none drawn for both pumps off), then the curves drawn.
 		expect(name).toMatch(
-			/1 · Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network\)/
+			/1 · Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network; group curve: drawn \(1 running\): it crosses the group system curve at the ring\)/
 		);
 		expect(name).toMatch(
-			/3 · Pump PB off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network\)/
+			/3 · Pump PB off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network; group curve: drawn \(1 running\): it crosses the group system curve at the ring\)/
 		);
 		expect(name).toMatch(
-			/4 · Delivery tank 5 m higher, [\d.]+ L\/s at a rise of [\d.]+ m \(No: the rest of the network differs from this case's; its own group system curve is not drawn\)/
+			/4 · Delivery tank 5 m higher, [\d.]+ L\/s at a rise of [\d.]+ m \(No: the rest of the network differs from this case's; its own group system curve is not drawn; group curve: the same as this case's: the station is the same inside\)/
 		);
 		expect(name).toMatch(
-			/2 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state \(D13\)\)/
+			/2 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state \(D13\); group curve: not drawn: no flow at any rise\)/
+		);
+		expect(name).toMatch(
+			/; other cases' group curves drawn: 1 \(1 running\) and 3 \(1 running\); group curve shown; group system curve shown\.$/
 		);
 		await fireEvent.click(within(card()).getByRole('button', { name: 'Show data table' }));
 		const table = within(card()).getByRole('table', { name: "Other cases' station duties" });

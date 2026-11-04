@@ -5,6 +5,10 @@
  * with the shown case's by the app's own functions, its members switched on read by pumpLineup,
  * in lineupChartPriority's order, ticked as chartKeys takes them). Every response is the fixture's
  * real API answer (apps/api/tests/fixtures/pump_groups_input.py). Not used by the app.
+ *
+ * With the UI half: drawnChart, a stand-in for the Chart.js instance the chart's label plugin is
+ * given (the unit projects have no canvas), mapping each dataset's points to pixels linearly over
+ * the axes the configuration sets, or its data's extent, and recording the text written.
  */
 import type {
 	Flag,
@@ -16,10 +20,12 @@ import type {
 import { hydraulicFingerprint, type GroupCurveState } from '../state/project.svelte';
 import fixture from '../utils/__fixtures__/pump-groups-input.json';
 import { ratedCurveRange } from '../utils/pump-chart';
+import type { ChartDatum, PumpChartConfig } from '../utils/pump-chart-config';
 import {
 	groupChartData,
 	type GroupChartData,
-	type GroupMemberInput
+	type GroupMemberInput,
+	type PxBox
 } from '../utils/pump-group-chart';
 import {
 	chartKeys,
@@ -168,4 +174,74 @@ export function lineupView(shown: string, options: LineupViewOptions = {}): Line
 	const system = answer(systemCurve);
 	const data = groupChartData(members, lineupPrefs, response, system, others, lineupOn(shown));
 	return { input, others, members, response, system, data };
+}
+
+/** A plot for drawnChart (px): about the 390 px phone's (m4_labels.py's). */
+export const TEST_PLOT: PxBox = { left: 50, right: 330, top: 10, bottom: 210 };
+
+/** Text written on the stand-in canvas: where, in which colour and font. */
+export interface Written {
+	text: string;
+	x: number;
+	y: number;
+	color: string;
+	font: string;
+}
+
+/**
+ * A stand-in for the chart drawn from `config` on `plot`: Chart.js's pixels as a linear map of
+ * the axes (the configuration's min and max where set, else 0 to the data's largest value), a
+ * context whose text is `charWidth` px a character, and every text written. `draw()` runs the
+ * configuration's label plugin, as Chart.js does after drawing the datasets.
+ */
+export function drawnChart(
+	config: PumpChartConfig,
+	{ plot = TEST_PLOT, charWidth = 6 }: { plot?: PxBox; charWidth?: number } = {}
+) {
+	const sets = config.data.datasets as unknown as { data: ChartDatum[] }[];
+	const drawnPoints = sets.flatMap((d) => d.data.filter((p) => p.y !== null));
+	const scales = (config.options?.scales ?? {}) as Record<string, { min?: number; max?: number }>;
+	const range = (id: 'x' | 'y', values: number[]) => ({
+		min: scales[id]?.min ?? Math.min(0, ...values),
+		max: scales[id]?.max ?? Math.max(...values)
+	});
+	const x = range(
+		'x',
+		drawnPoints.map((p) => p.x)
+	);
+	const y = range(
+		'y',
+		drawnPoints.map((p) => p.y!)
+	);
+	const px = (v: number) => plot.left + ((v - x.min) / (x.max - x.min)) * (plot.right - plot.left);
+	const py = (v: number) =>
+		plot.bottom - ((v - y.min) / (y.max - y.min)) * (plot.bottom - plot.top);
+	const written: Written[] = [];
+	const ctx = {
+		fillStyle: '',
+		font: '',
+		textAlign: 'start',
+		textBaseline: 'alphabetic',
+		save() {},
+		restore() {},
+		measureText: (text: string) => ({ width: text.length * charWidth }),
+		fillText(text: string, tx: number, ty: number) {
+			written.push({ text, x: tx, y: ty, color: this.fillStyle, font: this.font });
+		}
+	};
+	const chart = {
+		ctx,
+		chartArea: { ...plot },
+		data: config.data,
+		scales: { x, y },
+		isDatasetVisible: () => true,
+		getDatasetMeta: (i: number) => ({
+			data: sets[i]!.data.map((p) => ({ x: px(p.x), y: p.y === null ? Number.NaN : py(p.y) }))
+		})
+	};
+	const draw = () => {
+		const plugin = config.plugins!.find((p) => p.id === 'groupLabels')!;
+		plugin.afterDatasetsDraw!(chart as never, {} as never, {} as never, undefined as never);
+	};
+	return { chart, written, px, py, x, y, draw };
 }

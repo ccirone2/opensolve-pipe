@@ -233,6 +233,12 @@ export interface GroupChartData {
 	 */
 	xMax: number | null;
 	/**
+	 * The x-axis minimum (display units, §9.4: other cases' curves do not widen the x-axis): 0 when
+	 * only they reach below zero flow (round-off at their shutoff rise, about −10⁻¹¹ L/s, would
+	 * start the axis a tick below zero). Null: Chart.js's own range.
+	 */
+	xMin: number | null;
+	/**
 	 * The y-axis maximum (display units, §9.4, decision 25): while other cases' curves are drawn,
 	 * from every drawn head but the group system curve's, whose points above it are cut from
 	 * `system`. Null: Chart.js's own range (4b's and 4d's charts).
@@ -433,6 +439,7 @@ export function groupChartData(
 		others: rings,
 		otherCurves,
 		on,
+		xMin: axes.xMin,
 		xMax: axes.xMax,
 		yMax: axes.yMax,
 		systemCut: axes.systemCut
@@ -512,6 +519,7 @@ export function roundUpNice(value: number): number | null {
  * - x max: only when the other cases' curves pass the largest flow of everything else (the
  *   members' lines and points, this case's group curve and its group system curve as drawn, the
  *   Group point, every ring), that flow × 1.05, rounded up; the other curves are cut at it.
+ * - x min: 0 when only the other cases' curves reach below zero flow (nor do they widen it there).
  */
 function familyAxes(input: {
 	lines: readonly GroupLine[];
@@ -522,6 +530,7 @@ function familyAxes(input: {
 	rings: readonly OtherRing[];
 	otherCurves: readonly OtherCurve[];
 }): {
+	xMin: number | null;
 	xMax: number | null;
 	yMax: number | null;
 	system: { x: number; y: number | null }[] | null;
@@ -529,7 +538,7 @@ function familyAxes(input: {
 } {
 	const { lines, points, curve, station, rings, otherCurves } = input;
 	if (!otherCurves.length) {
-		return { xMax: null, yMax: null, system: input.system, systemCut: false };
+		return { xMin: null, xMax: null, yMax: null, system: input.system, systemCut: false };
 	}
 	const runs = (c: { solid: ChartPoint[][]; beyond: ChartPoint[][] } | null) =>
 		c ? [...c.solid, ...c.beyond].flat() : [];
@@ -559,7 +568,9 @@ function familyAxes(input: {
 	const largest = Math.max(...[...own, ...drawnSystem].map((p) => p.x));
 	const familyLargest = Math.max(...family.map((p) => p.x));
 	const xMax = familyLargest > largest ? roundUpNice(largest * 1.05) : null;
-	return { xMax, yMax, system, systemCut };
+	const smallest = Math.min(...[...own, ...drawnSystem].map((p) => p.x));
+	const xMin = Math.min(...family.map((p) => p.x)) < 0 && smallest >= 0 ? 0 : null;
+	return { xMin, xMax, yMax, system, systemCut };
 }
 
 /** Two duties agree within the duty checks' tolerances (the flow's, and the rise's of 4b). */

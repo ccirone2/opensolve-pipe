@@ -21,6 +21,7 @@ import type {
 import { hydraulicFingerprint, type GroupCurveState } from '$lib/state/project.svelte';
 import {
 	answer as answerOf,
+	drawnChart,
 	lineupAnswers,
 	lineupCaseName,
 	lineupPrefs,
@@ -30,7 +31,16 @@ import {
 } from '$lib/testing/curve-family';
 import fixture from './__fixtures__/pump-groups-input.json';
 import { ratedCurveRange } from './pump-chart';
-import { CHART_COLORS, pumpGroupConfig, type PumpChartConfig } from './pump-chart-config';
+import {
+	CHART_COLORS,
+	GROUP_BEYOND_LABEL,
+	GROUP_SYSTEM_CURVE_LABEL,
+	GROUP_SYSTEM_TAG,
+	OTHER_CURVES_LEGEND,
+	pumpGroupConfig,
+	type CurveLabelsDrawn,
+	type PumpChartConfig
+} from './pump-chart-config';
 import {
 	clipNote,
 	CURVE_LABEL_ROW,
@@ -1475,3 +1485,360 @@ describe('the curve family: the axes', () => {
 		expect(low.system).toHaveLength(42);
 	});
 });
+
+describe('the curve family: the chart configuration (pumpGroupConfig, the UI half)', () => {
+	type Dataset = PumpChartConfig['data']['datasets'][number] & Record<string, unknown>;
+	const tools = { place: placeCurveLabels, anchor: curveAnchor };
+	const config = (data: GroupChartData, options = {}) =>
+		pumpGroupConfig(data, { legendLabels: () => [], format: f4, ...options });
+	const datasets = (cfg: PumpChartConfig) => cfg.data.datasets as Dataset[];
+	const familyOf = (cfg: PumpChartConfig) => datasets(cfg).filter((d) => d.curveFamily === true);
+	/** Runs joined as the chart joins them: a point without a head between runs (a gap). */
+	const joined = (runs: readonly { x: number; y: number }[][]) =>
+		runs.flatMap((run, i) => [...(i ? [{ x: run[0]!.x, y: null }] : []), ...run]);
+	/** The tooltip's line for a point of a dataset (screen only). */
+	const tooltip = (cfg: PumpChartConfig, dataset: Dataset, raw: { x: number; y: number }) =>
+		(
+			cfg.options!.plugins!.tooltip as {
+				callbacks: { label: (item: unknown) => string };
+			}
+		).callbacks.label({ raw, dataset });
+
+	it('draws each other case’s curve slate at 1.5 px, solid inside its data and [6, 4] beyond it, gaps at null flows, under every line; the rings stay on top', () => {
+		const { data } = lineupView('');
+		const cfg = config(data);
+		const family = familyOf(cfg);
+		const expected = data.otherCurves.flatMap((c) => [
+			...(c.solid.length ? [{ number: c.number, data: joined(c.solid), dash: undefined }] : []),
+			...(c.beyond.length ? [{ number: c.number, data: joined(c.beyond), dash: [6, 4] }] : [])
+		]);
+		expect(
+			family.map((d) => ({ number: d.curveNumber, data: d.data, dash: d.borderDash }))
+		).toEqual(expected);
+		// Both kinds are drawn: the beyond runs are dashed (the shown curve's rule, §9.2).
+		expect(family.some((d) => d.borderDash === undefined)).toBe(true);
+		expect(family.some((d) => Array.isArray(d.borderDash))).toBe(true);
+		for (const d of family) {
+			expect(d).toMatchObject({
+				yAxisID: 'y',
+				borderColor: CHART_COLORS.slate,
+				backgroundColor: CHART_COLORS.slate,
+				borderWidth: 1.5,
+				pointRadius: 0,
+				spanGaps: false,
+				order: 1
+			});
+		}
+		// "1 of 4 running" has no flow at its 45 m rise: the dataset never reaches it.
+		const low = data.otherCurves.find((c) => c.key === 'S3')!;
+		const lowSets = family.filter((d) => d.curveNumber === low.number);
+		expect(lowSets.flatMap((d) => d.data as { y: number | null }[]).some((p) => p.y === 45)).toBe(
+			false
+		);
+		// Synthetic: a point without a flow in the middle of a curve breaks its line there.
+		const view = lineupView('', {
+			edit: (v) => {
+				if (v.key !== 'S2' || v.group?.status !== 'ready') return v;
+				const response = structuredClone(v.group.response);
+				const sorted = [...response.points].sort((a, b) => a.head - b.head);
+				sorted[10]!.flow = null;
+				return { ...v, group: { status: 'ready', response } };
+			}
+		});
+		const gapped = familyOf(config(view.data)).filter((d) => d.curveNumber === 2);
+		const nulls = gapped
+			.flatMap((d) => d.data as { y: number | null }[])
+			.filter((p) => p.y === null);
+		expect(nulls.length).toBeGreaterThan(
+			familyOf(cfg)
+				.filter((d) => d.curveNumber === 2)
+				.flatMap((d) => d.data as { y: number | null }[])
+				.filter((p) => p.y === null).length
+		);
+		// After the group curve, before the group system curve; the rings last, on top.
+		const labels = datasets(cfg).map((d) => d.label);
+		expect(labels.indexOf(family[0]!.label!)).toBe(labels.indexOf(GROUP_BEYOND_LABEL) + 1);
+		expect(labels.indexOf(GROUP_SYSTEM_CURVE_LABEL)).toBe(
+			labels.indexOf(GROUP_BEYOND_LABEL) + family.length + 1
+		);
+		const rings = datasets(cfg).filter((d) => d.otherCase === true);
+		expect(rings).toHaveLength(data.others.length);
+		for (const r of rings) expect(r.order).toBe(-1);
+		expect(datasets(cfg).filter((d) => d.order === 1)).toEqual(family);
+		// Without the family nothing of it is there (4d's configuration).
+		expect(familyOf(config(lineupView('', { without: true }).data))).toEqual([]);
+	});
+
+	it('labels each curve’s tooltip by its case: the full form from 640 px, the short form on a phone’s screen, a stale case “as last solved”', () => {
+		const { data } = lineupView('', { stale: ['S2'] });
+		const point = { x: 12.5, y: 30 };
+		const line = (label: string) => `${label}: 12.5 L/s, 30 m`;
+		const screen = familyOf(config(data));
+		const phone = familyOf(config(data, { compactLabels: true }));
+		expect(screen.map((d) => d.curveNumber)).toEqual(phone.map((d) => d.curveNumber));
+		const byNumber = (sets: Dataset[], n: number) => sets.find((d) => d.curveNumber === n)!;
+		expect(tooltip(config(data), byNumber(screen, 1), point)).toBe(
+			line(`1 · ${NAMES.S1}: group curve, 3 running`)
+		);
+		expect(tooltip(config(data), byNumber(screen, 2), point)).toBe(
+			line(`2 · ${NAMES.S2} (out of date): group curve, as last solved: 2 running`)
+		);
+		expect(tooltip(config(data), byNumber(screen, 3), point)).toBe(
+			line(`3 · ${NAMES.S3}: group curve, 1 running`)
+		);
+		expect(tooltip(config(data, { compactLabels: true }), byNumber(phone, 1), point)).toBe(
+			line('1 · 3 running: group curve')
+		);
+		expect(tooltip(config(data, { compactLabels: true }), byNumber(phone, 2), point)).toBe(
+			line('2 · as last solved: 2 running: group curve')
+		);
+		// Every dataset of a case carries its label, the beyond part's too.
+		for (const c of data.otherCurves) {
+			for (const d of screen.filter((x) => x.curveNumber === c.number))
+				expect(d.label).toBe(c.label);
+			for (const d of phone.filter((x) => x.curveNumber === c.number))
+				expect(d.label).toBe(c.shortLabel);
+		}
+	});
+
+	it('carries them into the image with their full labels, and its legend collapses the family into one entry where the page lists it', () => {
+		const { data } = lineupView('', { stale: ['S2'] });
+		const cfg = config(data, { forImage: true, compactLabels: true });
+		const family = familyOf(cfg);
+		expect(family.map((d) => d.label)).toEqual(familyOf(config(data)).map((d) => d.label));
+		expect(family.find((d) => d.curveNumber === 2)!.label).toBe(
+			`2 · ${NAMES.S2} (out of date): group curve, as last solved: 2 running`
+		);
+		// Chart.js's own items, sorted as it sorts them (by `order`, then the datasets' order).
+		const sets = datasets(cfg);
+		const sorted = sets
+			.map((d, i) => ({ d, i }))
+			.sort((a, b) => ((a.d.order as number) ?? 0) - ((b.d.order as number) ?? 0) || a.i - b.i);
+		const cfgWith = config(data, {
+			forImage: true,
+			legendLabels: () =>
+				sorted.map(({ d, i }) => ({
+					text: d.label,
+					datasetIndex: i,
+					strokeStyle: d.borderColor,
+					lineDash: d.borderDash ?? []
+				}))
+		});
+		const shown = cfgWith.options!.plugins!.legend!.labels!.generateLabels!({
+			data: cfgWith.data
+		} as never).filter((item) =>
+			cfgWith.options!.plugins!.legend!.labels!.filter!(item, cfgWith.data)
+		);
+		// The image's legend lists what the page's does, in its order: one entry for the family.
+		expect(shown.map((item) => item.text)).toEqual(groupLegend(data).map((i) => i.label));
+		const entry = shown.find((item) => item.text === OTHER_CURVES_LEGEND)!;
+		expect(entry).toMatchObject({
+			strokeStyle: CHART_COLORS.slate,
+			fillStyle: CHART_COLORS.slate,
+			lineDash: [],
+			pointStyle: 'line'
+		});
+		expect(OTHER_CURVES_LEGEND).toBe(OTHER_CURVES_LABEL);
+		expect(cfgWith.options!.plugins!.tooltip).toEqual({ enabled: false });
+	});
+
+	it('sets the axes from the data: x min and max where other curves would widen it, y max while they are drawn; neither without them', () => {
+		const axes = (data: GroupChartData) => {
+			const scales = config(data).options!.scales as Record<string, Record<string, unknown>>;
+			return [scales.x!.min, scales.x!.max, scales.y!.max];
+		};
+		// The base shown: other curves' shutoff round-off (−10⁻¹¹ L/s) below zero; y near the pumps.
+		expect(axes(lineupView('').data)).toEqual([0, undefined, 50]);
+		// "1 of 4 running" shown: cut at 100 L/s.
+		expect(axes(lineupView('S3').data)).toEqual([0, 100, 50]);
+		// "2 of 4 running" shown: its own group curve has the round-off too, so x min is Chart.js's,
+		// as on 4d's chart (the family does not widen it).
+		expect(axes(lineupView('S2').data)).toEqual([undefined, 120, 50]);
+		// Without the family: Chart.js's own range (4b's and 4d's charts).
+		expect(axes(lineupView('', { without: true }).data)).toEqual([undefined, undefined, undefined]);
+		const scales = config(lineupView('', { without: true }).data).options!.scales as Record<
+			string,
+			object
+		>;
+		expect('min' in scales.x! || 'max' in scales.x! || 'max' in scales.y!).toBe(false);
+	});
+
+	it('sets x min only when the other curves alone reach below zero flow', () => {
+		const { data } = lineupView('');
+		const below = data.otherCurves.flatMap((c) =>
+			[...c.solid, ...c.beyond].flat().filter((p) => p.x < 0)
+		);
+		expect(below.length).toBeGreaterThan(0);
+		for (const p of below) expect(p.x).toBeGreaterThan(-1e-9);
+		expect(data.xMin).toBe(0);
+		// Everything else at or above zero flow: the members, the curve, the system curve, the rings.
+		const else_ = [
+			...data.lines.flatMap((l) => [...l.curve, ...l.extrapolated.flat()]),
+			...data.points.map((p) => p.point),
+			...[...data.curve!.solid, ...data.curve!.beyond].flat(),
+			...(data.system ?? []).filter((p): p is { x: number; y: number } => p.y !== null),
+			data.station!.point,
+			...data.others.map((r) => r.point)
+		];
+		expect(Math.min(...else_.map((p) => p.x))).toBeGreaterThanOrEqual(0);
+		// Synthetic: this case's own group system curve below zero flow too: Chart.js's range.
+		const view = lineupView('');
+		const reaching = structuredClone(view.system);
+		reaching.systemPoints[0]!.flow = -0.001;
+		const own = groupChartData(view.members, lineupPrefs, view.response, reaching, view.others, 4);
+		expect(own.xMin).toBeNull();
+		// Without the family: none.
+		expect(lineupView('', { without: true }).data.xMin).toBeNull();
+	});
+
+	it('draws each curve’s label where placeCurveLabels puts it, clear of every marker, label and tag, in its colour, and tells where', () => {
+		const { data } = lineupView('');
+		const told: CurveLabelsDrawn[] = [];
+		const cfg = config(data, {
+			curveLabels: tools,
+			onlabels: (d: CurveLabelsDrawn) => told.push(d)
+		});
+		const chart = drawnChart(cfg);
+		chart.draw();
+		expect(told).toHaveLength(1);
+		const drawn = told[0]!;
+		// The obstacles: each point's marker, each member's and the Group point's label, each ring's
+		// tag and the group system curve's tag, as drawn.
+		const points = datasets(cfg).filter((d) => typeof d.caseLabel === 'string');
+		expect(drawn.obstacles.filter((o) => o.kind === 'marker').map((o) => o.text)).toEqual(
+			points.map((d) => d.caseLabel)
+		);
+		expect(drawn.obstacles.filter((o) => o.kind === 'ring').map((o) => o.text)).toEqual(
+			data.others.map((r) => r.tag)
+		);
+		expect(drawn.obstacles.filter((o) => o.kind === 'label').map((o) => o.text)).toEqual([
+			...data.points.map((p) => p.name),
+			data.station!.tag
+		]);
+		expect(drawn.obstacles.filter((o) => o.kind === 'curve').map((o) => o.text)).toEqual([
+			GROUP_SYSTEM_TAG
+		]);
+		for (const o of drawn.obstacles) {
+			const written = chart.written.find((w) => w.text === o.text)!;
+			if (o.kind === 'marker') {
+				const ds = points.find((d) => d.caseLabel === o.text)!;
+				const r = (ds.pointRadius as number) + (ds.borderWidth as number) / 2;
+				expect(o.box.right - o.box.left).toBeCloseTo(2 * r, 9);
+				expect(o.box.bottom - o.box.top).toBeCloseTo(2 * r, 9);
+			} else {
+				expect(o.box).toEqual({
+					left: written.x,
+					right: written.x + written.text.length * 6,
+					top: written.y - 12,
+					bottom: written.y + 3
+				});
+			}
+		}
+		// The anchors from the curves' own pixels, placed by the pure function with them.
+		const plot = drawn.plot;
+		const px = (p: { x: number; y: number }) => ({ x: chart.px(p.x), y: chart.py(p.y) });
+		const inputs: CurveLabelInput[] = [
+			...data.otherCurves.map((c) => ({
+				anchor: curveAnchor([...c.solid, ...c.beyond].flat().map(px), plot),
+				k: c.k,
+				numbers: [c.number]
+			})),
+			{
+				anchor: curveAnchor([...data.curve!.solid, ...data.curve!.beyond].flat().map(px), plot),
+				k: 4,
+				numbers: []
+			}
+		];
+		const expected = placeCurveLabels(
+			inputs,
+			drawn.obstacles.map((o) => o.box),
+			plot,
+			(text) => text.length * 6
+		);
+		expect(drawn.labels).toEqual(expected.labels);
+		expect(drawn.leftOut).toBe(expected.leftOut);
+		expect(drawn.labels.map((l) => l.text)).toContain('4 running (this case)');
+		// Written where placed: other cases' in slate, this case's in ink.
+		for (const label of drawn.labels) {
+			expect(chart.written).toContainEqual({
+				text: label.text,
+				x: label.x,
+				y: label.y,
+				color: label.shown ? CHART_COLORS.ink : CHART_COLORS.slate,
+				font: '12px system-ui, sans-serif'
+			});
+		}
+		// Clear of every obstacle and of each other.
+		for (const [i, label] of drawn.labels.entries()) {
+			for (const o of drawn.obstacles) expect(boxesMeet(label.box, o.box), o.text).toBe(false);
+			for (const other of drawn.labels.slice(i + 1))
+				expect(boxesMeet(label.box, other.box)).toBe(false);
+		}
+		expect(drawn.x).toEqual({ min: chart.x.min, max: chart.x.max });
+		expect(drawn.y).toEqual({ min: 0, max: 50 });
+	});
+
+	it('words the labels by view: a phone’s screen the count, the image the numbers at 14 px', () => {
+		const { data } = lineupView('');
+		const texts = (options: object) => {
+			const told: CurveLabelsDrawn[] = [];
+			const cfg = config(data, {
+				curveLabels: tools,
+				onlabels: (d: CurveLabelsDrawn) => told.push(d),
+				...options
+			});
+			const chart = drawnChart(cfg, { plot: { left: 50, right: 750, top: 10, bottom: 400 } });
+			chart.draw();
+			const labels = told[0]!.labels;
+			return {
+				texts: labels.map((l) => l.text).sort(),
+				fonts: [
+					...new Set(
+						chart.written.filter((w) => labels.some((l) => l.text === w.text)).map((w) => w.font)
+					)
+				]
+			};
+		};
+		expect(texts({ compactLabels: true })).toEqual({
+			texts: ['1 running', '2 running', '3 running', '4 running'],
+			fonts: ['12px system-ui, sans-serif']
+		});
+		const image = texts({ compactLabels: true, forImage: true });
+		expect(image).toEqual({
+			texts: ['1, 4, 5, 6 · 3 running', '2 · 2 running', '3 · 1 running', '4 running (this case)'],
+			fonts: ['14px system-ui, sans-serif']
+		});
+		expect(texts({})).toEqual({ ...image, fonts: ['12px system-ui, sans-serif'] });
+	});
+
+	it('leaves out a label that finds no room, and tells the count; draws none without the family or the page’s placement', () => {
+		const { data } = lineupView('S3');
+		const told: CurveLabelsDrawn[] = [];
+		const cfg = config(data, {
+			curveLabels: tools,
+			onlabels: (d: CurveLabelsDrawn) => told.push(d)
+		});
+		// A plot 60 px wide: the labels, clamped at its left edge, crowd three rows and no more.
+		drawnChart(cfg, { plot: { left: 50, right: 110, top: 10, bottom: 60 } }).draw();
+		expect(told[0]!.leftOut).toBeGreaterThan(0);
+		const curves = told[0]!.labels.flatMap((l) => l.curves).length;
+		expect(curves + told[0]!.leftOut).toBe(data.otherCurves.length + 1);
+		// Without the family, or without the placement passed in: no curve label, none left out.
+		for (const [d, options] of [
+			[lineupView('S3', { without: true }).data, { curveLabels: tools }],
+			[data, {}]
+		] as const) {
+			const seen: CurveLabelsDrawn[] = [];
+			const plain = config(d, { ...options, onlabels: (x: CurveLabelsDrawn) => seen.push(x) });
+			const chart = drawnChart(plain);
+			chart.draw();
+			expect(seen[0]!).toMatchObject({ labels: [], leftOut: 0 });
+			expect(chart.written.some((w) => / running( \(this case\))?$/.test(w.text))).toBe(false);
+		}
+	});
+});
+
+/** Two boxes meet (px; y down): they share area. */
+function boxesMeet(a: PxBox, b: PxBox): boolean {
+	return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}

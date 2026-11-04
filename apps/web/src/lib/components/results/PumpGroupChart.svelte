@@ -35,12 +35,19 @@
 	which carry flow (D24 §7.10), a list on phones, with the extremes over the current cases (on
 	screen only). Presentation only: the caller (PumpsView) computes every value and makes every
 	request.
+
+	Pump lineups slice L3 (CLAUDE.md D24, proposal pump-lineups.md §9): a ring's own group curve,
+	where drawn, is a slate line labelled with its members running (placed on the canvas clear of
+	the markers, labels and tags; the notes count the labels left out for space, the image its
+	own), with the column "Its group curve" in "Other cases' station duties" and every point of
+	each such curve in "Other cases' group curves", a list on phones.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import type { Flag, NodeResult, Project, UnitPreferences } from '$lib/api/types';
 	import type { GroupCurveState, GroupSystemCurveState } from '$lib/state/project.svelte';
 	import type { ChartImageSource } from '$lib/utils/export/chart-image';
+	import type { CurveLabelsDrawn } from '$lib/utils/pump-chart-config';
 	import { DISCLAIMER } from '$lib/components/links';
 	import { STALE_CHUNK_MESSAGE } from '$lib/utils/export/load';
 	import type { Chart as ChartInstance } from 'chart.js';
@@ -49,6 +56,7 @@
 	import {
 		andList,
 		ARRANGEMENT_WORDS,
+		curveAnchor,
 		groupCaption,
 		groupChartData,
 		groupImageTitle,
@@ -66,7 +74,11 @@
 		dutyCheckWords,
 		HELD_SYMBOL,
 		namesProject,
+		OTHER_CURVE_COLUMN,
+		OTHER_CURVES_CAPTION,
 		OTHER_SYMBOL,
+		otherCurveRows,
+		placeCurveLabels,
 		slotStyle,
 		STATION_SYMBOL,
 		systemDutyCheckState,
@@ -149,6 +161,11 @@
 		lineups?: LineupsBlockProps | null;
 		/** The other cases with values, each in its state (slice 4d). */
 		otherCases?: readonly OtherGroupCase[];
+		/**
+		 * The members switched on in this case as solved (D24 §9.3: its curve's label while other
+		 * cases' curves are drawn; null: not given).
+		 */
+		shownOn?: number | null;
 		/** "Also show the other cases' station duties" is ticked. */
 		othersOn?: boolean;
 		/** Tick or untick it (absent: the project has no scenarios, no box). */
@@ -196,6 +213,7 @@
 		image,
 		lineups = null,
 		otherCases = [],
+		shownOn = null,
 		othersOn = false,
 		onothers,
 		onotherstick,
@@ -272,8 +290,13 @@
 	const stationShown = $derived(shown ?? (systemShown?.duty ? systemShown : null));
 	/** The other cases, while the card shows a station (slice 4d). */
 	const others = $derived(unavailable || !stationShown ? [] : otherCases);
-	const data = $derived(groupChartData(members, prefs, shown, systemShown, others));
-	const notes = $derived(
+	const data = $derived(groupChartData(members, prefs, shown, systemShown, others, shownOn));
+	/**
+	 * Curves whose labels the chart on screen left out for space (D24 §9.3), told by its drawing;
+	 * the image counts its own.
+	 */
+	let labelsLeftOut = $state(0);
+	const notesWith = (leftOut: number) =>
 		groupNotes({
 			data,
 			members,
@@ -282,9 +305,11 @@
 			project,
 			solved: solvedProject ?? labels,
 			prefs,
-			others
-		})
-	);
+			others,
+			labelsLeftOut: leftOut
+		});
+	// Only while other cases' curves are drawn: a count kept from an earlier drawing never shows.
+	const notes = $derived(notesWith(data.otherCurves.length ? labelsLeftOut : 0));
 	/** Refused only for an active PRV or PSV inside: a station, whose group curve is not defined. */
 	const undefinedThere = $derived(
 		groupCurve?.status === 'refused' && pressureControlOnly(groupCurve.issues)
@@ -332,6 +357,23 @@
 	/** A case's ring, as drawn (its duty in display units, its claim in words). */
 	const ringCase = (n: number | null) =>
 		n === null ? null : (data.others.flatMap((r) => r.cases).find((c) => c.number === n) ?? null);
+	/** The rings' own curves are judged (D24 §9.6): "Its group curve" is a column. */
+	const curveColumn = $derived(data.others.some((r) => r.cases.some((c) => c.curveCell !== null)));
+	/** "Other cases' group curves": every point of each other case's curve drawn (§9.6). */
+	const curveRows = $derived(otherCurveRows(others, prefs, project));
+	/**
+	 * A cell of "Other cases' group curves": a table cell, below 640 px a label and value pair
+	 * (Running combinations' list), "—" and an empty note out of sight there.
+	 */
+	const listCell = (value: string, numeric: boolean) => [
+		'border-b border-slate-100 px-2 py-1',
+		numeric ? 'text-right whitespace-nowrap tabular-nums' : 'text-xs text-slate-600',
+		'max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:p-0 max-sm:text-left max-sm:whitespace-normal',
+		'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]',
+		(value === '—' || value === '') && 'max-sm:sr-only'
+	];
+	/** The labels on the curves: the page's pure placement, run by the chart's plugin. */
+	const curveLabels = { place: placeCurveLabels, anchor: curveAnchor };
 
 	/** "Read along the curves": the group curve's samples, in rise order. */
 	const readout = $derived(shown ? groupReadout(shown, nameOf, prefs) : []);
@@ -448,7 +490,9 @@
 						format: fmt,
 						htmlLegend: true,
 						readout: () => markNow,
-						compactLabels: compact
+						compactLabels: compact,
+						curveLabels,
+						onlabels: (placed) => labelsDrawn(element, placed)
 					})
 				);
 				drawnChart = chart;
@@ -464,6 +508,15 @@
 			chart?.destroy();
 		};
 	});
+
+	/**
+	 * A drawing of the chart on screen placed its curve labels: the notes count those left out,
+	 * and the canvas keeps the placement for measuring the layout (`data-curve-labels`).
+	 */
+	function labelsDrawn(element: HTMLCanvasElement, placed: CurveLabelsDrawn) {
+		element.dataset.curveLabels = JSON.stringify(placed);
+		labelsLeftOut = placed.leftOut;
+	}
 
 	/** Why no image can be made now ('' when it can). */
 	const imageReason = $derived(
@@ -488,17 +541,23 @@
 		if (!image || !module || imageReason || makingImage) return;
 		makingImage = true;
 		const { Chart, downloadChartImage, pumpGroupConfig } = module;
+		const reasons = refusals.map((r) => wordsText(r.words));
+		/** The image's own count of curve labels left out (D24 §9.3), told as it is drawn. */
+		let imageLeftOut = 0;
 		await downloadChartImage(Chart, {
 			config: pumpGroupConfig(data, {
 				legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
 				format: fmt,
-				forImage: true
+				forImage: true,
+				curveLabels,
+				onlabels: (placed) => (imageLeftOut = placed.leftOut)
 			}),
 			title: groupImageTitle(memberNames, arrangement),
-			lines: groupNoteLines(
-				notes,
-				refusals.map((r) => wordsText(r.words))
-			),
+			lines: groupNoteLines(notes, reasons),
+			// With other cases' curves labelled, the notes count the image's own labels left out.
+			...(data.otherCurves.length
+				? { drawnLines: () => groupNoteLines(notesWith(imageLeftOut), reasons) }
+				: {}),
 			content: `Pumps together ${memberNames.join(', ')}`,
 			...(caseName ? { caseName } : {}),
 			disclaimer: DISCLAIMER,
@@ -1391,6 +1450,11 @@
 											<th scope="col" class="px-2 py-1 text-left font-medium"
 												>On the group system curve shown</th
 											>
+											{#if curveColumn}
+												<th scope="col" class="px-2 py-1 text-left font-medium"
+													>{OTHER_CURVE_COLUMN}</th
+												>
+											{/if}
 										</tr>
 									</thead>
 									<tbody>
@@ -1408,13 +1472,101 @@
 													<td class="px-2 py-1 text-right tabular-nums">{fmt(ring.flow)}</td>
 													<td class="px-2 py-1 text-right tabular-nums">{fmt(ring.rise)}</td>
 													<td class="px-2 py-1 text-xs text-slate-600">{ring.claim}</td>
+													{#if curveColumn}
+														<td class="px-2 py-1 text-xs text-slate-600">{ring.curveCell ?? '—'}</td
+														>
+													{/if}
 												{:else}
-													<td colspan="3" class="px-2 py-1 text-xs text-slate-600">{other.words}</td
+													<td colspan={curveColumn ? 4 : 3} class="px-2 py-1 text-xs text-slate-600"
+														>{other.words}</td
 													>
 												{/if}
 											</tr>
 										{/each}
 									</tbody>
+								</table>
+							</div>
+						{/if}
+						{#if curveRows.length}
+							<!-- Other cases' own group curves (D24 §9.6): every point, those cut from the chart
+								included, one row group per case; a list below 640 px, as Running combinations. -->
+							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+							<div
+								class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+								role="region"
+								aria-labelledby="{id}-curves-caption"
+								tabindex="0"
+								data-other-curves
+							>
+								<!-- svelte-ignore a11y_no_redundant_roles -->
+								<table
+									role="table"
+									class="w-full border-separate border-spacing-0 text-sm max-sm:block"
+								>
+									<caption
+										id="{id}-curves-caption"
+										class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700 max-sm:block"
+									>
+										{OTHER_CURVES_CAPTION}
+									</caption>
+									<!-- svelte-ignore a11y_no_redundant_roles -->
+									<thead role="rowgroup" class="sticky top-0 bg-slate-50 max-sm:sr-only">
+										<!-- svelte-ignore a11y_no_redundant_roles -->
+										<tr role="row">
+											<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
+												>Rise ({data.headUnit})</th
+											>
+											<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
+												>Flow ({data.flowUnit})</th
+											>
+											<th role="columnheader" scope="col" class="px-2 py-1 text-left font-medium"
+												>Note</th
+											>
+										</tr>
+									</thead>
+									{#each curveRows as group (group.key)}
+										{@const outOfDate = others.find((o) => o.key === group.key)?.stale ?? false}
+										<!-- svelte-ignore a11y_no_redundant_roles -->
+										<tbody role="rowgroup" class="max-sm:block">
+											<!-- svelte-ignore a11y_no_redundant_roles -->
+											<tr role="row" class="max-sm:block">
+												<th
+													role="rowheader"
+													scope="rowgroup"
+													colspan="3"
+													class={[
+														'border-y border-slate-200 px-2 py-1 text-left font-medium break-words max-sm:block',
+														outOfDate ? 'bg-amber-50/60' : 'bg-slate-50/60'
+													]}
+												>
+													<span aria-hidden="true" style:color={GROUP_OTHER}
+														>{`${OTHER_SYMBOL} `}</span
+													>{group.header}
+												</th>
+											</tr>
+											{#each group.rows as row, i (i)}
+												<!-- svelte-ignore a11y_no_redundant_roles -->
+												<tr
+													role="row"
+													class="max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5"
+												>
+													<td
+														role="cell"
+														data-label="Rise ({data.headUnit})"
+														class={listCell(row.rise, true)}>{row.rise}</td
+													>
+													<td
+														role="cell"
+														data-label="Flow ({data.flowUnit})"
+														class={listCell(row.flow, true)}>{row.flow}</td
+													>
+													<td role="cell" data-label="Note" class={listCell(row.note, false)}
+														>{row.note}</td
+													>
+												</tr>
+											{/each}
+										</tbody>
+									{/each}
 								</table>
 							</div>
 						{/if}

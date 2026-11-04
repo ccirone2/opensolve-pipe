@@ -571,7 +571,10 @@
 	{onclose}
 	onkeydown={keydown}
 >
-	<div class="space-y-4 text-sm">
+	<!-- A flex column with gaps, not space-y: the empty status and alert lines (display: none)
+		then leave no margin under the last block shown, so the manager without the tab row is as
+		tall as before L2, and the table keeps its room (§8.1, §8.2). -->
+	<div class="flex flex-col gap-4 text-sm">
 		{#if tabs}
 			<div
 				role="tablist"

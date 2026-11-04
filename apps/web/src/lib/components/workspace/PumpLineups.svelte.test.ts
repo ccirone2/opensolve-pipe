@@ -31,7 +31,14 @@ import { testWorkspace } from '$lib/testing/workspace';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
 import { canonicalJson } from '$lib/utils/json';
 import { lineupName, renameNotice } from '$lib/utils/pump-lineups';
-import { MAX_CHANGES, MAX_SCENARIOS, scenariosOf, withScenarios } from '$lib/utils/scenarios';
+import {
+	LIMIT_TEXT,
+	MAX_CHANGES,
+	MAX_SCENARIOS,
+	SCENARIO_DESCRIPTION_LIMIT,
+	scenariosOf,
+	withScenarios
+} from '$lib/utils/scenarios';
 import { pumpTransferExample } from '$lib/utils/examples';
 import type { Workspace } from '$lib/state/workspace.svelte';
 import WorkspaceView from './Workspace.svelte';
@@ -213,30 +220,100 @@ describe('the tabs and the width', () => {
 	});
 
 	it('with one pump: the Cases prose as before L2, no max-w-prose; with the tab row it is capped', async () => {
-		// One pump, a scenario with a change and one with none, both cards open.
-		const one = withScenarios(pumpTransferExample(), [
-			named('S1', 'Level', [
-				{ kind: 'component', componentId: 'R2', field: 'liquidLevel', value: 3 }
-			]),
-			named('S2', 'Empty')
-		]);
+		/** Letters a link cannot compress: with them the link is longer than 8,000 characters. */
+		let seed = 12345;
+		const noise = (n: number) =>
+			Array.from({ length: n }, () => {
+				seed = (seed * 1103515245 + 12345) % 2 ** 31;
+				return 'abcdefghijklmnopqrstuvwxyz0123456789'[seed % 36];
+			}).join('');
+		/**
+		 * `base` with every element of the Cases prose drawn: a change, a scenario with none, a
+		 * change that no longer applies (its pump deleted), a value with a problem (a maximum speed
+		 * below the flow control's minimum, of `pumpId`), the 20 scenarios' limit line and the
+		 * long-link warning.
+		 */
+		function everyLine(base: Project, pumpId: string, other: Override): Project {
+			const project = structuredClone(base);
+			const pump = project.components.find((c) => c.id === pumpId)!;
+			if (pump.type === 'pump') pump.control = { mode: 'flow', setpoint: 0.015, minSpeed: 0.85 };
+			project.metadata.description = noise(5000);
+			const speed = (value: number): Override => ({
+				kind: 'component',
+				componentId: pumpId,
+				field: 'speed',
+				value
+			});
+			const lapsed: Override = { kind: 'component', componentId: 'X7', field: 'speed', value: 0.9 };
+			const own = scenariosOf(project);
+			const more = [
+				named('L1', 'Empty'),
+				named('L2', 'Lapsed', [other, lapsed]),
+				named('L3', 'Problem', [speed(0.8)])
+			];
+			for (let i = own.length + more.length + 1; i <= MAX_SCENARIOS; i++) {
+				more.push(named(`L${i}`, `Case ${i}`, [other]));
+			}
+			return withScenarios(project, [
+				...own,
+				...more.map((s) => ({ ...s, description: noise(SCENARIO_DESCRIPTION_LIMIT) }))
+			]);
+		}
+		/** Each element of the Cases prose (§8.1), the manager's status and alert lines too. */
+		const lines = (dialog: HTMLElement) => {
+			const w = within(dialog);
+			return {
+				intro: w.getByText(/^A scenario keeps another operating/),
+				base: w.getByText('The network as built.'),
+				change: w.getAllByText(/^Base: /)[0]!.parentElement!,
+				none: w.getByText(/^No changes yet/),
+				lapsed: w.getByText(/: no longer applies, ignored when solving \(/),
+				problem: w.getByText(/^The value Problem sets for/),
+				limit: w.getByText(LIMIT_TEXT),
+				link: w.getByText(/^The link to this project is longer than 8,000 characters/),
+				status: w.getByRole('status'),
+				alert: w.getByRole('alert')
+			};
+		};
+
+		// One pump: every one of them drawn, none capped.
+		const level: Override = {
+			kind: 'component',
+			componentId: 'R2',
+			field: 'liquidLevel',
+			value: 3
+		};
+		const one = everyLine(
+			withScenarios(pumpTransferExample(), [named('S1', 'Level', [level])]),
+			'P1',
+			level
+		);
 		const ws = setup(one);
-		ws.openManager({ focus: 'S1' });
+		expect(ws.store.urlTooLong).toBe(true);
+		ws.openManager({ focus: 'L3' });
 		await tick();
 		const dialog = await screen.findByRole('dialog', { name: 'Scenarios' });
+		expect(within(dialog).queryByRole('tablist')).toBeNull();
 		await fireEvent.click(within(dialog).getByText('Empty'));
-		expect(within(dialog).getByText(/^No changes yet/)).toBeInTheDocument();
-		expect(within(dialog).getByText(/^A scenario keeps another operating/)).toBeInTheDocument();
+		for (const [name, element] of Object.entries(lines(dialog))) {
+			expect(element, name).toBeInTheDocument();
+			expect(element, name).not.toHaveClass('max-w-prose');
+		}
 		expect(dialog.querySelectorAll('.max-w-prose')).toHaveLength(0);
 		document.body.innerHTML = '';
 
-		// With the tab row (xl): the intro and the cards' text capped (§8.1).
-		const two = setup(twoSystems());
-		two.openManager({ focus: 'S1' });
+		// With the tab row (xl): the intro, the cards' text, the limit line, the long-link warning
+		// and the manager's lines on the Cases tab capped (§8.1).
+		const speed: Override = { kind: 'component', componentId: 'P9', field: 'speed', value: 0.9 };
+		const two = setup(everyLine(twoSystems(), 'P9', speed));
+		expect(two.store.urlTooLong).toBe(true);
+		two.openManager({ focus: 'L3' });
 		await tick();
 		const xl = await screen.findByRole('dialog', { name: 'Scenarios' });
-		expect(within(xl).getByText(/^A scenario keeps another operating/)).toHaveClass('max-w-prose');
-		expect(within(xl).getByText('The network as built.')).toHaveClass('max-w-prose');
+		expect(tab('Cases (21)')).toHaveAttribute('aria-selected', 'true');
+		for (const [name, element] of Object.entries(lines(xl))) {
+			expect(element, name).toHaveClass('max-w-prose');
+		}
 	});
 
 	it('opens with the dialog’s title out of the Tab order: focusable only when the manager puts the focus there', async () => {

@@ -5,15 +5,15 @@
 	ws.editScenario (quiet: the manager's status and alert lines say what it did, §8.6).
 
 	Desktop and tablet (≥ 640 px, §8.2 to §8.9): the intro, then the table in a scroll box whose
-	header rows stick to its top and case column to its left (scroll padding keeps a focused cell
-	clear of them). A grid with explicit roles: the group header row only with two groups or more,
-	the base case read-only (gridcells, aria-readonly), a switch per scenario cell named by its
-	visible headers (aria-labelledby, never its state word), the case's own value marked three ways
-	(a teal ring and corner, the description, the title). One Tab stop, roving tabindex: the active
-	cell is derived from the cell last wanted (decision 26), so it never outlives its row or column;
-	the arrows, Home, End, Ctrl+Home and Ctrl+End move it, and the focus is put back on it after a
-	press, an undo or redo, a rename or a filter change made with the focus in the grid (a keyed
-	reorder moves the focused node, which loses the focus).
+	header rows stick to its top and case column to its left (scroll padding keeps a focused cell's
+	focus ring clear of them, and of the box's bottom edge). A grid with explicit roles: the group
+	header row only with two groups or more, the base case read-only (gridcells, aria-readonly), a
+	switch per scenario cell named by its visible headers (aria-labelledby, never its state word),
+	the case's own value marked three ways (a teal ring and corner, the description, the title). One
+	Tab stop, roving tabindex: the active cell is derived from the cell last wanted (decision 26), so
+	it never outlives its row or column; the arrows, Home, End, Ctrl+Home and Ctrl+End move it, and
+	the focus is put back on it after a press, an undo or redo, a rename or a filter change made
+	with the focus in the grid (a keyed reorder moves the focused node, which loses the focus).
 
 	Phone (< 640 px, §8.10): one case at a time, only one of the two layouts in the DOM. "Case to
 	edit" (derived: the pick while it exists, else the default), its line, then each group's pumps:
@@ -98,16 +98,26 @@
 	 * focus-visible:outline-offset-4), 1 px past the gridcell; 8 px keeps it clear with room.
 	 */
 	const RING = 8;
+	/**
+	 * The same room at the box's bottom: the switch sits 4 px inside its gridcell's bottom (its
+	 * padding), so the ring reaches 2 px past it; 3 px keeps it clear, and no more, since the box
+	 * scrolled to its end (after a press on the last row) still holds six rows at 1280×800 (§8.2).
+	 */
+	const RING_BOTTOM = 3;
 
 	/**
 	 * The scroll box's padding: the sticky header rows' height and the case column's width, and
-	 * the focus ring's reach beyond them, so the whole indicator of a focused cell stays in view.
+	 * the focus ring's reach beyond them; at the bottom the ring's reach, with as much room after
+	 * the last row (the box's own padding). So the whole indicator of a focused cell stays in view,
+	 * the last row's too, with the box then scrolled to its end (§8.7).
 	 */
 	function padSticky(node: HTMLElement) {
 		const head = node.querySelector('thead');
 		const corner = node.querySelector<HTMLElement>('[data-corner]');
 		node.style.scrollPaddingTop = `${(head?.offsetHeight ?? 0) + RING}px`;
 		node.style.scrollPaddingLeft = `${(corner?.offsetWidth ?? 0) + RING}px`;
+		node.style.scrollPaddingBottom = `${RING_BOTTOM}px`;
+		node.style.paddingBottom = `${RING_BOTTOM}px`;
 	}
 
 	/**
@@ -345,9 +355,10 @@
 </script>
 
 <!-- The intro (§8.2, §8.10): on desktop the corner mark (aria-hidden) between its two parts; the
-	series sentence with a series or mixed group shown; the card's filter and Show every pump. -->
+	series sentence with a series or mixed group shown; the card's filter and Show every pump. A
+	long name with no spaces in the filter sentence wraps (on a phone too, §8.10). -->
 {#snippet intro(text: string, mark: boolean)}
-	<p class="text-slate-700">
+	<p class="break-words text-slate-700">
 		{text}
 		{#if mark}
 			<span

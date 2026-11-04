@@ -35,11 +35,13 @@ import {
  *    not scroll and at least 6 rows are fully visible in the table's box, on a fresh open and after
  *    a press that renames (the status line's sentence); the Cases tab at xl: no prose line longer
  *    than max-w-prose, its body's scroll recorded.
- * And, from the review of L2: a dialog opens on its Close button, not its title; a focused cell's
- * whole focus ring stays clear of the sticky header rows and case column, also when a key follows
- * an arrow at the grid's edge at once; on a phone the sheet keeps its place on a tab switch (a
- * second tap lands on the tab row), long names with no spaces wrap, and Reset removes a change
- * equal to the base value.
+ * And, from the review of L2 and its second check: a dialog opens on its Close button, not its
+ * title; a focused cell's whole focus ring stays clear of the sticky header rows and case column
+ * and of the box's bottom edge, also when a key follows an arrow at the grid's edge at once; the
+ * manager's empty status and alert lines leave no space under the last block shown; on a phone the
+ * sheet keeps its place on a tab switch (a second tap lands on the tab row), long names with no
+ * spaces wrap (the card's filter sentence too), and Reset removes a change equal to the base
+ * value.
  * The projects are the condenser example (utils/examples.ts) and the shared fixture's
  * `two-systems` (apps/api/tests/fixtures/pump_groups_input.py), opened by link; every string is
  * §8.12's, word for word.
@@ -110,9 +112,9 @@ function bodyAndRows(manager: Locator) {
 
 /**
  * Where the focused cell's focus ring is against the sticky header rows (top), the sticky case
- * column (left) and the box's right edge (right): each the ring's distance inside that edge, in
- * px (negative: that much of the ring is hidden). The ring reaches outline-width + outline-offset
- * past the element (nothing for a ring drawn inside it).
+ * column (left) and the box's right and bottom edges (right, bottom): each the ring's distance
+ * inside that edge, in px (negative: that much of the ring is hidden). The ring reaches
+ * outline-width + outline-offset past the element (nothing for a ring drawn inside it).
  */
 function ringPlace(page: Page) {
 	return page.evaluate(() => {
@@ -124,13 +126,32 @@ function ringPlace(page: Page) {
 		const head = box.querySelector('thead')!.getBoundingClientRect();
 		const corner = box.querySelector('[data-corner]')!.getBoundingClientRect();
 		const right = box.getBoundingClientRect().left + box.clientLeft + box.clientWidth;
+		const bottom = box.getBoundingClientRect().top + box.clientTop + box.clientHeight;
 		return {
 			cell: e.dataset.cell,
 			ring: e.matches(':focus-visible') && style.outlineStyle !== 'none',
 			top: Math.round((r.top - reach - head.bottom) * 10) / 10,
 			left: Math.round((r.left - reach - corner.right) * 10) / 10,
-			right: Math.round((right - r.right - reach) * 10) / 10
+			right: Math.round((right - r.right - reach) * 10) / 10,
+			bottom: Math.round((bottom - r.bottom - reach) * 10) / 10
 		};
+	});
+}
+
+/**
+ * The space under the last block the manager's body shows, in px, past the body's own bottom
+ * padding: 0 when nothing hidden (the empty status and alert lines) leaves a margin there.
+ */
+function spaceBelow(manager: Locator) {
+	return manager.evaluate((dialog) => {
+		const body = dialog.querySelector('.overflow-y-auto') as HTMLElement;
+		const blocks = [...body.firstElementChild!.children].filter(
+			(e) => getComputedStyle(e).display !== 'none'
+		);
+		const last = blocks.at(-1)!.getBoundingClientRect().bottom;
+		const end =
+			body.getBoundingClientRect().top + body.clientTop + body.scrollHeight - body.scrollTop;
+		return Math.round(end - last - parseFloat(getComputedStyle(body).paddingBottom));
 	});
 }
 
@@ -669,8 +690,27 @@ test('a focused cell’s whole focus ring stays clear of the sticky headers, als
 	const manager = await openLineups(page);
 	await expect(gridOf(manager).getByRole('rowheader')).toHaveCount(21);
 	await manager.locator('[data-cell="1,2"]').focus();
+	await page.keyboard.press('Control+Home');
+	await page.waitForTimeout(300);
+	// Down through a table taller than its box: each cell clear of the box's bottom edge.
+	for (let i = 1; i <= 13; i++) {
+		await page.keyboard.press('ArrowDown');
+		await page.waitForTimeout(250);
+		const place = await ringPlace(page);
+		expect(place, JSON.stringify(place)).toMatchObject({ cell: `${i},0`, ring: true });
+		expect(place.bottom, JSON.stringify(place)).toBeGreaterThanOrEqual(0);
+	}
+	// The last cell: clear of the bottom edge too, the box scrolled to its end.
 	await page.keyboard.press('Control+End');
 	await page.waitForTimeout(300);
+	let place = await ringPlace(page);
+	expect(place, JSON.stringify(place)).toMatchObject({ cell: '20,5', ring: true });
+	expect(place.bottom, JSON.stringify(place)).toBeGreaterThanOrEqual(0);
+	expect(
+		await manager
+			.locator('[data-lineups-box]')
+			.evaluate((box) => box.scrollTop + box.clientHeight >= box.scrollHeight - 0.5)
+	).toBe(true);
 	// Up through a table taller than its box: each cell clear of the header rows.
 	for (let i = 0; i < 8; i++) {
 		await page.keyboard.press('ArrowUp');
@@ -685,7 +725,7 @@ test('a focused cell’s whole focus ring stays clear of the sticky headers, als
 	await page.keyboard.press('ArrowDown');
 	await page.keyboard.press('Control+Home');
 	await page.waitForTimeout(700);
-	let place = await ringPlace(page);
+	place = await ringPlace(page);
 	expect(place, JSON.stringify(place)).toMatchObject({ cell: '0,0', ring: true });
 	expect(place.top, JSON.stringify(place)).toBeGreaterThanOrEqual(0);
 
@@ -785,6 +825,74 @@ test('on a phone, long names with no spaces wrap: no sideways scroll, a pump’s
 		expect(fits, JSON.stringify(size)).toEqual({ body: true, name: true, clear: true });
 		await noSidewaysScroll(page);
 	}
+
+	// Opened from the Pumps together card: the filter sentence names the long name too, and wraps.
+	await manager.getByRole('button', { name: 'Done' }).click();
+	await page.setViewportSize({ width: 390, height: 844 });
+	await solveConverged(page);
+	const card = (await resultsView(page, 'Pumps')).getByRole('region', { name: /^Pumps together/ });
+	const answered = page.waitForResponse(
+		(r) => r.url().endsWith('/api/v1/pump-group-curve') && r.request().method() === 'POST'
+	);
+	await card.getByRole('button', { name: /^Pumps together/ }).click();
+	expect((await answered).status()).toBe(200);
+	await card.getByRole('button', { name: 'Pump lineups table…' }).click();
+	await expect(manager.getByRole('tab', { name: 'Pump lineups' })).toHaveAttribute(
+		'aria-selected',
+		'true'
+	);
+	await expect(manager).toContainText(
+		`Only the pumps on the Pumps together card are shown: ${pumpName} and Pump PB.`
+	);
+	for (const size of [
+		{ width: 390, height: 844 },
+		{ width: 320, height: 640 }
+	]) {
+		await page.setViewportSize(size);
+		const fits = await manager.evaluate((dialog) => {
+			const body = dialog.querySelector('.overflow-y-auto') as HTMLElement;
+			const intro = dialog.querySelector('[data-pump-lineups] > p') as HTMLElement;
+			return {
+				body: body.scrollWidth <= body.clientWidth,
+				intro: intro.scrollWidth <= intro.clientWidth
+			};
+		});
+		expect(fits, JSON.stringify(size)).toEqual({ body: true, intro: true });
+		await noSidewaysScroll(page);
+	}
+});
+
+test('the manager’s hidden status and alert lines leave no space under the last block shown: one pump as before L2, Pump lineups', async ({
+	page,
+	isMobile
+}) => {
+	// One pump: no tab row, the manager exactly as before L2 (its last card the last block).
+	const one = pumpTransferExample();
+	one.scenarios = [
+		{
+			id: 'S1',
+			name: 'Discharge tank 1 m higher',
+			overrides: [{ kind: 'component', componentId: 'R2', field: 'liquidLevel', value: 3 }]
+		}
+	];
+	await open(page, one);
+	let manager = await openScenarioManager(page);
+	await expect(manager.getByRole('tablist')).toHaveCount(0);
+	expect(await spaceBelow(manager)).toBe(0);
+	await manager.getByRole('button', { name: 'Done' }).click();
+	await expect(manager).toBeHidden();
+	// On a phone the sheet is its full height on Pump lineups, so its body may be taller than
+	// what it shows: the rest is measured on desktop.
+	if (isMobile) return;
+
+	// Pump lineups: the table's box the last block, then the status line after a press that renames.
+	await page.goto('about:blank');
+	await open(page, twoSystems());
+	manager = await openLineups(page);
+	expect(await spaceBelow(manager)).toBe(0);
+	await switchOf(manager, 'Pump P1', '2 of 2 running; 2 of 3 running (Pump P3 off)').click();
+	await expect(manager.getByRole('status')).toContainText('» is now «');
+	expect(await spaceBelow(manager)).toBe(0);
 });
 
 test('on a phone, Reset of a change equal to the base value removes it, as Build’s Reset does', async ({

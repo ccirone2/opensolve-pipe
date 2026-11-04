@@ -9,7 +9,7 @@ What each document provides and when to read it. Agents start from [`CLAUDE.md`]
 | Document | Provides | Read when | Owner of changes |
 |---|---|---|---|
 | [`GOALS.md`](GOALS.md) | Mission, priority order, values, feature gates | Any judgment call | The project owner only |
-| [`decisions/`](decisions/README.md) | D1–D23: the architecture rules and one record per built feature (model, law, flags, results, web defaults, version, proof) | Working on that feature; resolving a `CLAUDE.md Dn` citation | Builders, with the owner's answers quoted |
+| [`decisions/`](decisions/README.md) | D1–D24: the architecture rules and one record per built feature (model, law, flags, results, web defaults, version, proof) | Working on that feature; resolving a `CLAUDE.md Dn` citation | Builders, with the owner's answers quoted |
 | [`PRD.md`](PRD.md) | What the product does, for whom; v1 scope and Later (§2.3); component and output requirements (§3); design checks (§5) | Asking whether something is in scope or how a user sees it | Updated with each decision |
 | [`SDD.md`](SDD.md) | Architecture; data models (§4, one subsection per component and feature); REST contracts and link encoding (§5); errors (§8) | Changing a model, an endpoint or the link format | Updated with each decision |
 | [`TSD.md`](TSD.md) | Stack (§2), file tree (§3), data files and model sketches (§4), solver implementation (§5), units (§6), web internals (§8), dev setup (§9), tests and the corpus proofs with their counts (§10), deployment settings (§11), decided and open questions (§12) | Implementing; proving a solver change; deploying | Updated with each decision; §10.4 and §12 with each merge |

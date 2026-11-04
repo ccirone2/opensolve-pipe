@@ -2,7 +2,7 @@
 
 **Version:** 0.2.0 (Rebuild baseline)
 **Date:** October 2026
-**Status:** Aligned with decisions D1–D23 (`docs/decisions/`, indexed in `CLAUDE.md`); updated with each decision
+**Status:** Aligned with decisions D1–D24 (`docs/decisions/`, indexed in `CLAUDE.md`); updated with each decision
 
 ---
 

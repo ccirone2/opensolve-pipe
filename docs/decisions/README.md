@@ -29,7 +29,7 @@ D1–D14 are the architecture and the rules of the rebuild. D15 onward each reco
 | [D21](D21-pump-groups.md) | Pump groups, slices 4a, 4b, 4c and 4d | built |
 | [D22](D22-project-library.md) | Project library | built (1.5.0) |
 | [D23](D23-pressure-relief-valve.md) | Pressure relief valve | built (1.6.0) |
-| [D24](D24-pump-lineups.md) | Pump lineups, slice L1 | built (web only); slices L2 and L3 to build |
+| [D24](D24-pump-lineups.md) | Pump lineups, slices L1 and L2 | built (web only); slice L3 to build |
 
 ## Adding a decision
 

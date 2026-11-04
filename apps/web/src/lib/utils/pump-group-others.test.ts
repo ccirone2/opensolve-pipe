@@ -9,6 +9,7 @@
  * their labels (placeCurveLabels on m4_labels.txt's anchors), the legend, the notes, the
  * accessible name, the tables and the axes, on the `lineups` station's real answers.
  */
+import { BasicPlatform } from 'chart.js';
 import { describe, expect, it } from 'vitest';
 import type {
 	Flag,
@@ -18,6 +19,7 @@ import type {
 	SolveResponse,
 	TopologyIssue
 } from '$lib/api/types';
+import { Chart } from '$lib/components/results/chart-setup';
 import { hydraulicFingerprint, type GroupCurveState } from '$lib/state/project.svelte';
 import {
 	answer as answerOf,
@@ -852,7 +854,7 @@ describe('the curve family: which curves are drawn, and their points', () => {
 
 	it('changes nothing of 4d’s chart without a curve drawn: the same lines, points, rings, axes and system curve', () => {
 		const plain = lineupView('', { without: true }).data;
-		expect(plain).toMatchObject({ xMax: null, yMax: null, systemCut: false });
+		expect(plain).toMatchObject({ xMax: null, curvesCut: false, yMax: null, systemCut: false });
 		expect(plain.system).toHaveLength(42);
 		expect(plain.others.map((r) => r.tag)).toEqual([
 			`1 · ${NAMES.S1}`,
@@ -1114,6 +1116,39 @@ describe('the curve family: labels on the curves', () => {
 				.labels.map((l) => l.text)
 				.sort()
 		).toEqual(['1 · 2 running', '2 running (this case)']);
+		// Nor when another case's end comes first and this case's a pixel to its right.
+		const after: CurveLabelInput[] = [
+			{ anchor: { x: 300, y: 243 }, k: 2, numbers: [1] },
+			{ anchor: { x: 301, y: 243 }, k: 2, numbers: [] }
+		];
+		const kept = place(after, DESKTOP, false).labels;
+		expect(kept.map((l) => [l.text, l.curves, l.shown])).toEqual([
+			['1 · 2 running', [0], false],
+			['2 running (this case)', [1], true]
+		]);
+		expect(place(after, PHONE, true).labels.map((l) => [l.text, l.curves])).toEqual([
+			['2 running', [0]],
+			['2 running', [1]]
+		]);
+		// A merge across another count's end: the merged label sits at its rightmost anchor, right
+		// of that end, so rows go from left to right by where the labels are placed (§9.3).
+		const across: CurveLabelInput[] = [
+			{ anchor: { x: 150, y: 200 }, k: 2, numbers: [1] },
+			{ anchor: { x: 170, y: 200 }, k: 1, numbers: [2] },
+			{ anchor: { x: 200, y: 200 }, k: 2, numbers: [3] }
+		];
+		const fixed = (text: string) => text.length * 6;
+		const plot = { left: 0, right: 400, top: 0, bottom: 210 };
+		const crossed = placeCurveLabels(across, [], plot, fixed, true);
+		expect(crossed.labels.map((l) => [l.text, l.curves, l.row])).toEqual([
+			['1 running', [1], 0],
+			['2 running', [0, 2], 1]
+		]);
+		expect(crossed.labels[1]!.box.right).toBe(200 - 4);
+		expect(placeCurveLabels(across, [], plot, fixed).labels.map((l) => [l.text, l.row])).toEqual([
+			['2 · 1 running', 0],
+			['1, 3 · 2 running', 1]
+		]);
 		// A curve with no point inside the plot has no label, and is not counted as left out.
 		const outside = place([{ anchor: null, k: 1, numbers: [1] }], DESKTOP, false);
 		expect(outside).toEqual({ labels: [], leftOut: 0 });
@@ -1260,7 +1295,8 @@ describe('the curve family: the legend, the notes, the accessible name and the t
 		expect(notesFor(lineupView('S2')).others[1]).toBe(
 			"Other cases' group curves are cut at the chart's right edge, the largest flow of this case's own lines and the rings; the group system curve is cut at the top, above every pump's head; the data tables list all their points."
 		);
-		expect(clipNote({ xMax: null, systemCut: false })).toBeNull();
+		// Its x clause follows a cut made (curvesCut), not x max set.
+		expect(clipNote({ curvesCut: false, systemCut: false })).toBeNull();
 		// S7 and S8 on the chart, a stale S1: each state's words.
 		const view = lineupView('', { unticked: ['S4', 'S5'], stale: ['S1'] });
 		const list = notesFor(view).others.find((l) => l.startsWith('Other cases on the chart'))!;
@@ -1285,6 +1321,28 @@ describe('the curve family: the legend, the notes, the accessible name and the t
 		const lines = groupNoteLines(notes);
 		const at = lines.indexOf(notes.others[0]!);
 		expect(lines.slice(at, at + notes.others.length)).toEqual(notes.others);
+	});
+
+	it('says the frame sentence while the rings’ curves are judged, though none of theirs is drawn', () => {
+		// The base shown with only S7 (another inside) and S8 (the same inside) on the chart: this
+		// case's group curve is drawn, the rings carry their curve states, no other curve is drawn.
+		const view = lineupView('', { unticked: ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'] });
+		expect(view.data.otherCurves).toEqual([]);
+		const rings = view.others.filter((o) => o.onChart);
+		expect(rings.map((o) => [o.key, o.curveState])).toEqual([
+			['S7', 'inside_differs'],
+			['S8', 'same_inside']
+		]);
+		const notes = notesFor(view).others;
+		expect(notes[0]).toBe(lineupFrame);
+		expect(notes[1]).toBe(DUTY_CLAIM_RULE);
+		const [s7, s8] = rings.map(
+			(o) =>
+				`${o.number} · ${NAMES[o.key as keyof typeof NAMES]}, ${f4(lps(dutyFlow(o.duty!.flow)))} L/s at a rise of ${f4(o.duty!.head)} m: ${o.words}; group curve: `
+		);
+		expect(notes[2]).toBe(
+			`Other cases on the chart (slate rings, numbered): ${s7}not drawn: the station differs inside in more than which pumps are switched on; ${s8}the same as this case's: the station is the same inside.`
+		);
 	});
 
 	it('names each other case’s curve in the chart’s accessible name, then the curves drawn', () => {
@@ -1390,6 +1448,15 @@ describe('the curve family: the axes', () => {
 			[150, 150],
 			[151, 200],
 			[2.51, 3],
+			// Just above each step, so each one is the answer once: 2.5, 4, 6 and 8 (no 3.5, no 7).
+			[2.4, 2.5],
+			[3.2, 4],
+			[3.9, 4],
+			[5.5, 6],
+			[6.5, 8],
+			// Below 1, where step × 10ⁿ is inexact in binary (3 × 10⁻¹ is 0.30000000000000004).
+			[0.29, 0.3],
+			[0.149, 0.15],
 			[7.9, 8],
 			[8.1, 10],
 			[0.0119, 0.012],
@@ -1426,6 +1493,105 @@ describe('the curve family: the axes', () => {
 		const mid = lineupView('S2').data;
 		expect(mid.xMax).toBe(roundUpNice(largestElse(mid) * 1.05));
 		expect(mid.xMax).toBe(120);
+	});
+
+	it('sets x max from each part of everything else in turn, wherever it is the largest flow (synthetic)', () => {
+		// "1 of 4 running" shown: the base's ring (85.23 L/s) is the largest flow but the family's,
+		// so x max is 100 L/s. Each edit below makes one other part reach 110 L/s, the largest:
+		// x max is then 110 × 1.05 = 115.5 rounded up, 120 L/s, and the family still passes it.
+		const view = lineupView('S3');
+		expect(view.data.xMax).toBe(100);
+		const Q = 0.11;
+		const xMaxWith = (edit: {
+			members?: (m: GroupMemberInput) => GroupMemberInput;
+			response?: (r: PumpGroupCurveResponse) => void;
+			system?: (r: PumpGroupCurveResponse) => void;
+		}) => {
+			const response = structuredClone(view.response);
+			const system = structuredClone(view.system);
+			edit.response?.(response);
+			edit.system?.(system);
+			const members = view.members.map(edit.members ?? ((m) => m));
+			const data = groupChartData(members, lineupPrefs, response, system, view.others, 1);
+			expect(Math.max(...familyFlows(data))).toBeGreaterThan(largestElse(data));
+			return { data, largest: largestElse(data) };
+		};
+		const p1 = (change: (r: PumpResult) => PumpResult, range?: [number, number]) => ({
+			members: (m: GroupMemberInput) =>
+				m.id === 'P1'
+					? { ...m, result: change(structuredClone(m.result)), ratedRange: range ?? m.ratedRange }
+					: m
+		});
+		const longer = (r: PumpResult) => ({ ...r, curve: [...r.curve, { flow: Q, head: 1 }] });
+		const cases = {
+			// The members' line inside its data (the curve's data range widened to its last point).
+			'members’ line': p1(longer, [0, Q]),
+			// The members' line beyond its data (the end-slope extrapolation out to that point).
+			'members’ line beyond its data': p1(longer),
+			// A member's point (its curve without samples, so no line reaches it).
+			'member’s point': p1((r) => ({ ...r, curve: [], operatingFlow: Q })),
+			'Group point': {
+				response: (r: PumpGroupCurveResponse) => void (r.duty!.flow = Q)
+			},
+			// The group system curve, as drawn (S3's reaches 31.6 m, under y max: drawn whole).
+			'group system curve': {
+				system: (r: PumpGroupCurveResponse) => {
+					const top = Math.max(...r.systemPoints.map((p) => p.flow));
+					for (const p of r.systemPoints) p.flow *= Q / top;
+				}
+			}
+		};
+		for (const [part, edit] of Object.entries(cases)) {
+			const { data, largest } = xMaxWith(edit);
+			expect([part, largest]).toEqual([part, lps(Q)]);
+			expect([part, data.xMax]).toEqual([part, 120]);
+		}
+		// The members' line beyond its data is drawn dashed: the part that reaches 110 L/s.
+		const beyond = xMaxWith(cases['members’ line beyond its data']).data.lines[0]!;
+		expect(Math.max(...beyond.curve.map((p) => p.x))).toBeLessThan(lps(Q));
+		expect(Math.max(...beyond.extrapolated.flat().map((p) => p.x))).toBe(lps(Q));
+	});
+
+	it('sets x max whenever the family passes everything else, and says a curve is cut only where one is', () => {
+		const SYSTEM_CUT =
+			"The group system curve is cut at the top, above every pump's head; the data tables list all their points.";
+		// A 3-running case shown and the base unticked: its siblings' curves pass its own (162.2
+		// L/s) by a little, so x max is set (§9.4), at 162.2 × 1.05 rounded up, 200 L/s; no point of
+		// any of them lies beyond it, so nothing is cut at the right edge and the note says so.
+		for (const shown of ['S1', 'S5', 'S6']) {
+			const view = lineupView(shown, { unticked: [''] });
+			const { data } = view;
+			expect(Math.max(...familyFlows(data))).toBeGreaterThan(largestElse(data));
+			expect(Math.max(...familyFlows(data))).toBeLessThan(largestElse(data) * 1.05);
+			expect(data.xMax).toBe(200);
+			expect(familyFlows(data).filter((x) => x > data.xMax!)).toEqual([]);
+			expect(notesFor(view).others[1]).toBe(SYSTEM_CUT);
+			expect(groupNoteLines(notesFor(view)).join(' ')).not.toContain('right edge');
+			expect(data.curvesCut).toBe(false);
+		}
+		// Flow in m³/h, the base ticked: "3 of 4 running" shown, its own largest flow 584 m³/h gives
+		// x max 800 m³/h (600 without the margin), past the base's 777.7 m³/h: nothing is cut.
+		const metric = { ...lineupPrefs, flow: 'm3/h' as const };
+		const inUnits = (shown: string) => {
+			const view = lineupView(shown);
+			const { members, response, system, others, data } = view;
+			return groupChartData(members, metric, response, system, others, data.on);
+		};
+		for (const shown of ['S1', 'S4', 'S5', 'S6']) {
+			const data = inUnits(shown);
+			expect(data.xMax).toBe(800);
+			expect(Math.max(...familyFlows(data))).toBeGreaterThan(largestElse(data));
+			expect(familyFlows(data).filter((x) => x > 800)).toEqual([]);
+			expect(clipNote(data)).toBe(SYSTEM_CUT);
+			expect(data.curvesCut).toBe(false);
+		}
+		// "1 of 4 running" shown in m³/h: the base's curve passes x max, cut, and the note says so.
+		const low = inUnits('S3');
+		expect(familyFlows(low).some((x) => x > low.xMax!)).toBe(true);
+		expect(low.curvesCut).toBe(true);
+		expect(clipNote(low)).toBe(
+			"Other cases' group curves are cut at the chart's right edge, the largest flow of this case's own lines and the rings; the data tables list all their points."
+		);
 	});
 
 	it('sets y max only while the family is drawn, from every drawn head but the group system curve’s, which is cut above it', () => {
@@ -1483,6 +1649,34 @@ describe('the curve family: the axes', () => {
 		expect(low.yMax).toBe(50);
 		expect(low.systemCut).toBe(false);
 		expect(low.system).toHaveLength(42);
+	});
+
+	it('sets y max at the largest head × 1.05, rounded up: the margin decides it in ft and above 45.45 m', () => {
+		const view = lineupView('');
+		// Head in ft: the shutoff, 45 m = 147.6 ft, × 1.05 = 155.0 ft rounds up to 200 ft (150 ft
+		// without the margin would put the shutoff 2.4 ft under the plot's top).
+		const feet = groupChartData(
+			view.members,
+			{ ...lineupPrefs, head: 'ft' },
+			view.response,
+			view.system,
+			view.others,
+			4
+		);
+		const shutoff = fromSI(45, 'ft');
+		expect(shutoff).toBeGreaterThan(147.6);
+		expect(shutoff).toBeLessThan(150);
+		expect(shutoff * 1.05).toBeGreaterThan(150);
+		expect(feet.yMax).toBe(200);
+		// Synthetic: a ring at a rise of 46.5 m, the largest head: × 1.05 = 48.8 m gives 50 m (× 1.1
+		// would give 60 m).
+		const s1 = view.others.find((o) => o.key === 'S1')!;
+		const high = view.others.map((o) =>
+			o.key === 'S1' ? { ...o, duty: { ...s1.duty!, head: 46.5 } } : o
+		);
+		const raised = groupChartData(view.members, lineupPrefs, view.response, view.system, high, 4);
+		expect(Math.max(...raised.others.map((r) => r.point.y))).toBe(46.5);
+		expect(raised.yMax).toBe(50);
 	});
 });
 
@@ -1663,6 +1857,95 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		expect('min' in scales.x! || 'max' in scales.x! || 'max' in scales.y!).toBe(false);
 	});
 
+	it('keeps every marker whole at the plot’s edges, those the axes set included (Chart.js draws it)', () => {
+		// Synthetic: Pump P4 on and carrying no flow (§3.5, decision 14), held at zero flow, with
+		// the base shown: the family's round-off sets x min 0 and the family sets y max 50 m.
+		const view = lineupView('');
+		const held = view.members.map((m) =>
+			m.id === 'P4'
+				? { ...m, result: { ...m.result, status: 'no_flow' as const, operatingFlow: 0 } }
+				: m
+		);
+		const data = groupChartData(held, lineupPrefs, view.response, view.system, view.others, 3);
+		expect([data.xMin, data.yMax]).toEqual([0, 50]);
+		expect(data.points.find((p) => p.id === 'P4')).toMatchObject({ held: true, point: { x: 0 } });
+		const chart = new Chart(
+			fakeCanvas(800, 500) as never,
+			{
+				...config(data, { curveLabels: tools }),
+				platform: BasicPlatform
+			} as never
+		);
+		try {
+			const area = chart.chartArea;
+			const markers = datasets(config(data)).flatMap((d, i) => (d.showLine === false ? [i] : []));
+			// The members' points, the Group point and the rings.
+			expect(markers).toHaveLength(data.points.length + 1 + data.others.length);
+			const marker = (i: number) => {
+				const d = chart.data.datasets[i] as unknown as Record<string, number> & { label: string };
+				// Where Chart.js clips the dataset: its clip's allowance (px) beyond each edge.
+				const clip = (chart.getDatasetMeta(i) as unknown as { _clip: Record<string, number> })
+					._clip;
+				// A marker reaches its radius (hovered, its hover radius) and half its border out.
+				const r = Math.max(d.pointRadius!, d.pointHoverRadius!) + d.borderWidth! / 2;
+				return { label: d.label, clip, r, elements: chart.getDatasetMeta(i).data };
+			};
+			// P4's diamond is centred on the plot's left edge, and drawn whole.
+			const p4 = markers.find(
+				(i) => chart.data.datasets[i]!.label === 'Pump P4, held at zero flow'
+			)!;
+			expect(chart.getDatasetMeta(p4).data[0]!.x).toBeCloseTo(area.left, 6);
+			for (const { label, clip, r, elements } of markers.map(marker)) {
+				for (const el of elements) {
+					expect(el.x - r, label).toBeGreaterThanOrEqual(area.left - clip.left!);
+					expect(el.x + r, label).toBeLessThanOrEqual(area.right + clip.right!);
+					expect(el.y - r, label).toBeGreaterThanOrEqual(area.top - clip.top!);
+					expect(el.y + r, label).toBeLessThanOrEqual(area.bottom + clip.bottom!);
+				}
+			}
+			// Every marker keeps its extent beyond every edge, wherever it is drawn.
+			for (const { label, clip, r } of markers.map(marker)) {
+				for (const side of ['left', 'right', 'top', 'bottom'] as const) {
+					expect(clip[side], `${label}, ${side}`).toBeGreaterThanOrEqual(r);
+				}
+			}
+		} finally {
+			chart.destroy();
+		}
+		// On 4d's chart, no bound set, it is the allowance Chart.js gives a point by itself.
+		const without = lineupView('', { without: true });
+		const plain = config(
+			groupChartData(held, lineupPrefs, without.response, without.system, without.others)
+		);
+		expect(plain.options!.scales!.x!.min).toBeUndefined();
+		const unclipped = {
+			...plain,
+			data: {
+				datasets: datasets(plain).map((d) =>
+					Object.fromEntries(Object.entries(d).filter(([key]) => key !== 'clip'))
+				)
+			}
+		} as unknown as PumpChartConfig;
+		const clips = (cfg: PumpChartConfig) => {
+			const drawn = new Chart(
+				fakeCanvas(800, 500) as never,
+				{
+					...cfg,
+					platform: BasicPlatform
+				} as never
+			);
+			const out = cfg.data.datasets.map(
+				(_, i) => (drawn.getDatasetMeta(i) as unknown as { _clip: unknown })._clip
+			);
+			drawn.destroy();
+			return out;
+		};
+		expect(datasets(plain).filter((d) => 'clip' in d)).toHaveLength(
+			data.points.length + 1 + data.others.length
+		);
+		expect(clips(plain)).toEqual(clips(unclipped));
+	});
+
 	it('sets x min only when the other curves alone reach below zero flow', () => {
 		const { data } = lineupView('');
 		const below = data.otherCurves.flatMap((c) =>
@@ -1778,6 +2061,110 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		expect(drawn.y).toEqual({ min: 0, max: 50 });
 	});
 
+	it('keeps each label off every ring’s tag, marker and point’s label where they are in the way, or leaves it out', () => {
+		// m4_labels.py's plots: a 390 px phone and a 1280 × 800 desktop.
+		const PHONE = { left: 50, right: 328, top: 8, bottom: 211 };
+		const DESKTOP = { left: 55, right: 554, top: 8, bottom: 243 };
+		const drawn = (shown: string, plot: PxBox, compact: boolean) => {
+			const { data } = lineupView(shown);
+			const told: CurveLabelsDrawn[] = [];
+			const cfg = config(data, {
+				curveLabels: tools,
+				compactLabels: compact,
+				onlabels: (d: CurveLabelsDrawn) => told.push(d)
+			});
+			const chart = drawnChart(cfg, { plot });
+			chart.draw();
+			return { data, chart, placed: told[0]! };
+		};
+		// "2 of 4 running" on a phone; "1 of 4 running" on a phone and on a desktop.
+		const s2 = drawn('S2', PHONE, true);
+		const s3 = drawn('S3', PHONE, true);
+		const views = [s2, s3, drawn('S3', DESKTOP, false)];
+		for (const { data, placed } of views) {
+			// Every curve labelled or counted: the other cases' and this case's.
+			expect(placed.labels.flatMap((l) => l.curves).length + placed.leftOut).toBe(
+				data.otherCurves.length + 1
+			);
+			expect(placed.leftOut + placed.labels.filter((l) => l.row > 0).length).toBeGreaterThan(0);
+			for (const label of placed.labels) {
+				for (const o of placed.obstacles) {
+					expect(boxesMeet(label.box, o.box), `${label.text} over ${o.kind} ${o.text}`).toBe(false);
+				}
+			}
+		}
+		// What is in the way, by §9.3's geometry (right-aligned 4 px left of its anchor, 4 px above
+		// it, 14 px a row; 6 px a character here): the kinds of obstacle a box meets.
+		const kinds = (placed: CurveLabelsDrawn, box: PxBox) =>
+			[...new Set(placed.obstacles.filter((o) => boxesMeet(box, o.box)).map((o) => o.kind))].sort();
+		const down = (box: PxBox, rows: number) => ({
+			...box,
+			top: box.top + rows * CURVE_LABEL_ROW,
+			bottom: box.bottom + rows * CURVE_LABEL_ROW
+		});
+		// "1 of 4 running", phone: the base's "4 running" two rows up, past ring 1's marker and tag.
+		const four = s3.placed.labels.find((l) => l.text === '4 running')!;
+		expect(four.row).toBe(2);
+		expect(kinds(s3.placed, down(four.box, 1))).toEqual(['marker', 'ring']);
+		// "2 of 4 running", phone: the base's "4 running" left out; at each of its rows a ring's
+		// tag or the Group point's label is in the way.
+		expect(s2.placed.leftOut).toBe(1);
+		expect(s2.placed.labels.map((l) => l.text)).not.toContain('4 running');
+		const base = s2.data.otherCurves.find((c) => c.key === '')!;
+		const plot = s2.placed.plot;
+		const anchor = curveAnchor(
+			[...base.solid, ...base.beyond]
+				.flat()
+				.map((p) => ({ x: s2.chart.px(p.x), y: s2.chart.py(p.y) })),
+			plot
+		)!;
+		const width = '4 running'.length * 6;
+		const left = Math.max(plot.left + 2, anchor.x - 4 - width);
+		const rows = [0, 1, 2].map((row) => {
+			const bottom = anchor.y - 4 - row * CURVE_LABEL_ROW;
+			return kinds(s2.placed, { left, right: left + width, top: bottom - CURVE_LABEL_ROW, bottom });
+		});
+		for (const met of rows) expect(met.length).toBeGreaterThan(0);
+		expect([...new Set(rows.flat())].sort()).toEqual(expect.arrayContaining(['label', 'ring']));
+		const groupTag = s2.data.station!.tag;
+		expect(
+			s2.placed.obstacles.some(
+				(o) =>
+					o.kind === 'label' &&
+					o.text === groupTag &&
+					[0, 1, 2].some((row) => {
+						const bottom = anchor.y - 4 - row * CURVE_LABEL_ROW;
+						return boxesMeet(
+							{ left, right: left + width, top: bottom - CURVE_LABEL_ROW, bottom },
+							o.box
+						);
+					})
+			)
+		).toBe(true);
+	});
+
+	it('labels this case’s curve “(this case)” where its end lies just right of equal counts’ (“Pump P1 off” shown)', () => {
+		// m4_labels.py's desktop plot; the 3-running siblings end a pixel left of this case's end.
+		const DESKTOP = { left: 55, right: 554, top: 8, bottom: 243 };
+		for (const shown of ['S4', 'S5', 'S6']) {
+			const { data } = lineupView(shown);
+			const told: CurveLabelsDrawn[] = [];
+			const cfg = config(data, {
+				curveLabels: tools,
+				onlabels: (d: CurveLabelsDrawn) => told.push(d)
+			});
+			drawnChart(cfg, { plot: DESKTOP }).draw();
+			const own = told[0]!.labels.filter((l) => l.shown);
+			expect(
+				own.map((l) => [l.text, l.curves]),
+				shown
+			).toEqual([['3 running (this case)', [data.otherCurves.length]]]);
+			// The siblings' label names only their numbers, never this case's count among them.
+			const siblings = told[0]!.labels.find((l) => !l.shown && l.text.endsWith('· 3 running'))!;
+			expect(siblings.curves).not.toContain(data.otherCurves.length);
+		}
+	});
+
 	it('words the labels by view: a phone’s screen the count, the image the numbers at 14 px', () => {
 		const { data } = lineupView('');
 		const texts = (options: object) => {
@@ -1837,6 +2224,24 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		}
 	});
 });
+
+/**
+ * A canvas for Chart.js in the `server` project (no DOM): Chart.js's BasicPlatform draws on its
+ * context, every call a no-op but text measured at 6 px a character.
+ */
+function fakeCanvas(width: number, height: number) {
+	const ctx: Record<string | symbol, unknown> = new Proxy({} as Record<string | symbol, unknown>, {
+		get(target, prop) {
+			if (prop in target) return target[prop];
+			if (prop === 'measureText') return (text: string) => ({ width: text.length * 6 });
+			if (prop === 'getLineDash') return () => [];
+			return () => undefined;
+		}
+	});
+	const canvas = { width, height, style: {}, getContext: () => ctx };
+	ctx.canvas = canvas;
+	return canvas;
+}
 
 /** Two boxes meet (px; y down): they share area. */
 function boxesMeet(a: PxBox, b: PxBox): boolean {

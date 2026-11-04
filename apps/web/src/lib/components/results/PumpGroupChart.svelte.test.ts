@@ -1708,7 +1708,21 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		await vi.waitFor(() => expect(images.requests).toHaveLength(1));
 		const request = images.requests[0] as FigureImageRequest;
 		expect(request.lines).toContain(sentence(placed.leftOut));
-		drawnChart(request.config, { plot: { left: 50, right: 900, top: 10, bottom: 500 } }).draw();
+		const imageChart = drawnChart(request.config, {
+			plot: { left: 50, right: 900, top: 10, bottom: 500 }
+		});
+		imageChart.draw();
+		// The image writes the curves' labels in the desktop's words at 14 px (§9.3, §9.6): the base
+		// (1, 4 running), "2 of 4 running" (3) and the 3-running cases merged, numbers ascending,
+		// and this case's own.
+		const labels = imageChart.written.filter((w) => / running( \(this case\))?$/.test(w.text));
+		expect(labels.map((w) => w.text).sort()).toEqual([
+			'1 running (this case)',
+			'1 · 4 running',
+			'2, 4, 5, 6 · 3 running',
+			'3 · 2 running'
+		]);
+		expect([...new Set(labels.map((w) => w.font))]).toEqual(['14px system-ui, sans-serif']);
 		const drawnLines = request.drawnLines!();
 		expect(drawnLines.some((l) => l.includes('left out for space'))).toBe(false);
 		expect(drawnLines).toEqual(request.lines.filter((l) => l !== sentence(placed.leftOut)));

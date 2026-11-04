@@ -872,6 +872,15 @@ export function pumpGroupConfig(
 	const fmt = format;
 	const font = (size: number) => (forImage ? { font: { size } } : {});
 	const crossed = (marker: string) => marker === 'cross' || marker === 'crossRot';
+	/**
+	 * A marker's clip (px beyond each edge of the plot): Chart.js's own allowance for a point, its
+	 * radius (hovered, its hover radius) and its border, kept on every edge. Chart.js allows none
+	 * beyond an edge whose bound the configuration sets (x min, x max and y max while other cases'
+	 * curves are drawn, D24 §9.4), which would cut a marker there in half: only other cases'
+	 * curves are cut at the plot's edge.
+	 */
+	const markerClip = (radius: number, hoverRadius: number, borderWidth: number) =>
+		Math.max(radius, hoverRadius) + borderWidth;
 	/** A phone's screen (never the image): short labels on the canvas and in the tooltips. */
 	const compact = compactLabels && !forImage;
 	/**
@@ -996,6 +1005,7 @@ export function pumpGroupConfig(
 			pointRadius: 8,
 			pointHoverRadius: 10,
 			pointHitRadius: 12,
+			clip: markerClip(8, 10, p.held || crossed(p.style.marker) ? 3 : 1.5),
 			showLine: false,
 			caseLabel: p.name,
 			memberIds: [p.id]
@@ -1013,6 +1023,7 @@ export function pumpGroupConfig(
 						pointRadius: 7,
 						pointHoverRadius: 9,
 						pointHitRadius: 12,
+						clip: markerClip(7, 9, 2),
 						showLine: false,
 						caseLabel: d.station.tag
 					}
@@ -1029,6 +1040,7 @@ export function pumpGroupConfig(
 			pointRadius: 10,
 			pointHoverRadius: 12,
 			pointHitRadius: 12,
+			clip: markerClip(10, 12, 2),
 			showLine: false,
 			// Drawn last, on top: Chart.js draws datasets from the last in its sorted order.
 			order: -1,

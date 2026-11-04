@@ -233,6 +233,11 @@ export interface GroupChartData {
 	 */
 	xMax: number | null;
 	/**
+	 * A point of another case's curve lies beyond `xMax`: the curves are cut at the plot's right
+	 * edge (the clip note). x max rounded up can lie beyond every one of them: nothing is cut.
+	 */
+	curvesCut: boolean;
+	/**
 	 * The x-axis minimum (display units, §9.4: other cases' curves do not widen the x-axis): 0 when
 	 * only they reach below zero flow (round-off at their shutoff rise, about −10⁻¹¹ L/s, would
 	 * start the axis a tick below zero). Null: Chart.js's own range.
@@ -441,6 +446,7 @@ export function groupChartData(
 		on,
 		xMin: axes.xMin,
 		xMax: axes.xMax,
+		curvesCut: axes.curvesCut,
 		yMax: axes.yMax,
 		systemCut: axes.systemCut
 	};
@@ -500,7 +506,7 @@ export function roundUpNice(value: number): number | null {
 	const n = Math.floor(Math.log10(value)) - 1;
 	for (let exponent = n; ; exponent++) {
 		for (const step of NICE_STEPS) {
-			// Rounded to 12 figures: 1.2 × 10⁻¹ is 0.12, not 0.12000000000000001.
+			// Rounded to 12 figures: 3 × 10⁻¹ is 0.3, not 0.30000000000000004.
 			const candidate = Number((step * 10 ** exponent).toPrecision(12));
 			if (candidate >= value) return candidate;
 		}
@@ -518,7 +524,8 @@ export function roundUpNice(value: number): number | null {
  *   reaches there.
  * - x max: only when the other cases' curves pass the largest flow of everything else (the
  *   members' lines and points, this case's group curve and its group system curve as drawn, the
- *   Group point, every ring), that flow × 1.05, rounded up; the other curves are cut at it.
+ *   Group point, every ring), that flow × 1.05, rounded up; the other curves are cut at it, where
+ *   a point of one lies beyond it (`curvesCut`, the clip note's clause).
  * - x min: 0 when only the other cases' curves reach below zero flow (nor do they widen it there).
  */
 function familyAxes(input: {
@@ -532,13 +539,15 @@ function familyAxes(input: {
 }): {
 	xMin: number | null;
 	xMax: number | null;
+	curvesCut: boolean;
 	yMax: number | null;
 	system: { x: number; y: number | null }[] | null;
 	systemCut: boolean;
 } {
 	const { lines, points, curve, station, rings, otherCurves } = input;
 	if (!otherCurves.length) {
-		return { xMin: null, xMax: null, yMax: null, system: input.system, systemCut: false };
+		const system = input.system;
+		return { xMin: null, xMax: null, curvesCut: false, yMax: null, system, systemCut: false };
 	}
 	const runs = (c: { solid: ChartPoint[][]; beyond: ChartPoint[][] } | null) =>
 		c ? [...c.solid, ...c.beyond].flat() : [];
@@ -568,9 +577,10 @@ function familyAxes(input: {
 	const largest = Math.max(...[...own, ...drawnSystem].map((p) => p.x));
 	const familyLargest = Math.max(...family.map((p) => p.x));
 	const xMax = familyLargest > largest ? roundUpNice(largest * 1.05) : null;
+	const curvesCut = xMax !== null && family.some((p) => p.x > xMax);
 	const smallest = Math.min(...[...own, ...drawnSystem].map((p) => p.x));
 	const xMin = Math.min(...family.map((p) => p.x)) < 0 && smallest >= 0 ? 0 : null;
-	return { xMin, xMax, yMax, system, systemCut };
+	return { xMin, xMax, curvesCut, yMax, system, systemCut };
 }
 
 /** Two duties agree within the duty checks' tolerances (the flow's, and the rise's of 4b). */
@@ -1276,11 +1286,12 @@ export const OTHER_CURVES_FRAME =
 
 /**
  * The clip note (D24 §9.4, §9.6), after the frame sentence when the axes cut a curve: each clause
- * only when that cut was made (null with none).
+ * only when that cut was made (null with none): x max set cuts nothing when every other curve
+ * ends inside it.
  */
-export function clipNote(data: Pick<GroupChartData, 'xMax' | 'systemCut'>): string | null {
+export function clipNote(data: Pick<GroupChartData, 'curvesCut' | 'systemCut'>): string | null {
 	const clauses = [
-		...(data.xMax !== null
+		...(data.curvesCut
 			? [
 					"other cases' group curves are cut at the chart's right edge, the largest flow of this case's own lines and the rings"
 				]

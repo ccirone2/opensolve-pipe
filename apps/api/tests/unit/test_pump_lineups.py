@@ -1145,11 +1145,13 @@ def test_6_a_pump_on_behind_a_closed_valve(lab: Lab) -> None:
 # 1. Each curve's duty check agrees, and its duty point is the ring: at the duty's rise, the
 #    duty's flow and every member's flow of the case's ``/solve`` within D6. The ring is on its
 #    own curve.
-# 2. Each curve samples the base's rises, evenly spaced from 0 to the shutoff s²H₀(0), plus its
-#    own duty's rise, so curves compare rise by rise.
-# 3. At every shared rise below the shutoff, where every flow is above the duty check's floor,
-#    the flows rise strictly with the number running. At the shutoff, where every flow is
-#    round-off around zero, the order is not tested.
+# 2. Each curve samples the base's rises, evenly spaced from 0 to the shutoff (the base's
+#    ``/solve``'s shutoff head of the pumps on), plus its own duty's rise, so curves compare rise
+#    by rise.
+# 3. At every shared rise where both compared flows are above the duty check's floor, the flows
+#    rise strictly with the number running; below the shutoff every flow is above it. At the
+#    shutoff every flow is round-off around zero, so no pair is compared there today; a pair of
+#    real flows there would be.
 # 4. The four "3 running" curves differ by more than D6 somewhere: not one curve.
 # 5. Straight lines between each curve's points cross the base's group system curve, joined the
 #    same way, once and within D6 of the case's duty.
@@ -1221,15 +1223,6 @@ def rises(answer: dict[str, Any]) -> list[float]:
 def flows_by_rise(answer: dict[str, Any]) -> dict[float, float | None]:
     """The group curve's flow at each of its rises (None where a point has no flow)."""
     return {p["head"]: p["flow"] for p in answer["points"]}
-
-
-def shutoff(project: dict[str, Any], pump_id: str) -> float:
-    """A pump's shutoff head s²H₀(0): its speed squared times its curve's head at zero flow, a
-    point of the test input's curve."""
-    pump_data = pgi._component(project, pump_id)
-    curve = next(c for c in project["pumpLibrary"] if c["id"] == pump_data["curveId"])
-    [h0] = [p["head"] for p in curve["points"] if p["flow"] == 0.0]
-    return float(pump_data["speed"]) ** 2 * float(h0)
 
 
 def beyond_d6(a: float, b: float) -> float:
@@ -1355,10 +1348,11 @@ def test_l3_1_each_ring_is_on_its_own_group_curve(lab: Lab, family: Family) -> N
 
 def test_l3_2_each_curve_samples_the_bases_rises_and_its_own_duty(family: Family) -> None:
     """The base's curve samples evenly spaced rises (their number read from it) from its lowest,
-    the default min(0, the duty's rise), to its highest, the shutoff: the largest s²H₀(0) of the
-    pumps on, from the test input's curves, within D6. Each case's curve has the base's range
-    and samples exactly the base's rises plus its own duty's, in rise order, bit for bit, its
-    one duty point at its duty's rise; so curves compare rise by rise."""
+    the default min(0, the duty's rise), to its highest, the shutoff: the largest shutoff head of
+    the pumps on in the base's ``/solve`` (each one's ``shutoffHead``), within D6, both sides the
+    API's answers. Each case's curve has the base's range and samples exactly the base's rises
+    plus its own duty's, in rise order, bit for bit, its one duty point at its duty's rise; so
+    curves compare rise by rise."""
     assert not family.own, "\n".join(family.own)
     st = family.station
     base = family.curves[BASE]
@@ -1371,10 +1365,11 @@ def test_l3_2_each_curve_samples_the_bases_rises_and_its_own_duty(family: Family
         (i, h) for i, h in enumerate(grid) if abs(h - (span["min"] + i * step)) > GRID * span["max"]
     ]
     assert not uneven, uneven
+    pumps = st.solve["solvedState"]["pumpResults"]
     top = head(
-        "the highest rise, the shutoff",
+        "the highest rise, the shutoff: the largest shutoff head of the pumps on in /solve",
         span["max"],
-        max(shutoff(st.project, pid) for pid in st.pumps.on),
+        max(pumps[pid]["shutoffHead"]["head"] for pid in st.pumps.on),
     )
     assert top.ok, str(top)
     problems: list[str] = []
@@ -1404,16 +1399,18 @@ def test_l3_2_each_curve_samples_the_bases_rises_and_its_own_duty(family: Family
 
 
 def test_l3_3_flows_rise_strictly_with_the_number_running(family: Family) -> None:
-    """At every rise all the curves sample (the base's, proof 2) below the shutoff (its highest),
-    the curve with more pumps running passes strictly more flow, for every two curves of
-    different counts. Below the shutoff every flow is above the duty check's floor, so every
-    pair is compared at every such rise. At the shutoff every flow is round-off around zero (or
-    the point has none) and the order is not tested there (D13, §3.4). The number running is
-    the input's and the curve's: at every point with a flow, the members off are exactly the
-    case's. A property of identical pumps, not a claim of the web (§10.3). Curves of the base
-    answered for the cases fail it: their flows are equal."""
+    """At every rise all the curves sample (the base's, proof 2) where both flows of two curves
+    of different counts are above the duty check's floor, the curve with more pumps running
+    passes strictly more flow (§10.3). Below the shutoff (the highest rise) every flow is above
+    the floor, so every pair is compared at every such rise. At the shutoff a pair is compared
+    by the same rule: today every flow there is round-off around zero (or the point has none,
+    D13, §3.4), so none is, but real flows there in the wrong order would fail it. The number
+    running is the input's and the curve's: at every point with a flow, the members off are
+    exactly the case's. A property of identical pumps, not a claim of the web (§10.3). Curves of
+    the base answered for the cases fail it: their flows are equal."""
     assert not family.own, "\n".join(family.own)
-    below = rises(family.curves[BASE])[:-1]
+    grid = rises(family.curves[BASE])
+    below, top = grid[:-1], grid[-1]
     flows = {key: flows_by_rise(answer) for key, answer in family.curves.items()}
     problems: list[str] = []
     for key, answer in family.curves.items():
@@ -1423,23 +1420,27 @@ def test_l3_3_flows_rise_strictly_with_the_number_running(family: Family) -> Non
                 problems.append(f"{key} at {p['head']!r} m: off {sorted(off)}")
     pairs = 0
     compared = 0
+    at_top = 0
     for a, b in itertools.combinations(family.curves, 2):
         if family.running[a] == family.running[b]:
             continue
         more, fewer = (a, b) if family.running[a] > family.running[b] else (b, a)
         pairs += 1
-        for h in below:
+        for h in grid:
             q_more, q_fewer = flows[more].get(h), flows[fewer].get(h)
             what = f"at {h!r} m: {more} ({family.running[more]} running) {q_more!r} m³/s"
             what += f", {fewer} ({family.running[fewer]} running) {q_fewer!r} m³/s"
             if q_more is None or q_fewer is None or min(q_more, q_fewer) <= DUTY_FLOW_FLOOR:
-                problems.append(f"{what}: not both above the floor below the shutoff")
+                if h != top:
+                    problems.append(f"{what}: not both above the floor below the shutoff")
                 continue
             compared += 1
+            if h == top:
+                at_top += 1
             if not q_more > q_fewer:
                 problems.append(f"{what}: not more flow with more running")
     assert pairs, family.running
-    assert compared == pairs * len(below), (pairs, compared, problems[:10])
+    assert compared == pairs * len(below) + at_top, (pairs, compared, problems[:10])
     assert not problems, "\n".join(problems)
 
 

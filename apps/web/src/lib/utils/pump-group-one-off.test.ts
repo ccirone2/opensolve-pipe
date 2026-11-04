@@ -1074,6 +1074,54 @@ describe('the station inside, and the other cases’ own group curves (D24 slice
 		insideRevalued.resistanceLibrary![0]!.value = 500;
 		expect(insideOf(insideUsed, s).resistanceLibrary!.map((e) => e.id)).toEqual(['RS1']);
 		expect(inside(insideRevalued, insideUsed, s)).toBe('differs');
+		// A pipe spec, likewise: on an outside pipe only, revalued, the same inside; on an interior
+		// pipe, another inside.
+		const spec: PipeSpec = {
+			id: 'PS1',
+			name: 'Bore',
+			source: 'synthetic',
+			materialId: 'custom',
+			innerDiameter: base.connections.find((c) => c.id === 'LA1')!.piping.pipes[0]!.innerDiameter!,
+			roughness: null
+		};
+		const specOutside = structuredClone(base);
+		specOutside.pipeLibrary = [spec];
+		specOutside.connections.find((c) => c.id === 'L2')!.piping.pipes[0]!.specId = 'PS1';
+		const specOutsideRevalued = structuredClone(specOutside);
+		specOutsideRevalued.pipeLibrary![0]!.innerDiameter = 0.2;
+		expect(insideOf(specOutside, s)).not.toHaveProperty('pipeLibrary');
+		expect(inside(specOutsideRevalued, specOutside, s)).toBe('same');
+		const specInside = structuredClone(base);
+		specInside.pipeLibrary = [spec];
+		specInside.connections.find((c) => c.id === 'LA1')!.piping.pipes[0]!.specId = 'PS1';
+		const specInsideRevalued = structuredClone(specInside);
+		specInsideRevalued.pipeLibrary![0]!.innerDiameter = 0.2;
+		expect(insideOf(specInside, s).pipeLibrary!.map((e) => e.id)).toEqual(['PS1']);
+		expect(inside(specInsideRevalued, specInside, s)).toBe('differs');
+		// Both at once: the one used inside kept, the one used only outside revalued, the same.
+		const specBoth = structuredClone(specInside);
+		specBoth.pipeLibrary!.push({ ...spec, id: 'PS2' });
+		specBoth.connections.find((c) => c.id === 'L2')!.piping.pipes[0]!.specId = 'PS2';
+		const specBothRevalued = structuredClone(specBoth);
+		specBothRevalued.pipeLibrary![1]!.innerDiameter = 0.2;
+		expect(insideOf(specBoth, s).pipeLibrary!.map((e) => e.id)).toEqual(['PS1']);
+		expect(inside(specBothRevalued, specBoth, s)).toBe('same');
+		// A pump curve only a pump outside the station uses (synthetic, unconnected), reshaped:
+		// the same inside; the members' own curve is kept, and only it.
+		const pa = base.components.find((c) => c.id === 'PA')!;
+		const booster = structuredClone(base);
+		booster.pumpLibrary.push({ ...structuredClone(base.pumpLibrary[0]!), id: 'PC-X' });
+		booster.components.push({
+			...structuredClone(pa),
+			id: 'PX',
+			name: 'Booster PX',
+			curveId: 'PC-X'
+		} as typeof pa);
+		const boosterReshaped = structuredClone(booster);
+		for (const p of boosterReshaped.pumpLibrary.find((c) => c.id === 'PC-X')!.points)
+			p.head *= 1.02;
+		expect(insideOf(booster, s).pumpLibrary.map((c) => c.id)).toEqual(['PC-A']);
+		expect(inside(boosterReshaped, booster, s)).toBe('same');
 	});
 
 	it('draws a lineup sibling’s curve, the base’s with a lineup shown, a stale one’s; never the same inside, another inside, unticked or past the cap', () => {
@@ -1206,6 +1254,35 @@ describe('the station inside, and the other cases’ own group curves (D24 slice
 			['S4', 'no_flow', null]
 		]);
 		expect(states[3]!.curveWords).toBe('not drawn: no flow at any rise');
+		// Synthetic: S1's flows all positive round-off (the base's own shutoff point carries
+		// +5.99e-15 m³/s), then all at the floor itself: no flow above DUTY_CHECK_FLOOR, not drawn.
+		// One point a little above the floor: drawn.
+		const flowsOf = (q: (i: number) => number | null) =>
+			otherGroupCases(
+				lineupInput('', {
+					edit: (v) => {
+						if (v.key !== 'S1' || v.group?.status !== 'ready') return v;
+						const response = structuredClone(v.group.response);
+						response.points.forEach((p, i) => (p.flow = q(i)));
+						return { ...v, group: { status: 'ready', response } };
+					}
+				})
+			)[0]!;
+		const baseFlows = body(lineupAnswers('').groupCurve).points.map((p) => p.flow);
+		expect(baseFlows.some((q) => q !== null && q > 0 && q < 1e-14)).toBe(true);
+		for (const q of [5e-15, DUTY_CHECK_FLOOR]) {
+			const roundOff = flowsOf(() => q);
+			expect([q, roundOff.key, roundOff.curveState, roundOff.curve]).toEqual([
+				q,
+				'S1',
+				'no_flow',
+				null
+			]);
+			expect(roundOff.curveWords).toBe('not drawn: no flow at any rise');
+		}
+		const above = flowsOf((i) => (i === 0 ? 2 * DUTY_CHECK_FLOOR : 5e-15));
+		expect(above.curveState).toBe('crossing');
+		expect(above.curve).not.toBeNull();
 	});
 
 	it('calls a ring the crossing only with its duty check agreeing, the claim on and its curve drawn', () => {

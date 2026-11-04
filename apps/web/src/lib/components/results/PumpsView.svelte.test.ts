@@ -7,7 +7,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NetworkError, TopologyError } from '$lib/api/client';
 import type { Component, Project, SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
@@ -24,6 +24,12 @@ import { withScenarios } from '$lib/utils/scenarios';
 // workspace in this test runner; PumpChart.svelte.test.ts mocks it for the chart itself.)
 const getContext = HTMLCanvasElement.prototype.getContext;
 const consoleError = console.error;
+// The chart loads Chart.js on first draw (`import('./chart-setup')`). Loaded here once, so a wait
+// for the drawn chart waits for the drawing, not for the test runner's first transform of
+// Chart.js, which took over waitFor's second on a loaded 4-CPU machine (on main too).
+beforeAll(async () => {
+	await import('./chart-setup');
+});
 beforeEach(() => {
 	console.error = (...args: unknown[]) => {
 		if (String(args[0]).startsWith('Failed to create chart')) return;

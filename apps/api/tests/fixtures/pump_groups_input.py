@@ -209,6 +209,14 @@ def _split(data: dict[str, Any], conn_id: str, comp: dict[str, Any], a: str, b: 
     data["connections"].append(tail)
 
 
+def fcv_outside_project() -> dict[str, Any]:
+    """``parallel-ideal`` with an FCV FC (setpoint 60 L/s) on the delivery pipe, outside the
+    station (this fixture's ``fcv-outside``, and the export fixture's ``pump-groups``)."""
+    fcv = _parallel()
+    _split(fcv, "L2", _dump(control_valve("FC", 1.0, "fcv", 0.06)), "inlet", "outlet")
+    return fcv
+
+
 def generate() -> dict[str, Any]:
     client = _client()
     cases: list[dict[str, Any]] = []
@@ -356,13 +364,11 @@ def generate() -> dict[str, Any]:
     assert body["duty"] is None, body
     cases.append(case)
 
-    fcv = _parallel()
-    _split(fcv, "L2", _dump(control_valve("FC", 1.0, "fcv", 0.06)), "inlet", "outlet")
     case = _case(
         client,
         "fcv-outside",
         "An FCV (60 L/s) on the delivery pipe, outside the station",
-        fcv,
+        fcv_outside_project(),
         ["PA", "PB"],
         system=200,
     )

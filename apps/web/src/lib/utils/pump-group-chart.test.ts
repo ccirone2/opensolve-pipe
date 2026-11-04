@@ -33,9 +33,12 @@ import {
 	groupChartData,
 	groupImageTitle,
 	groupLegend,
+	groupMethodsHeading,
+	groupMethodsLines,
 	groupNoteLines,
 	groupNotes,
 	groupSampleRows,
+	MEMBER_STATUS_WORDS,
 	groupSummary,
 	groupTable,
 	stopRise,
@@ -677,5 +680,31 @@ describe('the data table', () => {
 				{ flow: '—', head: '—', state: '—' }
 			]
 		});
+	});
+});
+
+describe('the methods heading and lines (the card and the export, slice 4c)', () => {
+	it('heads the methods with the title and version, then items and references as methodsText', () => {
+		const r = named('parallel-ideal').groupCurve.body as PumpGroupCurveResponse;
+		expect(groupMethodsHeading(r)).toBe(
+			`${r.methods.title} (calculation methods ${r.methodVersion})`
+		);
+		expect(groupMethodsHeading(r)).toBe('Pump group (calculation methods 1.6.0)');
+		expect(r.methods.references.length).toBeGreaterThan(0);
+		expect(groupMethodsLines(r)).toEqual([
+			'Pump group (calculation methods 1.6.0)',
+			...r.methods.items.map((item) => `- ${item}`),
+			'References:',
+			...r.methods.references.map((ref) => `- ${ref}`)
+		]);
+		const bare = { ...r, methods: { ...r.methods, references: [] } };
+		expect(groupMethodsLines(bare)).toEqual([
+			'Pump group (calculation methods 1.6.0)',
+			...r.methods.items.map((item) => `- ${item}`)
+		]);
+	});
+
+	it('words a member’s status as the data table does', () => {
+		expect(MEMBER_STATUS_WORDS).toEqual({ running: 'Running', off: 'Off', no_flow: 'No flow' });
 	});
 });

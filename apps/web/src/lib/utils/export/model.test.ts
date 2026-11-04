@@ -16,6 +16,7 @@ import { goalSeekReport } from '../goal-seek';
 import { flagText } from '../flag-text';
 import { canonicalJson } from '../json';
 import { fittingFallbackName, portLabel } from '../labels';
+import { groupKey } from '../../state/project.svelte';
 import { pumpChartData } from '../pump-chart';
 import {
 	assignedFlowTable,
@@ -453,6 +454,94 @@ describe('number cells are the API values (items 1 and 2)', () => {
 				]
 			);
 		}
+		if (ids.has('pump-groups')) {
+			// Pump groups (CLAUDE.md D21, slice 4c): each row's case by its Case id, its group by
+			// the Group's ids (the store's groupKey), its point by Point # in the helpers' order.
+			const groupOf = (t: ReadSheet, r: readonly CellValue[], caseId: string | null) => {
+				const c = input.cases.find((x) => x.id === caseId)!;
+				const key = groupKey(String(t.get(r, 'Group')).split('+'));
+				const g = c.groupCurves[key];
+				const y = c.groupSystemCurves[key];
+				return {
+					group: g?.status === 'ready' ? g.response : null,
+					system: y?.status === 'ready' ? y.response : null
+				};
+			};
+			const station = (t: ReadSheet, r: readonly CellValue[], caseId: string | null) => {
+				const { group, system } = groupOf(t, r, caseId);
+				return (group ?? system)!;
+			};
+			const curvePoint = (t: ReadSheet, r: readonly CellValue[], caseId: string | null) => {
+				const group = groupOf(t, r, caseId).group!;
+				const points = [...group.points].sort((a, b) => a.head - b.head);
+				return { group, point: points[(t.get(r, 'Point #') as number) - 1]! };
+			};
+			let t = readSheet(bundle, 'pump-groups');
+			checked += checkFields(input, t, (_s, r, caseId) => station(t, r, caseId), [
+				['Station flow', (x) => x.duty?.flow, 'flow'],
+				['Rise', (x) => x.duty?.head, 'head'],
+				['Lost in the piping between the pumps', (x) => x.duty?.interstageHeadLoss, 'head']
+			]);
+			t = readSheet(bundle, 'pump-group-members');
+			const members = t;
+			checked += checkFields(
+				input,
+				members,
+				(_s, r, caseId) =>
+					station(members, r, caseId).duty!.members.find(
+						(m) => m.pumpId === members.get(r, 'Pump id')
+					)!,
+				[
+					['Speed', (m) => (m.status === 'off' ? null : m.speed), 'fraction'],
+					['Flow', (m) => m.flow, 'flow'],
+					['Head', (m) => m.head, 'head'],
+					['Share', (m) => m.share, 'fraction'],
+					['Lost on its way', (m) => m.routeHeadLoss, 'head']
+				]
+			);
+			const curves = readSheet(bundle, 'group-curves');
+			checked += checkFields(input, curves, (_s, r, caseId) => curvePoint(curves, r, caseId), [
+				['Rise from', (x) => x.group.headRange?.min, 'head'],
+				['Rise to', (x) => x.group.headRange?.max, 'head'],
+				['Rise', (x) => x.point.head, 'head'],
+				['Station flow', (x) => x.point.flow, 'flow']
+			]);
+			const curveMembers = readSheet(bundle, 'group-curve-members');
+			checked += checkFields(
+				input,
+				curveMembers,
+				(_s, r, caseId) => {
+					const { point } = curvePoint(curveMembers, r, caseId);
+					const id = curveMembers.get(r, 'Pump id');
+					return { point, m: point.members.find((x) => x.pumpId === id)! };
+				},
+				[
+					['Rise', (x) => x.point.head, 'head'],
+					['Speed', (x) => (x.m.status === 'off' ? null : x.m.speed), 'fraction'],
+					['Flow', (x) => x.m.flow, 'flow'],
+					['Head', (x) => x.m.head, 'head']
+				]
+			);
+			const system = readSheet(bundle, 'group-system-curves');
+			checked += checkFields(
+				input,
+				system,
+				(_s, r, caseId) => {
+					const y = groupOf(system, r, caseId).system!;
+					const points = [...y.systemPoints].sort((a, b) => a.flow - b.flow);
+					return { y, point: points[(system.get(r, 'Point #') as number) - 1]! };
+				},
+				[
+					['Flow from', (x) => x.y.flowRange?.min, 'flow'],
+					['Flow to', (x) => x.y.flowRange?.max, 'flow'],
+					['Station flow', (x) => x.point.flow, 'flow'],
+					['Rise', (x) => x.point.head, 'head'],
+					['Limit flow', (x) => x.point.limitFlow, 'flow'],
+					['Passed flow', (x) => x.point.passedFlow, 'flow'],
+					['Open-valve rise', (x) => x.point.openHead, 'head']
+				]
+			);
+		}
 		expect(checked).toBeGreaterThan(50);
 	});
 });
@@ -699,6 +788,21 @@ describe('branch K is on the combined-flow velocity (item 13, decision 29)', () 
 		if (!bundle.sheets.some((s) => s.id === 'branch-ports'))
 			return expect(['pump-transfer', 'design-checks', 'project-library']).toContain(name);
 		const t = readSheet(bundle, 'branch-ports');
+		// Ideal tees (EPANET-style junctions) have no K: the pump-groups case's tees are all ideal.
+		const ideal = input.cases.every((c) =>
+			Object.values(c.response!.solvedState.branchResults).every((b) => b.lossModel === 'ideal')
+		);
+		if (ideal) {
+			// No velocity K is on, a K of 0 (none on the combined port) and no loss on any path.
+			expect(name).toBe('pump-groups');
+			for (const row of t.rows) {
+				expect([0, null]).toContain(t.get(row, 'K of the path from the combined port'));
+				expect(t.get(row, 'Velocity K is on')).toBeNull();
+				const loss = t.get(row, 'Path head loss (+ in the flow direction)');
+				expect(loss === null || loss === 0).toBe(true);
+			}
+			return;
+		}
 		const si = units === 'si';
 		const toSi = (v: number, category: UnitCategory) =>
 			si ? v : toSI(v, displayUnit(category, input.prefs));
@@ -892,7 +996,8 @@ describe('the fixture itself', () => {
 			'scenarios',
 			'tee-fallback',
 			'design-checks',
-			'project-library'
+			'project-library',
+			'pump-groups'
 		]);
 		const checks = fixtureInput('design-checks').cases[0]!.response!.solvedState.designChecks;
 		expect(new Set(checks.map((c) => c.outcome))).toEqual(

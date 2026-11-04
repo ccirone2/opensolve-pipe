@@ -9,7 +9,8 @@
  * - Each exported case in case order (the base, then the scenarios): its name and status, its
  *   response by Compare's rule (`caseResponse`: none for a failed case or one a stopped run did not
  *   reach), whether that response is out of date, the project as sent and the case as solved, and
- *   its computed system curves (read only: the export never computes one).
+ *   its computed system curves and its computed group curves (read only: the export never
+ *   computes one).
  * - The rows chosen on the Compare tab (or its defaults, as CompareView computes them), the latest
  *   finished goal seek, and the methods version the link recorded.
  *
@@ -22,6 +23,8 @@ import {
 	finishedGoalSeek,
 	type CaseStatus,
 	type GoalSeekState,
+	type GroupCurveState,
+	type GroupSystemCurveState,
 	type ResultsState,
 	type SystemCurveState
 } from '../../state/project.svelte';
@@ -41,6 +44,8 @@ export interface ExportSource {
 		sentProjectFor(caseId: CaseId): Project | null;
 		caseInputs(caseId: CaseId): Project | null;
 		systemCurvesFor(caseId: CaseId): Readonly<Record<string, SystemCurveState>>;
+		groupCurvesFor(caseId: CaseId): Readonly<Record<string, GroupCurveState>>;
+		groupSystemCurvesFor(caseId: CaseId): Readonly<Record<string, GroupSystemCurveState>>;
 		readonly goalSeek: GoalSeekState;
 		readonly loadedMethodVersion: string;
 	};
@@ -95,7 +100,9 @@ function caseOf(ws: ExportSource, caseId: CaseId): ExportCase {
 		keptResponse: !response && !!results.response,
 		sent: response ? store.sentProjectFor(caseId) : null,
 		inputs: response ? store.caseInputs(caseId) : null,
-		systemCurves: response ? store.systemCurvesFor(caseId) : {}
+		systemCurves: response ? store.systemCurvesFor(caseId) : {},
+		groupCurves: response ? store.groupCurvesFor(caseId) : {},
+		groupSystemCurves: response ? store.groupSystemCurvesFor(caseId) : {}
 	};
 }
 

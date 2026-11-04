@@ -27,6 +27,10 @@
  *   whose results are missing or out of date, one request at a time, from a snapshot. Each undo
  *   step records the case it was made in, and undo and redo show that case again. A base edit
  *   carries the scenarios' changes with the pipes it moves (utils/scenarios.ts carryChanges).
+ * - Names that follow (CLAUDE.md D24, proposal pump-lineups.md §4.5): every update() runs the
+ *   follow rule (utils/pump-lineups.ts followLineupNames) after the carried changes, so a name the
+ *   app made follows its pumps in the same undo step as the edit, whichever path made it; the
+ *   result says what was renamed, for the caller's notice.
  * - Goal seek (PRD §3.9, proposal goal-seek.md §6.15): one run at a time, on a case, from the
  *   project exactly as sent. It never changes the project; its result (`goalSeek`) goes out of
  *   date by that case's staleness key, recomputed on every project change whether or not any case
@@ -75,6 +79,7 @@ import { createEmptyProject, isoNow } from '../utils/factory';
 import { markProjectCopy } from '../utils/identity';
 import type { Calculating } from '../utils/goal-seek';
 import { pressureControlOnly } from '../utils/pump-groups';
+import { followLineupNames, type Rename } from '../utils/pump-lineups';
 import { recordResultsProject } from '../utils/results';
 import {
 	applyScenario,
@@ -100,10 +105,20 @@ export interface HistoryEntry {
 
 /**
  * What update() did. `notes` (only when there are any) say what a base edit did to scenario
- * changes (a removed pipe's changes went with it, a valve's setpoint changes were removed, ...).
+ * changes (a removed pipe's changes went with it, a valve's setpoint changes were removed, ...);
+ * `renamed` (only when any) the scenarios whose app-made names followed their pumps (CLAUDE.md
+ * D24, proposal pump-lineups.md §4.5).
  */
 export type UpdateResult =
-	{ ok: true; changed: boolean; notes?: string[] } | { ok: false; problems: string[] };
+	| { ok: true; changed: boolean; notes?: string[]; renamed?: Rename[] }
+	| { ok: false; problems: string[] };
+
+/**
+ * An undo step's label, or how to make it from the project after the step (CLAUDE.md D24,
+ * proposal pump-lineups.md §8.6): a label that names a case names it as it is after the step,
+ * the name on screen, when the step renamed it.
+ */
+export type UpdateLabel = string | ((after: Project) => string);
 
 export type ResultsError =
 	| { kind: 'topology'; message: string; issues: readonly TopologyIssue[] }
@@ -813,10 +828,16 @@ export class ProjectStore {
 	 *
 	 * With `merge`, a change with the same label as the previous one (and nothing undone in
 	 * between) joins its undo step, so a burst of edits to one field undoes at once.
+	 *
+	 * Then names that follow (CLAUDE.md D24, proposal pump-lineups.md §4.5): a scenario whose name
+	 * the app made takes the name of its pumps after the change, in this same undo step (`renamed`
+	 * says which). It runs on the valid project, after the carried changes, so a change carried
+	 * away no longer counts in a name. A `label` given as a function is made from the project after
+	 * the step, renames included.
 	 */
 	update(
 		change: (draft: Project) => Project | void,
-		label: string,
+		label: UpdateLabel,
 		options: { merge?: boolean } = {}
 	): UpdateResult {
 		const current = this.project;
@@ -837,17 +858,26 @@ export class ProjectStore {
 		next = { ...next, metadata: { ...next.metadata, modified: this.#now() } };
 		const problems = structuralProblems(next);
 		if (problems.length) return { ok: false, problems };
+		// A rename changes names only (each within the name limit), so the project stays valid.
+		const followed = followLineupNames(current, next);
+		next = followed.project;
+		const text = typeof label === 'string' ? label : label(next);
 
 		const previous = this.#undo[this.#undo.length - 1];
 		const sameCase = previous?.caseId === this.activeCase;
-		if (!(options.merge && this.#mergeable && previous?.label === label && sameCase)) {
-			const undo = [...this.#undo, { project: current, label, caseId: this.activeCase }];
+		if (!(options.merge && this.#mergeable && previous?.label === text && sameCase)) {
+			const undo = [...this.#undo, { project: current, label: text, caseId: this.activeCase }];
 			this.#undo = undo.slice(Math.max(0, undo.length - (this.#options.maxHistory ?? MAX_HISTORY)));
 		}
 		this.#redo = [];
 		this.#mergeable = true;
 		this.#replace(next);
-		return notes.length ? { ok: true, changed: true, notes } : { ok: true, changed: true };
+		return {
+			ok: true,
+			changed: true,
+			...(notes.length ? { notes } : {}),
+			...(followed.renamed.length ? { renamed: followed.renamed } : {})
+		};
 	}
 
 	/**

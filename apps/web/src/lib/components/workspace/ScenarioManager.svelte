@@ -32,7 +32,7 @@
 		valueOf,
 		withScenarios
 	} from '$lib/utils/scenarios';
-	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { caseNameIn, useWorkspace } from '$lib/state/workspace.svelte';
 	import CaseStatusChip from './CaseStatusChip.svelte';
 
 	let { onclose }: { onclose: () => void } = $props();
@@ -139,11 +139,23 @@
 		listHeading?.focus();
 	}
 
+	/**
+	 * Remove changes of a scenario: its undo label names it as the step leaves it, since a name the
+	 * app made follows its pumps (CLAUDE.md D24, proposal pump-lineups.md §4.5).
+	 */
 	function removeChanges(scenario: Scenario, indices: readonly number[], label: string) {
-		edit(scenario, label, (s) => ({
-			...s,
-			overrides: (s.overrides ?? []).filter((_, i) => !indices.includes(i))
-		}));
+		ws.updateStored(
+			(p) =>
+				withScenarios(
+					p,
+					scenarios.map((s) =>
+						s.id === scenario.id
+							? { ...s, overrides: (s.overrides ?? []).filter((_, i) => !indices.includes(i)) }
+							: s
+					)
+				),
+			(after) => `${label} ${caseNameIn(after, scenario.id)}`
+		);
 	}
 
 	async function showCase(scenarioId: string | null) {

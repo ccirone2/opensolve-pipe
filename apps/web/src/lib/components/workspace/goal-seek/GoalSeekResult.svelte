@@ -17,7 +17,7 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import ResultsTable from '$lib/components/results/ResultsTable.svelte';
 	import type { GoalSeekFinished } from '$lib/state/project.svelte';
-	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { caseNameIn, useWorkspace } from '$lib/state/workspace.svelte';
 	import { flagText } from '$lib/utils/flag-text';
 	import {
 		applyProblems,
@@ -185,14 +185,15 @@
 
 	function resetChange(scenarioId: string, override: Override) {
 		const target = changeTarget(override);
-		const name = ws.caseName(scenarioId);
+		const field = changeFieldLabel(store.project, override).toLowerCase();
 		ws.updateStored(
 			(draft) => {
 				const own = draft.scenarios?.find((s) => s.id === scenarioId);
 				if (own)
 					own.overrides = overridesOf(own).filter((o) => !changes(o, target, override.field));
 			},
-			`reset ${changeFieldLabel(store.project, override).toLowerCase()} in ${name}`
+			// Named as the step leaves it: an app-made name follows its pumps (CLAUDE.md D24).
+			(after) => `reset ${field} in ${caseNameIn(after, scenarioId)}`
 		);
 	}
 

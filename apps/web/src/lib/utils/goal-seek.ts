@@ -170,7 +170,7 @@ export function calculatingReason(
 
 /**
  * Why Solve all is unavailable ('' when it can run): the Scenarios menu's words (CaseMenu.svelte),
- * which the Pumps together card's One pump off block repeats (PumpsView.svelte, CLAUDE.md D21),
+ * which the Pumps together card's Add cases block repeats (PumpsView.svelte, CLAUDE.md D21, D24),
  * from one function so the two never differ. In order: an empty network; a goal seek or a run
  * (calculatingReason); a single solve, named by its case, which need not be the one shown; then
  * nothing to solve, with the cases left out for an error named.

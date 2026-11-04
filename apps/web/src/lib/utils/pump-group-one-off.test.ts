@@ -1,8 +1,7 @@
 /**
  * One pump off, drawn together (CLAUDE.md D21 slice 4d), with pump lineups (D24 slice L1b): 4d's
- * block over lineupPlan's Each pump off (onePumpOffPlan, in 4d's shape and words until the Add
- * cases block replaces it; the plan's own tests are in pump-lineups.test.ts), whether two cases
- * share the rest of the network, the duty claim, the other cases' states and the chart's cases,
+ * names for one pump off (the Add cases block's plan is tested in pump-lineups.test.ts), whether
+ * two cases share the rest of the network, the duty claim, the other cases' states and the chart's cases,
  * Running combinations with its lineup line, and its extremes. The responses are the shared
  * fixture's real API answers (the `one-off`, `one-off-dead-headed`, `lineups` and
  * `lineups-closed-leg` cases and their scenario cases,
@@ -34,13 +33,11 @@ import {
 	dutyClaim,
 	MAX_GROUP_CASES,
 	offName,
-	onePumpOffPlan,
 	otherGroupCases,
 	restOf,
 	runningCombinations,
 	sameStation,
 	sharedRest,
-	withOnePumpOffCases,
 	type CombinationsInput,
 	type OtherCasesInput
 } from './pump-group-one-off';
@@ -72,91 +69,10 @@ const body = (a: Answer) => a.body as PumpGroupCurveResponse;
 const station = body(oneOff.groupCurve).station;
 const baseSystem = body(oneOff.systemCurve!);
 const scenarioCase = (id: string) => oneOff.scenarioCases![id]!;
-const withoutScenarios = (p: Project) => withScenarios(structuredClone(p), []);
 
-/** The plan for the `one-off` project's base case (its station, members and base solve). */
-function planFor(project: Project, overrides: Partial<Parameters<typeof onePumpOffPlan>[0]> = {}) {
-	return onePumpOffPlan({
-		project,
-		shownCase: null,
-		station,
-		memberIds: ['PA', 'PB'],
-		base: { response: oneOff.solve, stale: false },
-		...overrides
-	});
-}
-
-/** A response with one pump's status changed (synthetic). */
-function withStatus(response: SolveResponse, pumpId: string, status: PumpResult['status']) {
-	const copy = structuredClone(response);
-	copy.solvedState.pumpResults[pumpId]!.status = status;
-	return copy;
-}
-
-describe("4d's block until the Add cases block replaces it", () => {
-	// 4d's shape and words over lineupPlan's Each pump off, whose own tests (4d's plan tests,
-	// moved) are in pump-lineups.test.ts.
-	it('keeps 4d’s label, notes and gate sentences', () => {
-		const project = withoutScenarios(oneOff.project);
-		const plan = planFor(project);
-		expect(plan).toMatchObject({
-			gate: null,
-			about:
-				'Makes one scenario per pump running in the base case (Pump PA and Pump PB): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.',
-			add: [
-				{ pumpId: 'PA', id: 'S1', name: 'Pump PA off' },
-				{ pumpId: 'PB', id: 'S2', name: 'Pump PB off' }
-			],
-			label: 'Add cases with one pump off (2)',
-			refusal: null,
-			showSolveAll: true
-		});
-		expect(withOnePumpOffCases(project, plan.add).scenarios).toEqual(
-			oneOff.project.scenarios!.slice(0, 2)
-		);
-		const every = planFor(oneOff.project);
-		expect(every.existing).toEqual([
-			{ pumpId: 'PA', scenarioId: 'S1', scenarioName: 'Pump PA off' },
-			{ pumpId: 'PB', scenarioId: 'S2', scenarioName: 'Pump PB off' }
-		]);
-		expect(every.notes).toEqual([
-			'Pump PA has its case already: Pump PA off.',
-			'Pump PB has its case already: Pump PB off.'
-		]);
-		expect(every.label).toBe('Add cases with one pump off');
-		const c = named('one-off-dead-headed');
-		const dead = onePumpOffPlan({
-			project: withoutScenarios(c.project),
-			shownCase: null,
-			station: body(c.groupCurve).station,
-			memberIds: c.memberIds,
-			base: { response: c.solve, stale: false }
-		});
-		expect(dead.idle).toEqual(['PB']);
-		expect(dead.notes).toEqual([
-			"Pump PB carries no flow in the base case, so with it off the base case's state is the same: no case is made for it."
-		]);
-		const series = body(named('series').groupCurve).station;
-		expect(planFor(project, { station: series }).gate).toBe(
-			'Cases with one pump off are offered for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.'
-		);
-		expect(planFor(project, { station: { ...station, arrangement: 'mixed' } }).gate).toBe(
-			'Cases with one pump off are offered for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.'
-		);
-		expect(planFor(oneOff.project, { shownCase: 'S3' }).gate).toBe(
-			'Cases with one pump off are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with a pump off, duplicate it in Scenarios and set that pump off there.'
-		);
-		const none = withStatus(withStatus(oneOff.solve, 'PB', 'no_flow'), 'PA', 'no_flow');
-		none.solvedState.pumpResults.PA!.operatingFlow = 0;
-		none.solvedState.pumpResults.PB!.operatingFlow = 0;
-		expect(planFor(project, { base: { response: none, stale: false } }).gate).toBe(
-			'No pump of the group runs in the base case, so switching one off changes nothing.'
-		);
-		expect(planFor(project, { base: { response: oneOff.solve, stale: true } }).gate).toBe(
-			"The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now."
-		);
-	});
-
+describe("4d's names for one pump off", () => {
+	// 4d's block and its shape are gone: the Add cases block (PumpLineupsBlock) draws
+	// lineupPlan, whose Each pump off tests (4d's plan tests, moved) are in pump-lineups.test.ts.
 	it('cuts a long pump name to the scenario name limit, as copyName cuts', () => {
 		const long = 'P'.repeat(98);
 		expect(offName(long)).toBe(`${'P'.repeat(96)} off`);

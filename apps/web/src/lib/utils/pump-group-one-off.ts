@@ -3,11 +3,9 @@
  * pump lineups (CLAUDE.md D24 slice L1, proposal pump-lineups.md §7): the Pumps together card's
  * other cases.
  *
- * - The cases the card's "Add cases" block makes are pump-lineups.ts's lineupPlan (By number
+ * - The cases the card's Add cases block makes are pump-lineups.ts's lineupPlan (By number
  *   running, or Each pump off: 4d's cases, whose existing case is found by sameCase and whose
- *   idle member, on but carrying no flow, is read from its flow). onePumpOffPlan and
- *   withOnePumpOffCases are 4d's shape and words over Each pump off, for 4d's block until it is
- *   replaced.
+ *   idle member, on but carrying no flow, is read from its flow), drawn by PumpLineupsBlock.
  * - Other cases' station duties: each from that case's own group-curve answer (never computed
  *   here), drawn as a numbered ring only when its station is the one shown; a ring is called a
  *   point of the group system curve shown only when that case, as solved, is the same as this one
@@ -40,20 +38,13 @@ import type {
 import type { CaseStatus, GroupCurveState, GroupSystemCurveState } from '../state/project.svelte';
 import { CHECK_TITLES, OUTCOME_ORDER, OUTCOME_TITLES } from './design-checks';
 import type { Calculating } from './goal-seek';
-import { componentById } from './graph';
 import { canonicalJson } from './json';
 import { CASE_STATUS_LABELS } from './labels';
 import { andList, dutyFlow, slotStyle, stationPortWords, type GroupSlot } from './pump-group-chart';
 import { MAX_GROUP_PUMPS, pressureControlOnly, refusalWords, wordsText } from './pump-groups';
-import {
-	carriesFlow,
-	lineupChartPriority,
-	lineupPlan,
-	memberLabels,
-	withLineupCases
-} from './pump-lineups';
+import { carriesFlow, lineupChartPriority, memberLabels } from './pump-lineups';
 import { Formatter, flagsForElement, pumpStatusLabel, type Column } from './results';
-import { findScenario, type CaseId } from './scenarios';
+import type { CaseId } from './scenarios';
 
 export { DUTY_CLAIM_RULE } from './pump-group-chart';
 export { addedNotice, memberLabels, offName, offOverride } from './pump-lineups';
@@ -63,107 +54,6 @@ export { addedNotice, memberLabels, offName, offOverride } from './pump-lineups'
  * every number running of one (N − 1 ≤ 5; D24 §7.9).
  */
 export const MAX_GROUP_CASES = MAX_GROUP_PUMPS;
-
-// ---------------------------------------------------------------------------------------------
-// The cases with one pump off: 4d's shape and words over lineupPlan's Each pump off
-// ---------------------------------------------------------------------------------------------
-
-export interface OnePumpOffInput {
-	/** The stored project (its scenarios, names and component order). */
-	project: Project;
-	/** The case shown (ws.store.activeCase). */
-	shownCase: CaseId;
-	/** The station the card shows (stationResponse(...)?.station); null: no block. */
-	station: PumpGroupStation | null;
-	/** The card's members (groupMembers). */
-	memberIds: readonly string[];
-	/** The base case's response by Compare's rule, and whether it is out of date. */
-	base: { response: SolveResponse; stale: boolean } | null;
-}
-
-export interface OnePumpOffPlan {
-	/** Why the action is not offered (null: offered). */
-	gate: string | null;
-	/** What the action makes, when offered. */
-	about: string | null;
-	/** The cases to add: the pump, the id it will have (on the growing project) and its name. */
-	add: { pumpId: string; id: string; name: string }[];
-	/** The members whose case exists, with that scenario. */
-	existing: { pumpId: string; scenarioId: string; scenarioName: string }[];
-	/** Members on but carrying no flow in the base case: no case. */
-	idle: string[];
-	/** The idle and "has its case already" sentences, in member order (keyed by index). */
-	notes: string[];
-	/** Why the add is refused: nothing to add, or past the scenario limit (null: it can be made). */
-	refusal: string | null;
-	/** "Add cases with one pump off (2)"; no count when there is nothing to add. */
-	label: string;
-	/** The block's Solve all is drawn (offered, or gates 3–5: the base case shown). */
-	showSolveAll: boolean;
-}
-
-const LABEL = 'Add cases with one pump off';
-
-/**
- * 4d's "Add cases with one pump off", in its shape and words, for its block until the Add cases
- * block replaces it (D24 L1b): lineupPlan's Each pump off (an existing case found by sameCase, an
- * idle member read from its flow), with 4d's gate sentences, notes and label.
- */
-export function onePumpOffPlan(input: OnePumpOffInput): OnePumpOffPlan {
-	const plan = lineupPlan({ ...input, preset: 'each', savedOrder: [] });
-	const shown =
-		input.shownCase && (findScenario(input.project, input.shownCase)?.name ?? input.shownCase);
-	const gates: Partial<Record<NonNullable<typeof plan.gateKind>, string>> = {
-		series:
-			'Cases with one pump off are offered for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.',
-		mixed:
-			'Cases with one pump off are offered for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.',
-		scenario: `Cases with one pump off are made from the base case: show the base case to add them. To study ${shown} with a pump off, duplicate it in Scenarios and set that pump off there.`,
-		no_flow: 'No pump of the group runs in the base case, so switching one off changes nothing.'
-	};
-	const members = memberLabels(
-		input.memberIds.map((id) => ({
-			id,
-			name: componentById(input.project, id)?.name ?? id
-		}))
-	);
-	const name = (id: string) => members.get(id)?.name ?? id;
-	return {
-		gate: plan.gateKind ? (gates[plan.gateKind] ?? plan.gate) : null,
-		about: plan.about,
-		add: plan.add.map((a) => ({ pumpId: a.stopped[0]!, id: a.id, name: a.name })),
-		existing: plan.existing.map((e) => ({
-			pumpId: e.stopped[0]!,
-			scenarioId: e.scenarioId,
-			scenarioName: e.scenarioName
-		})),
-		idle: [...plan.idle],
-		notes: plan.cases.flatMap((c) => {
-			const id = c.stopped[0]!;
-			if (c.kind === 'existing') return [`${name(id)} has its case already: ${c.existingName}.`];
-			if (c.kind === 'base_state') {
-				return [
-					`${name(id)} carries no flow in the base case, so with it off the base case's state is the same: no case is made for it.`
-				];
-			}
-			return [];
-		}),
-		refusal: plan.refusal,
-		label: plan.add.length ? `${LABEL} (${plan.add.length})` : LABEL,
-		showSolveAll: plan.showSolveAll
-	};
-}
-
-/** 4d's add (withLineupCases): one case per pump, `{id, name, overrides: [offOverride]}`. */
-export function withOnePumpOffCases(
-	project: Project,
-	pumps: readonly { pumpId: string; name: string }[]
-): Project {
-	return withLineupCases(
-		project,
-		pumps.map((p) => ({ name: p.name, stopped: [p.pumpId] }))
-	);
-}
 
 // ---------------------------------------------------------------------------------------------
 // The rest of the network, and whether a ring is a point of the group system curve shown

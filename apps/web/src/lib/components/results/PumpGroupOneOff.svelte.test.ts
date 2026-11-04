@@ -1,6 +1,8 @@
 /**
- * One pump off on the Pumps together card, in the workspace (CLAUDE.md D21 slice 4d): the add in
- * one undo step, its notice and the box it ticks; the add during a run, after which the card asks
+ * One pump off on the Pumps together card, in the workspace (CLAUDE.md D21 slice 4d), now D24's Add
+ * cases block (PumpLineupsBlock) with Each pump off chosen: 4d's tests with the same assertions,
+ * only the strings pump-lineups.md §7.12 lists under "4d's strings that change" changed, each named
+ * where it does. The add in one undo step, its notice and the box it ticks; the add during a run, after which the card asks
  * again for the curve the run cancelled, before any other case's; the other cases' requests (after
  * the case shown's curves and after any calculation, one at a time, cancelled by the box or a
  * solve and asked again after it, withdrawn by a members change and asked again on going back,
@@ -122,7 +124,11 @@ function setup(
 
 const results = () => within(screen.getByRole('region', { name: 'Results' }));
 const card = () => results().getByRole('region', { name: /^Pumps together/ }) as HTMLElement;
-const block = () => within(card()).getByRole('region', { name: 'One pump off' });
+// §7.12: the h4 and region name "One pump off" becomes "Add cases".
+const block = () => within(card()).getByRole('region', { name: 'Add cases' });
+/** Choose Each pump off in the block (4d's cases; By number running is the default). */
+const chooseEach = () =>
+	fireEvent.click(within(block()).getByRole('radio', { name: 'Each pump off' }));
 const others = (calls: Call[]) => calls.filter((c) => c.scenarioId !== null);
 
 /** Solve the base, show the Pumps view and open the card; its two curves answered. */
@@ -140,7 +146,9 @@ describe('one pump off on the Pumps together card', () => {
 		await waitFor(() =>
 			expect(within(card()).getByRole('img')).toHaveAccessibleName(/group system curve shown/)
 		);
-		const add = within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' });
+		await chooseEach();
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		const add = within(block()).getByRole('button', { name: 'Add 2 cases' });
 		const depth = ws.store.undoDepth;
 		await fireEvent.click(add);
 		expect(ws.scenarios.map((s) => [s.id, s.name, s.overrides])).toEqual([
@@ -173,9 +181,7 @@ describe('one pump off on the Pumps together card', () => {
 		expect(scenariosOf(ws.store.project)).toEqual([]);
 		expect(ws.store.activeCase).toBeNull();
 		await waitFor(() =>
-			expect(
-				within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
-			).toBeVisible()
+			expect(within(block()).getByRole('button', { name: 'Add 2 cases' })).toBeVisible()
 		);
 	});
 
@@ -194,9 +200,9 @@ describe('one pump off on the Pumps together card', () => {
 		await openCard(ws, calls);
 		const response = ws.store.results.response;
 		expect(ws.store.groupSystemCurve(response, ['PA', 'PB'])).toEqual({ status: 'loading' });
-		await fireEvent.click(
-			within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
-		);
+		await chooseEach();
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
 		await fireEvent.click(within(block()).getByRole('button', { name: 'Solve all (2)' }));
 		expect(ws.store.groupSystemCurve(response, ['PA', 'PB'])).toEqual({
 			status: 'cancelled',
@@ -232,9 +238,9 @@ describe('one pump off on the Pumps together card', () => {
 	it('keeps the focus on its Solve all through the run and after, the button in place', async () => {
 		const { ws, calls, solves } = setup(withoutScenarios());
 		await openCard(ws, calls);
-		await fireEvent.click(
-			within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
-		);
+		await chooseEach();
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
 		const solveAll = within(block()).getByRole('button', { name: 'Solve all (2)' });
 		await waitFor(() => expect(solveAll).toHaveFocus());
 		await fireEvent.click(solveAll);
@@ -746,11 +752,14 @@ describe('one pump off on the Pumps together card', () => {
 		await ws.store.solveAll();
 		ws.setCase('S1');
 		ws.pumpGroupOthers = true;
+		// Each pump off chosen (page state; the gate holds under both presets, no control shows).
+		ws.lineupPreset = 'each';
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
 		await waitFor(() => expect(calls.filter((c) => c.scenarioId === 'S1')).toHaveLength(2));
+		// §7.12: gate 3's words become §7.2 row 3's.
 		expect(block()).toHaveTextContent(
-			'Cases with one pump off are made from the base case: show the base case to add them. To study Pump PA off with a pump off, duplicate it in Scenarios and set that pump off there.'
+			'Cases are made from the base case: show the base case to add them. To study Pump PA off with pumps off, duplicate it in Scenarios and set those pumps off there.'
 		);
 		expect(within(block()).queryByRole('button')).toBeNull();
 		await fireEvent.click(within(card()).getByRole('button', { name: 'Show data table' }));
@@ -771,7 +780,9 @@ describe('one pump off on the Pumps together card', () => {
 		}));
 		const { ws, calls } = setup(withScenarios(withoutScenarios(), nineteen));
 		await openCard(ws, calls);
-		const add = within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' });
+		await chooseEach();
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		const add = within(block()).getByRole('button', { name: 'Add 2 cases' });
 		expect(add).toHaveAttribute('aria-disabled', 'true');
 		expect(add).toHaveAccessibleDescription(
 			'Adding 2 cases would make 21 scenarios; a project holds at most 20 scenarios.'
@@ -788,20 +799,22 @@ describe('one pump off on the Pumps together card', () => {
 		for (const c of project.components) if (c.type === 'pump') c.name = 'Booster pump';
 		const { ws, calls, solves } = setup(project);
 		await openCard(ws, calls);
-		await fireEvent.click(
-			within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
-		);
+		await chooseEach();
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
 		expect(ws.scenarios.map((s) => [s.id, s.name])).toEqual([
 			['S1', 'Booster pump (PA) off'],
 			['S2', 'Booster pump (PB) off']
 		]);
+		// §7.12: the note "{name} has its case already: {found.name}." becomes the preview item
+		// "{offName}: already a scenario, «{other}» ({id})", in §7.7's short form: the names are equal.
 		expect(
 			within(block())
-				.getAllByText(/has its case already/)
+				.getAllByText(/: already a scenario/)
 				.map((p) => p.textContent)
 		).toEqual([
-			'Booster pump (PA) has its case already: Booster pump (PA) off.',
-			'Booster pump (PB) has its case already: Booster pump (PB) off.'
+			'Booster pump (PA) off: already a scenario (S1)',
+			'Booster pump (PB) off: already a scenario (S2)'
 		]);
 		await fireEvent.click(within(block()).getByRole('button', { name: 'Solve all (2)' }));
 		await waitFor(() => expect(solves).toEqual([null, 'S1', 'S2']));
@@ -848,6 +861,7 @@ describe('one pump off on the Pumps together card', () => {
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
 		await waitFor(() => expect(calls.filter((c) => c.scenarioId === null)).toHaveLength(2));
+		await chooseEach();
 		// Each read again: the block's button is drawn anew when the case shown changes, and the
 		// menu closes when a run ends (its focus goes to Solve).
 		const ours = () => within(block()).getByRole('button', { name: /^Solve all/ });

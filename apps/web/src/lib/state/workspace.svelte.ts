@@ -98,7 +98,7 @@ import {
 	type ProjectStore,
 	type UpdateLabel
 } from './project.svelte';
-import { renameNotice } from '../utils/pump-lineups';
+import { renameNotice, type LineupPreset } from '../utils/pump-lineups';
 import { LibraryStore } from './library.svelte';
 import { NavigatorStore, pathAfterInsert } from './navigator.svelte';
 
@@ -210,6 +210,18 @@ export class Workspace {
 	pumpGroupOthers = $state(false);
 	/** The other cases unticked under "Cases on this chart" (keys: '' is the base). Page state. */
 	pumpGroupUnticked = $state.raw<readonly string[]>([]);
+	/**
+	 * The Add cases block's preset on the Pumps together card (CLAUDE.md D24, proposal
+	 * pump-lineups.md §7.3): By number running by default, or Each pump off. Page state.
+	 */
+	lineupPreset = $state<LineupPreset>('running');
+	/**
+	 * The stop order the user set on the card (D24 §7.5; the first stops first), written only by
+	 * its move buttons and Default order ([]: none). Page state. The order used is derived from it
+	 * (pump-lineups.ts effectiveStopOrder: this one while it holds exactly the pumps on in the base
+	 * case, else the default), never written by an effect (decision 26).
+	 */
+	pumpStopOrder = $state.raw<readonly string[]>([]);
 	#noticeId = 0;
 	/** The project of the case shown (the base, or the base with the active scenario's changes). */
 	#caseProject: Project;
@@ -257,9 +269,9 @@ export class Workspace {
 
 	/**
 	 * Forget the page state about the project shown (the trace open, Compare cases and its chosen
-	 * rows, the scenario manager, Settings, the last case announcement, the pump group), as a
-	 * reload would: the
-	 * rows and cards named elements of the project before.
+	 * rows, the scenario manager, Settings, the last case announcement, the pump group, the Add
+	 * cases block's preset and stop order), as a reload would: the rows and cards named elements
+	 * of the project before.
 	 */
 	#resetPage(): void {
 		this.inspected = null;
@@ -280,6 +292,8 @@ export class Workspace {
 		this.pumpGroupOpen = false;
 		this.pumpGroupOthers = false;
 		this.pumpGroupUnticked = [];
+		this.lineupPreset = 'running';
+		this.pumpStopOrder = [];
 	}
 
 	/**

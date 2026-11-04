@@ -81,6 +81,13 @@ export const MAX_CHANGES = itemLimit('Scenario', 'overrides');
 export const SCENARIO_NAME_LIMIT = stringLimits('Scenario', 'name').maxLength ?? 100;
 export const SCENARIO_DESCRIPTION_LIMIT = stringLimits('Scenario', 'description').maxLength ?? 500;
 
+/**
+ * Why no scenario can be added (the manager's New scenario and Duplicate, the Pump lineups table's
+ * New lineup: their title and description when the project is full; CLAUDE.md D24, proposal
+ * pump-lineups.md §8.2).
+ */
+export const LIMIT_TEXT = `A project holds at most ${MAX_SCENARIOS} scenarios.`;
+
 type JsonObject = Record<string, unknown>;
 
 function isRecord(value: unknown): value is JsonObject {
@@ -463,6 +470,17 @@ export function changeStates(project: Project, scenarioId: string): ChangeState[
 			? { index, override, state: 'applied', message: '', invalid: true }
 			: { index, override, state: 'applied', message: '' };
 	});
+}
+
+/**
+ * "3 changes" or "3 changes, 1 no longer applies": a scenario's changes in words, as the Scenarios
+ * menu and the manager give them.
+ */
+export function changesText(project: Project, scenario: Scenario): string {
+	const count = overridesOf(scenario).length;
+	const lapsed = changeStates(project, scenario.id).filter((c) => c.state !== 'applied').length;
+	const changes = `${count} change${count === 1 ? '' : 's'}`;
+	return lapsed ? `${changes}, ${lapsed} no longer appl${lapsed === 1 ? 'ies' : 'y'}` : changes;
 }
 
 /** The changes of a scenario that no longer apply (orphaned or not applicable). */

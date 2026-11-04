@@ -1127,6 +1127,548 @@ def test_6_a_pump_on_behind_a_closed_valve(lab: Lab) -> None:
     )
 
 
+# =========================================================================== slice L2
+#
+# Slice L2, the Pump lineups table (the proposal's §8), and its part of the independent API
+# proof (§10.2 "Independent API proof (L2 part)"), by a tester who read neither ``services/`` nor
+# the web source: from D6, D13, D15, D21 and D24, SDD §4.12 and §4.17, the request and response
+# models, the proposal's §10 preamble and §10.2, and L1's part above, whose helpers, client
+# addresses (``Api``) and comparisons it reuses unchanged; its own helpers follow.
+#
+# A press in the table is Build's own edit of a case (D24, ``ws.editScenario``): it sets a pump's
+# status in the case, 'on' as well as 'off', in the order pressed. The table also shows a change
+# equal to the base value, still marked (§10.2's cell states), and says "Same case as …" by D24's
+# ``sameCase``, which counts no change equal to the base value. The table's cases therefore go
+# beyond L1's ('off' over the base's 'on', in component order): a standby put in service, a
+# lineup crossed over two stations, changes equal to the base values, and changes in any order.
+# Each is still a D15 scenario of overrides, so each must be the API's answer to its hand edit.
+#
+# The project, ``two_systems`` (§10.2's ``two-systems``), holds three networks, each between
+# reservoirs of its own: PA and PB in parallel between two ideal tees, PB off in the base (a
+# standby); L1's ``ladder`` (P1 to P3 on Crane-tee headers, P3 on and idle in the base); and a
+# lone pump P9. Its cases (``l2_cases``): S1 "PB in service, PA off", [PB on, PA off] as §10.2
+# writes it; S2, a lineup crossed over both stations, [PB on, P1 off, P3 off]; S3 "Aged pipe",
+# a pipe change with P2 off (§10.2's fixture); S4, P1 'on' where it is on; S5, every pump's
+# status as in the base; S6, S1 with P1 'on' added.
+#
+# The proofs, metamorphic, with no expected hydraulic number typed: both sides of every
+# comparison are the API's answers. A solve is compared as "the same answer bit for bit" as §10
+# defines it (the module docstring), and a station's group answer (``/pump-group-curve``, curve
+# 'group', for PA and PB and for P1 to P3) bit for bit apart from ``scenario``, which must
+# record the case as the case's solve does.
+#
+# 1. S1 and S2 each solve as their hand edit (the statuses set in the base, no scenarios), every
+#    change applied with its value over the base's, and each station's group answer is the hand
+#    edit's.
+# 2. S4 and S5, whose every change equals the base value, give the base's answer, and each
+#    station's group answer is the base's: "Same case as the base case" (§10.2) is a fact about
+#    every solved value. A change equal to the base value added to a case leaves the case's
+#    answer as it was: S6 gives S1's.
+# 3. Every order of a case's changes gives the same answer (S1, S2, S3, S5 and S6: every order of
+#    two or three changes; of more, the reverse and a rotation by one), D15's additions
+#    following the order given: the same note on each changed element, and the Scenario
+#    section's change lines in that order. Each station's group answer is the stored order's.
+#
+# Each proof was shown to fail, comparison by comparison, when its request is changed (a
+# different pump in the hand edit, a change unlike the base value, a different change among the
+# reordered ones): in a scratch run, not kept. The tests keep one cheap check of the same kind,
+# on answers they already hold: the comparison tells a case from the base, or from another case.
+
+STANDBY_LEG = Line(0.1023, 8.0)
+"""PB's suction and discharge pipes in ``two_systems``, longer than PA's (test input): PB in
+service is not PA's answer under another name."""
+STATION_A = ("PA", "PB")
+STATION_LADDER = ("P1", "P2", "P3")
+L2_STATIONS = (STATION_A, STATION_LADDER)
+"""The two stations whose group answers each proof compares (the card's ticked pumps)."""
+AGEING = 10.0
+"""The "Aged pipe" case's roughness, as a multiple of the base's (test input)."""
+
+
+def two_systems() -> dict[str, Any]:
+    """§10.2's ``two-systems``, three networks in one project, in this component order. Station
+    A: RA1 → A0 → TA1; TA1:run_outlet → a1 → PA → a2 → TA2:run_inlet; TA1:branch → b1 → PB → b2
+    → TA2:branch; TA2:run_outlet → A3 → RA2; PB off in the base (a standby), its two pipes
+    ``STANDBY_LEG``, the others ``CLOSED_LEG_PIPE``. Then L1's ``ladder``. Then a lone pump:
+    R91 → N1 → P9 → N2 → R92. Each pump ``curve_a`` but P1 (``curve_large``), CoolProp water at
+    20 °C."""
+    curve = dp.curve_a()
+    pipe = CLOSED_LEG_PIPE
+    first: list[Component] = [
+        reservoir("RA1", 0.0, 1.0),
+        ideal_tee("TA1", 0.0),
+        pump("PA", 0.0, curve.id),
+        pump("PB", 0.0, curve.id, status="off"),
+        ideal_tee("TA2", 0.0),
+        reservoir("RA2", 25.0, 2.0),
+    ]
+    last: list[Component] = [
+        reservoir("R91", 0.0, 1.0),
+        pump("P9", 0.0, curve.id),
+        reservoir("R92", 25.0, 2.0),
+    ]
+    first_links = [
+        pipe.connect("A0", "RA1:port_1", "TA1:run_inlet"),
+        pipe.connect("a1", "TA1:run_outlet", "PA:suction"),
+        pipe.connect("a2", "PA:discharge", "TA2:run_inlet"),
+        STANDBY_LEG.connect("b1", "TA1:branch", "PB:suction"),
+        STANDBY_LEG.connect("b2", "PB:discharge", "TA2:branch"),
+        pipe.connect("A3", "TA2:run_outlet", "RA2:port_1"),
+    ]
+    last_links = [
+        pipe.connect("N1", "R91:port_1", "P9:suction"),
+        pipe.connect("N2", "P9:discharge", "R92:port_1"),
+    ]
+    others = pgi._dump(
+        make_project(
+            "two-systems-parts",
+            "Station A and P9",
+            WATER_20C,
+            [*first, *last],
+            [*first_links, *last_links],
+            pump_library=[curve],
+        )
+    )
+    n, m = len(first), len(first_links)
+    data = ladder()  # its pump library holds curve_a too
+    data["id"] = "lineups-two-systems"
+    data["metadata"]["name"] = "Two systems"
+    data["components"] = [*others["components"][:n], *data["components"], *others["components"][n:]]
+    data["connections"] = [
+        *others["connections"][:m],
+        *data["connections"],
+        *others["connections"][m:],
+    ]
+    return data
+
+
+def status_change(pump_id: str, value: str) -> dict[str, Any]:
+    return {"kind": "component", "componentId": pump_id, "field": "status", "value": value}
+
+
+def pump_statuses(project: dict[str, Any]) -> dict[str, str]:
+    """Each pump's status in ``project`` (its base), in component order."""
+    return {c["id"]: c["status"] for c in project["components"] if c["type"] == "pump"}
+
+
+def aged_outlet(project: dict[str, Any]) -> dict[str, Any]:
+    """The ladder's delivery line Lout with ``AGEING`` times its roughness: a pipe ``spec``
+    change (D15: material, size, bore and roughness, replaced together)."""
+    [pipe] = pgi._connection(project, "Lout")["piping"]["pipes"]
+    spec = {
+        "materialId": pipe["materialId"],
+        "innerDiameter": pipe["innerDiameter"],
+        "roughness": AGEING * pipe["roughness"],
+    }
+    return {"kind": "pipe", "connectionId": "Lout", "pipeIndex": 0, "field": "spec", "value": spec}
+
+
+def l2_cases(project: dict[str, Any]) -> list[dict[str, Any]]:
+    """The cases of ``two_systems`` (the section's comment), each change written as a press in
+    the table writes it; S4's and S5's values are read from the base."""
+    base = pump_statuses(project)
+    s1 = [status_change("PB", "on"), status_change("PA", "off")]
+    return [
+        {"id": "S1", "name": "PB in service, PA off", "overrides": s1},
+        {
+            "id": "S2",
+            "name": "2 of 2 running; 1 of 3 running (Pump P1, Pump P3 off)",
+            "overrides": [
+                status_change("PB", "on"),
+                status_change("P1", "off"),
+                status_change("P3", "off"),
+            ],
+        },
+        {
+            "id": "S3",
+            "name": "Aged pipe",
+            "overrides": [aged_outlet(project), status_change("P2", "off")],
+        },
+        {"id": "S4", "name": "Pump P1 on", "overrides": [status_change("P1", base["P1"])]},
+        {
+            "id": "S5",
+            "name": "Every pump as in the base",
+            "overrides": [status_change(p, s) for p, s in base.items()],
+        },
+        {
+            "id": "S6",
+            "name": "PB in service, PA off, P1 on",
+            "overrides": [*s1, status_change("P1", base["P1"])],
+        },
+    ]
+
+
+def case_of(project: dict[str, Any], sid: str) -> dict[str, Any]:
+    scenario: dict[str, Any] = next(s for s in project["scenarios"] if s["id"] == sid)
+    return scenario
+
+
+def set_by_hand(project: dict[str, Any], statuses: dict[str, str]) -> dict[str, Any]:
+    """The base of ``project`` with ``statuses`` set by hand, and no scenarios."""
+    data = copy.deepcopy(project)
+    data.pop("scenarios", None)
+    for pid, status in statuses.items():
+        pgi._component(data, pid)["status"] = status
+    return data
+
+
+def with_order(
+    project: dict[str, Any], sid: str, changes: Sequence[dict[str, Any]]
+) -> dict[str, Any]:
+    """``project`` with case ``sid``'s changes replaced by ``changes`` (its id and name kept)."""
+    data = copy.deepcopy(project)
+    case_of(data, sid)["overrides"] = copy.deepcopy(list(changes))
+    return data
+
+
+def orders(n: int) -> list[tuple[int, ...]]:
+    """The orders proof 3 asks of n changes, each a list of indices into the stored order: every
+    order but the stored one for n ≤ 3; for more, the reverse and a rotation by one."""
+    if n <= 3:
+        return [p for p in itertools.permutations(range(n)) if p != tuple(range(n))]
+    return [tuple(reversed(range(n))), (*range(1, n), 0)]
+
+
+class Answers:
+    """The API's answers, each request asked once per module run (by its JSON), through L1's
+    ``Api`` and its client addresses."""
+
+    def __init__(self) -> None:
+        self.api = Api()
+        self._memo: dict[str, dict[str, Any]] = {}
+
+    def _asked(self, key: list[Any], ask: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        text = json.dumps(key, sort_keys=True)
+        if text not in self._memo:
+            self._memo[text] = ask()
+        return self._memo[text]
+
+    def solve(self, project: dict[str, Any], sid: str | None = None) -> dict[str, Any]:
+        return self._asked(["solve", project, sid], lambda: self.api.solve(project, sid))
+
+    def group(
+        self, project: dict[str, Any], members: Sequence[str], sid: str | None = None
+    ) -> dict[str, Any]:
+        return self._asked(
+            ["group", project, list(members), sid], lambda: self.api.group(project, members, sid)
+        )
+
+
+@dataclass
+class TwoSystems:
+    answers: Answers
+    project: dict[str, Any]
+    """``two_systems`` holding ``l2_cases``."""
+
+
+@pytest.fixture(scope="module")
+def two() -> TwoSystems:
+    project = two_systems()
+    project["scenarios"] = l2_cases(project)
+    return TwoSystems(Answers(), project)
+
+
+# --------------------------------------------------------------------------- L2 comparisons
+
+
+def changed_element(override: dict[str, Any]) -> str | None:
+    """The trace element whose notes D15's note on a change opens: a component's, or a pipe's
+    connection's; None for a project value."""
+    if override["kind"] == "component":
+        return str(override["componentId"])
+    if override["kind"] == "pipe":
+        return str(override["connectionId"])
+    return None
+
+
+def case_answer(response: dict[str, Any]) -> tuple[Answer, list[str]]:
+    """``answer_of`` for a case that may change a pipe as well as a component: D15's note on a
+    pipe's change opens its connection's trace (SDD §4.12: "the trace of each component or
+    connection an applied override changes starts with a note"). Each change here is to an
+    element of its own."""
+    state = copy.deepcopy(response["solvedState"])
+    del state["timestamp"]
+    trace = state.pop("trace")
+    scenario = response["scenario"]
+    if scenario is None:
+        return Answer(state, trace, None, {}), []
+    problems: list[str] = []
+    sections = trace["methods"]["sections"]
+    section = None
+    if sections and sections[0]["title"] == "Scenario":
+        section = sections.pop(0)
+    else:
+        problems.append(f"no Scenario methods section first: {[s['title'] for s in sections]}")
+    prefix = f"Scenario '{scenario['name']}' (id {scenario['id']}) "
+    notes: dict[str, str] = {}
+    for result in scenario["overrides"]:
+        if result["state"] != "applied":
+            problems.append(f"override {result['index']} {result['state']}: {result['message']}")
+            continue
+        eid = changed_element(result["override"])
+        if eid is None:
+            problems.append(f"override {result['index']}: no element to note")
+            continue
+        element = trace["elements"][eid]["notes"]
+        if element and element[0].startswith(prefix):
+            notes[eid] = element.pop(0)
+        else:
+            problems.append(f"{eid}: no D15 note first ({element[:1]})")
+    return Answer(state, trace, section, notes), problems
+
+
+def same_case_answer(a: dict[str, Any], b: dict[str, Any]) -> tuple[list[str], Answer, Answer]:
+    """``same_answer`` by ``case_answer``: where two responses are not the same answer bit for bit
+    (§10), with each as compared."""
+    first, problems_a = case_answer(a)
+    second, problems_b = case_answer(b)
+    problems = [f"the first: {p}" for p in problems_a] + [f"the second: {p}" for p in problems_b]
+    problems += [f"values {d}" for d in differences(first.values, second.values)]
+    problems += [f"trace {d}" for d in differences(first.trace, second.trace)]
+    return problems, first, second
+
+
+def group_problems(
+    case: dict[str, Any],
+    case_solve: dict[str, Any],
+    other: dict[str, Any],
+    other_solve: dict[str, Any],
+) -> list[str]:
+    """Where ``case``, a station's group answer, is not ``other`` bit for bit apart from
+    ``scenario``, and where either answer's ``scenario`` is not the one its ``/solve`` records
+    (``case_solve``, ``other_solve``: null for the base's or a hand edit's)."""
+    problems = [f"group {d}" for d in differences(without_scenario(case), without_scenario(other))]
+    for which, answer, solve in (("", case, case_solve), ("the other's ", other, other_solve)):
+        found = differences(answer["scenario"], solve["scenario"])
+        problems += [f"group {which}scenario {d}" for d in found]
+    return problems
+
+
+def hand_edit_problems(
+    answers: Answers, project: dict[str, Any], sid: str, statuses: dict[str, str]
+) -> list[str]:
+    """Proof 1: where case ``sid`` of ``project`` is not the hand edit ``statuses`` (set in the
+    base, no scenarios): its solve the same answer bit for bit (§10); its record every change
+    applied, the value written over the base's; each station's group answer the hand edit's
+    apart from ``scenario``, which records the case as its solve does."""
+    base = pump_statuses(project)
+    made = answers.solve(project, sid)
+    hand_project = set_by_hand(project, statuses)
+    hand = answers.solve(hand_project)
+    problems = [] if hand["scenario"] is None else [f"the hand edit's scenario {hand['scenario']}"]
+    written = [(o["componentId"], o["value"]) for o in case_of(project, sid)["overrides"]]
+    recorded = [
+        (o["override"]["componentId"], o["state"], o["value"], o["baseValue"])
+        for o in made["scenario"]["overrides"]
+    ]
+    if recorded != [(p, "applied", v, base[p]) for p, v in written]:
+        problems.append(f"the case's record {recorded}, written {written}")
+    found, _, _ = same_answer(made, hand)
+    problems += [f"solve: {p}" for p in found]
+    for members in L2_STATIONS:
+        group = answers.group(project, members, sid)
+        hand_group = answers.group(hand_project, members)
+        problems += [f"{members}: {p}" for p in group_problems(group, made, hand_group, hand)]
+    return problems
+
+
+def base_answer_problems(answers: Answers, project: dict[str, Any], sid: str) -> list[str]:
+    """Proof 2: where case ``sid``, whose every change equals the base value, is not the base's
+    answer: every change applied with the base value; its solve the same answer bit for bit as
+    the base's (§10); each station's group answer the base's apart from ``scenario``, which
+    records the case as its solve does."""
+    base = answers.solve(project)
+    case = answers.solve(project, sid)
+    problems = [
+        f"override {o['index']} {o['state']}: {o['value']!r} over {o['baseValue']!r}"
+        for o in case["scenario"]["overrides"]
+        if o["state"] != "applied" or o["value"] != o["baseValue"]
+    ]
+    found, _, _ = same_answer(base, case)
+    problems += [f"solve: {p}" for p in found]
+    for members in L2_STATIONS:
+        group, base_group = answers.group(project, members, sid), answers.group(project, members)
+        problems += [f"{members}: {p}" for p in group_problems(group, case, base_group, base)]
+    return problems
+
+
+def same_case_problems(
+    answers: Answers, project: dict[str, Any], sid: str, other: str
+) -> list[str]:
+    """Proof 2: where case ``sid`` is not case ``other``'s answer: its solve the same answer bit
+    for bit (§10, D15's additions of each taken out), each station's group answer ``other``'s
+    apart from ``scenario``, which records each case as its own solve does."""
+    case, answer = answers.solve(project, sid), answers.solve(project, other)
+    found, _, _ = same_case_answer(case, answer)
+    problems = [f"solve: {p}" for p in found]
+    for members in L2_STATIONS:
+        group, other_group = (answers.group(project, members, s) for s in (sid, other))
+        problems += [f"{members}: {p}" for p in group_problems(group, case, other_group, answer)]
+    return problems
+
+
+def reorder_problems(
+    answers: Answers, project: dict[str, Any], sid: str, moved: dict[str, Any]
+) -> list[str]:
+    """Proof 3: where case ``sid`` of ``moved`` (``project`` with that case's changes in another
+    order, its id and name kept) is not the case in ``project``'s order: its solve the same
+    answer bit for bit (§10); D15's additions as the order gives them (SDD §4.12: the same note
+    opening each changed element's trace; the Scenario section's lead the same and its change
+    lines in ``moved``'s order); its record each change's as in the stored order, at its new
+    index; each station's group answer the stored order's apart from ``scenario``, which
+    records the case as its solve does."""
+    stored, given = case_of(project, sid)["overrides"], case_of(moved, sid)["overrides"]
+    forward, backward = answers.solve(project, sid), answers.solve(moved, sid)
+    found, a, b = same_case_answer(forward, backward)
+    problems = [f"solve: {p}" for p in found]
+    if a.notes != b.notes:
+        problems.append(f"notes {b.notes}, in the stored order {a.notes}")
+    if sorted(map(json.dumps, given)) != sorted(map(json.dumps, stored)):
+        problems.append(f"not a reordering: {given}")
+    else:
+        order = [stored.index(o) for o in given]
+        fwd_items = a.scenario_section["items"] if a.scenario_section else []
+        rev_items = b.scenario_section["items"] if b.scenario_section else []
+        want = fwd_items[:1] + [fwd_items[1 + i] for i in order]
+        if len(fwd_items) != 1 + len(stored) or rev_items != want:
+            problems.append(f"Scenario section {rev_items}, in the stored order {fwd_items}")
+        fwd_rec, rev_rec = forward["scenario"]["overrides"], backward["scenario"]["overrides"]
+        want_rec = [{**fwd_rec[i], "index": k} for k, i in enumerate(order)]
+        problems += [f"record {d}" for d in differences(rev_rec, want_rec)]
+    for members in L2_STATIONS:
+        group = answers.group(moved, members, sid)
+        stored_group = answers.group(project, members, sid)
+        problems += [
+            f"{members}: {p}" for p in group_problems(group, backward, stored_group, forward)
+        ]
+    return problems
+
+
+# --------------------------------------------------------------------------- L2: the cases
+
+
+def test_l2_the_two_systems_and_their_cases(two: TwoSystems) -> None:
+    """The premises the proofs stand on, read from the API: in the base PA carries flow and PB
+    is off at flow 0.0 (a standby), P1 and P2 carry flow, P3 is on and idle, P9 carries flow;
+    each station is found whole (PA and PB in parallel between TA1 and TA2; P1 to P3 between the
+    ladder's tees), inside its own network. S1 puts PB in service (PA off, PB carrying flow);
+    S2 runs PA, PB and P2 alone of the ladder; S3 stops P2 on an aged outlet; every change of
+    S4 and S5 is the base value (S5 one per pump), and S6 is S1 with one of them."""
+    p, a = two.project, two.answers
+    base = a.solve(p)["solvedState"]["pumpResults"]
+
+    def carries(results: dict[str, Any], pid: str) -> bool:
+        return bool(
+            results[pid]["status"] != "off" and results[pid]["operatingFlow"] > DUTY_FLOW_FLOOR
+        )
+
+    assert {pid for pid in base if carries(base, pid)} == {"PA", "P1", "P2", "P9"}, base
+    assert (base["PB"]["status"], base["PB"]["operatingFlow"]) == ("off", 0.0), base["PB"]
+    assert (base["P3"]["status"], base["P3"]["operatingFlow"]) == ("no_flow", 0.0), base["P3"]
+    station_a = a.group(p, STATION_A)["station"]
+    assert (station_a["arrangement"], station_a["memberIds"]) == ("parallel", ["PA", "PB"])
+    assert (station_a["inlet"]["componentId"], station_a["outlet"]["componentId"]) == (
+        "TA1",
+        "TA2",
+    )
+    assert set(station_a["interiorComponentIds"]) == {"TA1", "PA", "PB", "TA2"}, station_a
+    ladder_station = a.group(p, STATION_LADDER)["station"]
+    assert ladder_station["memberIds"] == list(STATION_LADDER), ladder_station
+    assert not set(ladder_station["interiorComponentIds"]) & {"PA", "PB", "P9"}, ladder_station
+
+    s1 = a.solve(p, "S1")["solvedState"]["pumpResults"]
+    assert s1["PA"]["status"] == "off", s1
+    assert carries(s1, "PB"), s1
+    s2 = a.solve(p, "S2")["solvedState"]["pumpResults"]
+    assert {pid for pid in s2 if carries(s2, pid)} == {"PA", "PB", "P2", "P9"}, s2
+    assert (s2["P1"]["status"], s2["P3"]["status"]) == ("off", "off"), s2
+    s3 = a.solve(p, "S3")
+    assert s3["solvedState"]["pumpResults"]["P2"]["status"] == "off"
+    assert [o["state"] for o in s3["scenario"]["overrides"]] == ["applied", "applied"]
+    statuses = pump_statuses(p)
+    assert list(statuses) == ["PA", "PB", "P1", "P2", "P3", "P9"], statuses
+    for sid in ("S4", "S5"):
+        changes = case_of(p, sid)["overrides"]
+        assert all(statuses[o["componentId"]] == o["value"] for o in changes), changes
+    assert len(case_of(p, "S5")["overrides"]) == len(statuses)
+    assert case_of(p, "S6")["overrides"] == [
+        *case_of(p, "S1")["overrides"],
+        *case_of(p, "S4")["overrides"],
+    ]
+
+
+# --------------------------------------------------------------------------- L2 1. hand edits
+
+
+@pytest.mark.parametrize("sid", ["S1", "S2"])
+def test_l2_1_a_standby_in_service_and_a_crossed_lineup_are_their_hand_edits(
+    two: TwoSystems, sid: str
+) -> None:
+    """S1, a standby put in service ([PB on, PA off]), and S2, a lineup crossed over both
+    stations ([PB on, P1 off, P3 off]), each solve as their hand edit, the same answer bit for
+    bit (§10), every change applied with its value over the base's; each station's group answer
+    is the hand edit's apart from ``scenario``, which records the case as its solve does. The
+    comparison tells the case from the base: the case is not the base's answer."""
+    p = two.project
+    statuses = {o["componentId"]: o["value"] for o in case_of(p, sid)["overrides"]}
+    problems = hand_edit_problems(two.answers, p, sid, statuses)
+    assert not problems, "\n".join(problems)
+    found, _, _ = same_answer(two.answers.solve(p), two.answers.solve(p, sid))
+    assert found, f"{sid} reads as the base"
+
+
+# --------------------------------------------------------------------------- L2 2. base values
+
+
+@pytest.mark.parametrize("sid", ["S4", "S5"])
+def test_l2_2_changes_equal_to_the_base_give_the_base_answer(two: TwoSystems, sid: str) -> None:
+    """S4 (P1 'on' where it is on) and S5 (every pump's status as in the base, 'off' for PB) give
+    the base's answer, the same bit for bit (§10: the trace gains only D15's note on each changed
+    pump and its Scenario section), every change applied with the base value; each station's
+    group answer is the base's apart from ``scenario``. The comparison tells a case from the
+    base: S1 is not the base's answer."""
+    p = two.project
+    problems = base_answer_problems(two.answers, p, sid)
+    assert not problems, "\n".join(problems)
+    found, _, _ = same_answer(two.answers.solve(p), two.answers.solve(p, "S1"))
+    assert found, "S1 reads as the base"
+
+
+def test_l2_2_a_change_equal_to_the_base_leaves_a_cases_answer(two: TwoSystems) -> None:
+    """S6, S1 with P1 'on' (its base value) added, gives S1's answer, the same bit for bit (§10,
+    D15's additions of each taken out), and each station's group answer S1's apart from
+    ``scenario``: "Same case as" (D24's ``sameCase``, which counts no change equal to the base
+    value) is a fact about every solved value. The comparison tells two cases apart: S2 is not
+    S1's answer."""
+    p = two.project
+    problems = same_case_problems(two.answers, p, "S6", "S1")
+    assert not problems, "\n".join(problems)
+    found, _, _ = same_case_answer(two.answers.solve(p, "S2"), two.answers.solve(p, "S1"))
+    assert found, "S2 reads as S1"
+
+
+# --------------------------------------------------------------------------- L2 3. order
+
+
+@pytest.mark.parametrize("sid", ["S1", "S2", "S3", "S5", "S6"])
+def test_l2_3_every_order_of_a_cases_changes_gives_the_same_answer(
+    two: TwoSystems, sid: str
+) -> None:
+    """Case ``sid`` with its changes in each other order (``orders``; the same id and name)
+    gives the answer of its stored order, the same bit for bit (§10), with D15's additions in
+    the order given: the same note on each changed element (S3's pipe change on its connection,
+    Lout), and the Scenario section's change lines and the record's changes in that order. Each
+    station's group answer is the stored order's apart from ``scenario``, which records the case
+    as its solve does."""
+    p = two.project
+    stored = case_of(p, sid)["overrides"]
+    problems: list[str] = []
+    for order in orders(len(stored)):
+        moved = with_order(p, sid, [stored[i] for i in order])
+        problems += [f"{sid} {order}: {q}" for q in reorder_problems(two.answers, p, sid, moved)]
+    assert not problems, "\n".join(problems)
+
+
 # =========================================================================== slice L3: the family
 #
 # Pump lineups, slice L3 (CLAUDE.md D24; the proposal's §3.4, §3.5, §9.5 and §10.3, "Independent

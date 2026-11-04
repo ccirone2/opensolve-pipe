@@ -840,7 +840,13 @@ describe('one pump off on the Pumps together card', () => {
 		expect(block()).toHaveTextContent(
 			'Cases are made from the base case: show the base case to add them. To study Pump PA off with pumps off, duplicate it in Scenarios and set those pumps off there.'
 		);
-		expect(within(block()).queryByRole('button')).toBeNull();
+		// No Add and no Solve all under the gate; its one button is D24 slice L2's "Pump lineups
+		// table…", drawn whenever the block is, gates included (pump-lineups.md §8.1).
+		expect(
+			within(block())
+				.getAllByRole('button')
+				.map((b) => b.textContent?.trim())
+		).toEqual(['Pump lineups table…']);
 		await fireEvent.click(within(card()).getByRole('button', { name: 'Show data table' }));
 		const table = await within(card()).findByRole('table', { name: "Other cases' station duties" });
 		await waitFor(() =>

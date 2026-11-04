@@ -925,10 +925,7 @@
 								<button
 									type="button"
 									class="btn btn-quiet shrink-0 px-2 text-blue-800 underline underline-offset-2"
-									onclick={() => {
-										ws.managerFocus = caseId;
-										ws.managerOpen = true;
-									}}>Review</button
+									onclick={() => ws.openManager({ focus: caseId ?? undefined })}>Review</button
 								>
 							</li>
 						{/if}

@@ -712,7 +712,9 @@ test('one pump off is offered for pumps in parallel only', async ({ page }) => {
 	await expect(block).toContainText(
 		'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.'
 	);
-	await expect(block.getByRole('button')).toHaveCount(0);
+	// No Add and no Solve all under the gate; its one button is D24 slice L2's "Pump lineups
+	// table…", drawn whenever the block is, gates included (pump-lineups.md §8.1).
+	await expect(block.getByRole('button')).toHaveText(['Pump lineups table…']);
 });
 
 test('the Pumps together card with its cases passes axe, everything open', async ({ page }) => {

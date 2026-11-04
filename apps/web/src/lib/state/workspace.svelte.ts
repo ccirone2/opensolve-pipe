@@ -153,6 +153,14 @@ export type ScenarioEditResult =
 	| { ok: true; changed: boolean; renamed: string }
 	| { ok: false; reason: 'refused' | 'limit' | 'failed' | 'invalid'; message: string };
 
+/**
+ * What Workspace.updateStoredQuiet did (proposal pump-lineups.md §8.1): whether the project
+ * changed and the rename words (§4.5; '' for none), or the refusal in the words updateStored
+ * would have notified ("Could not {label}: {problem}").
+ */
+export type StoredStepResult =
+	{ ok: true; changed: boolean; renamed: string } | { ok: false; text: string };
+
 /** Kinds that can be inserted into a connection (separate inlet and outlet ports). */
 export const INLINE_KINDS: readonly ComponentKind[] = [
 	'pump',
@@ -345,6 +353,27 @@ export class Workspace {
 		);
 		const ids = [...reservedIds(this.goalSeekSetup), ...group];
 		return ids.filter((id, i) => ids.indexOf(id) === i);
+	}
+
+	/**
+	 * Open the Scenarios manager (CLAUDE.md D24, proposal pump-lineups.md §8.1): on the tab last
+	 * used (the header's Scenarios button, the menu's "Manage scenarios…"); on a scenario's card
+	 * (`focus`, which always shows Cases); or on Pump lineups showing only `pumps` (the Pumps
+	 * together card's members).
+	 */
+	openManager(options: { focus?: string; pumps?: readonly string[] } = {}): void {
+		this.managerFocus = options.focus ?? null;
+		this.managerPumps = options.pumps ? [...options.pumps] : null;
+		if (options.focus) this.managerTab = 'cases';
+		else if (options.pumps) this.managerTab = 'lineups';
+		this.managerOpen = true;
+	}
+
+	/** Close the Scenarios manager: its card asked for and the table's filter are forgotten (§8.1). */
+	closeManager(): void {
+		this.managerOpen = false;
+		this.managerFocus = null;
+		this.managerPumps = null;
 	}
 
 	/** Open the project library dialog: on a list, an entry's form or a new entry's form. */
@@ -690,6 +719,25 @@ export class Workspace {
 		if (!result) return false;
 		this.#say(result, notice);
 		return true;
+	}
+
+	/**
+	 * updateStored(), saying nothing (CLAUDE.md D24, proposal pump-lineups.md §8.1): the Scenarios
+	 * manager's actions, which say what a step did on the manager's own status and alert lines, as
+	 * the workspace notice sits behind the modal. Gives whether the project changed and the step's
+	 * rename words (§4.5; '' for none), or the words a refusal would have been notified with
+	 * ("Could not {label}: {problem}", the label as before the step).
+	 */
+	updateStoredQuiet(
+		change: (draft: Project) => Project | void,
+		label: UpdateLabel
+	): StoredStepResult {
+		const result = this.#step(change, label);
+		if (!result.ok) {
+			const text = typeof label === 'string' ? label : label(this.store.project);
+			return { ok: false, text: `Could not ${text}: ${result.problem}` };
+		}
+		return { ok: true, changed: result.changed, renamed: result.renamed };
 	}
 
 	/**

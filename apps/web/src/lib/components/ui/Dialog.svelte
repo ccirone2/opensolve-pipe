@@ -18,11 +18,22 @@
 		wide?: boolean;
 		/** Wider still from 1024 px (two columns: a setup beside its result). */
 		xl?: boolean;
+		/** Keys pressed anywhere in the dialog, its footer included (the Scenarios manager's undo). */
+		onkeydown?: (event: KeyboardEvent) => void;
 	}
 
-	let { title, onclose, children, footer, wide = false, xl = false }: Props = $props();
+	let { title, onclose, children, footer, wide = false, xl = false, onkeydown }: Props = $props();
 	const id = $props.id();
 	let dialog: HTMLDialogElement | undefined = $state();
+	let heading: HTMLHeadingElement | undefined = $state();
+
+	/**
+	 * Focus the title: where the focus goes when what it was on is gone with nothing in its place
+	 * (the Scenarios manager's Pump lineups tab removed by an undo; CLAUDE.md D24).
+	 */
+	export function focusTitle() {
+		heading?.focus();
+	}
 
 	$effect(() => {
 		const element = dialog;
@@ -57,6 +68,7 @@
 	aria-labelledby="{id}-title"
 	oncancel={cancel}
 	onclick={backdrop}
+	{onkeydown}
 	class={[
 		'm-0 mt-auto max-h-[92dvh] w-full max-w-full overflow-hidden rounded-t-xl bg-white p-0 text-slate-900 shadow-xl sm:m-auto sm:max-h-[85dvh] sm:rounded-xl',
 		xl ? 'sm:max-w-2xl lg:max-w-5xl' : wide ? 'sm:max-w-2xl' : 'sm:max-w-lg'
@@ -65,7 +77,12 @@
 	<div class="flex max-h-[inherit] flex-col">
 		<!-- A div, not <header>: a header here would be read as a second page banner. -->
 		<div class="flex items-start gap-2 border-b border-slate-200 py-1 pr-1 pl-4">
-			<h2 id="{id}-title" class="min-w-0 flex-1 py-2 text-base font-semibold break-words">
+			<h2
+				bind:this={heading}
+				id="{id}-title"
+				tabindex="-1"
+				class="min-w-0 flex-1 py-2 text-base font-semibold break-words"
+			>
 				{title}
 			</h2>
 			<button type="button" class="btn btn-quiet btn-icon" aria-label="Close" onclick={onclose}>

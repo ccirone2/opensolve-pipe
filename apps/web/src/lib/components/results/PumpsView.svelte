@@ -716,6 +716,10 @@
 	function solveAllCases() {
 		if (solveAll.canRun) void ws.solveAll();
 	}
+	/** "Pump lineups table…" (D24 slice L2, §8.1): the manager on Pump lineups, the card's pumps. */
+	function openTable() {
+		ws.openManager({ pumps: groupMembers });
+	}
 	const lineups = $derived<LineupsBlockProps | null>(
 		plan
 			? {
@@ -725,7 +729,8 @@
 					onmove: moveStop,
 					ondefaultorder: resetStopOrder,
 					onadd: addLineups,
-					onsolveall: solveAllCases
+					onsolveall: solveAllCases,
+					ontable: openTable
 				}
 			: null
 	);

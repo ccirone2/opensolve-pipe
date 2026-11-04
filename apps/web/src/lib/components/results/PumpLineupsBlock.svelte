@@ -14,6 +14,9 @@
 	they stay focusable, aria-disabled and described), Default order when the order is not the
 	default, and a polite status line. Focus is put back explicitly after every move: a keyed each
 	moves the focused node on "later" and the browser drops its focus (§7.5).
+
+	At its foot whenever it is drawn, gates included (slice L2, §8.1): the quiet "Pump lineups
+	table…", which opens the Scenarios manager on Pump lineups showing the card's pumps.
 -->
 <script lang="ts" module>
 	import type { LineupPlan, LineupPreset } from '$lib/utils/pump-lineups';
@@ -42,11 +45,17 @@
 		onadd?: () => void;
 		/** Solve every case not yet solved (the Scenarios menu's Solve all). */
 		onsolveall?: () => void;
+		/**
+		 * Open the Scenarios manager on Pump lineups, showing the card's pumps only (slice L2, §8.1);
+		 * the button is drawn when it is given.
+		 */
+		ontable?: () => void;
 	}
 </script>
 
 <script lang="ts">
 	import { tick } from 'svelte';
+	import { LINEUP_TABLE_WORDS } from '$lib/utils/lineup-table';
 	import {
 		LINEUP_BLOCK_WORDS,
 		LINEUP_PRESET_LABELS,
@@ -55,8 +64,16 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import SegmentedField from '$lib/components/ui/SegmentedField.svelte';
 
-	let { plan, solveAll, onpreset, onmove, ondefaultorder, onadd, onsolveall }: LineupsBlockProps =
-		$props();
+	let {
+		plan,
+		solveAll,
+		onpreset,
+		onmove,
+		ondefaultorder,
+		onadd,
+		onsolveall,
+		ontable
+	}: LineupsBlockProps = $props();
 	const id = $props.id();
 
 	const presets = (Object.keys(LINEUP_PRESET_LABELS) as LineupPreset[]).map((value) => ({
@@ -233,6 +250,11 @@
 	{/if}
 	{#if !plan.gate && plan.refusal}
 		<p id="{id}-refusal" class="hint">{plan.refusal}</p>
+	{/if}
+	{#if ontable}
+		<button type="button" class="btn btn-quiet text-blue-800" onclick={() => ontable?.()}
+			>{LINEUP_TABLE_WORDS.cardButton}</button
+		>
 	{/if}
 	<p class="sr-only" aria-live="polite" data-stop-status>{status}</p>
 </section>

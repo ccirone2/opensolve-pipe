@@ -5,16 +5,32 @@
 	the value), and problems with its values; it can be shown, duplicated, moved and deleted. Every
 	action is one undo step, made in the case shown; names, descriptions and order are labels and
 	never make results out of date. A modal on wide screens, a bottom sheet on phones.
+
+	Pump lineups (CLAUDE.md D24, proposal pump-lineups.md §8.1, slice L2): with two pumps or more, a
+	tab row (Cases ({n}), Pump lineups; the Project library's pattern) and the dialog xl on both
+	tabs, so its width never changes on a tab switch; the Cases prose then capped at max-w-prose.
+	The tab shown is derived: the one last used (page state) while the project has two pumps, else
+	Cases; a scenario's card asked for always opens Cases. Each tab has its own footer. One polite
+	status line and one alert line, outside the panels and above the footer, say what the actions
+	of either tab did (renames, adds, undos, refusals), since the workspace notice sits behind the
+	modal; Ctrl/⌘+Z, Ctrl/⌘+Shift+Z and Ctrl/⌘+Y on the manager's root (not in a text field) go
+	through the same undo and redo as the Pump lineups footer's buttons, which say what they did.
 -->
 <script lang="ts">
 	import { tick } from 'svelte';
-	import type { Override, Scenario } from '$lib/api/types';
+	import type { Override, Project, Scenario } from '$lib/api/types';
 	import { focusCurrentHeading } from '$lib/components/panel/focus';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import TextField from '$lib/components/ui/TextField.svelte';
 	import { URL_LENGTH_WARNING } from '$lib/utils/encoding';
 	import { connectionById } from '$lib/utils/graph';
+	import {
+		hasLineupsTab,
+		LINEUP_TABLE_WORDS,
+		shownManagerTab,
+		type ManagerTab
+	} from '$lib/utils/lineup-table';
 	import { changeElement, scenarioProblems } from '$lib/utils/scenario-problems';
 	import {
 		changeFieldLabel,
@@ -34,7 +50,9 @@
 		withScenarios
 	} from '$lib/utils/scenarios';
 	import { caseNameIn, useWorkspace } from '$lib/state/workspace.svelte';
+	import type { UpdateLabel } from '$lib/state/project.svelte';
 	import CaseStatusChip from './CaseStatusChip.svelte';
+	import PumpLineups from './PumpLineups.svelte';
 
 	let { onclose }: { onclose: () => void } = $props();
 	const ws = useWorkspace();
@@ -43,6 +61,96 @@
 
 	const scenarios = $derived(ws.scenarios);
 	const full = $derived(scenarios.length >= MAX_SCENARIOS);
+
+	// A scenario's card asked for always opens Cases (§8.1); it is then the tab last used.
+	if (ws.managerFocus !== null) ws.managerTab = 'cases';
+	/** The tab row: two pumps or more (§8.1). */
+	const tabs = $derived(hasLineupsTab(store.project));
+	/** The tab shown, derived (decision 26): the one last used while there are tabs, else Cases. */
+	const tab = $derived(shownManagerTab(store.project, ws.managerTab));
+	const TABS: readonly ManagerTab[] = ['cases', 'lineups'];
+
+	let dialog: ReturnType<typeof Dialog> | undefined = $state();
+	let lineups: ReturnType<typeof PumpLineups> | undefined = $state();
+	/** The manager's polite status line and its alert line (§8.1), shared by both tabs. */
+	let status = $state('');
+	let alert = $state('');
+	function say(text: string) {
+		status = text;
+		alert = '';
+	}
+	function warn(text: string) {
+		alert = text;
+		status = '';
+	}
+
+	function selectTab(next: ManagerTab) {
+		ws.managerTab = next;
+	}
+
+	function tabKeydown(event: KeyboardEvent) {
+		if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+			event.preventDefault();
+			const next = tab === 'cases' ? 'lineups' : 'cases';
+			selectTab(next);
+			document.getElementById(`${id}-tab-${next}`)?.focus();
+		}
+	}
+
+	/**
+	 * Undo or redo the last step, whichever it was (§8.9), saying what it did on the status line.
+	 * The focus stays where it was: put back on the table's active cell when it was in the grid;
+	 * on the dialog's title when the step took the project below two pumps while Pump lineups was
+	 * shown (the tab row, the table and its footer are gone).
+	 */
+	async function history(step: 'undo' | 'redo') {
+		const inGrid = lineups?.hasFocus() ?? false;
+		const before = tab;
+		const done = step === 'undo' ? ws.undoStep() : ws.redoStep();
+		if (!done) return;
+		say(done.text);
+		await tick();
+		if (before === 'lineups' && tab === 'cases') dialog?.focusTitle();
+		else if (inGrid) await lineups?.focusActive();
+	}
+
+	function editingText(target: EventTarget | null): boolean {
+		return (
+			target instanceof HTMLElement &&
+			(target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+		);
+	}
+
+	/**
+	 * Ctrl/⌘+Z, Ctrl/⌘+Shift+Z and Ctrl/⌘+Y in the manager, except in a text field (§8.1), as the
+	 * workspace's window shortcut is; kept from it, which would undo without a word in the manager.
+	 */
+	function keydown(event: KeyboardEvent) {
+		if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+		const key = event.key.toLowerCase();
+		if (key !== 'z' && key !== 'y') return;
+		if (editingText(event.target)) return;
+		event.preventDefault();
+		event.stopPropagation();
+		void history(key === 'z' && !event.shiftKey ? 'undo' : 'redo');
+	}
+
+	/**
+	 * A manager's action as one undo step (updateStored's), said on the manager's own lines: the
+	 * renames it made (§4.5) on the status line, a refusal on the alert line.
+	 */
+	function step(change: (draft: Project) => Project | void, label: UpdateLabel): boolean {
+		const result = ws.updateStoredQuiet(change, label);
+		if (!result.ok) {
+			warn(result.text);
+			return false;
+		}
+		say(result.renamed);
+		return true;
+	}
+
+	const undoName = $derived(store.undoLabel ? LINEUP_TABLE_WORDS.undoNamed(store.undoLabel) : '');
+	const redoName = $derived(store.redoLabel ? LINEUP_TABLE_WORDS.redoNamed(store.redoLabel) : '');
 
 	/** Cards that are open: the one asked for, else the active scenario's. */
 	let opened = $state<string[]>(
@@ -84,7 +192,7 @@
 			name: newScenarioName(store.project, sid),
 			overrides: []
 		};
-		if (!ws.updateStored((p) => withScenarios(p, [...scenarios, scenario]), 'add scenario')) return;
+		if (!step((p) => withScenarios(p, [...scenarios, scenario]), 'add scenario')) return;
 		ws.setCase(sid);
 		toggle(sid, true);
 		void focusName(sid);
@@ -100,15 +208,14 @@
 		};
 		const index = scenarios.findIndex((s) => s.id === scenario.id);
 		const next = [...scenarios.slice(0, index + 1), copy, ...scenarios.slice(index + 1)];
-		if (!ws.updateStored((p) => withScenarios(p, next), `duplicate scenario ${scenario.name}`))
-			return;
+		if (!step((p) => withScenarios(p, next), `duplicate scenario ${scenario.name}`)) return;
 		ws.setCase(sid);
 		toggle(sid, true);
 		void focusName(sid);
 	}
 
 	function edit(scenario: Scenario, label: string, change: (s: Scenario) => Scenario) {
-		ws.updateStored(
+		step(
 			(p) =>
 				withScenarios(
 					p,
@@ -125,18 +232,17 @@
 		const next = [...scenarios];
 		next.splice(index, 1);
 		next.splice(to, 0, scenario);
-		ws.updateStored(
-			(p) => withScenarios(p, next),
-			`move scenario ${scenario.name} ${by < 0 ? 'up' : 'down'}`
-		);
+		step((p) => withScenarios(p, next), `move scenario ${scenario.name} ${by < 0 ? 'up' : 'down'}`);
 	}
 
 	async function remove(scenario: Scenario) {
 		deleting = null;
 		const next = scenarios.filter((s) => s.id !== scenario.id);
-		if (!ws.updateStored((p) => withScenarios(p, next), `delete scenario ${scenario.name}`)) return;
+		if (!step((p) => withScenarios(p, next), `delete scenario ${scenario.name}`)) return;
 		await tick();
-		listHeading?.focus();
+		// With the tab row the heading is sr-only (the tab says it): the focus goes to the tab.
+		if (tabs) document.getElementById(`${id}-tab-cases`)?.focus();
+		else listHeading?.focus();
 	}
 
 	/**
@@ -144,7 +250,7 @@
 	 * app made follows its pumps (CLAUDE.md D24, proposal pump-lineups.md §4.5).
 	 */
 	function removeChanges(scenario: Scenario, indices: readonly number[], label: string) {
-		ws.updateStored(
+		step(
 			(p) =>
 				withScenarios(
 					p,
@@ -182,22 +288,29 @@
 	}
 </script>
 
-<Dialog title="Scenarios" wide {onclose}>
-	<div class="space-y-4 text-sm">
-		<p class="text-slate-700">
+<!-- The Cases tab (the manager as it was before the tab row): its prose at max-w-prose, the
+	cards full width (§8.1). -->
+{#snippet cases()}
+	<div class="space-y-4">
+		<p class="max-w-prose text-slate-700">
 			A scenario keeps another operating or design case of this network, such as a pump off, a valve
 			closed or a larger pipe, as a list of values changed from the base case. Editing the base case
 			updates every scenario that does not set its own value. The layout of the network is the same
 			in every scenario.
 		</p>
-		<h3 bind:this={listHeading} id="{id}-list" tabindex="-1" class="section-title">
+		<h3
+			bind:this={listHeading}
+			id="{id}-list"
+			tabindex="-1"
+			class={tabs ? 'sr-only' : 'section-title'}
+		>
 			Cases ({scenarios.length + 1})
 		</h3>
 
 		<section class="card flex flex-wrap items-center gap-2 p-3" aria-labelledby="{id}-base">
 			<div class="min-w-0 flex-1 basis-48">
 				<h4 id="{id}-base" class="font-semibold">Base case</h4>
-				<p class="text-slate-700">The network as built.</p>
+				<p class="max-w-prose text-slate-700">The network as built.</p>
 			</div>
 			<CaseStatusChip status={store.caseStatus(null)} />
 			<button
@@ -272,7 +385,7 @@
 									{@const o = change.override}
 									{@const what = `${changeTargetLabel(store.project, o)} · ${changeFieldLabel(store.project, o)}`}
 									<li class="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1.5">
-										<div class="min-w-0 flex-1 basis-56">
+										<div class="max-w-prose min-w-0 flex-1 basis-56">
 											<p class="break-words">
 												<span class="text-slate-700">{what}:</span>
 												<strong>{valueText(o, o.value)}</strong>
@@ -302,7 +415,7 @@
 								{/each}
 							</ul>
 						{:else}
-							<p class="text-slate-700">
+							<p class="max-w-prose text-slate-700">
 								No changes yet: it solves as the base case. Show it, then change values in Build or
 								in Settings (the fluid).
 							</p>
@@ -321,7 +434,7 @@
 									{@const o = change.override}
 									{@const what = `${changeTargetLabel(store.project, o)} · ${changeFieldLabel(store.project, o)} ${valueText(o, o.value)}`}
 									<li class="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1.5">
-										<p class="min-w-0 flex-1 basis-56 break-words">
+										<p class="max-w-prose min-w-0 flex-1 basis-56 break-words">
 											{what}: no longer applies, ignored when solving ({change.message}).
 										</p>
 										<button
@@ -362,7 +475,7 @@
 										problem.index === null ? null : (scenario.overrides ?? [])[problem.index]}
 									<li class="flex flex-wrap items-center gap-x-2">
 										<Icon name="alert" class="size-4 shrink-0" />
-										<span class="min-w-0 flex-1 basis-48 break-words">
+										<span class="max-w-prose min-w-0 flex-1 basis-48 break-words">
 											{#if o}
 												The value {scenario.name} sets for {changeTargetLabel(store.project, o)}
 												{changeFieldLabel(store.project, o).toLowerCase()} is not valid: {problem.text}
@@ -395,6 +508,7 @@
 							class="btn"
 							aria-disabled={full}
 							title={full ? LIMIT_TEXT : undefined}
+							aria-describedby={full ? `${id}-full` : undefined}
 							aria-label="Duplicate {scenario.name}"
 							onclick={() => duplicate(scenario)}
 						>
@@ -431,30 +545,120 @@
 			</details>
 		{/each}
 
-		{#if full}<p class="text-slate-700">{LIMIT_TEXT}</p>{/if}
+		{#if full}<p id="{id}-full" class="max-w-prose text-slate-700">{LIMIT_TEXT}</p>{/if}
+	</div>
+{/snippet}
+
+<Dialog bind:this={dialog} title="Scenarios" wide={!tabs} xl={tabs} {onclose} onkeydown={keydown}>
+	<div class="space-y-4 text-sm">
+		{#if tabs}
+			<div
+				role="tablist"
+				aria-label={LINEUP_TABLE_WORDS.tablist}
+				class="flex border-b border-slate-200"
+				tabindex="-1"
+				onkeydown={tabKeydown}
+			>
+				{#each TABS as value (value)}
+					<button
+						type="button"
+						role="tab"
+						id="{id}-tab-{value}"
+						aria-selected={tab === value}
+						aria-controls="{id}-panel"
+						tabindex={tab === value ? 0 : -1}
+						class={[
+							'-mb-px min-h-11 border-b-2 px-4 text-sm font-medium',
+							tab === value
+								? 'border-blue-700 text-blue-800'
+								: 'border-transparent text-slate-600 hover:text-slate-900'
+						]}
+						onclick={() => selectTab(value)}
+					>
+						{value === 'cases'
+							? LINEUP_TABLE_WORDS.casesTab(scenarios.length + 1)
+							: LINEUP_TABLE_WORDS.lineupsTab}
+					</button>
+				{/each}
+			</div>
+			<div id="{id}-panel" role="tabpanel" aria-labelledby="{id}-tab-{tab}">
+				{#if tab === 'cases'}
+					{@render cases()}
+				{:else}
+					<PumpLineups bind:this={lineups} onstatus={say} onalert={warn} />
+				{/if}
+			</div>
+		{:else}
+			{@render cases()}
+		{/if}
 		{#if store.urlTooLong}
 			<p
 				class="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900"
 			>
 				<Icon name="alert" class="mt-0.5 size-4 shrink-0" />
-				<span>
+				<span class="max-w-prose">
 					The link to this project is longer than {URL_LENGTH_WARNING.toLocaleString('en-US')} characters:
 					some email and chat apps cut long links short. Its scenarios are part of it.
 				</span>
 			</p>
 		{/if}
+		<!-- The manager's lines (§8.1): what an action of either tab did, a refusal. -->
+		<p role="status" class="max-w-prose break-words empty:hidden">{status}</p>
+		<p role="alert" class="max-w-prose break-words text-red-800 empty:hidden">{alert}</p>
 	</div>
 	{#snippet footer()}
-		<button
-			type="button"
-			class="btn"
-			aria-disabled={full}
-			title={full ? LIMIT_TEXT : undefined}
-			onclick={add}
+		{#if tab === 'lineups'}
+			<!-- The Pump lineups footer (§8.2): Undo and Redo of the last step, whichever it was
+				(the header's are behind the dialog), named by it; New lineup; Done. -->
+			<button
+				type="button"
+				class="btn"
+				aria-label={undoName || undefined}
+				aria-disabled={!store.canUndo}
+				onclick={() => void history('undo')}
+			>
+				<Icon name="undo" class="size-4" />
+				{LINEUP_TABLE_WORDS.undo}
+			</button>
+			<button
+				type="button"
+				class="btn"
+				aria-label={redoName || undefined}
+				aria-disabled={!store.canRedo}
+				onclick={() => void history('redo')}
+			>
+				<Icon name="redo" class="size-4" />
+				{LINEUP_TABLE_WORDS.redo}
+			</button>
+			<button
+				type="button"
+				class="btn"
+				aria-disabled={full}
+				title={full ? LIMIT_TEXT : undefined}
+				aria-describedby={full ? `${id}-full` : undefined}
+				onclick={() => {
+					if (!full) void lineups?.addLineup();
+				}}
+			>
+				<Icon name="plus" class="size-4" />
+				{LINEUP_TABLE_WORDS.newLineup}
+			</button>
+			{#if full}<span id="{id}-full" class="sr-only">{LIMIT_TEXT}</span>{/if}
+		{:else}
+			<button
+				type="button"
+				class="btn"
+				aria-disabled={full}
+				title={full ? LIMIT_TEXT : undefined}
+				aria-describedby={full ? `${id}-full` : undefined}
+				onclick={add}
+			>
+				<Icon name="plus" class="size-4" /> New scenario
+			</button>
+		{/if}
+		<button type="button" class="btn btn-primary" onclick={onclose}
+			>{LINEUP_TABLE_WORDS.done}</button
 		>
-			<Icon name="plus" class="size-4" /> New scenario
-		</button>
-		<button type="button" class="btn btn-primary" onclick={onclose}>Done</button>
 	{/snippet}
 </Dialog>
 

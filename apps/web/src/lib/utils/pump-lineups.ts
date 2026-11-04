@@ -787,7 +787,7 @@ export const STOP_ORDER_WORDS = {
 	atFirst: 'Already the first to stop.',
 	atLast: 'Already the last to stop.',
 	reset: 'Default order',
-	resetHint: "The default: the last pump in the group's list stops first.",
+	resetHint: "The default: the last pump switched on in the group's list stops first.",
 	moved: (name: string, i: number, n: number) => `${name} is now number ${i} of ${n} to stop.`,
 	resetDone: (name: string) => `Default order: ${name} stops first.`
 } as const;

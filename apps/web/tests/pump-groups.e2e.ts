@@ -694,7 +694,9 @@ test('Running combinations wraps a long pump name on a phone, with no sideways s
 	const { card, toggle } = await openCard(page);
 	await answersOf(page, () => toggle.click());
 	const region = card.getByRole('region', { name: 'Running combinations' });
-	await expect(region.getByRole('rowheader', { name: long }).first()).toBeVisible();
+	// PA's own row header, by its exact name: since D24 §7.10 each case's heading holds a lineup
+	// line naming every member, which a substring match (and `.first()`) would find first.
+	await expect(region.getByRole('rowheader', { name: long, exact: true })).toBeVisible();
 	expect(await region.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 	await noSidewaysScroll(page);
 });

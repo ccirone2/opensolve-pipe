@@ -202,7 +202,7 @@ export interface OtherGroupCase {
 	stale: boolean;
 	/** On the chart: ticked under "Cases on this chart" and within the limit. */
 	onChart: boolean;
-	/** The ring number (case order among the cases drawn); null when not drawn. */
+	/** The ring number (the order of `valued` among the cases drawn); null when not drawn. */
 	number: number | null;
 	state:
 		| 'unticked'
@@ -225,7 +225,10 @@ export interface OtherGroupCase {
 }
 
 export interface OtherCasesInput {
-	/** The other cases with values (Compare's rule), in case order. */
+	/**
+	 * The other cases with values (Compare's rule), in the chart's order (lineupChartPriority's,
+	 * unticked ones in their place; D24 §7.9): listed and numbered in this order.
+	 */
 	valued: readonly {
 		key: string;
 		caseId: CaseId;
@@ -278,7 +281,7 @@ const CALCULATION_WORDS: Readonly<Record<NonNullable<Calculating>, string>> = {
 	goalSeek: 'the goal seek'
 };
 
-/** Each other case with values, in case order, in its state with its words and its ring. */
+/** Each other case with values, in the order given, in its state with its words and its ring. */
 export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 	const { station, project } = input;
 	let number = 0;

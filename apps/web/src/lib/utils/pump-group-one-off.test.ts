@@ -343,7 +343,7 @@ describe('the other cases on the chart', () => {
 		expect(chartKeys(valued.slice(0, 4), project, members, [''])).toEqual(['S1', 'S3', 'S5']);
 	});
 
-	it('numbers the rings in case order, each with its duty and claim', () => {
+	it('numbers the rings in the order given (the chart’s, D24 §7.9), each with its duty and claim', () => {
 		const others = otherGroupCases(input());
 		expect(others.map((o) => [o.key, o.state, o.number, o.claim])).toEqual([
 			['S1', 'ready', 1, 'on'],

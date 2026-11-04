@@ -76,21 +76,24 @@ const NAMES = [
 
 // ---- In the workspace ----------------------------------------------------------------------
 
-/** A solver answering from the `lineups` fixture by scenario id (another id: the base's). */
-function setup(project: Project) {
+/**
+ * A solver answering from the `lineups` fixture by scenario id; the base case (no id) by
+ * `baseOf` of the project sent, the fixture's base answers by default.
+ */
+function setup(project: Project, baseOf: (sent: Project) => Responses = () => lineups) {
 	const calls: { scenarioId: string | null; curve: 'group' | 'system' }[] = [];
 	const solves: (string | null)[] = [];
-	const responsesOf = (id: string | undefined): Responses =>
-		(id && lineups.scenarioCases[id]) || lineups;
+	const responsesOf = (sent: Project, id: string | undefined): Responses =>
+		(id && lineups.scenarioCases[id]) || baseOf(sent);
 	const solver: Solver = {
-		solve: async (_p, _o, request) => {
+		solve: async (project, _o, request) => {
 			solves.push(request?.scenarioId ?? null);
-			return structuredClone(responsesOf(request?.scenarioId).solve);
+			return structuredClone(responsesOf(project, request?.scenarioId).solve);
 		},
-		groupCurve: async (_p, _ids, request) => {
+		groupCurve: async (project, _ids, request) => {
 			const curve = request?.curve === 'system' ? 'system' : 'group';
 			calls.push({ scenarioId: request?.scenarioId ?? null, curve });
-			const answer = responsesOf(request?.scenarioId);
+			const answer = responsesOf(project, request?.scenarioId);
 			const sent = curve === 'system' ? answer.systemCurve! : answer.groupCurve;
 			return structuredClone(sent.body as PumpGroupCurveResponse);
 		}
@@ -317,10 +320,16 @@ describe('the Add cases block in the workspace', () => {
 		await openCard(ws, calls);
 		await openStopOrder();
 		expect(inBlock().queryByRole('button', { name: 'Default order' })).toBeNull();
+		// Moved and moved back: the order saved is the default again, so the button is not shown.
+		await press('Stop Pump P4 later');
+		expect(inBlock().getByRole('button', { name: 'Default order' })).toBeVisible();
+		await press('Stop Pump P4 earlier');
+		expect(ws.pumpStopOrder).toEqual(['P4', 'P3', 'P2', 'P1']);
+		expect(inBlock().queryByRole('button', { name: 'Default order' })).toBeNull();
 		await press('Stop Pump P2 earlier');
 		const reset = inBlock().getByRole('button', { name: 'Default order' });
 		expect(reset).toHaveAccessibleDescription(
-			"The default: the last pump in the group's list stops first."
+			"The default: the last pump switched on in the group's list stops first."
 		);
 		await press('Default order');
 		expect(inBlock().queryByRole('button', { name: 'Default order' })).toBeNull();
@@ -333,6 +342,78 @@ describe('the Add cases block in the workspace', () => {
 			'Stop order: Pump P4 first, then Pump P3 and Pump P2; Pump P1 stays on in every case'
 		);
 	});
+
+	it('after the pumps on change in the base, shows the default order, and a move starts from it (§7.5)', async () => {
+		// The base with P4 switched off is answered by the fixture's S1 (P4 off), the same answer
+		// as the hand edit (API proof 1), without its scenario record.
+		const p4Off = lineups.scenarioCases.S1!;
+		const asBase: Responses = {
+			solve: { ...p4Off.solve, scenario: null },
+			groupCurve: {
+				...p4Off.groupCurve,
+				body: { ...(p4Off.groupCurve.body as PumpGroupCurveResponse), scenario: null }
+			},
+			systemCurve: {
+				...p4Off.systemCurve!,
+				body: { ...(p4Off.systemCurve!.body as PumpGroupCurveResponse), scenario: null }
+			}
+		};
+		const offInBase = (sent: Project) =>
+			sent.components.some((c) => c.id === 'P4' && c.type === 'pump' && c.status === 'off');
+		const { ws, calls } = setup(withoutScenarios(), (sent) => (offInBase(sent) ? asBase : lineups));
+		await openCard(ws, calls);
+		await openStopOrder();
+		await press('Stop Pump P1 earlier');
+		expect(ws.pumpStopOrder).toEqual(['P4', 'P3', 'P1', 'P2']);
+		// P4 switched off in the base and solved again: the saved order no longer holds the
+		// pumps on, so the default is shown, nothing merged; the saved order is kept, unused.
+		expect(
+			ws.updateStored((draft) => {
+				const p4 = draft.components.find((c) => c.id === 'P4');
+				if (p4?.type === 'pump') p4.status = 'off';
+			}, 'switch Pump P4 off')
+		).toBe(true);
+		await ws.solve();
+		const summary = () => details().querySelector('summary')!.textContent!.trim();
+		await waitFor(() =>
+			expect(summary()).toBe(
+				'Stop order: Pump P3 first, then Pump P2; Pump P1 stays on in every case'
+			)
+		);
+		expect(ws.pumpStopOrder).toEqual(['P4', 'P3', 'P1', 'P2']);
+		expect(cases()).toEqual([
+			'2 of 4 running (Pump P3, Pump P4 off)',
+			'1 of 4 running (Pump P2, Pump P3, Pump P4 off)'
+		]);
+		if (!details().open) await openStopOrder();
+		expect(stopItems()).toEqual([
+			'Pump P3 (stops first)',
+			'Pump P2',
+			'Pump P1 (stays on in every case)'
+		]);
+		expect(inBlock().queryByRole('button', { name: 'Default order' })).toBeNull();
+		// The move starts from the default [P3, P2, P1]: P1 one place earlier.
+		await press('Stop Pump P1 earlier');
+		focusedOn('P1', 'up', 'Stop Pump P1 earlier');
+		expect(stopStatus()).toBe('Pump P1 is now number 2 of 3 to stop.');
+		expect(ws.pumpStopOrder).toEqual(['P3', 'P1', 'P2']);
+		expect(summary()).toBe(
+			'Stop order: Pump P3 first, then Pump P1; Pump P2 stays on in every case'
+		);
+		expect(cases()).toEqual([
+			'2 of 4 running (Pump P3, Pump P4 off)',
+			'1 of 4 running (Pump P1, Pump P3, Pump P4 off)'
+		]);
+		// Default order, described truly with P4 off: the last pump switched on in the group's
+		// list (P3, not P4) stops first.
+		const reset = inBlock().getByRole('button', { name: 'Default order' });
+		expect(reset).toHaveAccessibleDescription(
+			"The default: the last pump switched on in the group's list stops first."
+		);
+		await press('Default order');
+		expect(stopStatus()).toBe('Default order: Pump P3 stops first.');
+		focusedOn('P3', 'down', 'Stop Pump P3 later');
+	}, 20_000);
 
 	it('adds in one undo step with its notice, ticks "Also show", focuses Solve all; each case then has its lineup line', async () => {
 		const { ws, calls, solves } = setup(withoutScenarios());

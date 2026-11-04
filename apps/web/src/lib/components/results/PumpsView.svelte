@@ -78,6 +78,7 @@
 		type OtherGroupCase
 	} from '$lib/utils/pump-group-one-off';
 	import {
+		lineupChartPriority,
 		lineupPlan,
 		movedStopOrder,
 		withLineupCases,
@@ -434,6 +435,16 @@
 		chartKeys(valuedOthers, ws.store.project, groupMembers, ws.pumpGroupUnticked)
 	);
 	/**
+	 * The other cases with values in the chart's order (D24 §4.6, unticked ones in their place):
+	 * "Cases on this chart" lists them, and the rings are numbered, in that order (§7.9, §6).
+	 */
+	const chartOrdered = $derived.by(() => {
+		const rank = new Map(
+			lineupChartPriority(valuedOthers, ws.store.project, groupMembers).map((key, i) => [key, i])
+		);
+		return [...valuedOthers].sort((a, b) => (rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0));
+	});
+	/**
 	 * Whether a case as solved is the same as the one shown outside the station (sharedRest),
 	 * kept while both projects and the station are the same objects: the fingerprints are not
 	 * computed again on every change of a curve's state.
@@ -458,7 +469,7 @@
 		if (!groupStation) return [];
 		const station = groupStation.station;
 		return otherGroupCases({
-			valued: valuedOthers.map((v) => ({
+			valued: chartOrdered.map((v) => ({
 				key: v.key,
 				caseId: v.caseId,
 				name: v.name,

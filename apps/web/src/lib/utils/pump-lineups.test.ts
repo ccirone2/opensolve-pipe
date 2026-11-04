@@ -36,7 +36,7 @@ import {
 } from '$lib/testing/lineups';
 import fixture from './__fixtures__/pump-groups-input.json';
 import { condenserWaterExample, pumpTransferExample } from './examples';
-import { offName } from './pump-group-one-off';
+import { chartKeys, offName } from './pump-group-one-off';
 import { suggestGroups } from './pump-groups';
 import {
 	addedNotice,
@@ -1590,6 +1590,13 @@ describe('lineupPlan: By number running (§7.4)', () => {
 			'Adding 3 cases would make 21 scenarios; a project holds at most 20 scenarios.'
 		);
 		expect(plan.label).toBe('Add 3 cases');
+		// At the limit, not past it: 17 scenarios and 3 cases make 20, which a project holds.
+		const atLimit = planOn(lineups, {
+			project: withScenarios(withoutScenarios(lineups.project), eighteen.slice(0, 17))
+		});
+		expect(atLimit.add).toHaveLength(3);
+		expect(atLimit.refusal).toBeNull();
+		expect(atLimit.label).toBe('Add 3 cases');
 		// The fixture's own scenarios hold every case.
 		const every = planOn(lineups, { project: lineups.project });
 		expect(every.add).toEqual([]);
@@ -1618,6 +1625,8 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		// Another set on: the default, nothing merged.
 		expect(effectiveStopOrder(saved, ['P1', 'P2', 'P3'])).toEqual(['P3', 'P2', 'P1']);
 		expect(effectiveStopOrder(['P1', 'P1', 'P2', 'P3'], ids)).toEqual(['P4', 'P3', 'P2', 'P1']);
+		// Another set of the same size (P1 on and P4 off where P4 was on and P1 off): the default.
+		expect(effectiveStopOrder(['P2', 'P4', 'P3'], ['P1', 'P2', 'P3'])).toEqual(['P3', 'P2', 'P1']);
 		// Through the plan: P4 set off in the base, then on again (an Undo).
 		expect(planOf(station(4), { savedOrder: saved }).stopOrder!.order).toEqual(saved);
 		const p4Off = station(4, { off: ['P4'] });
@@ -1628,6 +1637,33 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		expect(planOf(station(4), { savedOrder: saved }).stopOrder).toMatchObject({
 			order: saved,
 			isDefault: false
+		});
+		// An order saved with P1 off in the base holds there; with P1 on and P4 off instead (as
+		// many pumps on, another set) the plan uses the default: its list, its cases, nothing of P4.
+		const p1Saved = ['P2', 'P4', 'P3'];
+		expect(planOf(station(4, { off: ['P1'] }), { savedOrder: p1Saved }).stopOrder).toMatchObject({
+			order: p1Saved,
+			isDefault: false
+		});
+		const swapped = planOf(p4Off, { savedOrder: p1Saved });
+		expect(swapped.stopOrder).toMatchObject({ order: ['P3', 'P2', 'P1'], isDefault: true });
+		expect(swapped.stopOrder!.items.map((item) => item.label)).toEqual([
+			'Pump P3',
+			'Pump P2',
+			'Pump P1'
+		]);
+		expect(swapped.add.map((a) => a.stopped)).toEqual([['P3'], ['P2', 'P3']]);
+		expect(items(swapped)).toEqual([
+			'2 of 4 running (Pump P3, Pump P4 off)',
+			'1 of 4 running (Pump P2, Pump P3, Pump P4 off)'
+		]);
+		// A saved order equal to the default is the default (§7.5: Default order is not shown),
+		// as after "Stop Pump P4 later" then "Stop Pump P4 earlier".
+		const back = movedStopOrder(movedStopOrder(defaultStopOrder(ids), 'P4', 'down'), 'P4', 'up');
+		expect(back).toEqual(['P4', 'P3', 'P2', 'P1']);
+		expect(planOf(station(4), { savedOrder: back }).stopOrder).toMatchObject({
+			order: ['P4', 'P3', 'P2', 'P1'],
+			isDefault: true
 		});
 		// A move swaps neighbours; at an end it changes nothing.
 		expect(movedStopOrder(ids, 'P2', 'up')).toEqual(['P2', 'P1', 'P3', 'P4']);
@@ -1655,6 +1691,35 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		);
 		expect(stopOrderSummary(station(3), ['P3', 'P2', 'P1'])).toBe(
 			'Stop order: Pump P3 first, then Pump P2; Pump P1 stays on in every case'
+		);
+	});
+
+	it('names the pumps project-wide where a pump off the card has a member’s name (§7.5 Labels, decision 8)', () => {
+		// P4, not on the card, is named "Pump P3" too: project-wide the member P3 is "Pump P3
+		// (P3)", while over the card's members alone (4d's memberLabels) it would be "Pump P3".
+		const twin = renamedPump(station(4), 'P4', 'Pump P3');
+		const card = { memberIds: ['P1', 'P2', 'P3'] };
+		const plan = planOf(twin, card);
+		// The stop order's list.
+		expect(plan.stopOrder!.items.map((item) => item.label)).toEqual([
+			'Pump P3 (P3)',
+			'Pump P2',
+			'Pump P1'
+		]);
+		// The sentence of §7.6.
+		expect(plan.sentence).toBe(
+			"Pump P1, Pump P2 and Pump P3 (P3) have the same pump curve and speed. Which of them run can still change the answer, through the tees and each pump's own piping, most when few run: change the stop order to compare which run at each count; Each pump off compares them with one off."
+		);
+		// A base-state item: P3 on and carrying no flow.
+		const idle = planOf(twin, card, { P3: { operatingFlow: 0 } });
+		expect(idle.cases[0]).toMatchObject({ kind: 'base_state', stopped: ['P3'] });
+		expect(idle.cases[0]!.words).toBe(
+			`${idle.cases[0]!.name}: not made, the base case's state (Pump P3 (P3) carries no flow in the base case)`
+		);
+		// About's base-off sentence: P3 off in the base.
+		const p3Off = renamedPump(station(4, { off: ['P3'] }), 'P4', 'Pump P3');
+		expect(planOf(p3Off, card).about).toContain(
+			' Pump P3 (P3) is off in the base case and stays off in every case. '
 		);
 	});
 
@@ -1743,7 +1808,7 @@ describe('lineupPlan: By number running (§7.4)', () => {
 			'Already the first to stop.',
 			'Already the last to stop.',
 			'Default order',
-			"The default: the last pump in the group's list stops first."
+			"The default: the last pump switched on in the group's list stops first."
 		]);
 		expect(w.earlier('Pump P1')).toBe('Stop Pump P1 earlier');
 		expect(w.later('Pump P1')).toBe('Stop Pump P1 later');
@@ -1866,6 +1931,13 @@ describe('lineupPlan: Each pump off (4d’s cases; 4d’s plan tests moved here)
 		);
 		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
 		expect(plan.label).toBe('Add 2 cases');
+		// At the limit, not past it: 18 scenarios and 2 cases make 20, which a project holds.
+		const atLimit = each(
+			withScenarios(withoutScenarios(oneOffCase.project), nineteen.slice(0, 18))
+		);
+		expect(atLimit.add).toHaveLength(2);
+		expect(atLimit.refusal).toBeNull();
+		expect(atLimit.label).toBe('Add 2 cases');
 	});
 
 	it('tells two pumps of the same name apart by their ids, in the cases it makes and its words', () => {
@@ -2077,6 +2149,39 @@ describe('lineupChartPriority', () => {
 			).on.length;
 		expect(mixed.slice(0, 6).map(onIn)).toEqual([5, 4, 3, 2, 1, 5]);
 		expect(mixed[0]).toBe('S1');
+	});
+
+	it('puts the other lineups most running first, then in case order (step 2): they decide the six charted', () => {
+		// By number running, again after a reorder (P1 first), then Each pump off: the counts in
+		// case order are 3, 2, 1, 3, 2, 1, 3 and 3 running, so case order is not count order.
+		const four = station(4);
+		const running = withLineupCases(four, planOf(four).add);
+		const reordered = withLineupCases(
+			running,
+			planOf(running, { savedOrder: ['P1', 'P4', 'P3', 'P2'] }).add
+		);
+		const all = withLineupCases(reordered, planOf(reordered, { preset: 'each' }).add);
+		expect(namesOf(all)).toEqual([
+			'3 of 4 running (Pump P4 off)',
+			'2 of 4 running (Pump P3, Pump P4 off)',
+			'1 of 4 running (Pump P2, Pump P3, Pump P4 off)',
+			'3 of 4 running (Pump P1 off)',
+			'2 of 4 running (Pump P1, Pump P4 off)',
+			'1 of 4 running (Pump P1, Pump P3, Pump P4 off)',
+			'Pump P2 off',
+			'Pump P3 off'
+		]);
+		const order = lineupChartPriority(keysOf(all), all, pumpIds(4));
+		expect(order).toEqual(['S1', 'S2', 'S3', 'S4', 'S7', 'S8', 'S5', 'S6']);
+		// The six on the chart: the first of each count, then the other cases with 3 running.
+		expect(chartKeys(keysOf(all), all, pumpIds(4), [])).toEqual([
+			'S1',
+			'S2',
+			'S3',
+			'S4',
+			'S7',
+			'S8'
+		]);
 	});
 
 	it('counts the base when it is another case, with its pumps on', () => {

@@ -7,7 +7,9 @@ Written by a tester who read neither ``services/`` nor the web source: from D6, 
 (``docs/decisions``), SDD §5, the request and response models, and the design ("the proposal"
 below: its plan, §7.4; its claims, §3.1, §3.4 to §3.6; its proof, §10.1 "Independent API
 proof"). A lineup changes no model and no API (§2): it is a D15 scenario whose overrides are
-pump ``status`` changes.
+pump ``status`` changes. The L1b review's fixes (each case's group answers shown to be its own in
+proofs 3 to 6, the closed-off ports, the duty's members) were written by a fixer who had read
+the web source but not ``services/``; they too compare only the API's own answers.
 
 **The stations** (the proposal's measurement stations, rewritten from its scratch scripts; every
 dimension is a test input, the pumps ``curve_a`` and ``curve_large`` of the reference
@@ -48,11 +50,18 @@ no expected hydraulic number is typed.
 2. Each case with its change list reversed gives the same answer bit for bit, D15's Scenario
    section listing the changes in their stored order.
 3. Each case's station duty lies on the base's group system curve within D6, the curve asked on
-   a grid holding the duty's flow.
+   a grid holding the duty's flow. The duty is the case's own: its group answer is the hand
+   edit's, the pumps it writes read off at zero flow, every member's flow is its ``/solve``'s.
 4. The idle-only case is the base's answer within D6 (D13).
-5. Each case's group system curve equals the base's at every flow both give, within D6.
+5. Each case's group system curve equals the base's at every flow both give, within D6, and is
+   the case's own: the hand edit's curve on the same flows.
 6. With PB's discharge valve isolated, PB reads ``running`` with ``operatingFlow`` 0.0 in the
    base, and the case with PB off is the base's answer within D6.
+
+**A case's group answer is its own** (proofs 3 to 6; a duty or curve of the base, or of another
+lineup, would pass their comparisons too): it records the case's changes applied, 'off' over the
+base's 'on', in their stored order, and, apart from ``scenario``, it equals bit for bit the
+answer to its hand edit (as the one-pump-off module proves of its cases).
 
 **"The base's answer within D6"** (proofs 4 and 6; D13, as the one-pump-off module compares a
 case with an idle member off): every node's heads and pressures, every link's and valve's flow
@@ -63,10 +72,16 @@ flow follow the zero-flow state, D13's labels, and are not compared:
 - the head of a pump that carries no flow in both answers under two different statuses: held
   at no flow against a closed-off discharge it reads its shutoff head s²H₀(0), off it reads
   the EGL difference across it (the ladder's P3, measured: 28.8 m in the base, 31.9 m off);
-- the results of components one answer closes off (ISOLATED_SECTION: no flow, no computed
-  pressure), which the other gives: accepted only where that other answer carries no flow
-  through them (the ladder's base closes off P3's discharge up to its check valve, which is
-  open at zero flow with P3 off; ``closed-leg`` with PB off closes off PB and VB).
+- the results of what one answer closes off (ISOLATED_SECTION: no flow, no computed
+  pressure), which the other gives: the components the flag names, and the ports and
+  connections between them (a connection with both ends on such components). Accepted only
+  where that other answer carries no flow through them (the ladder's base closes off P3's
+  discharge up to its check valve, P3:discharge and CV3:inlet, the valve open at zero flow
+  with P3 off; ``closed-leg`` with PB off closes off PB and VB, PB:discharge and VB:inlet). A
+  port of such a component joined to the rest of the network (P3:suction, CV3:outlet,
+  ``closed-leg``'s PB:suction and VB:outlet) keeps its computed pressure and is compared.
+
+The two duties list the same members, each compared.
 
 Physics flags are not compared either (the one-pump-off module compares none): they follow the
 same zero-flow states (the ladder's base flags P3 dead-headed, PUMP_FLOW_REVERSAL).
@@ -595,6 +610,19 @@ def closed_off(state: dict[str, Any]) -> set[str]:
     }
 
 
+def pocket(closed: set[str], connections: Sequence[dict[str, Any]]) -> tuple[set[str], set[str]]:
+    """The ports and connections between the components ``closed`` names: a connection with
+    both ends on such components, and its two ports. A port of a closed-off component joined to
+    a component still connected (``closed-leg``'s PB:suction, joined to T1) is not one: it keeps
+    its computed pressure."""
+    inside = [
+        c for c in connections if c["fromComponentId"] in closed and c["toComponentId"] in closed
+    ]
+    ports = {f"{c['fromComponentId']}:{c['fromPortId']}" for c in inside}
+    ports |= {f"{c['toComponentId']}:{c['toPortId']}" for c in inside}
+    return ports, {c["id"] for c in inside}
+
+
 def relabelled(a: dict[str, Any], b: dict[str, Any], key: str, floor: float) -> bool:
     """A pump that carries no flow in either answer, under two different statuses: a zero-flow
     label (D13). Its head follows the label: a pump held at no flow against a closed-off
@@ -602,19 +630,34 @@ def relabelled(a: dict[str, Any], b: dict[str, Any], key: str, floor: float) -> 
     return bool(a["status"] != b["status"] and abs(a[key]) <= floor and abs(b[key]) <= floor)
 
 
-def compare_states(base: dict[str, Any], case: dict[str, Any]) -> tuple[list[Compared], list[str]]:
+def compare_states(
+    base: dict[str, Any], case: dict[str, Any], connections: Sequence[dict[str, Any]]
+) -> tuple[list[Compared], list[str]]:
     """The case's solved state against the base's (D13: the same answer within D6): every
     node's heads and pressures, every link's flow and head loss, every valve's flow and head
     loss, every pump's flow, head and suction pressure, every boundary's outflow and every
     branch's port flows, where both give them. State labels at zero flow are not compared
     (D13), nor the head of a pump ``relabelled`` at zero flow. A result only one answer gives
-    is accepted only for a component the other answer closes off (``closed_off``: no flow and
-    no computed pressure there), and the answer that gives it must carry no flow through it;
-    any other is a problem."""
+    is accepted only for what the other answer closes off (``closed_off``: no flow and no
+    computed pressure there): a component the flag names, or a port or connection between such
+    components (``pocket``, over the project's ``connections``); and the answer that gives it
+    must carry no flow through it. Any other is a problem."""
     rho = float(base["fluid"]["density"])
     pockets = {
         "the base": closed_off(base) - closed_off(case),
         "the case": closed_off(case) - closed_off(base),
+    }
+    inside = {lacking: pocket(closed, connections) for lacking, closed in pockets.items()}
+    accepted = {
+        lacking: {
+            "nodeResults": ports,
+            "linkResults": links,
+            "valveResults": pockets[lacking],
+            "pumpResults": pockets[lacking],
+            "boundaryResults": pockets[lacking],
+            "branchResults": pockets[lacking],
+        }
+        for lacking, (ports, links) in inside.items()
     }
     compared: list[Compared] = []
     problems: list[str] = []
@@ -630,7 +673,7 @@ def compare_states(base: dict[str, Any], case: dict[str, Any]) -> tuple[list[Com
             lacking, giving = (
                 ("the case", "the base") if key in base[table] else ("the base", "the case")
             )
-            if key.split(":")[0] not in pockets[lacking]:
+            if key not in accepted[lacking][table]:
                 problems.append(f"{table} {key}: only {giving} gives it")
     for lacking, answer in (("the case", base), ("the base", case)):
         for cid in sorted(pockets[lacking]):
@@ -683,22 +726,61 @@ def compare_states(base: dict[str, Any], case: dict[str, Any]) -> tuple[list[Com
     return compared, problems
 
 
-def compare_duties(base: dict[str, Any], case: dict[str, Any]) -> list[Compared]:
+def compare_duties(base: dict[str, Any], case: dict[str, Any]) -> tuple[list[Compared], list[str]]:
     """The case's station duty against the base's: its flow, rise and inlet EGL, and each
-    member's flow and head (not the head of a member ``relabelled`` at zero flow)."""
+    member's flow and head (not the head of a member ``relabelled`` at zero flow). The two list
+    the same members, each once; a member only one gives is a problem."""
     a, b = base["duty"], case["duty"]
     compared = [
         flow("duty flow", b["flow"], a["flow"], DUTY_FLOW_FLOOR),
         head("duty rise", b["head"], a["head"]),
         head("duty inlet EGL", b["inletEgl"], a["inletEgl"]),
     ]
-    members = {m["pumpId"]: m for m in a["members"]}
-    for m in b["members"]:
-        pid, other = m["pumpId"], members[m["pumpId"]]
+    ids_a = [m["pumpId"] for m in a["members"]]
+    ids_b = [m["pumpId"] for m in b["members"]]
+    problems: list[str] = []
+    if sorted(ids_b) != sorted(ids_a) or len(set(ids_a)) != len(ids_a):
+        problems.append(f"duty members {ids_b}, the base's {ids_a}")
+    members = {m["pumpId"]: m for m in b["members"]}
+    for other in a["members"]:
+        pid = other["pumpId"]
+        m = members.get(pid)
+        if m is None:
+            continue
         compared.append(flow(f"duty {pid} flow", m["flow"], other["flow"], DUTY_FLOW_FLOOR))
         if not relabelled(other, m, "flow", DUTY_FLOW_FLOOR):
             compared.append(head(f"duty {pid} head", m["head"], other["head"]))
-    return compared
+    return compared, problems
+
+
+def without_scenario(answer: dict[str, Any]) -> dict[str, Any]:
+    """A ``/pump-group-curve`` answer without its ``scenario`` record."""
+    return {k: v for k, v in answer.items() if k != "scenario"}
+
+
+def own_answer(
+    lab: Lab, st: Station, sid: str, written: Sequence[str], answer: dict[str, Any], **options: Any
+) -> list[str]:
+    """Where ``answer``, the station's ``/pump-group-curve`` answer to case ``sid`` asked with
+    ``options``, is not the case's own: its ``scenario`` must record the changes ``written``
+    applied, 'off' over the base's 'on', in their stored order; apart from it, the answer must
+    equal bit for bit the answer to the hand edit asked with the same options (the statuses set
+    in the base, no scenarios). A duty or curve of the base, or of another lineup, fails it."""
+    scenario = answer["scenario"]
+    if scenario is None or scenario["id"] != sid:
+        return [f"scenario {scenario}, not {sid}'s"]
+    got = [
+        (o["override"]["componentId"], o["state"], o["value"], o["baseValue"])
+        for o in scenario["overrides"]
+    ]
+    problems = []
+    if got != [(p, "applied", "off", "on") for p in written]:
+        problems.append(f"changes {got}, written {list(written)}")
+    hand = lab.api.group(st.hand_edit(written), st.members, **options)
+    if hand["scenario"] is not None:
+        problems.append(f"the hand edit's scenario {hand['scenario']}")
+    found = differences(without_scenario(answer), without_scenario(hand))
+    return problems + [f"against the hand edit {d}" for d in found]
 
 
 def points_at(curve: dict[str, Any], q: float) -> list[dict[str, Any]]:
@@ -863,7 +945,13 @@ def test_3_each_lineup_duty_lies_on_the_base_group_system_curve(lab: Lab, name: 
     station), lies on the base's group system curve within D6: the curve asked on a grid
     holding the duty's flow Q (0, Q, 2Q, 3Q, 4Q) gives the duty's rise at Q. A duty at zero
     station flow (``closed-leg`` with PA off: PB is closed off behind VB) is read at the
-    curve's zero flow, on a grid holding the base duty's flow."""
+    curve's zero flow, on a grid holding the base duty's flow.
+
+    The duty is the case's own, since the base's duty, or another lineup's, lies on that curve
+    too: the answer is the case's (``own_answer``: its changes applied, the hand edit's answer
+    bit for bit); among the duty's members, which are the station's, each pump the case writes
+    reads 'off' at flow 0.0; and every member's duty flow is its flow in the case's ``/solve``,
+    within D6 (the duty check's floor)."""
     st = lab.station(name)
     base_duty = st.group["duty"]
     assert base_duty is not None, st.group["message"]
@@ -873,6 +961,7 @@ def test_3_each_lineup_duty_lies_on_the_base_group_system_curve(lab: Lab, name: 
     for sid, written in st.cases.items():
         what = f"{name} {sid} {written}"
         answer = lab.group(name, sid)
+        problems += [f"{what}: {p}" for p in own_answer(lab, st, sid, written, answer)]
         if answer["station"] != st.group["station"]:
             problems.append(
                 f"{what}: station {answer['station']}, the base's {st.group['station']}"
@@ -881,6 +970,23 @@ def test_3_each_lineup_duty_lies_on_the_base_group_system_curve(lab: Lab, name: 
         if duty is None:
             problems.append(f"{what}: no duty ({answer['message']})")
             continue
+        members = {m["pumpId"]: m for m in duty["members"]}
+        if sorted(members) != sorted(st.members) or len(members) != len(duty["members"]):
+            problems.append(f"{what}: duty members {[m['pumpId'] for m in duty['members']]}")
+        for pid in written:
+            m = members.get(pid)
+            if m is None or m["status"] != "off" or m["flow"] != 0.0:
+                problems.append(f"{what}: {pid}, written off, reads {m} in the duty")
+        pumps = lab.solve(name, sid)["solvedState"]["pumpResults"]
+        compared += [
+            flow(
+                f"{what}: duty {pid} flow, its /solve's",
+                m["flow"],
+                pumps[pid]["operatingFlow"],
+                DUTY_FLOW_FLOOR,
+            )
+            for pid, m in members.items()
+        ]
         q = duty["flow"] if abs(duty["flow"]) > DUTY_FLOW_FLOOR else base_duty["flow"]
         curve = lab.api.system(st.project, st.members, **duty_grid(q))
         found, missing = rise_on_curve(curve, duty)
@@ -899,21 +1005,30 @@ def test_4_the_idle_only_case_is_the_base_answer(lab: Lab) -> None:
     number running's first case in the default order, which L1 does not make) is the base's
     answer (D13): every flow, head and pressure both give, and the station's duty, within D6,
     P3's head at zero flow and its closed-off discharge read by their states (module
-    docstring). Not vacuous: the case stopping P2, which carries flow, fails it."""
+    docstring), the case's group answer its own (``own_answer``). Not vacuous: the case
+    stopping P2, which carries flow, fails it, its solve and its duty each."""
     st = lab.station("ladder")
     [(sid, written)] = st.idle_only.items()
     assert written == ("P3",), written
+    connections = st.project["connections"]
     base = st.solve["solvedState"]
     case = lab.solve("ladder", sid)["solvedState"]
     assert case["pumpResults"]["P3"]["status"] == "off", case["pumpResults"]["P3"]
-    compared, problems = compare_states(base, case)
-    compared += compare_duties(st.group, lab.group("ladder", sid))
+    compared, problems = compare_states(base, case, connections)
+    group = lab.group("ladder", sid)
+    problems += own_answer(lab, st, sid, written, group)
+    duty_compared, duty_problems = compare_duties(st.group, group)
+    compared += duty_compared
+    problems += duty_problems
     assert compared
     assert not report(compared, problems), "\n".join(report(compared, problems))
 
     [p2_off] = [s for s, w in st.cases.items() if w == ("P2",)]
-    other = compare_states(base, lab.solve("ladder", p2_off)["solvedState"])
+    other = compare_states(base, lab.solve("ladder", p2_off)["solvedState"], connections)
     assert report(*other), "stopping P2 reads as the base"
+    assert report(*compare_duties(st.group, lab.group("ladder", p2_off))), (
+        "stopping P2's duty reads as the base's"
+    )
 
 
 # --------------------------------------------------------------------------- 5. the system curve
@@ -924,7 +1039,9 @@ def test_5_each_cases_group_system_curve_is_the_bases(lab: Lab, name: str) -> No
     """D21: the group system curve depends on nothing inside the station but its duty's own
     point. On one grid (from 0 to the base's default largest flow, 41 flows), each case's
     curve (idle-only cases too) has the base's station and, at every flow both give that is
-    neither curve's duty point, the base's rise within D6 (both with none: the same reason)."""
+    neither curve's duty point, the base's rise within D6 (both with none: the same reason).
+    Each case's curve is its own (``own_answer``: the hand edit's curve on the same grid), so
+    the base's curve answered for a case fails it."""
     st = lab.station(name)
     default = lab.api.system(st.project, st.members)
     grid = {"flowMin": 0.0, "flowMax": default["flowRange"]["max"], "numPoints": 41}
@@ -935,6 +1052,8 @@ def test_5_each_cases_group_system_curve_is_the_bases(lab: Lab, name: str) -> No
     for sid, written in {**st.cases, **st.idle_only}.items():
         what = f"{name} {sid} {written}"
         curve = lab.api.system(st.project, st.members, sid, **grid)
+        own = own_answer(lab, st, sid, written, curve, curve="system", **grid)
+        problems += [f"{what}: {p}" for p in own]
         if curve["station"] != base["station"]:
             problems.append(f"{what}: station {curve['station']}, the base's {base['station']}")
         shared = [
@@ -965,8 +1084,10 @@ def test_6_a_pump_on_behind_a_closed_valve(lab: Lab) -> None:
     base (§3.5) while PA carries flow, and the case with PB off is the base's answer within D6:
     every flow, head and pressure both give, and the station's duty. With PB off the pocket
     between PB and the closed VB is closed off from every reservoir (ISOLATED_SECTION: no
-    computed pressure), so PB, VB and that pocket's ports have no result in the case; the base
-    gives them at zero flow. Not vacuous: the case stopping PA, which carries flow, fails it."""
+    computed pressure), so PB, VB and the ports between them (PB:discharge, VB:inlet) have no
+    result in the case; the base gives them at zero flow. PB:suction and VB:outlet, joined to
+    T1 and T2, keep their results. The case's group answer is its own (``own_answer``). Not
+    vacuous: the case stopping PA, which carries flow, fails it, its solve and its duty each."""
     st = lab.station("closed-leg")
     base = st.solve["solvedState"]
     pb, pa = base["pumpResults"]["PB"], base["pumpResults"]["PA"]
@@ -978,14 +1099,27 @@ def test_6_a_pump_on_behind_a_closed_valve(lab: Lab) -> None:
     [(sid, written)] = st.idle_only.items()
     assert written == ("PB",), written
     case = lab.solve("closed-leg", sid)["solvedState"]
-    pocket = closed_off(case) - closed_off(base)
-    assert pocket == {"PB", "VB"}, case["flags"]
+    closed = closed_off(case) - closed_off(base)
+    assert closed == {"PB", "VB"}, case["flags"]
+    connections = st.project["connections"]
+    assert pocket(closed, connections) == ({"PB:discharge", "VB:inlet"}, {"b2"})
+    assert sorted(set(base["nodeResults"]) - set(case["nodeResults"])) == [
+        "PB:discharge",
+        "VB:inlet",
+    ]
     assert base["valveResults"]["VB"]["flow"] == 0.0, base["valveResults"]["VB"]
-    compared, problems = compare_states(base, case)
-    compared += compare_duties(st.group, lab.group("closed-leg", sid))
+    compared, problems = compare_states(base, case, connections)
+    group = lab.group("closed-leg", sid)
+    problems += own_answer(lab, st, sid, written, group)
+    duty_compared, duty_problems = compare_duties(st.group, group)
+    compared += duty_compared
+    problems += duty_problems
     assert compared
     assert not report(compared, problems), "\n".join(report(compared, problems))
 
     [pa_off] = [s for s, w in st.cases.items() if w == ("PA",)]
-    other = compare_states(base, lab.solve("closed-leg", pa_off)["solvedState"])
+    other = compare_states(base, lab.solve("closed-leg", pa_off)["solvedState"], connections)
     assert report(*other), "stopping PA reads as the base"
+    assert report(*compare_duties(st.group, lab.group("closed-leg", pa_off))), (
+        "stopping PA's duty reads as the base's"
+    )

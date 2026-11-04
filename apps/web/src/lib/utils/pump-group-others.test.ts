@@ -1454,6 +1454,15 @@ describe('the curve family: the axes', () => {
 			[3.9, 4],
 			[5.5, 6],
 			[6.5, 8],
+			// 0.01 above each step (with 101, 151 and 2.51 above), so no step lies between two
+			// neighbours: the answer is the next one (no 1.22, 2.2, 3.1, 4.5, 5.2 or 6.2).
+			[1.21, 1.5],
+			[2.01, 2.5],
+			[3.01, 4],
+			[4.01, 5],
+			[5.01, 6],
+			[6.01, 8],
+			[8.01, 10],
 			// Below 1, where step × 10ⁿ is inexact in binary (3 × 10⁻¹ is 0.30000000000000004).
 			[0.29, 0.3],
 			[0.149, 0.15],

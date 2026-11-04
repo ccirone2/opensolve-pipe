@@ -1139,15 +1139,16 @@ def test_6_a_pump_on_behind_a_closed_valve(lab: Lab) -> None:
 # The family (proofs 1 to 5) is ``crane4``'s: the base case and each case as L1 writes it (both
 # stop orders and Each pump off: three, two and one of four running), each curve the default
 # ``/pump-group-curve`` answer (curve 'group'), as the chart asks it. Proof 6 is on ``ladder``.
-# Every comparison is between the API's answers: no expected hydraulic number is typed, and the
-# counts (the rises, the pumps on) are read from the base's answers.
+# Every comparison is between the API's answers, except proof 2's shutoff, also compared with
+# s²H₀(0) from the test input's curves: no expected hydraulic number is typed, and the counts
+# (the rises, the pumps on) are read from the base's answers.
 #
 # 1. Each curve's duty check agrees, and its duty point is the ring: at the duty's rise, the
 #    duty's flow and every member's flow of the case's ``/solve`` within D6. The ring is on its
 #    own curve.
-# 2. Each curve samples the base's rises, evenly spaced from 0 to the shutoff (the base's
-#    ``/solve``'s shutoff head of the pumps on), plus its own duty's rise, so curves compare rise
-#    by rise.
+# 2. Each curve samples the base's rises, evenly spaced from 0 to the shutoff (s²H₀(0) from the
+#    test input's curves, and the base's ``/solve``'s shutoff head of the pumps on), plus its own
+#    duty's rise, so curves compare rise by rise.
 # 3. At every shared rise where both compared flows are above the duty check's floor, the flows
 #    rise strictly with the number running; below the shutoff every flow is above it. At the
 #    shutoff every flow is round-off around zero, so no pair is compared there today; a pair of
@@ -1223,6 +1224,15 @@ def rises(answer: dict[str, Any]) -> list[float]:
 def flows_by_rise(answer: dict[str, Any]) -> dict[float, float | None]:
     """The group curve's flow at each of its rises (None where a point has no flow)."""
     return {p["head"]: p["flow"] for p in answer["points"]}
+
+
+def shutoff(project: dict[str, Any], pump_id: str) -> float:
+    """A pump's shutoff head s²H₀(0): its speed squared times its curve's head at zero flow, a
+    point of the test input's curve."""
+    pump_data = pgi._component(project, pump_id)
+    curve = next(c for c in project["pumpLibrary"] if c["id"] == pump_data["curveId"])
+    [h0] = [p["head"] for p in curve["points"] if p["flow"] == 0.0]
+    return float(pump_data["speed"]) ** 2 * float(h0)
 
 
 def beyond_d6(a: float, b: float) -> float:
@@ -1348,11 +1358,13 @@ def test_l3_1_each_ring_is_on_its_own_group_curve(lab: Lab, family: Family) -> N
 
 def test_l3_2_each_curve_samples_the_bases_rises_and_its_own_duty(family: Family) -> None:
     """The base's curve samples evenly spaced rises (their number read from it) from its lowest,
-    the default min(0, the duty's rise), to its highest, the shutoff: the largest shutoff head of
-    the pumps on in the base's ``/solve`` (each one's ``shutoffHead``), within D6, both sides the
-    API's answers. Each case's curve has the base's range and samples exactly the base's rises
-    plus its own duty's, in rise order, bit for bit, its one duty point at its duty's rise; so
-    curves compare rise by rise."""
+    the default min(0, the duty's rise), to its highest, the shutoff, compared twice within D6:
+    with the largest s²H₀(0) of the pumps on, from the test input's curves (a closed-form value,
+    D8), and with the largest shutoff head of the pumps on in the base's ``/solve`` (each one's
+    ``shutoffHead``). A shutoff wrong in both API answers fails the first; one wrong in
+    ``/solve``'s report alone fails the second. Each case's curve has the base's range and
+    samples exactly the base's rises plus its own duty's, in rise order, bit for bit, its one
+    duty point at its duty's rise; so curves compare rise by rise."""
     assert not family.own, "\n".join(family.own)
     st = family.station
     base = family.curves[BASE]
@@ -1366,12 +1378,19 @@ def test_l3_2_each_curve_samples_the_bases_rises_and_its_own_duty(family: Family
     ]
     assert not uneven, uneven
     pumps = st.solve["solvedState"]["pumpResults"]
-    top = head(
-        "the highest rise, the shutoff: the largest shutoff head of the pumps on in /solve",
-        span["max"],
-        max(pumps[pid]["shutoffHead"]["head"] for pid in st.pumps.on),
-    )
-    assert top.ok, str(top)
+    tops = [
+        head(
+            "the highest rise, the shutoff: the largest s²H₀(0) of the pumps on, from the input",
+            span["max"],
+            max(shutoff(st.project, pid) for pid in st.pumps.on),
+        ),
+        head(
+            "the highest rise, the shutoff: the largest shutoff head of the pumps on in /solve",
+            span["max"],
+            max(pumps[pid]["shutoffHead"]["head"] for pid in st.pumps.on),
+        ),
+    ]
+    assert not report(tops), "\n".join(report(tops))
     problems: list[str] = []
     for key, answer in family.curves.items():
         what = f"{FAMILY} {key} {family.written(key)}"

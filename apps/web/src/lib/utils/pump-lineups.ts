@@ -23,26 +23,86 @@
  *   (the project store runs it inside every update), and every rename is said.
  * - solvedCaseWords (§5): a case named by its stored name where the server's record of a solve
  *   names it, with the name it was solved under when they differ.
+ * - lineupPlan and withLineupCases (§7, slice L1b): what the Pumps together card's "Add cases"
+ *   block makes, By number running (one case per number of the station's pumps running, the
+ *   pumps that stop first by the stop order switched off) or Each pump off (4d's cases), from
+ *   the base case's solve, with its gates, words, preview, refusals, notice and undo label; the
+ *   stop order (defaultStopOrder, effectiveStopOrder, movedStopOrder: page state, derived and
+ *   clamped to the pumps on, decision 26) and its words.
+ * - lineupChartPriority (§4.6): the order the group chart takes other cases in, one lineup of
+ *   each number running first.
+ * - 4d's words for one pump (memberLabels, offName, offOverride; CLAUDE.md D21 slice 4d), kept
+ *   here so that pump-group-one-off.ts, which re-exports them, can use this module without the
+ *   two importing each other.
  *
  * Pure: imports no store and never modifies a project.
  */
-import type { Override, Project, Scenario } from '../api/types';
+import type {
+	Override,
+	Project,
+	PumpGroupStation,
+	PumpResult,
+	Scenario,
+	SolveResponse
+} from '../api/types';
+import { componentById } from './graph';
 import { canonicalJson } from './json';
-import { memberLabels, offName } from './pump-group-one-off';
+import { andList, DUTY_CHECK_FLOOR } from './pump-group-chart';
 import { MAX_GROUP_PUMPS, suggestGroups } from './pump-groups';
 import {
 	changeTarget,
 	copyName,
 	findScenario,
 	makeOverride,
+	MAX_SCENARIOS,
+	newScenarioId,
 	newScenarioName,
 	overridesOf,
 	sameValue,
 	SCENARIO_NAME_LIMIT,
 	scenariosOf,
 	valueOf,
-	withScenarios
+	withScenarios,
+	type CaseId
 } from './scenarios';
+
+// ---------------------------------------------------------------------------------------------
+// 4d's words for one pump (CLAUDE.md D21 slice 4d; re-exported by pump-group-one-off.ts)
+// ---------------------------------------------------------------------------------------------
+
+/** The one change of a case with one pump off: that pump's status off. */
+export function offOverride(pumpId: string): Override {
+	return makeOverride({ kind: 'component', componentId: pumpId }, 'status', 'off');
+}
+
+/**
+ * "Pump PA off", or with the pump's id when another member has its name ("Booster pump (PA)
+ * off"), the name cut to the scenario name limit as copyName cuts (never the id).
+ */
+export function offName(pumpName: string, id?: string): string {
+	const suffix = id === undefined ? ' off' : ` (${id}) off`;
+	return pumpName.length + suffix.length <= SCENARIO_NAME_LIMIT
+		? `${pumpName}${suffix}`
+		: `${pumpName.slice(0, SCENARIO_NAME_LIMIT - suffix.length)}${suffix}`;
+}
+
+/**
+ * Each member's name in words, by id: its name, with its id after it where another member has the
+ * same name ("Booster pump (PA)"), since names need not be unique (a duty and a standby unit often
+ * share one).
+ */
+export function memberLabels(
+	members: readonly { id: string; name: string }[]
+): Map<string, { name: string; shared: boolean }> {
+	const count = new Map<string, number>();
+	for (const m of members) count.set(m.name, (count.get(m.name) ?? 0) + 1);
+	return new Map(
+		members.map((m) => {
+			const shared = (count.get(m.name) ?? 0) > 1;
+			return [m.id, { name: shared ? `${m.name} (${m.id})` : m.name, shared }];
+		})
+	);
+}
 
 // ---------------------------------------------------------------------------------------------
 // Pumps of a project
@@ -312,6 +372,39 @@ type NamePart =
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
+/** A parallel group's part: `{k} of {N} running ({list} off)`, or `{N} of {N} running`. */
+function groupText(part: { pumpIds: readonly string[]; off: readonly string[] }, name: Namer) {
+	const n = part.pumpIds.length;
+	const k = n - part.off.length;
+	return part.off.length
+		? `${k} of ${n} running (${part.off.map(name).join(', ')} off)`
+		: `${n} of ${n} running`;
+}
+
+/** A pump named on its own: `{label} off` or `{label} on`. */
+const pumpText = (part: { id: string; status: PumpStatus }, name: Namer) =>
+	`${name(part.id)} ${part.status}`;
+
+type Namer = (id: string) => string;
+
+/**
+ * Tier 1's choice for a pump (§4.4), within `room` characters: a member of a parallel group is
+ * named by its label when the group's longest possible part (every member off) fits, a pump named
+ * on its own when `{label} off` fits; else by its id.
+ */
+function namedByLabel(
+	project: Project,
+	id: string,
+	label: Namer,
+	room: number = LINEUP_NAME_BUDGET
+): boolean {
+	const group = lineupGroups(project).find((g) => g.pumpIds.includes(id));
+	if (group?.kind === 'parallel') {
+		return groupText({ pumpIds: group.pumpIds, off: group.pumpIds }, label).length <= room;
+	}
+	return pumpText({ id, status: 'off' }, label).length <= room;
+}
+
 /**
  * The name of `scenario`'s pumps (§4.4), or null when it changes no pump's status. The pumps named
  * are those it sets a status for, whatever the value; the parts follow the frame (lineupGroups):
@@ -355,22 +448,13 @@ export function lineupName(project: Project, scenario: Scenario): string | null 
 	const labels = pumpLabels(project);
 	const label = (id: string) => labels.get(id) ?? id;
 	const byId = (id: string) => id;
-	const groupText = (part: Extract<NamePart, { kind: 'group' }>, name: (id: string) => string) => {
-		const n = part.pumpIds.length;
-		const k = n - part.off.length;
-		return part.off.length
-			? `${k} of ${n} running (${part.off.map(name).join(', ')} off)`
-			: `${n} of ${n} running`;
-	};
-	const pumpText = (part: Extract<NamePart, { kind: 'pump' }>, name: (id: string) => string) =>
-		`${name(part.id)} ${part.status}`;
 	const fits = (text: string) => text.length <= room;
 
 	// 1. Per part: a group by its labels when its longest possible part fits.
 	const tier1 = parts
 		.map((part) => {
 			if (part.kind === 'pump') {
-				return pumpText(part, fits(`${label(part.id)} off`) ? label : byId);
+				return pumpText(part, fits(pumpText({ ...part, status: 'off' }, label)) ? label : byId);
 			}
 			const longest = groupText({ ...part, off: part.pumpIds }, label);
 			return groupText(part, fits(longest) ? label : byId);
@@ -635,4 +719,585 @@ export function renameNotice(renamed: readonly Rename[]): string {
 		return `Renamed 2 scenarios to match their pumps: ${pair(first)}; ${pair(second)}. ${rule}`;
 	}
 	return `Renamed ${renamed.length} scenarios to match their pumps, for example ${pair(first)}. ${rule}`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// §7 The Add cases block (slice L1b)
+// ---------------------------------------------------------------------------------------------
+
+/** The presets (§7.3): By number running (the default) and Each pump off (4d's cases). */
+export type LineupPreset = 'running' | 'each';
+
+/** The block's words (§7.12): its heading and region name, the preset control, the preview's label. */
+export const LINEUP_BLOCK_WORDS = {
+	heading: 'Add cases',
+	preset: 'Cases to add',
+	cases: 'Cases:'
+} as const;
+
+/** The preset control's options (§7.3). */
+export const LINEUP_PRESET_LABELS: Readonly<Record<LineupPreset, string>> = {
+	running: 'By number running',
+	each: 'Each pump off'
+};
+
+/** The add's undo label (§7.8): By number running's, and 4d's. */
+export const LINEUP_UNDO_LABELS: Readonly<Record<LineupPreset, string>> = {
+	running: 'add cases by number running',
+	each: 'add cases with one pump off'
+};
+
+/**
+ * A pump carries flow in a solve (§3.5, decision 14): not off, its |operatingFlow| above
+ * DUTY_CHECK_FLOOR, whatever its state word. A pump that is on and carries no flow is idle,
+ * whether its status reads `no_flow` or `running` (on behind a closed valve: the solver keeps its
+ * link open at zero flow).
+ */
+export function carriesFlow(
+	result: Pick<PumpResult, 'status' | 'operatingFlow'> | undefined
+): boolean {
+	return !!result && result.status !== 'off' && Math.abs(result.operatingFlow) > DUTY_CHECK_FLOOR;
+}
+
+/** 4d's notice after Each pump off's add (unchanged). */
+export function addedNotice(names: readonly string[]): string {
+	return `Added ${names.length} ${plural(names.length, 'case', 'cases')} with one pump off: ${andList(names)}. Solve all solves every case not yet solved; Undo removes them.`;
+}
+
+/** The notice after the add (§7.8): By number running's, names in «», or 4d's addedNotice. */
+export function lineupNotice(preset: LineupPreset, names: readonly string[]): string {
+	if (preset === 'each') return addedNotice(names);
+	return `Added ${names.length} ${plural(names.length, 'case', 'cases')} by number running: ${quotedList(names)}. Solve all solves every case not yet solved; Undo removes them.`;
+}
+
+/** "«A», «B» and «C»": names hold commas and parentheses (decision 22). */
+const quotedList = (names: readonly string[]) => andList(names.map((n) => `«${n}»`));
+
+// ---- The stop order (§7.5) --------------------------------------------------------------------
+
+/** The stop order's words (§7.12): its hint, list name, item notes, buttons and status line. */
+export const STOP_ORDER_WORDS = {
+	hint: 'The first in this list stops first. The cases below change as you move pumps.',
+	list: 'Stop order',
+	first: ' (stops first)',
+	last: ' (stays on in every case)',
+	idle: ' (carries no flow in the base case)',
+	earlier: (name: string) => `Stop ${name} earlier`,
+	later: (name: string) => `Stop ${name} later`,
+	atFirst: 'Already the first to stop.',
+	atLast: 'Already the last to stop.',
+	reset: 'Default order',
+	resetHint: "The default: the last pump in the group's list stops first.",
+	moved: (name: string, i: number, n: number) => `${name} is now number ${i} of ${n} to stop.`,
+	resetDone: (name: string) => `Default order: ${name} stops first.`
+} as const;
+
+/** The default stop order (§7.5): the pumps on, reversed, so the last listed stops first. */
+export function defaultStopOrder(on: readonly string[]): string[] {
+	return [...on].reverse();
+}
+
+/** `order` holds exactly the pumps `on`, each once. */
+function sameMembers(order: readonly string[], on: readonly string[]): boolean {
+	return (
+		order.length === on.length &&
+		new Set(order).size === order.length &&
+		on.every((id) => order.includes(id))
+	);
+}
+
+/**
+ * The stop order used (§7.5, decision 26), derived and never written by an effect: the saved one
+ * (page state, written only by the move buttons and Default order) while it holds exactly the
+ * pumps on, else the default, nothing merged. A saved order comes back when the same pumps are on
+ * again (after an Undo, say): it is the user's last choice for that set.
+ */
+export function effectiveStopOrder(saved: readonly string[], on: readonly string[]): string[] {
+	return sameMembers(saved, on) ? [...saved] : defaultStopOrder(on);
+}
+
+/** `order` with `id` one place earlier ('up') or later ('down'); unchanged at an end. */
+export function movedStopOrder(order: readonly string[], id: string, dir: 'up' | 'down'): string[] {
+	const next = [...order];
+	const i = next.indexOf(id);
+	const j = dir === 'up' ? i - 1 : i + 1;
+	if (i < 0 || j < 0 || j >= next.length) return next;
+	[next[i], next[j]] = [next[j]!, next[i]!];
+	return next;
+}
+
+/**
+ * The stop order's summary (§7.5), the pumps named as the group's names name them (§4.4, tier
+ * 1): by their labels, or by their ids where those names use ids ("Stop order: P6 first, then
+ * P5, P4, P3 and P2; P1 stays on in every case" on the condenser example).
+ */
+export function stopOrderSummary(project: Project, order: readonly string[]): string {
+	const labels = pumpLabels(project);
+	const label = (id: string) => labels.get(id) ?? id;
+	const name = (id: string) => (namedByLabel(project, id, label) ? label(id) : id);
+	const first = name(order[0] ?? '');
+	const last = name(order.at(-1) ?? '');
+	if (order.length <= 2) return `Stop order: ${first} stops; ${last} stays on in every case`;
+	const middle = andList(order.slice(1, -1).map(name));
+	return `Stop order: ${first} first, then ${middle}; ${last} stays on in every case`;
+}
+
+/** The stop order as the block shows it (By number running only). */
+export interface StopOrderView {
+	/** The order used: the first stops first. */
+	order: readonly string[];
+	/** It is the default: "Default order" is not shown. */
+	isDefault: boolean;
+	/** The disclosure's summary. */
+	summary: string;
+	/** One per pump, in order: its full label (project-wide) and its muted note. */
+	items: readonly { id: string; label: string; note: string }[];
+}
+
+// ---- The plan (§7.2, §7.4 to §7.8) ------------------------------------------------------------
+
+export interface LineupPlanInput {
+	/** The stored project (its scenarios, names and component order). */
+	project: Project;
+	/** The case shown (ws.store.activeCase). */
+	shownCase: CaseId;
+	/** The station the card shows; null: no block. */
+	station: PumpGroupStation | null;
+	/** The card's members. */
+	memberIds: readonly string[];
+	/** The base case's response by Compare's rule, and whether it is out of date. */
+	base: { response: SolveResponse; stale: boolean } | null;
+	preset: LineupPreset;
+	/** The saved stop order (page state, ws.pumpStopOrder); used while it holds exactly the pumps on. */
+	savedOrder: readonly string[];
+}
+
+/** Which gate holds (§7.2), in 4d's order. */
+export type LineupGate = 'series' | 'mixed' | 'scenario' | 'stale' | 'fewer_on' | 'no_flow';
+
+/** One case of the plan, in plan order: one preview item. */
+export interface LineupPlanCase {
+	/**
+	 * 'add': the add makes it; 'existing': a scenario is the same case (sameCase), the first in
+	 * case order; 'base_state': every pump it stops carries no flow in the base case, so it would
+	 * repeat the base (§3.5) and is not made.
+	 */
+	kind: 'add' | 'existing' | 'base_state';
+	/** The members it switches off, its changes (status off), in component order. */
+	stopped: readonly string[];
+	/** Its name: lineupName of the case as written, or 4d's offName under Each pump off. */
+	name: string;
+	/** add: the id it takes; existing: that scenario's id; base_state: null. */
+	id: string | null;
+	/** existing: that scenario's name. */
+	existingName: string | null;
+	/** add: the first scenario in case order with exactly its name (another case), else null. */
+	sameNameId: string | null;
+	/** The preview item. */
+	words: string;
+}
+
+/** A case the add makes: `{id, name, overrides}`, its overrides `stopped`'s statuses off. */
+export interface LineupCaseToAdd {
+	id: string;
+	name: string;
+	stopped: readonly string[];
+}
+
+export interface LineupPlan {
+	preset: LineupPreset;
+	/** Why nothing is offered (null: offered), and which gate. */
+	gate: string | null;
+	gateKind: LineupGate | null;
+	/** The block's Solve all is drawn: offered, or gates 4 to 6. */
+	showSolveAll: boolean;
+	/** What the preset makes (null under a gate). */
+	about: string | null;
+	/** The interchangeability sentence (§7.6; By number running only). */
+	sentence: string | null;
+	/** The stop order (By number running only). */
+	stopOrder: StopOrderView | null;
+	cases: readonly LineupPlanCase[];
+	/** The cases to add, in plan order (withLineupCases). */
+	add: readonly LineupCaseToAdd[];
+	/** The cases that exist, with the scenario that is each. */
+	existing: readonly { stopped: readonly string[]; scenarioId: string; scenarioName: string }[];
+	/** The members on and carrying no flow in the base case (component order). */
+	idle: readonly string[];
+	/** Which group the names count, when the members are not one parallel group of the frame (§7.7). */
+	frame: string | null;
+	/** Why the add is refused: nothing to add, or past the scenario limit (null: it can be made). */
+	refusal: string | null;
+	/** "Add 3 cases"; "Add cases" when there is nothing to add. */
+	label: string;
+	undoLabel: string;
+	/** The notice after the add (null when there is nothing to add). */
+	notice: string | null;
+}
+
+/** The ids `count` new scenarios take, each the first free one on the growing project (4d's). */
+function newIds(project: Project, count: number): string[] {
+	const ids: string[] = [];
+	let next = project;
+	for (let i = 0; i < count; i++) {
+		const id = newScenarioId(next);
+		ids.push(id);
+		next = withScenarios(next, [...scenariosOf(next), { id, name: id, overrides: [] }]);
+	}
+	return ids;
+}
+
+/**
+ * The interchangeability sentence (§7.6), from the base as solved: a fact of the inputs (one
+ * curve id, one speed as equal doubles, no speed control), never a claim that the pumps give the
+ * same answer, nor that they differ.
+ */
+function curveSentence(
+	project: Project,
+	on: readonly string[],
+	results: SolveResponse['solvedState']['pumpResults'],
+	label: Namer
+): string {
+	const curveOf = (id: string) => {
+		const pump = componentById(project, id);
+		return pump?.type === 'pump' ? pump.curveId : null;
+	};
+	const first = on[0];
+	const shared =
+		first !== undefined &&
+		curveOf(first) !== null &&
+		on.every((id) => {
+			const r = results[id];
+			return (
+				!!r && !r.control && curveOf(id) === curveOf(first) && r.speed === results[first]!.speed
+			);
+		});
+	return shared
+		? `${andList(on.map(label))} have the same pump curve and speed. Which of them run can still change the answer, through the tees and each pump's own piping, most when few run: change the stop order to compare which run at each count; Each pump off compares them with one off.`
+		: 'Not all of these pumps have the same pump curve and speed without a speed control, so which of them run can change the answer: the stop order decides which stop first.';
+}
+
+/**
+ * Which group the names count (§7.7, §1.5 item 1), when the card's members are not one parallel
+ * group of the frame: a subset ticked by hand, or a station the finder does not suggest.
+ */
+function frameWords(project: Project, members: readonly string[], label: Namer): string | null {
+	const groups = lineupGroups(project).filter(
+		(g) => g.kind === 'parallel' && g.pumpIds.some((id) => members.includes(id))
+	);
+	if (!groups.length) return 'Names list each pump on its own.';
+	const [only] = groups;
+	if (groups.length === 1 && only && sameMembers(only.pumpIds, members)) return null;
+	return groups
+		.map((g) => `Names count every pump of the group ${andList(g.pumpIds.map(label))}.`)
+		.join(' ');
+}
+
+/**
+ * What the Add cases block would make now (§7.4), or why it is not offered (§7.2, gates in 4d's
+ * order: a parallel station; the base case shown; its results current; two members or more on;
+ * one carrying flow). Every term is read from the base case's current results: a member is on
+ * when its status is not 'off', carries flow when on with |operatingFlow| above
+ * DUTY_CHECK_FLOOR, is idle when on without (carriesFlow).
+ *
+ * - By number running: for k = |On| − 1 down to 1, the first |On| − k pumps of the stop order
+ *   (effectiveStopOrder) stopped, written as `status: off` for those pumps only, in component
+ *   order whatever the stop order (base-off pumps get no change and stay off), named by
+ *   lineupName; a case whose stopped pumps are all idle is the base case's state and not made.
+ * - Each pump off: 4d's cases, one per member carrying flow, named by offName (memberLabels over
+ *   the members); an idle member gets none.
+ *
+ * A planned case is existing when a scenario is the same case (sameCase: equal effective
+ * changes), the first in case order named with its id; one added while another case has its name
+ * says so. Ids are the first free on the growing project. Without a station, nothing (no block).
+ */
+export function lineupPlan(input: LineupPlanInput): LineupPlan {
+	const { project, shownCase, station, base, preset } = input;
+	const plan = (
+		gateKind: LineupGate | null,
+		gate: string | null,
+		showSolveAll: boolean
+	): LineupPlan => ({
+		preset,
+		gate,
+		gateKind,
+		showSolveAll,
+		about: null,
+		sentence: null,
+		stopOrder: null,
+		cases: [],
+		add: [],
+		existing: [],
+		idle: [],
+		frame: null,
+		refusal: null,
+		label: 'Add cases',
+		undoLabel: LINEUP_UNDO_LABELS[preset],
+		notice: null
+	});
+	if (!station) return plan(null, null, false);
+	if (station.arrangement === 'series') {
+		return plan(
+			'series',
+			'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.',
+			false
+		);
+	}
+	if (station.arrangement === 'mixed') {
+		return plan(
+			'mixed',
+			'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.',
+			false
+		);
+	}
+	if (shownCase !== null) {
+		const shown = findScenario(project, shownCase)?.name ?? shownCase;
+		return plan(
+			'scenario',
+			`Cases are made from the base case: show the base case to add them. To study ${shown} with pumps off, duplicate it in Scenarios and set those pumps off there.`,
+			false
+		);
+	}
+	if (!base || base.stale) {
+		return plan(
+			'stale',
+			"The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now.",
+			true
+		);
+	}
+	const members = pumpsInOrder(project, input.memberIds);
+	// 4d's labels, over the card's members: Each pump off's names and About, and gate 5.
+	const ownLabels = memberLabels(
+		members.map((id) => ({ id, name: componentById(project, id)?.name ?? id }))
+	);
+	const own = (id: string) => ownLabels.get(id)?.name ?? id;
+	// Project-wide labels (decision 8): every other text of the block that names a pump.
+	const labels = pumpLabels(project);
+	const label = (id: string) => labels.get(id) ?? id;
+	const results = base.response.solvedState.pumpResults;
+	const on = members.filter((id) => results[id] && results[id].status !== 'off');
+	const off = members.filter((id) => results[id]?.status === 'off');
+	if (on.length < 2) {
+		return plan(
+			'fewer_on',
+			`Needs two or more of these pumps switched on in the base case: ${andList(off.map(own))} ${off.length === 1 ? 'is' : 'are'} off.`,
+			true
+		);
+	}
+	const carrying = on.filter((id) => carriesFlow(results[id]));
+	const idle = on.filter((id) => !carriesFlow(results[id]));
+	if (!carrying.length) {
+		return plan(
+			'no_flow',
+			'No pump of the group carries flow in the base case, so switching pumps off changes nothing.',
+			true
+		);
+	}
+
+	// The cases wanted, in plan order: the pumps each stops and its name.
+	const wanted: { stopped: string[]; name: string }[] = [];
+	const ordered = (ids: Iterable<string>) => {
+		const set = new Set(ids);
+		return members.filter((id) => set.has(id));
+	};
+	const caseOf = (stopped: readonly string[]): Scenario => ({
+		id: '',
+		name: '',
+		overrides: stopped.map(offOverride)
+	});
+	let stopView: StopOrderView | null = null;
+	if (preset === 'running') {
+		const order = effectiveStopOrder(input.savedOrder, on);
+		for (let k = on.length - 1; k >= 1; k--) {
+			const stopped = ordered(order.slice(0, on.length - k));
+			wanted.push({ stopped, name: lineupName(project, caseOf(stopped)) ?? '' });
+		}
+		stopView = {
+			order,
+			isDefault: order.join('\u0000') === defaultStopOrder(on).join('\u0000'),
+			summary: stopOrderSummary(project, order),
+			items: order.map((id, i) => ({
+				id,
+				label: label(id),
+				note:
+					(i === 0 ? STOP_ORDER_WORDS.first : '') +
+					(i === order.length - 1 ? STOP_ORDER_WORDS.last : '') +
+					(idle.includes(id) ? STOP_ORDER_WORDS.idle : '')
+			}))
+		};
+	} else {
+		for (const id of on) {
+			const plain = componentById(project, id)?.name ?? id;
+			wanted.push({
+				stopped: [id],
+				name: offName(plain, ownLabels.get(id)?.shared ? id : undefined)
+			});
+		}
+	}
+
+	const scenarios = scenariosOf(project);
+	const cases: LineupPlanCase[] = [];
+	for (const w of wanted) {
+		const item = { stopped: w.stopped, name: w.name, existingName: null, sameNameId: null };
+		if (w.stopped.every((id) => idle.includes(id))) {
+			const which = w.stopped.map(label);
+			cases.push({
+				...item,
+				kind: 'base_state',
+				id: null,
+				words: `${w.name}: not made, the base case's state (${andList(which)} ${plural(which.length, 'carries', 'carry')} no flow in the base case)`
+			});
+			continue;
+		}
+		const planned = caseOf(w.stopped);
+		const found = scenarios.find((s) => sameCase(project, planned, s));
+		if (found) {
+			cases.push({
+				...item,
+				kind: 'existing',
+				id: found.id,
+				existingName: found.name,
+				words:
+					found.name === w.name
+						? `${w.name}: already a scenario (${found.id})`
+						: `${w.name}: already a scenario, «${found.name}» (${found.id})`
+			});
+			continue;
+		}
+		const named = scenarios.find((s) => s.name === w.name);
+		cases.push({
+			...item,
+			kind: 'add',
+			id: null,
+			sameNameId: named?.id ?? null,
+			words: named
+				? `${w.name}: scenario ${named.id} has this name too but is another case`
+				: w.name
+		});
+	}
+	const adding = cases.filter((c) => c.kind === 'add');
+	const ids = newIds(project, adding.length);
+	adding.forEach((c, i) => (c.id = ids[i]!));
+	const add = adding.map((c) => ({ id: c.id!, name: c.name, stopped: c.stopped }));
+	const existing = cases
+		.filter((c) => c.kind === 'existing')
+		.map((c) => ({ stopped: c.stopped, scenarioId: c.id!, scenarioName: c.existingName! }));
+
+	const total = scenarios.length + add.length;
+	let refusal: string | null = null;
+	if (!add.length) {
+		const names = existing.map((e) => e.scenarioName);
+		refusal =
+			preset === 'each'
+				? `Every case with one pump off already exists: ${andList(names)}.`
+				: cases.some((c) => c.kind === 'base_state')
+					? "Nothing to add: each case by number running already exists or is the base case's state."
+					: `Every case by number running already exists: ${quotedList(names)}.`;
+	} else if (total > MAX_SCENARIOS) {
+		refusal = `Adding ${add.length} ${plural(add.length, 'case', 'cases')} would make ${total} scenarios; a project holds at most ${MAX_SCENARIOS} scenarios.`;
+	}
+
+	const about =
+		preset === 'each'
+			? `Makes one scenario per pump running in the base case (${andList(carrying.map(own))}): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.`
+			: [
+					on.length >= 3
+						? `Makes one scenario for each number of these pumps running, from ${on.length - 1} down to 1: the base case with the pumps that stop first switched off and nothing else changed.`
+						: 'Makes one scenario with one of these pumps running: the base case with the pump that stops first switched off and nothing else changed.',
+					...(off.length
+						? [
+								`${andList(off.map(label))} ${plural(off.length, 'is', 'are')} off in the base case and ${plural(off.length, 'stays', 'stay')} off in every case.`
+							]
+						: []),
+					"In a case's name, running means switched on; Running combinations shows whether each pump carries flow. Other sets of the same number of pumps are not made: change the stop order and add again to compare them."
+				].join(' ');
+
+	return {
+		preset,
+		gate: null,
+		gateKind: null,
+		showSolveAll: true,
+		about,
+		sentence: preset === 'running' ? curveSentence(project, on, results, label) : null,
+		stopOrder: stopView,
+		cases,
+		add,
+		existing,
+		idle,
+		frame: preset === 'running' ? frameWords(project, members, label) : null,
+		refusal,
+		label: add.length ? `Add ${add.length} ${plural(add.length, 'case', 'cases')}` : 'Add cases',
+		undoLabel: LINEUP_UNDO_LABELS[preset],
+		notice: add.length
+			? lineupNotice(
+					preset,
+					add.map((a) => a.name)
+				)
+			: null
+	};
+}
+
+/**
+ * The project with the cases added, in order (§7.8, one undo step): `{id, name, overrides}`, each
+ * id the first free one on the growing project (S1, S2, …), its overrides the stopped pumps'
+ * statuses off in component order, no description.
+ */
+export function withLineupCases(
+	project: Project,
+	cases: readonly { name: string; stopped: readonly string[] }[]
+): Project {
+	let next = project;
+	for (const c of cases) {
+		const scenario: Scenario = {
+			id: newScenarioId(next),
+			name: c.name,
+			overrides: pumpsInOrder(project, c.stopped).map(offOverride)
+		};
+		next = withScenarios(next, [...scenariosOf(next), scenario]);
+	}
+	return next;
+}
+
+// ---------------------------------------------------------------------------------------------
+// §4.6 The chart's order
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The order the group chart takes the other cases in (§4.6, decision 16; chartKeys keeps the first
+ * MAX_GROUP_CASES ticked). This station's lineups are the base (key '') when it is another case,
+ * and every scenario that is status-only over the card's members and whose members off differ
+ * from the base's; each counts its members on. First the first lineup of each count, most running
+ * first; then the other lineups, most running first; then every other case; ties in case order
+ * (the order of `keys`). With six pumps and both presets the six places hold the whole 5-to-1
+ * family.
+ */
+export function lineupChartPriority(
+	keys: readonly { key: string; caseId: CaseId }[],
+	project: Project,
+	memberIds: readonly string[]
+): string[] {
+	const base = pumpLineup(undefined, project, memberIds);
+	const running = (caseId: CaseId): number | null => {
+		if (caseId === null) return base.on.length;
+		const lineup = pumpLineup(findScenario(project, caseId), project, memberIds);
+		const differs = lineup.off.join('\u0000') !== base.off.join('\u0000');
+		return lineup.statusOnly && differs ? lineup.on.length : null;
+	};
+	const lineups = keys
+		.map((k, i) => ({ key: k.key, i, on: running(k.caseId) }))
+		.flatMap((k) => (k.on === null ? [] : [{ ...k, on: k.on }]))
+		.sort((a, b) => b.on - a.on || a.i - b.i);
+	const counted = new Set<number>();
+	const firsts = lineups.filter((k) => {
+		if (counted.has(k.on)) return false;
+		counted.add(k.on);
+		return true;
+	});
+	const others = lineups.filter((k) => !firsts.includes(k));
+	const listed = new Set(lineups.map((k) => k.key));
+	return [
+		...firsts.map((k) => k.key),
+		...others.map((k) => k.key),
+		...keys.filter((k) => !listed.has(k.key)).map((k) => k.key)
+	];
 }

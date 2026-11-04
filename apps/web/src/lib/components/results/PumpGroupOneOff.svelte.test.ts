@@ -276,16 +276,18 @@ describe('one pump off on the Pumps together card', () => {
 		const before = calls.length;
 		await ws.solveAll();
 		await waitFor(() => expect(calls.length - before).toBe(6));
+		// The chart's order is D24's (lineupChartPriority, pump-lineups.md §4.6): one lineup of each
+		// number running first, most running first (the base, 2; S1, 1; S4, 0), then S2.
 		expect(
 			calls.slice(before).map((c) => [c.scenarioId, c.curve]),
 			'the case shown first, then the others in the chart’s order'
 		).toEqual([
 			['S3', 'group'],
 			['S3', 'system'],
-			['S1', 'group'],
-			['S2', 'group'],
 			[null, 'group'],
-			['S4', 'group']
+			['S1', 'group'],
+			['S4', 'group'],
+			['S2', 'group']
 		]);
 		// Two runs of five solves: the budget of the card's other long tests.
 	}, 20_000);
@@ -336,14 +338,15 @@ describe('one pump off on the Pumps together card', () => {
 		await waitFor(() =>
 			expect(within(legend).getByText('4 · Both pumps off (station duty)')).toBeVisible()
 		);
+		// In the chart's order (D24 §4.6): S1 (1 running), S4 (0), then S2 and S3.
 		expect(calls.map((c) => [c.scenarioId, c.curve])).toEqual([
 			[null, 'group'],
 			[null, 'system'],
 			[null, 'system'],
 			['S1', 'group'],
+			['S4', 'group'],
 			['S2', 'group'],
-			['S3', 'group'],
-			['S4', 'group']
+			['S3', 'group']
 		]);
 
 		// The case shown's curves answered: two new cases, S6's solve held. S5, solved, waits for
@@ -407,7 +410,7 @@ describe('one pump off on the Pumps together card', () => {
 		// The case shown's group system curve not answered yet: no other case is asked.
 		expect(others(calls)).toEqual([]);
 		baseSystem.resolve();
-		// Then the cases with one pump off first, one at a time.
+		// Then in the chart's order (D24 §4.6: S1, 1 running; S4, 0; then S2, S3), one at a time.
 		await waitFor(() => expect(others(calls)).toHaveLength(1));
 		expect(others(calls)[0]!.scenarioId).toBe('S1');
 		expect(within(card()).getByRole('status')).toHaveTextContent(
@@ -415,15 +418,15 @@ describe('one pump off on the Pumps together card', () => {
 		);
 		waiting.shift()!();
 		await waitFor(() => expect(others(calls)).toHaveLength(2));
-		expect(others(calls).map((c) => c.scenarioId)).toEqual(['S1', 'S2']);
+		expect(others(calls).map((c) => c.scenarioId)).toEqual(['S1', 'S4']);
 		expect(others(calls).filter((c) => !c.settled)).toHaveLength(1);
 
 		// A base solve during them cancels them; once it ends, they are asked again.
-		const s2 = ws.store.resultsFor('S2').response;
+		const s4 = ws.store.resultsFor('S4').response;
 		const solving = ws.solve();
-		expect(ws.store.groupCurve(s2, ids)).toEqual({ status: 'cancelled', by: 'solve' });
+		expect(ws.store.groupCurve(s4, ids)).toEqual({ status: 'cancelled', by: 'solve' });
 		await solving;
-		await waitFor(() => expect(others(calls).filter((c) => c.scenarioId === 'S2')).toHaveLength(2));
+		await waitFor(() => expect(others(calls).filter((c) => c.scenarioId === 'S4')).toHaveLength(2));
 		// After the case shown's curves again, and still one at a time.
 		const base = calls.filter((c) => c.scenarioId === null);
 		expect(base).toHaveLength(4);
@@ -435,14 +438,14 @@ describe('one pump off on the Pumps together card', () => {
 			within(card()).getByRole('checkbox', { name: "Also show the other cases' station duties" });
 		await fireEvent.click(box());
 		expect(ws.pumpGroupOthers).toBe(false);
-		expect(ws.store.groupCurve(s2, ids)).toEqual({ status: 'cancelled', by: 'user' });
+		expect(ws.store.groupCurve(s4, ids)).toEqual({ status: 'cancelled', by: 'user' });
 		// Ticked again, a case the user cancelled waits for "Compute them again".
 		const sent = calls.length;
 		await fireEvent.click(box());
 		const again = await within(card()).findByRole('button', { name: 'Compute them again' });
 		expect(calls).toHaveLength(sent);
 		await fireEvent.click(again);
-		await waitFor(() => expect(ws.store.groupCurve(s2, ids)).toEqual({ status: 'loading' }));
+		await waitFor(() => expect(ws.store.groupCurve(s4, ids)).toEqual({ status: 'loading' }));
 
 		// A change of members withdraws them: not cancelled by the user, they read as never asked.
 		await fireEvent.click(
@@ -451,12 +454,13 @@ describe('one pump off on the Pumps together card', () => {
 				{ name: /Pump PB/ }
 			)
 		);
-		expect(ws.store.groupCurve(s2, ids)).toBeUndefined();
+		expect(ws.store.groupCurve(s4, ids)).toBeUndefined();
 		for (const release of waiting) release();
 	});
 
 	it('a change of members and back asks the other cases again, none cancelled by the user', async () => {
-		// S1's first request is held until it is aborted; S2 to S4 wait behind it.
+		// S1's first request is held until it is aborted; S4, S2 and S3 wait behind it (the chart's
+		// order, D24 §4.6).
 		let firstS1 = true;
 		const { ws, calls } = setup(structuredClone(oneOff.project), {
 			hold: (call) => {
@@ -498,9 +502,9 @@ describe('one pump off on the Pumps together card', () => {
 			[null, 'system'],
 			['S1', 'group'],
 			['S1', 'group'],
+			['S4', 'group'],
 			['S2', 'group'],
-			['S3', 'group'],
-			['S4', 'group']
+			['S3', 'group']
 		]);
 		expect(card().textContent).not.toContain('you cancelled it');
 		expect(within(card()).queryByRole('button', { name: 'Compute them again' })).toBeNull();
@@ -582,15 +586,16 @@ describe('one pump off on the Pumps together card', () => {
 	});
 
 	it('never asks again by itself for a curve that failed or that the user cancelled', async () => {
-		// S2's group curve fails; S3's first request is held in flight, S4 waits behind it.
-		let firstS3 = true;
+		// In the chart's order (D24 §4.6: S1, S4, S2, S3): S4's group curve fails; S2's first
+		// request is held in flight, S3 waits behind it.
+		let firstS2 = true;
 		const { ws, calls } = setup(structuredClone(oneOff.project), {
 			hold: (call) => {
-				if (call.scenarioId !== 'S3' || !firstS3) return undefined;
-				firstS3 = false;
+				if (call.scenarioId !== 'S2' || !firstS2) return undefined;
+				firstS2 = false;
 				return new Promise<void>(() => {});
 			},
-			fail: (call) => (call.scenarioId === 'S2' ? new Error('The server is busy.') : undefined)
+			fail: (call) => (call.scenarioId === 'S4' ? new Error('The server is busy.') : undefined)
 		});
 		const ids = ['PA', 'PB'];
 		const state = (c: string) => ws.store.groupCurve(ws.store.resultsFor(c).response, ids);
@@ -599,37 +604,37 @@ describe('one pump off on the Pumps together card', () => {
 		ws.pumpGroupOthers = true;
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
-		await waitFor(() => expect(asked('S3')).toBe(1));
-		expect(state('S2')).toEqual({ status: 'error', message: 'The server is busy.' });
-		expect(state('S4')).toEqual({ status: 'loading' });
-		// The user unticks S4 while it waits, and ticks it again: cancelled by the user.
+		await waitFor(() => expect(asked('S2')).toBe(1));
+		expect(state('S4')).toEqual({ status: 'error', message: 'The server is busy.' });
+		expect(state('S3')).toEqual({ status: 'loading' });
+		// The user unticks S3 while it waits, and ticks it again: cancelled by the user.
 		const onChart = () =>
 			within(within(card()).getByRole('group', { name: 'Cases on this chart' })).getByRole(
 				'checkbox',
-				{ name: /Both pumps off/ }
+				{ name: /Delivery tank 5 m higher/ }
 			);
 		await fireEvent.click(onChart());
 		await fireEvent.click(onChart());
-		expect(state('S4')).toEqual({ status: 'cancelled', by: 'user' });
-		// A Solve all of one new case: S3, cancelled by it, is asked again after it, and the new
-		// case asked; S2 and S4 are not (S4 was never sent: it was cancelled while it waited).
+		expect(state('S3')).toEqual({ status: 'cancelled', by: 'user' });
+		// A Solve all of one new case: S2, cancelled by it, is asked again after it, and the new
+		// case asked; S4 and S3 are not (S3 was never sent: it was cancelled while it waited).
 		ws.store.update(
 			(p) => withScenarios(p, [...scenariosOf(p), { id: 'S5', name: 'Copy', overrides: [] }]),
 			'add scenario'
 		);
 		await ws.solveAll();
 		await waitFor(() => expect(state('S5')?.status).toBe('ready'));
+		await waitFor(() => expect(state('S2')?.status).toBe('ready'));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(['S1', 'S2', 'S3', 'S4', 'S5'].map(asked)).toEqual([1, 2, 0, 1, 1]);
+		expect(state('S4')).toEqual({ status: 'error', message: 'The server is busy.' });
+		expect(state('S3')).toEqual({ status: 'cancelled', by: 'user' });
+		// Only "Compute them again" asks for them, once each: S4 fails again and stays failed.
+		await fireEvent.click(within(card()).getByRole('button', { name: 'Compute them again' }));
 		await waitFor(() => expect(state('S3')?.status).toBe('ready'));
 		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(['S1', 'S2', 'S3', 'S4', 'S5'].map(asked)).toEqual([1, 1, 2, 0, 1]);
-		expect(state('S2')).toEqual({ status: 'error', message: 'The server is busy.' });
-		expect(state('S4')).toEqual({ status: 'cancelled', by: 'user' });
-		// Only "Compute them again" asks for them, once each: S2 fails again and stays failed.
-		await fireEvent.click(within(card()).getByRole('button', { name: 'Compute them again' }));
-		await waitFor(() => expect(state('S4')?.status).toBe('ready'));
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(['S1', 'S2', 'S3', 'S4', 'S5'].map(asked)).toEqual([1, 2, 2, 1, 1]);
-		expect(state('S2')).toEqual({ status: 'error', message: 'The server is busy.' });
+		expect(['S1', 'S2', 'S3', 'S4', 'S5'].map(asked)).toEqual([1, 2, 1, 2, 1]);
+		expect(state('S4')).toEqual({ status: 'error', message: 'The server is busy.' });
 	}, 20_000);
 
 	it('offers "Compute them again" as unavailable while a run holds, says why, and asks nothing until it ends', async () => {

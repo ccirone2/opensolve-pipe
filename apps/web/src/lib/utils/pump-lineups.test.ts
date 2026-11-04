@@ -1,13 +1,25 @@
 /**
- * Pump lineups, slice L1a (CLAUDE.md D24, proposal pump-lineups.md §4 and §10.1 "L1a, unit"): the
- * reader (pumpLineup), the frame (lineupGroups, frameKey), the same case (effectiveChanges,
- * sameCase), the names (lineupName) and the names that follow (followLineupNames, renameNotice).
- * Every string is checked word for word. The projects are made-up test inputs (only the
- * components' kinds, ports, statuses, names and connections matter here), the examples', and the
- * shared fixture's (__fixtures__/pump-groups-input.json, the API's own projects).
+ * Pump lineups, slices L1a and L1b (CLAUDE.md D24, proposal pump-lineups.md §4, §7 and §10.1 "L1a,
+ * unit" and "L1b, unit"): the reader (pumpLineup), the frame (lineupGroups, frameKey), the same
+ * case (effectiveChanges, sameCase), the names (lineupName), the names that follow
+ * (followLineupNames, renameNotice), the Add cases block's plan (lineupPlan, withLineupCases, the
+ * stop order and the block's words, with 4d's plan tests moved under Each pump off) and the
+ * chart's order (lineupChartPriority). Every string is checked word for word. The projects are
+ * made-up test inputs (only the components' kinds, ports, statuses, names and connections matter
+ * here), the examples', and the shared fixture's (__fixtures__/pump-groups-input.json, the API's
+ * own projects and answers); a base solve made up for a made-up project is named synthetic.
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { Component, Override, Project, Scenario } from '$lib/api/types';
+import type {
+	Component,
+	Override,
+	Project,
+	PumpGroupCurveResponse,
+	PumpGroupStation,
+	PumpResult,
+	Scenario,
+	SolveResponse
+} from '$lib/api/types';
 import { projectWith } from '$lib/testing/helpers';
 import {
 	ladder,
@@ -27,19 +39,42 @@ import { condenserWaterExample, pumpTransferExample } from './examples';
 import { offName } from './pump-group-one-off';
 import { suggestGroups } from './pump-groups';
 import {
+	addedNotice,
+	carriesFlow,
+	defaultStopOrder,
 	effectiveChanges,
+	effectiveStopOrder,
 	followLineupNames,
 	frameKey,
+	LINEUP_BLOCK_WORDS,
 	LINEUP_NAME_BUDGET,
+	LINEUP_PRESET_LABELS,
+	LINEUP_UNDO_LABELS,
+	lineupChartPriority,
 	lineupGroups,
 	lineupName,
+	lineupNotice,
+	lineupPlan,
+	movedStopOrder,
+	offOverride,
 	pumpLineup,
 	renameNotice,
 	sameCase,
 	solvedCaseWords,
-	type LineupGroup
+	STOP_ORDER_WORDS,
+	stopOrderSummary,
+	withLineupCases,
+	type LineupGroup,
+	type LineupPlan,
+	type LineupPlanInput
 } from './pump-lineups';
-import { copyName, SCENARIO_NAME_LIMIT, scenariosOf, withScenarios } from './scenarios';
+import {
+	copyName,
+	MAX_SCENARIOS,
+	SCENARIO_NAME_LIMIT,
+	scenariosOf,
+	withScenarios
+} from './scenarios';
 
 // The finder, counted (§10.1: memoised): the real one, wrapped.
 vi.mock('./pump-groups', async (importOriginal) => {
@@ -1063,5 +1098,1025 @@ describe('solvedCaseWords', () => {
 		expect(solvedCaseWords('3 of 4 running (Standby off)', solved)).toBe(
 			'scenario 3 of 4 running (Standby off) (S2), solved as «3 of 4 running (Pump P4 off)»'
 		);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// §7 The Add cases block (L1b): lineupPlan, withLineupCases, the stop order, the words
+// ---------------------------------------------------------------------------------------------
+
+interface Answer {
+	status: number;
+	body: unknown;
+}
+/** A fixture case with the API's answers (__fixtures__/pump-groups-input.json). */
+interface SolvedCase {
+	name: string;
+	project: Project;
+	memberIds: string[];
+	solve: SolveResponse;
+	groupCurve: Answer;
+	scenarioCases?: Record<string, { solve: SolveResponse; groupCurve: Answer }>;
+}
+const solvedCase = (name: string) =>
+	(fixture.cases as unknown as SolvedCase[]).find((c) => c.name === name)!;
+const stationOf = (c: SolvedCase) => (c.groupCurve.body as PumpGroupCurveResponse).station;
+const withoutScenarios = (p: Project) => withScenarios(structuredClone(p), []);
+
+/** The `lineups` case: four curve_a pumps on Crane tees, all carrying flow in the base case. */
+const lineups = solvedCase('lineups');
+/** PA and PB, PB's discharge valve isolated: PB `running` at 0.0 m³/s in the base case. */
+const closedLeg = solvedCase('lineups-closed-leg');
+const oneOffCase = solvedCase('one-off');
+
+/** The plan for a fixture case's base case shown and current (its station, members and solve). */
+function planOn(c: SolvedCase, values: Partial<LineupPlanInput> = {}): LineupPlan {
+	return lineupPlan({
+		project: withoutScenarios(c.project),
+		shownCase: null,
+		station: stationOf(c),
+		memberIds: c.memberIds,
+		base: { response: c.solve, stale: false },
+		preset: 'running',
+		savedOrder: [],
+		...values
+	});
+}
+
+/** A response with some pump results changed (synthetic). */
+function edit(response: SolveResponse, changes: Record<string, Partial<PumpResult>>) {
+	const copy = structuredClone(response);
+	for (const [id, change] of Object.entries(changes)) {
+		Object.assign(copy.solvedState.pumpResults[id]!, change);
+	}
+	return copy;
+}
+
+/**
+ * A base solve of a made-up project (synthetic): each pump running at 20 L/s, full speed, no
+ * control, off where the project has it off; `changes` alters some.
+ */
+function solveOf(project: Project, changes: Record<string, Partial<PumpResult>> = {}) {
+	const pumpResults: Record<string, Partial<PumpResult>> = {};
+	for (const c of project.components) {
+		if (c.type !== 'pump') continue;
+		const off = c.status === 'off';
+		pumpResults[c.id] = {
+			status: off ? 'off' : 'running',
+			operatingFlow: off ? 0 : 0.02,
+			speed: 1,
+			control: null,
+			...changes[c.id]
+		};
+	}
+	return { solvedState: { pumpResults } } as unknown as SolveResponse;
+}
+const PARALLEL = { arrangement: 'parallel' } as PumpGroupStation;
+const pumpsOf = (project: Project) =>
+	project.components.filter((c) => c.type === 'pump').map((c) => c.id);
+
+/** The plan for a made-up project, every pump a member, its synthetic base solve. */
+function planOf(
+	project: Project,
+	values: Partial<LineupPlanInput> = {},
+	changes: Record<string, Partial<PumpResult>> = {}
+): LineupPlan {
+	return lineupPlan({
+		project,
+		shownCase: null,
+		station: PARALLEL,
+		memberIds: pumpsOf(project),
+		base: { response: solveOf(project, changes), stale: false },
+		preset: 'running',
+		savedOrder: [],
+		...values
+	});
+}
+
+/** Each case's preview item. */
+const items = (plan: LineupPlan) => plan.cases.map((c) => c.words);
+/** The changes each case writes, as `id off` (stored order). */
+const writes = (project: Project) =>
+	scenariosOf(project).map((s) =>
+		(s.overrides ?? []).map((o) =>
+			o.kind === 'component' ? `${o.componentId} ${String(o.value)}` : o.kind
+		)
+	);
+
+describe('lineupPlan: the gates (§7.2)', () => {
+	const series = stationOf(solvedCase('series'));
+	const station = stationOf(lineups);
+	const gate = (values: Partial<LineupPlanInput>) => planOn(lineups, values);
+
+	it('gives each gate’s words, in 4d’s order, under both presets', () => {
+		for (const preset of ['running', 'each'] as const) {
+			const at = (values: Partial<LineupPlanInput>) => gate({ preset, ...values });
+			expect(at({ station: series })).toMatchObject({
+				gateKind: 'series',
+				gate: 'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.',
+				showSolveAll: false
+			});
+			expect(at({ station: { ...station, arrangement: 'mixed' } })).toMatchObject({
+				gateKind: 'mixed',
+				gate: 'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.',
+				showSolveAll: false
+			});
+			expect(at({ project: lineups.project, shownCase: 'S8' })).toMatchObject({
+				gateKind: 'scenario',
+				gate: 'Cases are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with pumps off, duplicate it in Scenarios and set those pumps off there.',
+				showSolveAll: false
+			});
+			// The arrangement first: a series station in a scenario says why in series.
+			expect(at({ station: series, project: lineups.project, shownCase: 'S8' }).gateKind).toBe(
+				'series'
+			);
+			expect(at({ base: { response: lineups.solve, stale: true } })).toMatchObject({
+				gateKind: 'stale',
+				gate: "The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now.",
+				showSolveAll: true
+			});
+			expect(at({ base: null }).gateKind).toBe('stale');
+			const offs = edit(lineups.solve, {
+				P2: { status: 'off', operatingFlow: 0 },
+				P3: { status: 'off', operatingFlow: 0 },
+				P4: { status: 'off', operatingFlow: 0 }
+			});
+			expect(at({ base: { response: offs, stale: false } })).toMatchObject({
+				gateKind: 'fewer_on',
+				gate: 'Needs two or more of these pumps switched on in the base case: Pump P2, Pump P3 and Pump P4 are off.',
+				showSolveAll: true
+			});
+			// One off: "is".
+			expect(at({ memberIds: ['P1', 'P2'], base: { response: offs, stale: false } }).gate).toBe(
+				'Needs two or more of these pumps switched on in the base case: Pump P2 is off.'
+			);
+			// No member carries flow: some on behind a closed valve (running at zero flow), some
+			// held at no flow; the test is the flow, not the state word (§3.5).
+			const none = edit(lineups.solve, {
+				P1: { operatingFlow: 0 },
+				P2: { operatingFlow: 0 },
+				P3: { status: 'no_flow', operatingFlow: 0 },
+				P4: { operatingFlow: 1e-7 }
+			});
+			expect(at({ base: { response: none, stale: false } })).toMatchObject({
+				gateKind: 'no_flow',
+				gate: 'No pump of the group carries flow in the base case, so switching pumps off changes nothing.',
+				showSolveAll: true
+			});
+			// Under a gate: nothing else, and the button's words with no count.
+			for (const plan of [
+				at({ station: series }),
+				at({ base: { response: none, stale: false } })
+			]) {
+				expect(plan).toMatchObject({
+					about: null,
+					sentence: null,
+					stopOrder: null,
+					cases: [],
+					add: [],
+					frame: null,
+					refusal: null,
+					label: 'Add cases',
+					notice: null,
+					undoLabel: LINEUP_UNDO_LABELS[preset]
+				});
+			}
+			// No station: no block.
+			expect(at({ station: null })).toMatchObject({ gate: null, gateKind: null, add: [] });
+			expect(at({ station: null }).showSolveAll).toBe(false);
+		}
+	});
+});
+
+describe('lineupPlan: By number running (§7.4)', () => {
+	it('makes the lineups fixture’s three cases, its scenarios exactly, with every word', () => {
+		const project = withoutScenarios(lineups.project);
+		const plan = planOn(lineups);
+		expect(plan.gate).toBeNull();
+		expect(plan.showSolveAll).toBe(true);
+		expect(plan.about).toBe(
+			"Makes one scenario for each number of these pumps running, from 3 down to 1: the base case with the pumps that stop first switched off and nothing else changed. In a case's name, running means switched on; Running combinations shows whether each pump carries flow. Other sets of the same number of pumps are not made: change the stop order and add again to compare them."
+		);
+		expect(plan.sentence).toBe(
+			"Pump P1, Pump P2, Pump P3 and Pump P4 have the same pump curve and speed. Which of them run can still change the answer, through the tees and each pump's own piping, most when few run: change the stop order to compare which run at each count; Each pump off compares them with one off."
+		);
+		expect(plan.stopOrder).toEqual({
+			order: ['P4', 'P3', 'P2', 'P1'],
+			isDefault: true,
+			summary:
+				'Stop order: Pump P4 first, then Pump P3 and Pump P2; Pump P1 stays on in every case',
+			items: [
+				{ id: 'P4', label: 'Pump P4', note: ' (stops first)' },
+				{ id: 'P3', label: 'Pump P3', note: '' },
+				{ id: 'P2', label: 'Pump P2', note: '' },
+				{ id: 'P1', label: 'Pump P1', note: ' (stays on in every case)' }
+			]
+		});
+		expect(items(plan)).toEqual([
+			'3 of 4 running (Pump P4 off)',
+			'2 of 4 running (Pump P3, Pump P4 off)',
+			'1 of 4 running (Pump P2, Pump P3, Pump P4 off)'
+		]);
+		expect(plan.add).toEqual([
+			{ id: 'S1', name: '3 of 4 running (Pump P4 off)', stopped: ['P4'] },
+			{ id: 'S2', name: '2 of 4 running (Pump P3, Pump P4 off)', stopped: ['P3', 'P4'] },
+			{
+				id: 'S3',
+				name: '1 of 4 running (Pump P2, Pump P3, Pump P4 off)',
+				stopped: ['P2', 'P3', 'P4']
+			}
+		]);
+		expect(plan.cases.map((c) => [c.kind, c.id, c.sameNameId])).toEqual([
+			['add', 'S1', null],
+			['add', 'S2', null],
+			['add', 'S3', null]
+		]);
+		expect(plan.existing).toEqual([]);
+		expect(plan.idle).toEqual([]);
+		expect(plan.frame).toBeNull();
+		expect(plan.refusal).toBeNull();
+		expect(plan.label).toBe('Add 3 cases');
+		expect(plan.undoLabel).toBe('add cases by number running');
+		expect(plan.notice).toBe(
+			'Added 3 cases by number running: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all solves every case not yet solved; Undo removes them.'
+		);
+		// Exactly the fixture's S1 to S3, the scenarios the API solved.
+		const made = withLineupCases(project, plan.add);
+		expect(made.scenarios).toEqual(lineups.project.scenarios!.slice(0, 3));
+		expect(made.scenarios!.map((s) => s.id)).toEqual(plan.add.map((a) => a.id));
+		// Then Each pump off: P4's case is S1 already; S4 to S6 are the fixture's too.
+		const each = lineupPlan({
+			project: made,
+			shownCase: null,
+			station: stationOf(lineups),
+			memberIds: lineups.memberIds,
+			base: { response: lineups.solve, stale: false },
+			preset: 'each',
+			savedOrder: []
+		});
+		expect(items(each)).toEqual([
+			'Pump P1 off',
+			'Pump P2 off',
+			'Pump P3 off',
+			'Pump P4 off: already a scenario, «3 of 4 running (Pump P4 off)» (S1)'
+		]);
+		expect(withLineupCases(made, each.add).scenarios).toEqual(
+			lineups.project.scenarios!.slice(0, 6)
+		);
+	});
+
+	it('names N = 2 to 6 pumps’ cases, the pumps that stop first by the stop order, written in component order', () => {
+		const expected: Record<number, string[]> = {
+			2: ['1 of 2 running (Pump P2 off)'],
+			3: ['2 of 3 running (Pump P3 off)', '1 of 3 running (Pump P2, Pump P3 off)'],
+			4: [
+				'3 of 4 running (Pump P4 off)',
+				'2 of 4 running (Pump P3, Pump P4 off)',
+				'1 of 4 running (Pump P2, Pump P3, Pump P4 off)'
+			],
+			5: [
+				'4 of 5 running (Pump P5 off)',
+				'3 of 5 running (Pump P4, Pump P5 off)',
+				'2 of 5 running (Pump P3, Pump P4, Pump P5 off)',
+				'1 of 5 running (Pump P2, Pump P3, Pump P4, Pump P5 off)'
+			],
+			6: [
+				'5 of 6 running (Pump P6 off)',
+				'4 of 6 running (Pump P5, Pump P6 off)',
+				'3 of 6 running (Pump P4, Pump P5, Pump P6 off)',
+				'2 of 6 running (Pump P3, Pump P4, Pump P5, Pump P6 off)',
+				'1 of 6 running (Pump P2, Pump P3, Pump P4, Pump P5, Pump P6 off)'
+			]
+		};
+		for (let n = 2; n <= 6; n++) {
+			const project = station(n);
+			const ids = pumpIds(n);
+			const plan = planOf(project);
+			expect(plan.cases, `${n}`).toHaveLength(n - 1);
+			expect(plan.add.map((a) => a.name)).toEqual(expected[n]);
+			// The last listed stop first: k running stops the last n − k.
+			expect(plan.add.map((a) => a.stopped)).toEqual(
+				Array.from({ length: n - 1 }, (_, i) => ids.slice(n - 1 - i))
+			);
+			expect(plan.stopOrder!.order).toEqual([...ids].reverse());
+			// Another order: the first pump stops first, the rest from the last.
+			const order = [ids[0]!, ...ids.slice(1).reverse()];
+			const moved = planOf(project, { savedOrder: order });
+			const made = withLineupCases(project, moved.add);
+			for (const [i, written] of writes(made).entries()) {
+				const stopped = order.slice(0, i + 1);
+				// Component order, whatever the stop order.
+				expect(written).toEqual(ids.filter((id) => stopped.includes(id)).map((id) => `${id} off`));
+			}
+		}
+	});
+
+	it('makes the worked cases: a reordered stop, P4 off in the base, P4 idle (§7.4’s table)', () => {
+		const four = station(4);
+		const reordered = planOf(four, { savedOrder: ['P1', 'P4', 'P3', 'P2'] });
+		expect(items(reordered)).toEqual([
+			'3 of 4 running (Pump P1 off)',
+			'2 of 4 running (Pump P1, Pump P4 off)',
+			'1 of 4 running (Pump P1, Pump P3, Pump P4 off)'
+		]);
+		expect(writes(withLineupCases(four, reordered.add))).toEqual([
+			['P1 off'],
+			['P1 off', 'P4 off'],
+			['P1 off', 'P3 off', 'P4 off']
+		]);
+		expect(reordered.stopOrder).toMatchObject({
+			isDefault: false,
+			summary: 'Stop order: Pump P1 first, then Pump P4 and Pump P3; Pump P2 stays on in every case'
+		});
+
+		// P4 off in the base: named as off in every case, never written.
+		const p4Off = station(4, { off: ['P4'] });
+		const plan = planOf(p4Off);
+		expect(plan.stopOrder!.order).toEqual(['P3', 'P2', 'P1']);
+		expect(items(plan)).toEqual([
+			'2 of 4 running (Pump P3, Pump P4 off)',
+			'1 of 4 running (Pump P2, Pump P3, Pump P4 off)'
+		]);
+		expect(writes(withLineupCases(p4Off, plan.add))).toEqual([['P3 off'], ['P2 off', 'P3 off']]);
+		expect(plan.about).toBe(
+			"Makes one scenario for each number of these pumps running, from 2 down to 1: the base case with the pumps that stop first switched off and nothing else changed. Pump P4 is off in the base case and stays off in every case. In a case's name, running means switched on; Running combinations shows whether each pump carries flow. Other sets of the same number of pumps are not made: change the stop order and add again to compare them."
+		);
+		const twoOff = planOf(station(4, { off: ['P3', 'P4'] }));
+		expect(twoOff.about).toBe(
+			"Makes one scenario with one of these pumps running: the base case with the pump that stops first switched off and nothing else changed. Pump P3 and Pump P4 are off in the base case and stay off in every case. In a case's name, running means switched on; Running combinations shows whether each pump carries flow. Other sets of the same number of pumps are not made: change the stop order and add again to compare them."
+		);
+		expect(twoOff.stopOrder!.summary).toBe(
+			'Stop order: Pump P2 stops; Pump P1 stays on in every case'
+		);
+		expect(items(twoOff)).toEqual(['1 of 4 running (Pump P2, Pump P3, Pump P4 off)']);
+
+		// P4 idle (on behind a closed valve: running at zero flow): its case alone is the base's
+		// state; a case that stops it with others is made.
+		const idle = planOf(four, {}, { P4: { operatingFlow: 0 } });
+		expect(idle.idle).toEqual(['P4']);
+		expect(idle.cases.map((c) => [c.kind, c.stopped])).toEqual([
+			['base_state', ['P4']],
+			['add', ['P3', 'P4']],
+			['add', ['P2', 'P3', 'P4']]
+		]);
+		expect(items(idle)).toEqual([
+			"3 of 4 running (Pump P4 off): not made, the base case's state (Pump P4 carries no flow in the base case)",
+			'2 of 4 running (Pump P3, Pump P4 off)',
+			'1 of 4 running (Pump P2, Pump P3, Pump P4 off)'
+		]);
+		expect(idle.add.map((a) => a.id)).toEqual(['S1', 'S2']);
+		expect(idle.stopOrder!.items.map((i) => i.note)).toEqual([
+			' (stops first) (carries no flow in the base case)',
+			'',
+			'',
+			' (stays on in every case)'
+		]);
+		// Two idle pumps stopped together: one item, both named.
+		const two = planOf(
+			four,
+			{},
+			{ P3: { status: 'no_flow', operatingFlow: 0 }, P4: { operatingFlow: 0 } }
+		);
+		expect(items(two).slice(0, 2)).toEqual([
+			"3 of 4 running (Pump P4 off): not made, the base case's state (Pump P4 carries no flow in the base case)",
+			"2 of 4 running (Pump P3, Pump P4 off): not made, the base case's state (Pump P3 and Pump P4 carry no flow in the base case)"
+		]);
+	});
+
+	it('on lineups-closed-leg’s real base: PB, running at 0.0, is idle, so the only case is the base’s state', () => {
+		const pb = closedLeg.solve.solvedState.pumpResults.PB!;
+		expect([pb.status, pb.operatingFlow]).toEqual(['running', 0]);
+		expect(carriesFlow(pb)).toBe(false);
+		expect(carriesFlow(closedLeg.solve.solvedState.pumpResults.PA)).toBe(true);
+		const plan = planOn(closedLeg);
+		expect(plan.idle).toEqual(['PB']);
+		expect(plan.cases.map((c) => c.kind)).toEqual(['base_state']);
+		expect(items(plan)).toEqual([
+			"1 of 2 running (Pump PB off): not made, the base case's state (Pump PB carries no flow in the base case)"
+		]);
+		expect(plan.add).toEqual([]);
+		expect(plan.refusal).toBe(
+			"Nothing to add: each case by number running already exists or is the base case's state."
+		);
+		expect(plan.label).toBe('Add cases');
+		expect(plan.notice).toBeNull();
+		expect(plan.stopOrder!.items.map((i) => i.note)).toEqual([
+			' (stops first) (carries no flow in the base case)',
+			' (stays on in every case)'
+		]);
+		// With the fixture's own "Pump PB off" present: still the base's state, not an existing case.
+		expect(planOn(closedLeg, { project: closedLeg.project }).cases.map((c) => c.kind)).toEqual([
+			'base_state'
+		]);
+	});
+
+	it('finds an existing case in any order of its changes and with a change equal to the base, named with its id', () => {
+		const project = withScenarios(withoutScenarios(lineups.project), [
+			{ id: 'S1', name: 'Winter', overrides: [...off('P3', 'P4'), level('R2', 5)] },
+			{ id: 'S2', name: 'Pump P4 off (hand)', overrides: [status('P1', 'on'), ...off('P4')] },
+			{ id: 'S3', name: 'Two off', overrides: off('P4', 'P3') },
+			{ id: 'S4', name: 'Two off again', overrides: off('P3', 'P4') }
+		]);
+		const plan = planOn(lineups, { project });
+		expect(plan.cases.map((c) => [c.kind, c.id, c.existingName])).toEqual([
+			['existing', 'S2', 'Pump P4 off (hand)'],
+			// The first in case order; "Winter" has a tank level too and is never a match.
+			['existing', 'S3', 'Two off'],
+			['add', 'S5', null]
+		]);
+		expect(items(plan)).toEqual([
+			'3 of 4 running (Pump P4 off): already a scenario, «Pump P4 off (hand)» (S2)',
+			'2 of 4 running (Pump P3, Pump P4 off): already a scenario, «Two off» (S3)',
+			'1 of 4 running (Pump P2, Pump P3, Pump P4 off)'
+		]);
+		expect(plan.existing).toEqual([
+			{ stopped: ['P4'], scenarioId: 'S2', scenarioName: 'Pump P4 off (hand)' },
+			{ stopped: ['P3', 'P4'], scenarioId: 'S3', scenarioName: 'Two off' }
+		]);
+		expect(plan.label).toBe('Add 1 case');
+		expect(plan.notice).toBe(
+			'Added 1 case by number running: «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all solves every case not yet solved; Undo removes them.'
+		);
+		// The same name: the short form.
+		expect(items(planOn(lineups, { project: lineups.project }))[0]).toBe(
+			'3 of 4 running (Pump P4 off): already a scenario (S1)'
+		);
+	});
+
+	it('adds a case whose name another case has, and says which', () => {
+		const project = withScenarios(withoutScenarios(lineups.project), [
+			{
+				id: 'S1',
+				name: '2 of 4 running (Pump P3, Pump P4 off)',
+				overrides: [...off('P3', 'P4'), level('R2', 5)]
+			}
+		]);
+		const plan = planOn(lineups, { project });
+		expect(plan.cases.map((c) => [c.kind, c.id, c.sameNameId])).toEqual([
+			['add', 'S2', null],
+			['add', 'S3', 'S1'],
+			['add', 'S4', null]
+		]);
+		expect(items(plan)[1]).toBe(
+			'2 of 4 running (Pump P3, Pump P4 off): scenario S1 has this name too but is another case'
+		);
+	});
+
+	it('takes the first free ids on the growing project', () => {
+		const project = withScenarios(withoutScenarios(lineups.project), [
+			{ id: 'S2', name: 'Winter', overrides: [] }
+		]);
+		const plan = planOn(lineups, { project });
+		expect(plan.add.map((a) => a.id)).toEqual(['S1', 'S3', 'S4']);
+		expect(scenariosOf(withLineupCases(project, plan.add)).map((s) => [s.id, s.name])).toEqual([
+			['S2', 'Winter'],
+			['S1', '3 of 4 running (Pump P4 off)'],
+			['S3', '2 of 4 running (Pump P3, Pump P4 off)'],
+			['S4', '1 of 4 running (Pump P2, Pump P3, Pump P4 off)']
+		]);
+	});
+
+	it('refuses past the scenario limit with the count, and says when nothing is left to add', () => {
+		const eighteen: Scenario[] = Array.from({ length: 18 }, (_, i) => ({
+			id: `S${i + 1}`,
+			name: `Case ${i + 1}`,
+			overrides: []
+		}));
+		const plan = planOn(lineups, {
+			project: withScenarios(withoutScenarios(lineups.project), eighteen)
+		});
+		expect(MAX_SCENARIOS).toBe(20);
+		expect(plan.refusal).toBe(
+			'Adding 3 cases would make 21 scenarios; a project holds at most 20 scenarios.'
+		);
+		expect(plan.label).toBe('Add 3 cases');
+		// The fixture's own scenarios hold every case.
+		const every = planOn(lineups, { project: lineups.project });
+		expect(every.add).toEqual([]);
+		expect(every.refusal).toBe(
+			'Every case by number running already exists: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)».'
+		);
+		expect(every.label).toBe('Add cases');
+		// Existing and base-state cases only.
+		const idle = edit(lineups.solve, { P4: { operatingFlow: 0 } });
+		const rest = planOn(lineups, {
+			project: lineups.project,
+			base: { response: idle, stale: false }
+		});
+		expect(rest.cases.map((c) => c.kind)).toEqual(['base_state', 'existing', 'existing']);
+		expect(rest.refusal).toBe(
+			"Nothing to add: each case by number running already exists or is the base case's state."
+		);
+	});
+
+	it('derives the stop order: the saved one for the same pumps on, else the default, and the saved one back', () => {
+		const ids = pumpIds(4);
+		const saved = ['P1', 'P4', 'P3', 'P2'];
+		expect(defaultStopOrder(ids)).toEqual(['P4', 'P3', 'P2', 'P1']);
+		expect(effectiveStopOrder(saved, ids)).toEqual(saved);
+		expect(effectiveStopOrder([], ids)).toEqual(['P4', 'P3', 'P2', 'P1']);
+		// Another set on: the default, nothing merged.
+		expect(effectiveStopOrder(saved, ['P1', 'P2', 'P3'])).toEqual(['P3', 'P2', 'P1']);
+		expect(effectiveStopOrder(['P1', 'P1', 'P2', 'P3'], ids)).toEqual(['P4', 'P3', 'P2', 'P1']);
+		// Through the plan: P4 set off in the base, then on again (an Undo).
+		expect(planOf(station(4), { savedOrder: saved }).stopOrder!.order).toEqual(saved);
+		const p4Off = station(4, { off: ['P4'] });
+		expect(planOf(p4Off, { savedOrder: saved }).stopOrder).toMatchObject({
+			order: ['P3', 'P2', 'P1'],
+			isDefault: true
+		});
+		expect(planOf(station(4), { savedOrder: saved }).stopOrder).toMatchObject({
+			order: saved,
+			isDefault: false
+		});
+		// A move swaps neighbours; at an end it changes nothing.
+		expect(movedStopOrder(ids, 'P2', 'up')).toEqual(['P2', 'P1', 'P3', 'P4']);
+		expect(movedStopOrder(ids, 'P2', 'down')).toEqual(['P1', 'P3', 'P2', 'P4']);
+		expect(movedStopOrder(ids, 'P1', 'up')).toEqual(ids);
+		expect(movedStopOrder(ids, 'P4', 'down')).toEqual(ids);
+		expect(movedStopOrder(ids, 'P9', 'up')).toEqual(ids);
+	});
+
+	it('names the pumps in the summary as the group’s names do: by ids on the condenser example', () => {
+		const condenser = withScenarios(condenserWaterExample(), []);
+		const plan = planOf(condenser);
+		expect(plan.stopOrder!.summary).toBe(
+			'Stop order: P6 first, then P5, P4, P3 and P2; P1 stays on in every case'
+		);
+		expect(plan.add[0]!.name).toBe('5 of 6 running (P6 off)');
+		// The list and the sentence keep the full labels.
+		expect(plan.stopOrder!.items[0]).toEqual({
+			id: 'P6',
+			label: 'Condenser water pump CWP-6',
+			note: ' (stops first)'
+		});
+		expect(stopOrderSummary(condenser, ['P2', 'P1'])).toBe(
+			'Stop order: P2 stops; P1 stays on in every case'
+		);
+		expect(stopOrderSummary(station(3), ['P3', 'P2', 'P1'])).toBe(
+			'Stop order: Pump P3 first, then Pump P2; Pump P1 stays on in every case'
+		);
+	});
+
+	it('states a shared curve and speed as a fact of the inputs, else says the choice can matter', () => {
+		const same =
+			"have the same pump curve and speed. Which of them run can still change the answer, through the tees and each pump's own piping, most when few run: change the stop order to compare which run at each count; Each pump off compares them with one off.";
+		const differ =
+			'Not all of these pumps have the same pump curve and speed without a speed control, so which of them run can change the answer: the stop order decides which stop first.';
+		const four = station(4);
+		const all = { P1: { speed: 0.9 }, P2: { speed: 0.9 }, P3: { speed: 0.9 }, P4: { speed: 0.9 } };
+		expect(planOf(four, {}, all).sentence).toBe(`Pump P1, Pump P2, Pump P3 and Pump P4 ${same}`);
+		// Equal doubles only.
+		expect(planOf(four, {}, { ...all, P2: { speed: 0.9000000000000001 } }).sentence).toBe(differ);
+		// A speed control on one, at the same speed.
+		const control = lineups.solve.solvedState.pumpResults.P1!.control;
+		expect(control).toBeNull();
+		expect(
+			planOf(four, {}, { P3: { control: { mode: 'flow' } as PumpResult['control'] } }).sentence
+		).toBe(differ);
+		// Another curve.
+		const other = edited(four, 'P2', (c) => ({ ...c, curveId: 'C2' }) as Component);
+		expect(planOf(other).sentence).toBe(differ);
+		// Only the pumps on count: P4 off on another curve.
+		const offOther = edited(
+			station(4, { off: ['P4'] }),
+			'P4',
+			(c) => ({ ...c, curveId: 'C2' }) as Component
+		);
+		expect(planOf(offOther).sentence).toBe(`Pump P1, Pump P2 and Pump P3 ${same}`);
+		// Each pump off has none.
+		expect(planOf(four, { preset: 'each' }).sentence).toBeNull();
+	});
+
+	it('says which group the names count when the card is not one parallel group of the frame', () => {
+		// The default card: none.
+		expect(planOn(lineups).frame).toBeNull();
+		// A subset ticked by hand: the names count the whole station.
+		const subset = planOn(lineups, { memberIds: ['P2', 'P3', 'P4'] });
+		expect(subset.frame).toBe(
+			'Names count every pump of the group Pump P1, Pump P2, Pump P3 and Pump P4.'
+		);
+		expect(items(subset)).toEqual([
+			'3 of 4 running (Pump P4 off)',
+			'2 of 4 running (Pump P3, Pump P4 off)'
+		]);
+		expect(subset.about).toMatch(
+			/^Makes one scenario for each number of these pumps running, from 2 down to 1:/
+		);
+		// A station the finder does not suggest (seven pumps): each pump named on its own.
+		const seven = planOf(station(7));
+		expect(seven.frame).toBe('Names list each pump on its own.');
+		expect(seven.add[0]!.name).toBe('Pump P7 off');
+		expect(seven.add[1]!.name).toBe('Pump P6 off; Pump P7 off');
+		// Each pump off's names are 4d's: no sentence.
+		expect(planOn(lineups, { memberIds: ['P2', 'P3', 'P4'], preset: 'each' }).frame).toBeNull();
+	});
+
+	it('has the block’s, the stop order’s and the notice’s words', () => {
+		expect(LINEUP_BLOCK_WORDS).toEqual({
+			heading: 'Add cases',
+			preset: 'Cases to add',
+			cases: 'Cases:'
+		});
+		expect(LINEUP_PRESET_LABELS).toEqual({ running: 'By number running', each: 'Each pump off' });
+		expect(LINEUP_UNDO_LABELS).toEqual({
+			running: 'add cases by number running',
+			each: 'add cases with one pump off'
+		});
+		const w = STOP_ORDER_WORDS;
+		expect([
+			w.hint,
+			w.list,
+			w.first,
+			w.last,
+			w.idle,
+			w.atFirst,
+			w.atLast,
+			w.reset,
+			w.resetHint
+		]).toEqual([
+			'The first in this list stops first. The cases below change as you move pumps.',
+			'Stop order',
+			' (stops first)',
+			' (stays on in every case)',
+			' (carries no flow in the base case)',
+			'Already the first to stop.',
+			'Already the last to stop.',
+			'Default order',
+			"The default: the last pump in the group's list stops first."
+		]);
+		expect(w.earlier('Pump P1')).toBe('Stop Pump P1 earlier');
+		expect(w.later('Pump P1')).toBe('Stop Pump P1 later');
+		expect(w.moved('Pump P1', 2, 4)).toBe('Pump P1 is now number 2 of 4 to stop.');
+		expect(w.resetDone('Pump P4')).toBe('Default order: Pump P4 stops first.');
+		expect(lineupNotice('running', ['A, B', 'C'])).toBe(
+			'Added 2 cases by number running: «A, B» and «C». Solve all solves every case not yet solved; Undo removes them.'
+		);
+		expect(lineupNotice('each', ['Pump PA off'])).toBe(addedNotice(['Pump PA off']));
+	});
+});
+
+describe('lineupPlan: Each pump off (4d’s cases; 4d’s plan tests moved here)', () => {
+	// Moved from pump-group-one-off.test.ts with their assertions. The strings §7.12 lists under
+	// "4d's strings that change" follow it, each named where it changes; the plan's cases now hold
+	// the pumps they stop (`stopped`, several under By number running) where 4d held one `pumpId`,
+	// and 4d's `notes` are the preview's items other than the cases added (notesOf).
+	const station = stationOf(oneOffCase);
+	const each = (project: Project, values: Partial<LineupPlanInput> = {}) =>
+		lineupPlan({
+			project,
+			shownCase: null,
+			station,
+			memberIds: ['PA', 'PB'],
+			base: { response: oneOffCase.solve, stale: false },
+			preset: 'each',
+			savedOrder: [],
+			...values
+		});
+	/** 4d's notes: the items of the cases not added (existing, and the base case's state). */
+	const notesOf = (plan: LineupPlan) =>
+		plan.cases.filter((c) => c.kind !== 'add').map((c) => c.words);
+	const withStatus = (response: SolveResponse, pumpId: string, value: PumpResult['status']) =>
+		edit(response, { [pumpId]: { status: value } });
+
+	it('makes a case per running pump, its only change that pump off, named and numbered', () => {
+		const project = withoutScenarios(oneOffCase.project);
+		const plan = each(project);
+		expect(plan.gate).toBeNull();
+		expect(plan.about).toBe(
+			'Makes one scenario per pump running in the base case (Pump PA and Pump PB): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.'
+		);
+		expect(plan.add).toEqual([
+			{ stopped: ['PA'], id: 'S1', name: 'Pump PA off' },
+			{ stopped: ['PB'], id: 'S2', name: 'Pump PB off' }
+		]);
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		expect(plan.label).toBe('Add 2 cases');
+		expect(plan.refusal).toBeNull();
+		expect(plan.showSolveAll).toBe(true);
+		const made = withLineupCases(project, plan.add);
+		// Exactly the fixture's S1 and S2, the scenarios the API solved.
+		expect(made.scenarios).toEqual(oneOffCase.project.scenarios!.slice(0, 2));
+		expect(made.scenarios!.map((s) => s.id)).toEqual(plan.add.map((a) => a.id));
+		expect(addedNotice(plan.add.map((a) => a.name))).toBe(
+			'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all solves every case not yet solved; Undo removes them.'
+		);
+		expect(addedNotice(['Pump PA off'])).toBe(
+			'Added 1 case with one pump off: Pump PA off. Solve all solves every case not yet solved; Undo removes them.'
+		);
+		expect(plan.notice).toBe(addedNotice(['Pump PA off', 'Pump PB off']));
+		expect(plan.undoLabel).toBe('add cases with one pump off');
+		expect(plan.stopOrder).toBeNull();
+	});
+
+	it('skips a pump whose case exists, whatever it is named, and refuses when every one exists', () => {
+		const plan = each(oneOffCase.project);
+		expect(plan.add).toEqual([]);
+		expect(plan.existing).toEqual([
+			{ stopped: ['PA'], scenarioId: 'S1', scenarioName: 'Pump PA off' },
+			{ stopped: ['PB'], scenarioId: 'S2', scenarioName: 'Pump PB off' }
+		]);
+		// §7.12: the note "{name} has its case already: {found.name}." becomes the preview item
+		// "{offName}: already a scenario, «{other}» ({id})", its short form when the names are equal
+		// (§7.7).
+		expect(notesOf(plan)).toEqual([
+			'Pump PA off: already a scenario (S1)',
+			'Pump PB off: already a scenario (S2)'
+		]);
+		expect(plan.refusal).toBe(
+			'Every case with one pump off already exists: Pump PA off and Pump PB off.'
+		);
+		// §7.12: "Add cases with one pump off" becomes "Add cases".
+		expect(plan.label).toBe('Add cases');
+		// Renamed, it is still PA's case.
+		const renamed = structuredClone(oneOffCase.project);
+		renamed.scenarios![0]!.name = 'N-1 (PA)';
+		expect(each(renamed).existing[0]).toEqual({
+			stopped: ['PA'],
+			scenarioId: 'S1',
+			scenarioName: 'N-1 (PA)'
+		});
+		expect(notesOf(each(renamed))[0]).toBe('Pump PA off: already a scenario, «N-1 (PA)» (S1)');
+	});
+
+	it('takes the first free ids on the growing project', () => {
+		const project = withScenarios(withoutScenarios(oneOffCase.project), [
+			{ id: 'S1', name: 'Winter', overrides: [] }
+		]);
+		const plan = each(project);
+		expect(plan.add.map((a) => a.id)).toEqual(['S2', 'S3']);
+		const made = withLineupCases(project, plan.add);
+		expect(made.scenarios!.map((s) => [s.id, s.name])).toEqual([
+			['S1', 'Winter'],
+			['S2', 'Pump PA off'],
+			['S3', 'Pump PB off']
+		]);
+	});
+
+	it('refuses past the scenario limit with the count', () => {
+		const nineteen: Scenario[] = Array.from({ length: 19 }, (_, i) => ({
+			id: `S${i + 1}`,
+			name: `Case ${i + 1}`,
+			overrides: []
+		}));
+		const plan = each(withScenarios(withoutScenarios(oneOffCase.project), nineteen));
+		expect(MAX_SCENARIOS).toBe(20);
+		expect(plan.refusal).toBe(
+			'Adding 2 cases would make 21 scenarios; a project holds at most 20 scenarios.'
+		);
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		expect(plan.label).toBe('Add 2 cases');
+	});
+
+	it('tells two pumps of the same name apart by their ids, in the cases it makes and its words', () => {
+		// Synthetic: a duty and a standby unit both named "Booster pump" (names need not be unique).
+		const project = withoutScenarios(oneOffCase.project);
+		for (const c of project.components) if (c.type === 'pump') c.name = 'Booster pump';
+		const plan = each(project);
+		expect(plan.add).toEqual([
+			{ stopped: ['PA'], id: 'S1', name: 'Booster pump (PA) off' },
+			{ stopped: ['PB'], id: 'S2', name: 'Booster pump (PB) off' }
+		]);
+		expect(plan.about).toBe(
+			'Makes one scenario per pump running in the base case (Booster pump (PA) and Booster pump (PB)): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.'
+		);
+		const made = withLineupCases(project, plan.add);
+		const again = each(made);
+		// §7.12: "{name} has its case already: {found.name}." becomes the preview item (§7.7's short
+		// form: the names are equal).
+		expect(notesOf(again)).toEqual([
+			'Booster pump (PA) off: already a scenario (S1)',
+			'Booster pump (PB) off: already a scenario (S2)'
+		]);
+		expect(new Set(notesOf(again)).size).toBe(2);
+		// A name only one member has keeps its plain words.
+		const one = structuredClone(project);
+		one.components.find((c) => c.id === 'PB')!.name = 'Pump PB';
+		expect(each(one).add.map((a) => a.name)).toEqual(['Booster pump off', 'Pump PB off']);
+	});
+
+	it('tells a case with one pump off by sameCase (4d’s isOnePumpOff replaced)', () => {
+		const [s1, s2, s3, s4] = oneOffCase.project.scenarios!;
+		const project = oneOffCase.project;
+		const alone = (pumpId: string): Scenario => ({
+			id: 'X',
+			name: 'X',
+			overrides: [offOverride(pumpId)]
+		});
+		expect(sameCase(project, s1, alone('PA'))).toBe(true);
+		expect(sameCase(project, s2, alone('PB'))).toBe(true);
+		expect(sameCase(project, s1, alone('PB'))).toBe(false);
+		expect(sameCase(project, s3, alone('PA'))).toBe(false);
+		// Two changes, or a status on.
+		expect(sameCase(project, s4, alone('PA'))).toBe(false);
+		const on: Scenario = {
+			id: 'S9',
+			name: 'On',
+			overrides: [{ kind: 'component', componentId: 'PA', field: 'status', value: 'on' }]
+		};
+		expect(sameCase(project, on, alone('PA'))).toBe(false);
+		expect(offOverride('PA')).toEqual({
+			kind: 'component',
+			componentId: 'PA',
+			field: 'status',
+			value: 'off'
+		});
+	});
+
+	it('gives no case to a pump on but carrying no flow, and says why', () => {
+		const c = solvedCase('one-off-dead-headed');
+		const plan = lineupPlan({
+			project: withoutScenarios(c.project),
+			shownCase: null,
+			station: stationOf(c),
+			memberIds: c.memberIds,
+			base: { response: c.solve, stale: false },
+			preset: 'each',
+			savedOrder: []
+		});
+		expect(plan.add).toEqual([{ stopped: ['PA'], id: 'S1', name: 'Pump PA off' }]);
+		expect(plan.idle).toEqual(['PB']);
+		// §7.12: the idle note becomes the preview item.
+		expect(notesOf(plan)).toEqual([
+			"Pump PB off: not made, the base case's state (Pump PB carries no flow in the base case)"
+		]);
+		expect(plan.about).toBe(
+			'Makes one scenario per pump running in the base case (Pump PA): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.'
+		);
+		// The fixture's S1 is what the add makes.
+		expect(withLineupCases(withoutScenarios(c.project), plan.add).scenarios).toEqual(
+			c.project.scenarios
+		);
+	});
+
+	it('skips lineups-closed-leg’s PB, running at 0.0 (the flow, not the state word)', () => {
+		const plan = planOn(closedLeg, { preset: 'each' });
+		expect(plan.add).toEqual([{ stopped: ['PA'], id: 'S1', name: 'Pump PA off' }]);
+		expect(plan.idle).toEqual(['PB']);
+		expect(items(plan)).toEqual([
+			'Pump PA off',
+			"Pump PB off: not made, the base case's state (Pump PB carries no flow in the base case)"
+		]);
+		expect(plan.about).toBe(
+			'Makes one scenario per pump running in the base case (Pump PA): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.'
+		);
+	});
+
+	it('is offered for a parallel station from the base case, current, with two pumps on, one carrying flow', () => {
+		const project = withoutScenarios(oneOffCase.project);
+		const series = stationOf(solvedCase('series'));
+		const mixed = { ...station, arrangement: 'mixed' as const };
+		const gate = (values: Partial<LineupPlanInput>) => each(project, values);
+		// §7.12: gate 1's words become §7.2 row 1's.
+		expect(gate({ station: series }).gate).toBe(
+			'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.'
+		);
+		expect(gate({ station: series }).showSolveAll).toBe(false);
+		// §7.12: gate 2 likewise (row 2).
+		expect(gate({ station: mixed }).gate).toBe(
+			'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.'
+		);
+		const shown = gate({ project: oneOffCase.project, shownCase: 'S3' });
+		// §7.12: gate 3's words become row 3's.
+		expect(shown.gate).toBe(
+			'Cases are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with pumps off, duplicate it in Scenarios and set those pumps off there.'
+		);
+		expect(shown.showSolveAll).toBe(false);
+		// The arrangement first: a series station in a scenario says why in series.
+		expect(gate({ station: series, shownCase: 'S3', project: oneOffCase.project }).gate).toMatch(
+			/^Cases are added here for pumps in parallel only: in series/
+		);
+		const stale = gate({ base: { response: oneOffCase.solve, stale: true } });
+		expect(stale.gate).toBe(
+			"The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now."
+		);
+		expect(stale.showSolveAll).toBe(true);
+		const offPlan = gate({
+			base: { response: withStatus(oneOffCase.solve, 'PB', 'off'), stale: false }
+		});
+		expect(offPlan.gate).toBe(
+			'Needs two or more of these pumps switched on in the base case: Pump PB is off.'
+		);
+		expect(offPlan.showSolveAll).toBe(true);
+		const bothOff = gate({
+			base: {
+				response: withStatus(withStatus(oneOffCase.solve, 'PB', 'off'), 'PA', 'off'),
+				stale: false
+			}
+		});
+		expect(bothOff.gate).toBe(
+			'Needs two or more of these pumps switched on in the base case: Pump PA and Pump PB are off.'
+		);
+		const none = gate({
+			base: {
+				response: edit(oneOffCase.solve, {
+					PA: { status: 'no_flow', operatingFlow: 0 },
+					PB: { status: 'no_flow', operatingFlow: 0 }
+				}),
+				stale: false
+			}
+		});
+		// §7.12: gate 6's words become row 6's.
+		expect(none.gate).toBe(
+			'No pump of the group carries flow in the base case, so switching pumps off changes nothing.'
+		);
+		expect(none.showSolveAll).toBe(true);
+		for (const plan of [offPlan, none, stale, shown]) expect(plan.add).toEqual([]);
+		// No station: no block.
+		expect(gate({ station: null })).toMatchObject({ gate: null, add: [], showSolveAll: false });
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// §4.6 lineupChartPriority
+// ---------------------------------------------------------------------------------------------
+
+describe('lineupChartPriority', () => {
+	const keysOf = (project: Project, base = false) => [
+		...(base ? [{ key: '', caseId: null }] : []),
+		...scenariosOf(project).map((s) => ({ key: s.id, caseId: s.id }))
+	];
+
+	it('six pumps with both presets: one lineup of each number running first, 5 to 1, then one more', () => {
+		const six = station(6);
+		const running = withLineupCases(six, planOf(six).add);
+		const both = withLineupCases(running, planOf(running, { preset: 'each' }).add);
+		expect(namesOf(both)).toEqual([
+			'5 of 6 running (Pump P6 off)',
+			'4 of 6 running (Pump P5, Pump P6 off)',
+			'3 of 6 running (Pump P4, Pump P5, Pump P6 off)',
+			'2 of 6 running (Pump P3, Pump P4, Pump P5, Pump P6 off)',
+			'1 of 6 running (Pump P2, Pump P3, Pump P4, Pump P5, Pump P6 off)',
+			'Pump P1 off',
+			'Pump P2 off',
+			'Pump P3 off',
+			'Pump P4 off',
+			'Pump P5 off'
+		]);
+		const order = lineupChartPriority(keysOf(both), both, pumpIds(6));
+		expect(order).toEqual(['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10']);
+		const on = (id: string) =>
+			pumpLineup(
+				scenariosOf(both).find((s) => s.id === id),
+				both,
+				pumpIds(6)
+			).on.length;
+		expect(order.slice(0, 6).map(on)).toEqual([5, 4, 3, 2, 1, 5]);
+		// Each pump off first in case order: the first of each count still leads.
+		const eachFirst = withLineupCases(
+			withLineupCases(six, planOf(six, { preset: 'each' }).add),
+			[]
+		);
+		const thenRunning = withLineupCases(eachFirst, planOf(eachFirst).add);
+		const mixed = lineupChartPriority(keysOf(thenRunning), thenRunning, pumpIds(6));
+		const onIn = (id: string) =>
+			pumpLineup(
+				scenariosOf(thenRunning).find((s) => s.id === id),
+				thenRunning,
+				pumpIds(6)
+			).on.length;
+		expect(mixed.slice(0, 6).map(onIn)).toEqual([5, 4, 3, 2, 1, 5]);
+		expect(mixed[0]).toBe('S1');
+	});
+
+	it('counts the base when it is another case, with its pumps on', () => {
+		const project = withLineupCases(station(3), planOf(station(3)).add);
+		expect(lineupChartPriority(keysOf(project, true), project, pumpIds(3))).toEqual([
+			'',
+			'S1',
+			'S2'
+		]);
+	});
+
+	it('leaves a status-only scenario equal to the base, and any other change, among the other cases', () => {
+		const project = withCases(
+			station(3),
+			scenario([status('P1', 'on')], 'Same as the base', 'S1'),
+			scenario([...off('P3'), level('A1', 5)], 'Winter', 'S2'),
+			scenario(off('P2', 'P3'), '1 of 3 running (Pump P2, Pump P3 off)', 'S3'),
+			scenario(off('P3'), '2 of 3 running (Pump P3 off)', 'S4')
+		);
+		expect(lineupChartPriority(keysOf(project), project, pumpIds(3))).toEqual([
+			'S4',
+			'S3',
+			'S1',
+			'S2'
+		]);
+	});
+
+	it('orders 4d’s one-off project: one of each count, most running first, then the rest', () => {
+		// 4d's chartPriority test, on the new order (§4.6 replaces chartPriority): S3 "Tank" first
+		// in the scenarios, then S1 and S2 (one pump off each, 1 running) and S4 (both off, 0).
+		const project = withScenarios(structuredClone(oneOffCase.project), [
+			{ id: 'S3', name: 'Tank', overrides: [] },
+			...oneOffCase.project.scenarios!.filter((s) => s.id !== 'S3')
+		]);
+		const order = [
+			{ key: '', caseId: null },
+			...['S1', 'S2', 'S3', 'S4'].map((id) => ({ key: id, caseId: id }))
+		];
+		expect(lineupChartPriority(order, project, ['PA', 'PB'])).toEqual(['', 'S1', 'S4', 'S2', 'S3']);
+		// A member no longer in the group: a case that changes another pump is no lineup of these.
+		expect(lineupChartPriority(order, project, ['PA'])).toEqual(['', 'S1', 'S2', 'S3', 'S4']);
 	});
 });

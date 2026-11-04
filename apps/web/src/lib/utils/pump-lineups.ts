@@ -29,7 +29,7 @@
 import type { Override, Project, Scenario } from '../api/types';
 import { canonicalJson } from './json';
 import { memberLabels, offName } from './pump-group-one-off';
-import { suggestGroups } from './pump-groups';
+import { MAX_GROUP_PUMPS, suggestGroups } from './pump-groups';
 import {
 	changeTarget,
 	copyName,
@@ -191,7 +191,17 @@ function finderInputs(project: Project): string {
 function findFrame(project: Project): LineupGroup[] {
 	const order = componentOrder(project);
 	const pumps = project.components.filter((c) => c.type === 'pump').map((c) => c.id);
-	const suggestions = suggestGroups(project, pumps);
+	// The finder without its size limit, run once: a station of more than MAX_GROUP_PUMPS pumps is
+	// found whole, and every suggestion that shares a pump with one is dropped, so its inner
+	// stations (a tee ladder's) never stand for it and all its pumps go to Other (§4.2 item 5).
+	// What is left is the finder's own suggestions (2 to MAX_GROUP_PUMPS pumps, its order).
+	const found = suggestGroups(project, pumps, Infinity);
+	const over = new Set(
+		found.filter((s) => s.pumpIds.length > MAX_GROUP_PUMPS).flatMap((s) => s.pumpIds)
+	);
+	const suggestions = found.filter(
+		(s) => s.pumpIds.length <= MAX_GROUP_PUMPS && !s.pumpIds.some((id) => over.has(id))
+	);
 	const series = suggestions.filter((s) => s.kind === 'series');
 	const taken = new Set<string>();
 	const groups: LineupGroup[] = [];
@@ -217,9 +227,9 @@ function findFrame(project: Project): LineupGroup[] {
  * already taken; a kept series suggestion is 'series', a kept parallel one that holds a series
  * chain of its pumps 'mixed' (the finder calls a 2 × 2 station parallel, the API mixed), any other
  * 'parallel'. Groups go by their first pump's component order; every pump in none (a lone pump, a
- * station the finder does not suggest, one of more than MAX_GROUP_PUMPS) goes last, in one 'other'
- * group. The finder reads values too (an active PRV or PSV ends a station), so a base edit of a
- * valve's status can change the frame.
+ * station the finder does not suggest, one of more than MAX_GROUP_PUMPS with every station nested
+ * inside it) goes last, in one 'other' group. The finder reads values too (an active PRV or PSV
+ * ends a station), so a base edit of a valve's status can change the frame.
  *
  * Memoised on what the finder reads (the components without their names, and the connections, a
  * part of the base's hydraulic fingerprint), so a scenario edit or a rename never runs it again.
@@ -426,6 +436,11 @@ interface AppMade {
 	/** 4d's form: the pump X it names, and whether with its id ("Booster pump (PA) off"). */
 	pump?: string;
 	withId?: boolean;
+	/**
+	 * 4d's form that is also the case's lineupName: X is named on its own (a series, mixed or
+	 * other group), where the template rule gives "{label} off" too.
+	 */
+	alsoLineup?: boolean;
 }
 
 /** The levels of copyName that turn `base` into `name` (0: itself), or null when none does. */
@@ -452,7 +467,7 @@ function copies(name: string, levels: number): string {
  * 1. "Scenario n" (newScenarioName of its own id) while it has no changes;
  * 2. its lineupName, while it changes a pump's status;
  * 3. while its pump status changes are exactly one, a pump X off (other changes allowed), 4d's
- *    offName of X, without or with its id;
+ *    offName of X, without or with its id (marked when it is the lineupName too);
  * 4. a copy of form 2 or 3, any number deep ("Scenario n (copy)" is not one: n is its own id's).
  */
 function appMade(project: Project, scenario: Scenario): AppMade | null {
@@ -464,12 +479,17 @@ function appMade(project: Project, scenario: Scenario): AppMade | null {
 	const forms: [string, AppMade][] = [];
 	const statuses = pumpStatusChanges(project, scenario);
 	const only = statuses.length === 1 ? statuses[0]! : null;
+	const lineup = lineupName(project, scenario);
 	if (only?.value === 'off') {
 		const name = project.components.find((c) => c.id === only.id)?.name ?? only.id;
-		forms.push([offName(name), { form: 'off', levels: 0, pump: only.id, withId: false }]);
-		forms.push([offName(name, only.id), { form: 'off', levels: 0, pump: only.id, withId: true }]);
+		for (const withId of [false, true]) {
+			const form = offName(name, withId ? only.id : undefined);
+			forms.push([
+				form,
+				{ form: 'off', levels: 0, pump: only.id, withId, alsoLineup: form === lineup }
+			]);
+		}
 	}
-	const lineup = lineupName(project, scenario);
 	if (lineup !== null) forms.push([lineup, { form: 'lineup', levels: 0 }]);
 	for (const [base, made] of forms) {
 		const levels = copyLevels(base, scenario.name);
@@ -487,7 +507,10 @@ const statusKey = (changes: readonly { id: string; value: PumpStatus }[]) =>
  * 1. "Scenario n" when it changes no pump's status (it claims nothing);
  * 2. 4d's form for X while its pump status changes are still exactly X off: the same form with X's
  *    name after (only status changes are compared, and a base edit never renames it: it names its
- *    own change against the base, which stays true);
+ *    own change against the base, which stays true). A name that is the lineupName too (X named
+ *    on its own) takes rule 3 while X is still named on its own after the edit, so that its other
+ *    changes are counted (§4.4: a case with other changes never wears a pure lineup's name), and
+ *    keeps 4d's form when the edit puts X into a parallel group (§15);
  * 3. otherwise its lineupName after;
  * 4. a copy keeps its levels only while its own pump status changes are as they were (a pump's
  *    rename, a base edit, a change of the frame): the copy still copies the same case.
@@ -503,7 +526,15 @@ function followedName(
 	if (!statuses.length) return newScenarioName(after, now.id);
 	const kept = statusKey(pumpStatusChanges(before, old)) === statusKey(statuses);
 	const only = statuses.length === 1 ? statuses[0]! : null;
-	if (made.form === 'off' && only && only.id === made.pump && only.value === 'off') {
+	const ownAfter = (id: string) =>
+		lineupGroups(after).some((g) => g.kind !== 'parallel' && g.pumpIds.includes(id));
+	if (
+		made.form === 'off' &&
+		only &&
+		only.id === made.pump &&
+		only.value === 'off' &&
+		!(made.alsoLineup && ownAfter(only.id))
+	) {
 		const name = after.components.find((c) => c.id === only.id)?.name ?? only.id;
 		return copies(offName(name, made.withId ? only.id : undefined), made.levels);
 	}

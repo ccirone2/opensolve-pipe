@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Component, Override, Project, Scenario } from '$lib/api/types';
 import { projectWith } from '$lib/testing/helpers';
 import {
+	ladder,
 	pipe,
 	prvStation,
 	pump,
@@ -211,6 +212,13 @@ describe('lineupGroups', () => {
 		expect(frame(station(7))).toEqual([{ kind: 'other', pumpIds: pumpIds(7) }]);
 	});
 
+	it('a tee-ladder station of 7 or 8 pumps falls under Other pumps whole, not as an inner 6', () => {
+		// Each inner ladder is a station of its own, which the finder suggests up to 6 pumps.
+		expect(frame(ladder(6))).toEqual([{ kind: 'parallel', pumpIds: pumpIds(6) }]);
+		expect(frame(ladder(7))).toEqual([{ kind: 'other', pumpIds: pumpIds(7) }]);
+		expect(frame(ladder(8))).toEqual([{ kind: 'other', pumpIds: pumpIds(8) }]);
+	});
+
 	it('a PRV inside a station set active moves its pumps to Other, and frameKey changes', () => {
 		const open = lineupGroups(prvStation('failed_open'));
 		const active = lineupGroups(prvStation('active'));
@@ -243,6 +251,26 @@ describe('lineupGroups', () => {
 			{ kind: 'parallel', pumpIds: ['P1', 'P2', 'P3'] },
 			{ kind: 'other', pumpIds: ['L1'] }
 		]);
+	});
+
+	it('is memoised on what the finder reads: connections alone find the frame again, a rename does not', () => {
+		// A project not seen before (its own elevation).
+		const before = withCases(
+			edited(station(3), 'A1', (c) => ({ ...c, elevation: 31.4159 })),
+			scenario(off('P3'), '2 of 3 running (Pump P3 off)')
+		);
+		// P3's discharge pipe removed: P3 leaves the station, and only the connections changed.
+		const cut = { ...before, connections: before.connections.filter((c) => c.id !== 'DP3') };
+		expect(frameKey(lineupGroups(before))).toBe('parallel:P1,P2,P3');
+		expect(frameKey(lineupGroups(cut))).toBe('parallel:P1,P2;other:P3');
+		expect(namesOf(followLineupNames(before, cut).project)).toEqual(['Pump P3 off']);
+		const finder = vi.mocked(suggestGroups);
+		finder.mockClear();
+		const renamed = renamedPump(before, 'P3', 'Spare');
+		expect(namesOf(followLineupNames(before, renamed).project)).toEqual([
+			'2 of 3 running (Spare off)'
+		]);
+		expect(finder).not.toHaveBeenCalled();
 	});
 
 	it('is memoised: the finder runs once across a press', () => {
@@ -309,6 +337,9 @@ describe('sameCase', () => {
 		).toBe(false);
 		expect(sameCase(p, scenario(off('P4')), scenario(off('P3')))).toBe(false);
 		expect(sameCase(p, scenario(off('P4')), undefined)).toBe(false);
+		// The other way round: the case with fewer changes first.
+		expect(sameCase(p, undefined, scenario(off('P4')))).toBe(false);
+		expect(sameCase(p, scenario(off('P4')), scenario(off('P3', 'P4')))).toBe(false);
 	});
 });
 
@@ -391,6 +422,23 @@ describe('lineupName', () => {
 		expect(nameOf(pumpTransferExample(), off('P1'))).toBe('Transfer pump off');
 		expect(nameOf(baseStatus(pumpTransferExample(), 'P1', 'off'), [status('P1', 'on')])).toBe(
 			'Transfer pump on'
+		);
+	});
+
+	it('names the pumps of a 7- or 8-pump tee ladder one by one, as Other pumps', () => {
+		expect(nameOf(ladder(7, { off: ['P1'] }), off('P7'))).toBe('Pump P7 off');
+		expect(nameOf(ladder(8), off('P1', 'P8'))).toBe('Pump P1 off; Pump P8 off');
+	});
+
+	it('names a pump on its own by its label when "{label} off" fits, else by its id, whatever its status', () => {
+		// "x" × 91 + " off" is 95 characters: L1 by its id, while the group keeps its labels.
+		const long = stations({ ids: ['P1', 'P2'] }, { ids: ['L1'], names: ['x'.repeat(91)] });
+		expect(nameOf(long, [...off('P2'), ...off('L1')])).toBe('1 of 2 running (Pump P2 off); L1 off');
+		// "y" × 90 + " on" fits (93) but " off" does not (94): by its id, as when it is off.
+		const on = stations({ ids: ['L1'], names: ['y'.repeat(90)], off: ['L1'] });
+		expect(nameOf(on, [status('L1', 'on')])).toBe('L1 on');
+		expect(nameOf(station(1, { ids: ['L1'], names: ['y'.repeat(89)] }), off('L1'))).toBe(
+			`${'y'.repeat(89)} off`
 		);
 	});
 
@@ -667,12 +715,15 @@ describe('followLineupNames', () => {
 			scenario(off('P3', 'P4'), 'Night', 'S2'),
 			scenario(off('P1'), 'Winter: tower bypassed', 'S3'),
 			scenario([level('A1', 5)], 'Scenario 3', 'S4'),
-			scenario([], 'Scenario 2 (copy)', 'S5')
+			scenario([], 'Scenario 2 (copy)', 'S5'),
+			// "Scenario n" of another id than its own: the user's.
+			scenario([], 'Scenario 2', 'S6')
 		);
 		const edits = [
 			pressed(before, 'S1', off('P2', 'P4')),
 			pressed(before, 'S4', [level('A1', 5), ...off('P2')]),
 			pressed(before, 'S5', off('P2')),
+			pressed(before, 'S6', off('P2')),
 			renamedPump(before, 'P4', 'Standby'),
 			baseStatus(before, 'P3', 'off')
 		];
@@ -702,6 +753,22 @@ describe('followLineupNames', () => {
 		).toEqual(['Lead pump (P1) off']);
 	});
 
+	it('follows a name ending " on" on its pump’s rename and on a toggle', () => {
+		const transfer = withCases(
+			baseStatus(pumpTransferExample(), 'P1', 'off'),
+			scenario([status('P1', 'on')], 'Transfer pump on')
+		);
+		expect(
+			namesOf(followLineupNames(transfer, renamedPump(transfer, 'P1', 'Main pump')).project)
+		).toEqual(['Main pump on']);
+		const mixed = withCases(
+			baseStatus(twoByTwo(), 'A1', 'off'),
+			scenario([status('A1', 'on')], 'Pump A1 on')
+		);
+		const toggled = pressed(mixed, 'S1', [status('A1', 'on'), ...off('B2')]);
+		expect(namesOf(followLineupNames(mixed, toggled).project)).toEqual(['Pump A1 on; Pump B2 off']);
+	});
+
 	it('follows a template name on a base status edit, a pump rename and a frame change', () => {
 		const before = template('P4');
 		const follow = (after: Project) => namesOf(followLineupNames(before, after).project);
@@ -714,6 +781,29 @@ describe('followLineupNames', () => {
 		const five = stations({ ids: pumpIds(5) });
 		const grown = withScenarios(five, scenariosOf(before));
 		expect(follow(grown)).toEqual(['4 of 5 running (Pump P4 off)']);
+	});
+
+	it('follows a seventh pump joining a 6-pump tee ladder: the station goes to Other pumps', () => {
+		const six = ladder(6);
+		const named = (id: string, ids: string[]) =>
+			scenario(off(...ids), nameOf(six, off(...ids))!, id);
+		const before = withCases(
+			six,
+			named('S1', ['P6']),
+			named('S2', ['P1']),
+			named('S3', ['P4', 'P5', 'P6'])
+		);
+		expect(namesOf(before)).toEqual([
+			'5 of 6 running (Pump P6 off)',
+			'5 of 6 running (Pump P1 off)',
+			'3 of 6 running (Pump P4, Pump P5, Pump P6 off)'
+		]);
+		const seven = withScenarios(ladder(7), scenariosOf(before));
+		expect(namesOf(followLineupNames(before, seven).project)).toEqual([
+			'Pump P6 off',
+			'Pump P1 off',
+			'Pump P4 off; Pump P5 off; Pump P6 off'
+		]);
 	});
 
 	it('follows a PRV inside a station set active in the base, and then the next toggle', () => {
@@ -741,6 +831,47 @@ describe('followLineupNames', () => {
 			edited(added.project, 'A1', (c) => ({ ...c, liquidLevel: 5 }) as Component)
 		);
 		expect(namesOf(same.project)).toEqual(['3 of 4 running (Pump P4 off)']);
+		// And a base edit that makes it change something again.
+		const again = followLineupNames(
+			same.project,
+			edited(same.project, 'A1', (c) => ({ ...c, liquidLevel: 2 }) as Component)
+		);
+		expect(namesOf(again.project)).toEqual(['3 of 4 running (Pump P4 off) + 1 other change']);
+	});
+
+	it('adds and takes off " + 1 other change" on a name of pumps named on their own, in either order of edits', () => {
+		const cases = [
+			{ project: series(), pump: 'PB', name: 'Pump PB off', tank: 'R1' },
+			{ project: twoByTwo(), pump: 'B2', name: 'Pump B2 off', tank: 'R1' },
+			{ project: pumpTransferExample(), pump: 'P1', name: 'Transfer pump off', tank: 'R1' }
+		];
+		for (const { project: start, pump: id, name, tank: t } of cases) {
+			const follow = (project: Project, overrides: Override[]) =>
+				followLineupNames(project, pressed(project, 'S1', overrides)).project;
+			let project = follow(withCases(start, scenario([], 'Scenario 1')), off(id));
+			expect(namesOf(project)).toEqual([name]);
+			project = follow(project, [...off(id), level(t, 5)]);
+			expect(namesOf(project)).toEqual([`${name} + 1 other change`]);
+			project = follow(project, off(id));
+			expect(namesOf(project)).toEqual([name]);
+		}
+		// The same changes reached through another pump's status first: the same name.
+		let project = withCases(series(), scenario(off('PA', 'PB'), 'Pump PA off; Pump PB off'));
+		for (const overrides of [
+			[...off('PA', 'PB'), level('R1', 5)],
+			[...off('PB'), level('R1', 5)]
+		]) {
+			project = followLineupNames(project, pressed(project, 'S1', overrides)).project;
+		}
+		expect(namesOf(project)).toEqual(['Pump PB off + 1 other change']);
+	});
+
+	it('keeps a name that is both 4d’s form and the lineup name when a base edit puts its pump in a station', () => {
+		// PB on its own (an active PRV ends the station): "Pump PB off" is both forms.
+		const before = withCases(prvStation('active'), scenario(off('PB'), 'Pump PB off'));
+		expect(lineupName(before, scenariosOf(before)[0]!)).toBe(offName('Pump PB'));
+		const after = withScenarios(prvStation('failed_open'), scenariosOf(before));
+		expect(namesOf(followLineupNames(before, after).project)).toEqual(['Pump PB off']);
 	});
 
 	it('follows "Scenario n" from its first press, and back when the presses are reversed', () => {

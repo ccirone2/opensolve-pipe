@@ -2,12 +2,14 @@
  * The scenario card's heading after a rename that leaves the case current (CLAUDE.md D24, proposal
  * pump-lineups.md §5, §10.1 "L1a, workspace"): names are not in the hydraulic fingerprint, so a
  * pump's rename keeps the solve current while the app-made name follows it; the heading names the
- * case by its stored name and the name it was solved under, and the Methods view by its stored name. The solves are the shared fixture's
- * real API answers for the `one-off` case and its scenarios, given by a fake solver by scenario id.
+ * case by its stored name and the name it was solved under, the Methods view by its stored name
+ * (its copied text as the export's Methods text does), and the trace's case chip as the heading
+ * does. The solves are the shared fixture's real API answers for the `one-off` case and its
+ * scenarios, given by a fake solver by scenario id.
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Project, SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
@@ -33,6 +35,10 @@ function setup() {
 	render(WorkspaceView, { workspace: ws });
 	return ws;
 }
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
 
 const card = () =>
 	within(screen.getByRole('region', { name: 'Results' })).getByRole('region', {
@@ -80,5 +86,31 @@ describe('the scenario card’s heading', () => {
 				name: 'Calculation methods and assumptions for scenario Duty pump off'
 			})
 		).toBeInTheDocument();
+		// Its text to copy (shown to copy by hand without clipboard access) names the case so.
+		vi.stubGlobal('navigator', { ...navigator, clipboard: undefined });
+		await fireEvent.click(results.getByRole('button', { name: 'Copy as text' }));
+		const area = await results.findByRole('textbox', { name: 'Methods as text' });
+		expect((area as HTMLTextAreaElement).value).toContain(
+			'Case: scenario Duty pump off (S1), solved as «Pump PA off»\n'
+		);
+	});
+});
+
+describe('the trace’s case chip', () => {
+	it('names the case as the heading does: its stored name, and the name solved under', async () => {
+		const ws = setup();
+		ws.setCase('S1');
+		await ws.solve();
+		ws.inspect({ kind: 'component', id: 'PB' });
+		const trace = await screen.findByRole('dialog', { name: 'Pump PB' });
+		expect(within(trace).getByText(/^Scenario /)).toHaveTextContent(/^Scenario Pump PA off$/);
+		ws.editComponent('PA', 'rename pump', (c) => {
+			c.name = 'Duty pump';
+		});
+		await tick();
+		expect(ws.store.results.stale).toBe(false);
+		expect(within(trace).getByText(/^Scenario /)).toHaveTextContent(
+			/^Scenario Duty pump off \(solved as «Pump PA off»\)$/
+		);
 	});
 });

@@ -94,6 +94,36 @@ export const pumpIds = (n: number, prefix = 'P') =>
 export const station = (n: number, spec: Partial<StationSpec> = {}) =>
 	stations({ ids: pumpIds(n), ...spec });
 
+/**
+ * A tee ladder of `n` pumps P1 … Pn (the condenser example's header layout, and the shared
+ * fixture's 'ladder'): R1 → suction tees TS1 … TSn, pump Pi from TSi's branch to TDi's, discharge
+ * tees TDn … TD1 → R2. Each inner ladder (TSi … TDi, pumps Pi … Pn) is a station of its own.
+ */
+export function ladder(n: number, spec: Partial<StationSpec> = {}): Project {
+	const ids = spec.ids ?? pumpIds(n);
+	const components: Component[] = [tank('R1', 1)];
+	const connections: PipeConnection[] = [pipe('L0', 'R1:port_1', 'TS1:run_inlet')];
+	for (let i = 1; i <= n; i++) components.push(tee(`TS${i}`));
+	ids.forEach((id, i) =>
+		components.push(
+			pump(id, spec.names?.[i] ?? `Pump ${id}`, spec.off?.includes(id) ? 'off' : 'on')
+		)
+	);
+	for (let i = n; i >= 1; i--) components.push(tee(`TD${i}`));
+	components.push(tank('R2', 1));
+	ids.forEach((id, k) => {
+		const i = k + 1;
+		connections.push(pipe(`S${id}`, `TS${i}:branch`, `${id}:suction`));
+		connections.push(pipe(`D${id}`, `${id}:discharge`, `TD${i}:branch`));
+		if (i < n) {
+			connections.push(pipe(`HS${i}`, `TS${i}:run_outlet`, `TS${i + 1}:run_inlet`));
+			connections.push(pipe(`HD${i}`, `TD${i + 1}:run_outlet`, `TD${i}:run_inlet`));
+		}
+	});
+	connections.push(pipe('L1', 'TD1:run_outlet', 'R2:port_1'));
+	return projectWith(components, connections, pumpTransferExample().pumpLibrary);
+}
+
 /** PA and PB in parallel, a PRV in PB's discharge line: inside the station. */
 export function prvStation(status: 'active' | 'failed_open'): Project {
 	return projectWith(

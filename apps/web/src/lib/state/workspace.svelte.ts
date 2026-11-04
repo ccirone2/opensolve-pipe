@@ -619,12 +619,17 @@ export class Workspace {
 	 * One undo step on the stored project (the base and its scenarios: the scenario manager's
 	 * actions, Reset), with a notice when it is refused, and one when an app-made name followed its
 	 * pumps (CLAUDE.md D24). A label that names a case is best made from the project after the step
-	 * (`label` as a function), so it names the case as it is then.
+	 * (`label` as a function), so it names the case as it is then. `notice` is the caller's own
+	 * sentence for the step (see edit()).
 	 */
-	updateStored(change: (draft: Project) => Project | void, label: UpdateLabel): boolean {
+	updateStored(
+		change: (draft: Project) => Project | void,
+		label: UpdateLabel,
+		notice = ''
+	): boolean {
 		const result = this.#commit(change, label);
 		if (!result) return false;
-		this.#say(result);
+		this.#say(result, notice);
 		return true;
 	}
 
@@ -654,9 +659,12 @@ export class Workspace {
 		};
 	}
 
-	/** The notice of a step: its carry notes, then its renames (§4.5), when there are any. */
-	#say(result: { notes: readonly string[]; renamed: string }): void {
-		const said = [...result.notes, ...(result.renamed ? [result.renamed] : [])];
+	/**
+	 * The notice of a step: the caller's own sentence (`lead`), then its carry notes, then its
+	 * renames (§4.5), when there are any; one notice, so none of them replaces another.
+	 */
+	#say(result: { notes: readonly string[]; renamed: string }, lead = ''): void {
+		const said = [lead, ...result.notes, result.renamed].filter(Boolean);
 		if (said.length) this.notify('info', said.join(' '));
 	}
 
@@ -698,13 +706,17 @@ export class Workspace {
 	 * follows its pumps in the same step, said after the carry notes, and in a scenario the undo
 	 * label names the case as it is after the step (CLAUDE.md D24, proposal pump-lineups.md §4.5,
 	 * §8.6).
+	 *
+	 * `notice` is the caller's own sentence when the edit is applied ("3 pipes now use …"): the
+	 * notice opens with it and the step's carry notes and renames follow, so a caller never says
+	 * its own words over them (§4.5: every rename is said).
 	 */
-	edit(change: (draft: Project) => Project | void, label: string): boolean {
+	edit(change: (draft: Project) => Project | void, label: string, notice = ''): boolean {
 		const scenario = this.activeScenario;
 		if (!scenario) {
 			const result = this.#commit(change, label);
 			if (!result) return false;
-			this.#say(result);
+			this.#say(result, notice);
 			return true;
 		}
 		const base = this.store.project;
@@ -727,7 +739,8 @@ export class Workspace {
 				);
 				if (added.length) throw new Error(added[0]);
 			},
-			(after) => `${label} in ${caseNameIn(after, scenario.id)}`
+			(after) => `${label} in ${caseNameIn(after, scenario.id)}`,
+			notice
 		);
 	}
 
@@ -928,9 +941,13 @@ export class Workspace {
 		);
 	}
 
-	/** Remove a connection, leaving both ports free. */
-	disconnect(connectionId: string): boolean {
-		return this.edit((p) => disconnect(p, connectionId), `remove connection ${connectionId}`);
+	/** Remove a connection, leaving both ports free; `notice` as for edit(). */
+	disconnect(connectionId: string, notice = ''): boolean {
+		return this.edit(
+			(p) => disconnect(p, connectionId),
+			`remove connection ${connectionId}`,
+			notice
+		);
 	}
 
 	/** Solve the case shown, and show the results pane on narrow screens. */

@@ -41,7 +41,7 @@
 		rowKey,
 		type CompareRow
 	} from '$lib/utils/compare';
-	import { changeFieldLabel, changeValueText } from '$lib/utils/scenarios';
+	import { changeFieldLabel, changeValueText, findScenario } from '$lib/utils/scenarios';
 	import { libraryMentions, type LibraryMention } from '$lib/utils/project-library';
 	import CellValue from './CellValue.svelte';
 	import FlagIcon from './FlagIcon.svelte';
@@ -96,6 +96,19 @@
 			? (ws.store.results.response?.scenario ?? null)
 			: null
 	);
+	/**
+	 * The chip's words for that scenario: its stored name, and the name it was solved under when a
+	 * rename came after the solve, as the ScenarioCard's heading names it (CLAUDE.md D24, proposal
+	 * pump-lineups.md §5): a rename leaves the case current, and a name the app made follows its
+	 * pumps without the user's hand.
+	 */
+	const scenarioWords = $derived.by(() => {
+		if (!scenario) return '';
+		const stored = findScenario(ws.store.project, scenario.id)?.name ?? scenario.name;
+		return stored === scenario.name
+			? `Scenario ${stored}`
+			: `Scenario ${stored} (solved as «${scenario.name}»)`;
+	});
 	/** The element's values the scenario changed, as the server applied them. */
 	const changes = $derived(
 		(scenario?.overrides ?? []).filter(
@@ -272,7 +285,7 @@
 			class={[
 				'ml-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium',
 				scenario ? 'bg-teal-700 text-white' : 'bg-slate-200 text-slate-800'
-			]}>{scenario ? `Scenario ${scenario.name}` : 'Base case'}</span
+			]}>{scenario ? scenarioWords : 'Base case'}</span
 		>
 	{/if}
 {/snippet}

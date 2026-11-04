@@ -395,7 +395,7 @@ export function frameKey(groups: readonly LineupGroup[]): string;
 5. **Other pumps.** Every pump in no kept group goes last, in component order, as one `other` group. This covers:
    - a lone pump;
    - a station the finder does not suggest;
-   - a station of seven or more pumps (`MAX_GROUP_PUMPS` = 6, `pump-groups.ts:27`).
+   - a station of seven or more pumps (`MAX_GROUP_PUMPS` = 6, `pump-groups.ts:27`), whole: the stations nested inside it (a tee ladder's inner ladders) are not kept either (§15 item 1).
 
 It is memoised on the base's `hydraulicFingerprint`. Measured: the finder takes 3.4–3.8 ms on 12 pumps, and the table's whole model 1.9 ms for 252 cells (`measure.json`).
 
@@ -486,7 +486,7 @@ No flag is stored. A name the user typed is never touched, unless it happens to 
 
 **The rule.** It applies to each scenario present before and after the edit, with the same name in both (a rename in the same edit is the user's and wins), whose name is app-made before. Its new name is:
 1. `newScenarioName(after, id)` when S′ changes no pump's status. This covers an empty case, and a case whose last pump change was removed while other changes remain: "Scenario n" claims nothing.
-2. Otherwise, when the name was 4d's form for X and S′'s status changes are still exactly X off: the same form with the labels after. Only status changes are compared, so adding a tank level never renames a 4d name. A 4d name follows only a rename of X; a base edit never renames it either, because its name describes its own change against the base, which stays true (4d's names do not carry ` + n other changes`: Each pump off is 4d's as built).
+2. Otherwise, when the name was 4d's form for X and S′'s status changes are still exactly X off: the same form with the labels after. Only status changes are compared, so adding a tank level never renames a 4d name. A 4d name follows only a rename of X; a base edit never renames it either, because its name describes its own change against the base, which stays true (4d's names do not carry ` + n other changes`: Each pump off is 4d's as built). A name that is also S's `lineupName` (X named on its own, in a `series`, `mixed` or `other` group, where the template gives `{label} off` too) takes rule 3 while X is still named on its own after the edit, so its other changes are counted; it keeps 4d's form when the edit puts X into a `parallel` group (§15 item 2).
 3. Otherwise `lineupName(after, S′)`. A template name thus follows:
    - the case's toggles;
    - its other changes coming and going (the ` + n other changes` count);
@@ -571,8 +571,9 @@ With "most running first" alone, six pumps with both presets (10 lineups) would 
 
 **Compare cases** is unchanged: its columns are the cases by name, its rows each pump's values from each case's solve (`compare.ts`). Lineup names read there as any name.
 
-**A rename that leaves the case current.** A pump's rename makes the follow rule rename a case, but the case stays current: `hydraulicFingerprint` leaves out component names (`project.svelte.ts:426-445`). The server's record of the solve keeps the old name, and two places read it today: the ScenarioCard's heading (`ScenarioCard.svelte:53`) and the export's Methods text (`export/about.ts:607-608`). Any rename does this today; the follow rule makes it happen without the user's hand. So in L1a:
-- the ScenarioCard's heading shows the stored name (`ws.caseName`), adding ` (solved as «{old}»)` when the response's name differs;
+**A rename that leaves the case current.** A pump's rename makes the follow rule rename a case, but the case stays current: `hydraulicFingerprint` leaves out component names (`project.svelte.ts:426-445`). The server's record of the solve keeps the old name, and four places read it today: the ScenarioCard's heading (`ScenarioCard.svelte:53`), the trace's case chip (`TraceView.svelte:275`), the Results pane's Methods view (`ResultsPanel.svelte:1150`) and the export's Methods text (`export/about.ts:607-608`). Any rename does this today; the follow rule makes it happen without the user's hand. So in L1a:
+- the ScenarioCard's heading shows the stored name (`ws.caseName`), adding ` (solved as «{old}»)` when the response's name differs, and so does the trace's case chip (§15 item 4);
+- the Methods view's heading names the case by its stored name, and its text to copy as the export's does;
 - the export's Methods text names the case as the other sheets do, by its stored name and id, adding `, solved as «{old}»` when the response's name differs.
 
 **Page state.** The stop order, the preset, the table's tab and its filter are page state: never in the link (D3), reset on load like `pumpGroupOthers`. A link carries only the scenarios, their names and their changes.
@@ -1842,4 +1843,11 @@ No finding was refuted, and none needed an owner's decision reopened. §13 recor
 
 ## 15. As built
 
-(Empty: each slice records here, numbered, every departure of the build from this text.)
+Each slice records here, numbered, every departure of the build from this text.
+
+**L1a, after its review** (14 findings: the four faults below, some reported twice, and seven missing tests, now written):
+1. **The frame sees a station of more than six pumps whole (§4.2).** The finder suggests no group over `MAX_GROUP_PUMPS`, but it does suggest the stations nested inside one: on a tee ladder of seven (the condenser example with a CWP-7 on its header) the inner six were kept, and a case was named "5 of 6 running (…)" in a station of seven, leaving out a pump off in the base. `suggestGroups` gains an optional size limit (default `MAX_GROUP_PUMPS`); the frame runs it once with none and drops every suggestion that shares a pump with a station over six, so all that station's pumps go to Other. The suggestions left are the limited finder's own: the two agree on the shared fixture's projects, the examples, ladders and stations of 2 to 9 pumps, and the condenser example with a CWP-7 (`lineups/l1a-fix/frame-check.test.ts` and `.txt`), at about the same cost. Unit tests: ladders of 6, 7 and 8 pumps, their names, and a seventh pump joining a 6-pump ladder.
+2. **A name that is both 4d's form and the lineup name (§4.5 rule 2).** For a pump named on its own, `lineupName` of "X off" is `offName` of X, so rule 2 kept "Pump PB off" when a tank level was added, while the same changes reached in another order read "Pump PB off + 1 other change" (§4.4: a case with other changes never wears a pure lineup's name). Such a name now takes rule 3 while X is still named on its own after the edit, and keeps 4d's form when the edit puts X into a `parallel` group (a PRV inside the station set back to failed open), as rule 2 says of a base edit. 4d's own names, of a `parallel` member, never equal its lineup name and are unchanged. Unit tests on two pumps in series, a 2 × 2 station and the pump-transfer example, both orders of edits, and the PRV.
+3. **A caller's own notice carries the step's renames (§4.5, where it shows).** Use a pipe spec and Build's Disconnect said their own sentence after `ws.edit` and so replaced the rename notice. `ws.edit`, `ws.updateStored` and `ws.disconnect` take the caller's sentence; the notice opens with it, then the carry notes, then the renames, in one notice. Component tests for both flows.
+4. **The trace's case chip (§5).** It read the server's record and kept the old name after a follow rename; it now names the case as the ScenarioCard's heading does, "Scenario {name} (solved as «{old}»)" when they differ. Component test after a pump's rename, with the Methods view's text to copy checked in the same test.
+

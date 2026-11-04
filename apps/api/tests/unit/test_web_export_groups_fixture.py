@@ -820,7 +820,7 @@ def test_the_duty_in_the_file_is_the_cases_own_solve() -> None:
 
 @cache
 def client() -> TestClient:
-    return TestClient(app, client=("192.0.2.253", 50000))
+    return TestClient(app, client=("192.0.2.254", 50000))
 
 
 def test_the_api_solves_the_fixture_as_it_did_when_the_fixture_was_made() -> None:

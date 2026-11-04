@@ -193,7 +193,9 @@ without a result, whose C was not solved; ISO 5167-2's C is about 0.6)."""
 
 class Api:
     """The app over HTTP, in process. Every request comes from its own client address, so the
-    rate limit and the per-client turn never bind across the many requests of a run."""
+    rate limit and the per-client turn never bind across the many requests of a run. They are
+    in 100.0.0.0/8, which no other test module sends from (``test_client_addresses.py``): the
+    smoke test runs this check inside the pytest suite."""
 
     def __init__(self, goal_seek_budget: float | None = None) -> None:
         self._count = 0
@@ -215,7 +217,7 @@ class Api:
     def _client(self) -> TestClient:
         self._count += 1
         k = self._count
-        address = f"10.{self._prefix}.{k // 250 % 250}.{k % 250 + 1}"
+        address = f"100.{self._prefix}.{k // 250 % 250}.{k % 250 + 1}"
         return TestClient(app, client=(address, 50000))
 
     def get(self, path: str) -> Any:

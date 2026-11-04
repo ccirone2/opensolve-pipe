@@ -16,10 +16,10 @@ Read a proposal when you need to know *why* a feature is shaped as it is, or whe
 | [`landing-page.md`](landing-page.md) | built (web only) | — | The owner's answers on the landing page's goals, its sections and sources, recent projects on this device, the hand-taken screenshots; §5 as built |
 | [`build-density.md`](build-density.md) | built (web only) | — | The Build forms measured; the field registry, density tokens and the budgets CI enforces; six disciplines' and the red team's findings in `build-density/`; §11 as built |
 | [`equipment-pressure-drop.md`](equipment-pressure-drop.md) | built | D18 | The rated-point and Cv/Kv law, the density scaling, §9 Later, §10 owner's answers, §12 as built |
-| [`pump-chart.md`](pump-chart.md) | slices 1–3, 4a, 4b and 4c built | D19, D21 | What an engineer reads from a pump chart; the slice plan; §9–§10 as built |
+| [`pump-chart.md`](pump-chart.md) | slices 1–3 and 4a–4d built | D19, D21 | What an engineer reads from a pump chart; the slice plan; §9–§10 as built |
 | [`design-checks.md`](design-checks.md) | built | D19 | The check framework, presets and their citations; §7 as built |
 | [`orifice-plate.md`](orifice-plate.md) | built | D20 | ISO 5167-2 as implemented, the named departures and their measured size, §10 owner's answers, §12 as built |
-| [`pump-groups.md`](pump-groups.md) | slices 4a, 4b and 4c built | D21 | The station frame, the group curve and the group system curve, three designs reconciled (§11), §13 owner's answers, §14–§16 as built |
+| [`pump-groups.md`](pump-groups.md) | slices 4a–4d built | D21 | The station frame, the group curve and the group system curve, three designs reconciled (§11), §13 owner's answers, §14–§17 as built |
 | [`project-library.md`](project-library.md) | built | D22 | References not templates, the K-at-a-bore conversion, §9 Later, §10 owner's answers, §12 as built, appendix prototype |
 | [`pressure-relief-valve.md`](pressure-relief-valve.md) | built | D23 | The law and its three named departures, the band convention accepted as an exception, §10 owner's answers, §12 as built |
 

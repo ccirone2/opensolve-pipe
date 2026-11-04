@@ -16,7 +16,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import { calculatingReason } from '$lib/utils/goal-seek';
+	import { solveAllReason } from '$lib/utils/goal-seek';
 
 	let { onmanage, onchoose }: { onmanage: () => void; onchoose?: () => void } = $props();
 	const ws = useWorkspace();
@@ -33,25 +33,16 @@
 	const goalSeek = $derived(store.calculating === 'goalSeek' ? store.goalSeek : null);
 	const canRun = $derived(store.calculating === null && toSolve.length > 0 && !empty);
 
-	function names(list: readonly (string | null)[]): string {
-		const all = list.map((c) => ws.caseName(c));
-		return all.length < 2 ? (all[0] ?? '') : `${all.slice(0, -1).join(', ')} and ${all.at(-1)}`;
-	}
-
+	/** Why Solve all waits: one function with the Pumps together card's (utils/goal-seek.ts). */
 	const reason = $derived(
-		empty
-			? 'Add a component to the network first.'
-			: goalSeek
-				? calculatingReason('goalSeek', 'solve')
-				: run
-					? 'Solve all is running; Cancel in the header stops it.'
-					: solvingCase !== undefined
-						? `A solve of ${ws.caseName(solvingCase)} is running; Cancel in the header stops it.`
-						: toSolve.length
-							? ''
-							: errors.length
-								? `Every case is solved except ${names(errors)}, which ${errors.length === 1 ? 'has' : 'have'} an error to fix first.`
-								: "Every case's results are current."
+		solveAllReason({
+			empty,
+			calculating: store.calculating,
+			solvingCase: store.solvingCase,
+			toSolve: toSolve.length,
+			errors,
+			caseName: (c) => ws.caseName(c)
+		})
 	);
 	const progress = $derived.by(() => {
 		if (!run) return '';

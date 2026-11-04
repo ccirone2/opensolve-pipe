@@ -39,7 +39,7 @@ _clients = iter(range(1, 250))
 def _client() -> TestClient:
     """A client with its own address, so that these tests do not share a rate-limit bucket
     with the rest of the suite."""
-    return TestClient(app, client=(f"198.51.100.{next(_clients)}", 50000))
+    return TestClient(app, client=(f"198.51.109.{next(_clients)}", 50000))
 
 
 def _project(**kwargs: Any) -> dict[str, Any]:

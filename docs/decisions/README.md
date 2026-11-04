@@ -26,7 +26,7 @@ D1–D14 are the architecture and the rules of the rebuild. D15 onward each reco
 | [D18](D18-equipment-pressure-drop.md) | Equipment pressure drop | built (1.3.0) |
 | [D19](D19-design-checks.md) | Design checks | built |
 | [D20](D20-orifice-plate.md) | Orifice plate | built (1.4.0) |
-| [D21](D21-pump-groups.md) | Pump groups, slices 4a, 4b and 4c | built |
+| [D21](D21-pump-groups.md) | Pump groups, slices 4a, 4b, 4c and 4d | built |
 | [D22](D22-project-library.md) | Project library | built (1.5.0) |
 | [D23](D23-pressure-relief-valve.md) | Pressure relief valve | built (1.6.0) |
 

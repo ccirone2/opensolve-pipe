@@ -23,6 +23,7 @@
 		changeTargetLabel,
 		changeValueText,
 		copyName,
+		LIMIT_TEXT,
 		MAX_CHANGES,
 		MAX_SCENARIOS,
 		newScenarioId,
@@ -42,7 +43,6 @@
 
 	const scenarios = $derived(ws.scenarios);
 	const full = $derived(scenarios.length >= MAX_SCENARIOS);
-	const LIMIT_TEXT = `A project holds at most ${MAX_SCENARIOS} scenarios.`;
 
 	/** Cards that are open: the one asked for, else the active scenario's. */
 	let opened = $state<string[]>(

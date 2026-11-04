@@ -336,6 +336,49 @@ describe('the 31st change (§8.6 item 5)', () => {
 	});
 });
 
+describe('an edit that would make its case invalid (§8.6, editScenario’s structural check)', () => {
+	/** The first pipe of the fixture's first connection made -5 m long: a structural problem. */
+	const shorten = (draft: Project) => {
+		const pipe = draft.connections[0]!.piping.pipes[0]!;
+		pipe.length = -5;
+	};
+	const twoSystems = () =>
+		(fixture.cases as unknown as { name: string; project: Project }[]).find(
+			(c) => c.name === 'two-systems'
+		)!.project;
+
+	it('is refused in Build with ws.edit’s words, naming the case, and nothing changes', () => {
+		const ws = testWorkspace(twoSystems(), { now: NOW });
+		ws.setCase('S1');
+		const before = canonicalJson(ws.store.project);
+		const depth = ws.store.undoDepth;
+		expect(ws.edit(shorten, 'change length')).toBe(false);
+		expect(canonicalJson(ws.store.project)).toBe(before);
+		expect(ws.store.undoDepth).toBe(depth);
+		expect(ws.notice?.kind).toBe('error');
+		expect(ws.notice?.text).toMatch(/^Could not change length in PB in service, PA off: \S/);
+		expect(ws.notice?.text).toContain('length');
+	});
+
+	it('is refused quietly through editScenario, with its reason and problem, and nothing changes', () => {
+		const ws = testWorkspace(twoSystems(), { now: NOW });
+		const before = canonicalJson(ws.store.project);
+		const depth = ws.store.undoDepth;
+		const result = ws.editScenario('S1', shorten, 'change length', { quiet: true });
+		expect(result).toMatchObject({ ok: false, reason: 'invalid' });
+		// The problem is the one Build's refusal says after "Could not change length in …: ".
+		const loud = testWorkspace(twoSystems(), { now: NOW });
+		loud.setCase('S1');
+		loud.edit(shorten, 'change length');
+		expect(
+			result.ok ? null : `Could not change length in PB in service, PA off: ${result.message}`
+		).toBe(loud.notice?.text);
+		expect(canonicalJson(ws.store.project)).toBe(before);
+		expect(ws.store.undoDepth).toBe(depth);
+		expect(ws.notice).toBeNull();
+	});
+});
+
 describe('staleness (§6, fake solver)', () => {
 	function solved() {
 		const solve = vi.fn(async (): Promise<SolveResponse> => {

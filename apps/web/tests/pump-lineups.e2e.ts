@@ -2,8 +2,8 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import type { Project, SolveRequest, SolveResponse } from '../src/lib/api/types';
-import { condenserWaterExample } from '../src/lib/utils/examples';
+import type { Project, Scenario, SolveRequest, SolveResponse } from '../src/lib/api/types';
+import { condenserWaterExample, pumpTransferExample } from '../src/lib/utils/examples';
 import {
 	buildPane,
 	cellText,
@@ -32,8 +32,14 @@ import {
  * 5. the phone: the picker, the segments with Changed · Base · Reset, New lineup picking the new
  *    case, no sideways page scroll at 390 px and 320 px;
  * 6. the layout at 1280×800 with 21 rows and the condenser example's names: the dialog body does
- *    not scroll and at least 6 rows are fully visible in the table's box; the Cases tab at xl: no
- *    prose line longer than max-w-prose, its body's scroll recorded.
+ *    not scroll and at least 6 rows are fully visible in the table's box, on a fresh open and after
+ *    a press that renames (the status line's sentence); the Cases tab at xl: no prose line longer
+ *    than max-w-prose, its body's scroll recorded.
+ * And, from the review of L2: a dialog opens on its Close button, not its title; a focused cell's
+ * whole focus ring stays clear of the sticky header rows and case column, also when a key follows
+ * an arrow at the grid's edge at once; on a phone the sheet keeps its place on a tab switch (a
+ * second tap lands on the tab row), long names with no spaces wrap, and Reset removes a change
+ * equal to the base value.
  * The projects are the condenser example (utils/examples.ts) and the shared fixture's
  * `two-systems` (apps/api/tests/fixtures/pump_groups_input.py), opened by link; every string is
  * §8.12's, word for word.
@@ -75,6 +81,78 @@ async function noSidewaysScroll(page: Page) {
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
 		true
 	);
+}
+
+/**
+ * The manager's body and the table's box: whether the body scrolls, how many rows are fully in
+ * the box, and how many lines the status line takes.
+ */
+function bodyAndRows(manager: Locator) {
+	return manager.evaluate((dialog) => {
+		const body = dialog.querySelector('.overflow-y-auto') as HTMLElement;
+		const box = dialog.querySelector('[data-lineups-box]') as HTMLElement;
+		const b = box.getBoundingClientRect();
+		const head = box.querySelector('thead')!.getBoundingClientRect();
+		const rows = [...box.querySelectorAll('tbody tr')].map((tr) => tr.getBoundingClientRect());
+		const status = dialog.querySelector('[role="status"]') as HTMLElement;
+		const lineHeight = parseFloat(getComputedStyle(status).lineHeight);
+		return {
+			bodyScrollHeight: body.scrollHeight,
+			bodyClientHeight: body.clientHeight,
+			boxHeight: Math.round(b.height),
+			headerHeight: Math.round(head.height),
+			rowsFullyVisible: rows.filter((r) => r.top >= head.bottom - 0.5 && r.bottom <= b.bottom + 0.5)
+				.length,
+			statusLines: Math.round(status.getBoundingClientRect().height / lineHeight)
+		};
+	});
+}
+
+/**
+ * Where the focused cell's focus ring is against the sticky header rows (top), the sticky case
+ * column (left) and the box's right edge (right): each the ring's distance inside that edge, in
+ * px (negative: that much of the ring is hidden). The ring reaches outline-width + outline-offset
+ * past the element (nothing for a ring drawn inside it).
+ */
+function ringPlace(page: Page) {
+	return page.evaluate(() => {
+		const e = document.activeElement as HTMLElement;
+		const box = document.querySelector('[data-lineups-box]') as HTMLElement;
+		const style = getComputedStyle(e);
+		const reach = Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
+		const r = e.getBoundingClientRect();
+		const head = box.querySelector('thead')!.getBoundingClientRect();
+		const corner = box.querySelector('[data-corner]')!.getBoundingClientRect();
+		const right = box.getBoundingClientRect().left + box.clientLeft + box.clientWidth;
+		return {
+			cell: e.dataset.cell,
+			ring: e.matches(':focus-visible') && style.outlineStyle !== 'none',
+			top: Math.round((r.top - reach - head.bottom) * 10) / 10,
+			left: Math.round((r.left - reach - corner.right) * 10) / 10,
+			right: Math.round((right - r.right - reach) * 10) / 10
+		};
+	});
+}
+
+/** The condenser example with 21 cases: Winter, then P2 to P6 off as the bits of k = 1 to 19. */
+function condenser21(): Project {
+	const project = condenserWaterExample();
+	const more: Scenario[] = Array.from({ length: 19 }, (_, i) => {
+		const k = i + 1;
+		const off = [2, 3, 4, 5, 6].filter((_, b) => (k >> b) & 1);
+		return {
+			id: `S${k + 1}`,
+			name: `${6 - off.length} of 6 running (${off.map((n) => `P${n}`).join(', ')} off)`,
+			overrides: off.map((n) => ({
+				kind: 'component' as const,
+				componentId: `P${n}`,
+				field: 'status' as const,
+				value: 'off'
+			}))
+		};
+	});
+	project.scenarios = [...(project.scenarios ?? []), ...more];
+	return project;
 }
 
 /** The manager on Pump lineups. */
@@ -505,25 +583,24 @@ test('the layout at 1280×800: 21 rows with the condenser example’s names, the
 	// The manager opened afresh: the body does not scroll, at least six rows fully in the box.
 	await manager.getByRole('button', { name: 'Done' }).click();
 	manager = await openLineups(page);
-	const layout = await manager.evaluate((dialog) => {
-		const body = dialog.querySelector('.overflow-y-auto') as HTMLElement;
-		const box = dialog.querySelector('[data-lineups-box]') as HTMLElement;
-		const b = box.getBoundingClientRect();
-		const head = box.querySelector('thead')!.getBoundingClientRect();
-		const rows = [...box.querySelectorAll('tbody tr')].map((tr) => tr.getBoundingClientRect());
-		return {
-			bodyScrollHeight: body.scrollHeight,
-			bodyClientHeight: body.clientHeight,
-			boxHeight: Math.round(b.height),
-			headerHeight: Math.round(head.height),
-			rowsFullyVisible: rows.filter((r) => r.top >= head.bottom - 0.5 && r.bottom <= b.bottom + 0.5)
-				.length
-		};
-	});
+	const layout = await bodyAndRows(manager);
 	test.info().annotations.push({ type: 'lineups layout', description: JSON.stringify(layout) });
 	expect(layout.bodyScrollHeight).toBeLessThanOrEqual(layout.bodyClientHeight);
 	expect(layout.rowsFullyVisible).toBeGreaterThanOrEqual(6);
 	await axeClean(page);
+
+	// The table's normal use: a press that renames, its sentence on the status line. The body
+	// still does not scroll, and six rows are still in the box.
+	await gridOf(manager).getByRole('row').last().getByRole('switch').nth(3).click();
+	await expect(manager.getByRole('status')).toContainText('» is now «');
+	const pressed = await bodyAndRows(manager);
+	test.info().annotations.push({
+		type: 'lineups layout after a renaming press',
+		description: JSON.stringify(pressed)
+	});
+	expect(pressed.statusLines).toBe(1);
+	expect(pressed.bodyScrollHeight).toBeLessThanOrEqual(pressed.bodyClientHeight);
+	expect(pressed.rowsFullyVisible).toBeGreaterThanOrEqual(6);
 
 	// The Cases tab at xl: no prose line longer than max-w-prose (65ch); the body's scroll recorded.
 	await manager.getByRole('tab', { name: 'Cases (21)' }).click();
@@ -556,4 +633,186 @@ test('the layout at 1280×800: 21 rows with the condenser example’s names, the
 	expect(prose.dialogWidth).toBe(1024);
 	expect(prose.widest).toBeLessThanOrEqual(prose.limit + 1);
 	await axeClean(page);
+});
+
+test('a dialog opens on its Close button, not its title: the manager with and without its tab row, Jump to', async ({
+	page
+}) => {
+	// One pump: no tab row, the manager exactly as before L2.
+	await open(page, pumpTransferExample());
+	let manager = await openScenarioManager(page);
+	await expect(manager.getByRole('button', { name: 'Close' })).toBeFocused();
+	await expect(manager.getByRole('heading', { level: 2 })).not.toHaveAttribute('tabindex');
+	await manager.getByRole('button', { name: 'Done' }).click();
+	await expect(manager).toBeHidden();
+	// A dialog of Build's, which sets no focus of its own.
+	await showPane(page, 'Build');
+	await buildPane(page).getByRole('button', { name: 'Jump to a component' }).click();
+	const jump = page.getByRole('dialog', { name: 'Jump to a component' });
+	await expect(jump.getByRole('button', { name: 'Close' })).toBeFocused();
+	await jump.getByRole('button', { name: 'Close' }).click();
+	await expect(jump).toBeHidden();
+	// Two pumps: the tab row; the dialog still opens on Close.
+	await page.goto('about:blank');
+	await open(page, twoSystems());
+	manager = await openScenarioManager(page);
+	await expect(manager.getByRole('tablist', { name: 'Scenarios view' })).toBeVisible();
+	await expect(manager.getByRole('button', { name: 'Close' })).toBeFocused();
+});
+
+test('a focused cell’s whole focus ring stays clear of the sticky headers, also when a key follows an edge at once', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(isMobile, 'the desktop table');
+	await open(page, condenser21());
+	const manager = await openLineups(page);
+	await expect(gridOf(manager).getByRole('rowheader')).toHaveCount(21);
+	await manager.locator('[data-cell="1,2"]').focus();
+	await page.keyboard.press('Control+End');
+	await page.waitForTimeout(300);
+	// Up through a table taller than its box: each cell clear of the header rows.
+	for (let i = 0; i < 8; i++) {
+		await page.keyboard.press('ArrowUp');
+		await page.waitForTimeout(250);
+		const place = await ringPlace(page);
+		expect(place, JSON.stringify(place)).toMatchObject({ cell: `${19 - i},5`, ring: true });
+		expect(place.top, JSON.stringify(place)).toBeGreaterThanOrEqual(0);
+	}
+	// Down past the last row (not prevented), then Ctrl+Home at once: the base row is clear.
+	await page.keyboard.press('Control+End');
+	await page.waitForTimeout(300);
+	await page.keyboard.press('ArrowDown');
+	await page.keyboard.press('Control+Home');
+	await page.waitForTimeout(700);
+	let place = await ringPlace(page);
+	expect(place, JSON.stringify(place)).toMatchObject({ cell: '0,0', ring: true });
+	expect(place.top, JSON.stringify(place)).toBeGreaterThanOrEqual(0);
+
+	// Scrolled sideways (640 px): Home onto the first column, clear of the case column.
+	await page.setViewportSize({ width: 640, height: 800 });
+	await page.waitForTimeout(300);
+	await manager.locator('[data-cell="12,2"]').focus();
+	await page.keyboard.press('End');
+	await page.waitForTimeout(400);
+	await page.keyboard.press('Home');
+	await page.waitForTimeout(400);
+	place = await ringPlace(page);
+	expect(place, JSON.stringify(place)).toMatchObject({ cell: '12,0', ring: true });
+	expect(place.left, JSON.stringify(place)).toBeGreaterThanOrEqual(0);
+	// Right past the last column, then Home at once; left past the first, then End at once.
+	await page.keyboard.press('End');
+	await page.waitForTimeout(400);
+	await page.keyboard.press('ArrowRight');
+	await page.keyboard.press('Home');
+	await page.waitForTimeout(700);
+	place = await ringPlace(page);
+	expect(place, JSON.stringify(place)).toMatchObject({ cell: '12,0', ring: true });
+	expect(place.left, JSON.stringify(place)).toBeGreaterThanOrEqual(0);
+	await page.keyboard.press('ArrowLeft');
+	await page.keyboard.press('End');
+	await page.waitForTimeout(700);
+	place = await ringPlace(page);
+	expect(place, JSON.stringify(place)).toMatchObject({ cell: '12,5', ring: true });
+	expect(place.right, JSON.stringify(place)).toBeGreaterThanOrEqual(0);
+});
+
+test('on a phone, a tab switch keeps the sheet in place: a second tap lands on the tab row, not the backdrop', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(!isMobile, 'the bottom sheet');
+	await open(page, condenserWaterExample());
+	const manager = await openLineups(page);
+	const lineupsTab = manager.getByRole('tab', { name: 'Pump lineups' });
+	const casesTab = manager.getByRole('tab', { name: 'Cases (2)' });
+	const before = (await manager.boundingBox())!;
+	const lineupsAt = (await lineupsTab.boundingBox())!;
+	await casesTab.tap();
+	await expect(casesTab).toHaveAttribute('aria-selected', 'true');
+	const after = (await manager.boundingBox())!;
+	expect([Math.round(after.y), Math.round(after.height)]).toEqual([
+		Math.round(before.y),
+		Math.round(before.height)
+	]);
+	// A tap where Pump lineups was: the tab, not the backdrop.
+	await page.touchscreen.tap(lineupsAt.x + lineupsAt.width / 2, lineupsAt.y + lineupsAt.height / 2);
+	await expect(manager).toBeVisible();
+	await expect(lineupsTab).toHaveAttribute('aria-selected', 'true');
+	// A double tap on Cases: Cases shown, the manager still open.
+	const casesAt = (await casesTab.boundingBox())!;
+	for (let i = 0; i < 2; i++) {
+		await page.touchscreen.tap(casesAt.x + casesAt.width / 2, casesAt.y + casesAt.height / 2);
+		await page.waitForTimeout(150);
+	}
+	await expect(manager).toBeVisible();
+	await expect(casesTab).toHaveAttribute('aria-selected', 'true');
+});
+
+test('on a phone, long names with no spaces wrap: no sideways scroll, a pump’s name never under its segments', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(!isMobile, 'the phone layout');
+	const project = twoSystems();
+	const caseName = 'Winter_operation_tower_bypassed_chiller2_isolated';
+	const pumpName = 'Condenser_water_pump_primary_loop_north_CWP1';
+	project.scenarios![0]!.name = caseName;
+	project.components.find((c) => c.id === 'PA')!.name = pumpName;
+	await open(page, project);
+	const manager = await openLineups(page);
+	await pick(manager, caseName);
+	await expect(manager.locator('[data-picked-line] p').first()).toHaveText(
+		`Changes go to «${caseName}» only: 2 of at most 30 changes.`
+	);
+	for (const size of [
+		{ width: 390, height: 844 },
+		{ width: 320, height: 640 }
+	]) {
+		await page.setViewportSize(size);
+		const fits = await segmentOf(manager, pumpName).evaluate((group) => {
+			const dialog = group.closest('dialog')!;
+			const body = dialog.querySelector('.overflow-y-auto') as HTMLElement;
+			const name = document.getElementById(group.getAttribute('aria-labelledby')!)!;
+			const n = name.getBoundingClientRect();
+			const g = group.getBoundingClientRect();
+			return {
+				body: body.scrollWidth <= body.clientWidth,
+				name: name.scrollWidth <= name.clientWidth,
+				clear: n.right <= g.left + 0.5 || n.bottom <= g.top + 0.5
+			};
+		});
+		expect(fits, JSON.stringify(size)).toEqual({ body: true, name: true, clear: true });
+		await noSidewaysScroll(page);
+	}
+});
+
+test('on a phone, Reset of a change equal to the base value removes it, as Build’s Reset does', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(!isMobile, 'the phone layout');
+	// PB on in the base: S1's own "PB on" equals it, and is still the case's own (§8.5).
+	const project = twoSystems();
+	(project.components.find((c) => c.id === 'PB') as { status?: string }).status = 'on';
+	await open(page, project);
+	const manager = await openLineups(page);
+	await pick(manager, 'PB in service, PA off');
+	const pb = segmentOf(manager, 'Pump PB');
+	const field = pb.locator('xpath=ancestor::div[contains(@class,"field")][1]');
+	await expect(field).toContainText('Changed');
+	await expect(field).toContainText('Base: On');
+	await manager.getByRole('button', { name: 'Reset Pump PB to the base value, On' }).click();
+	await expect(field).not.toContainText('Changed');
+	await expect(pb.getByRole('radio', { name: 'On' })).toBeChecked();
+	await expect(pb.getByRole('radio', { name: 'On' })).toBeFocused();
+	await expect(pickerOf(manager).locator('option:checked')).toHaveText(
+		'PB in service, PA off (1 change)'
+	);
+	await expect(manager.getByRole('button', { name: /^Undo/ })).toHaveAccessibleName(
+		'Undo reset Pump PB in PB in service, PA off'
+	);
+	await expect
+		.poll(() => linked(page.url()).scenarios?.[0]?.overrides)
+		.toEqual([{ kind: 'component', componentId: 'PA', field: 'status', value: 'off' }]);
 });

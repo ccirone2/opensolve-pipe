@@ -119,6 +119,31 @@ async function key(init: KeyboardEventInit) {
 /** The scenarios' names, in order. */
 const names = (ws: Workspace) => ws.scenarios.map((s) => s.name);
 
+/**
+ * The elements `element`'s aria-describedby points to (§8.2, §8.5): the description itself, not
+ * the title, which an accessible-description check falls back to when there is none.
+ */
+function describers(element: HTMLElement): HTMLElement[] {
+	const ids = element.getAttribute('aria-describedby')?.split(' ').filter(Boolean) ?? [];
+	return ids.map((i) => document.getElementById(i)!);
+}
+
+/** Count the changes made to a live region's content (each one is announced). */
+function mutations(target: HTMLElement): { count: () => number; stop: () => void } {
+	let n = 0;
+	const observer = new MutationObserver((records) => {
+		n += records.length;
+	});
+	observer.observe(target, { childList: true, characterData: true, subtree: true });
+	return {
+		count: () => {
+			n += observer.takeRecords().length;
+			return n;
+		},
+		stop: () => observer.disconnect()
+	};
+}
+
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
@@ -185,6 +210,43 @@ describe('the tabs and the width', () => {
 			);
 			document.body.innerHTML = '';
 		}
+	});
+
+	it('with one pump: the Cases prose as before L2, no max-w-prose; with the tab row it is capped', async () => {
+		// One pump, a scenario with a change and one with none, both cards open.
+		const one = withScenarios(pumpTransferExample(), [
+			named('S1', 'Level', [
+				{ kind: 'component', componentId: 'R2', field: 'liquidLevel', value: 3 }
+			]),
+			named('S2', 'Empty')
+		]);
+		const ws = setup(one);
+		ws.openManager({ focus: 'S1' });
+		await tick();
+		const dialog = await screen.findByRole('dialog', { name: 'Scenarios' });
+		await fireEvent.click(within(dialog).getByText('Empty'));
+		expect(within(dialog).getByText(/^No changes yet/)).toBeInTheDocument();
+		expect(within(dialog).getByText(/^A scenario keeps another operating/)).toBeInTheDocument();
+		expect(dialog.querySelectorAll('.max-w-prose')).toHaveLength(0);
+		document.body.innerHTML = '';
+
+		// With the tab row (xl): the intro and the cards' text capped (§8.1).
+		const two = setup(twoSystems());
+		two.openManager({ focus: 'S1' });
+		await tick();
+		const xl = await screen.findByRole('dialog', { name: 'Scenarios' });
+		expect(within(xl).getByText(/^A scenario keeps another operating/)).toHaveClass('max-w-prose');
+		expect(within(xl).getByText('The network as built.')).toHaveClass('max-w-prose');
+	});
+
+	it('opens with the dialog’s title out of the Tab order: focusable only when the manager puts the focus there', async () => {
+		const ws = setup(twoSystems());
+		ws.openManager();
+		await tick();
+		const dialog = await screen.findByRole('dialog', { name: 'Scenarios' });
+		const title = within(dialog).getByRole('heading', { name: 'Scenarios', level: 2 });
+		// No tabindex: a dialog's first focus (showModal) is its first control, Close, as before L2.
+		expect(title).not.toHaveAttribute('tabindex');
 	});
 
 	it('with two pumps or more: the tabs, xl on both, the tab remembered, Cases for a card asked for', async () => {
@@ -362,10 +424,19 @@ describe('the grid', () => {
 		expect(pb).toHaveAccessibleDescription('Changed in this scenario. Base value Off.');
 		expect(pb).toHaveAttribute('title', 'Changed in this scenario. Base value Off.');
 		expect(pb).toHaveClass('ring-2');
+		// The description is the cell's sr-only span (a title reaches only the mouse, §8.5).
+		const [pbText, ...pbMore] = describers(pb);
+		expect(pbMore).toEqual([]);
+		expect(pbText).toHaveClass('sr-only');
+		expect(pbText!.textContent).toBe('Changed in this scenario. Base value Off.');
+		expect(pbText!.closest('[role="gridcell"]')).toBe(pb.closest('[role="gridcell"]'));
 		const pa = cell('Pump PA', 'PB in service, PA off');
 		expect(pa).toHaveAttribute('aria-checked', 'false');
 		expect(pa).toHaveTextContent('Off');
 		expect(pa).toHaveAccessibleDescription('Changed in this scenario. Base value On.');
+		expect(describers(pa).map((d) => d.textContent)).toEqual([
+			'Changed in this scenario. Base value On.'
+		]);
 		// A cell that follows the base case: no mark, no description, no title.
 		const p9 = cell('Pump P9', 'PB in service, PA off');
 		expect(p9).toHaveAttribute('aria-checked', 'true');
@@ -376,6 +447,9 @@ describe('the grid', () => {
 		const same = cell('Pump PA', 'Same as base');
 		expect(same).toHaveAttribute('aria-checked', 'true');
 		expect(same).toHaveAccessibleDescription('Changed in this scenario. Base value On.');
+		expect(describers(same).map((d) => d.textContent)).toEqual([
+			'Changed in this scenario. Base value On.'
+		]);
 		expect(inGrid().getByRole('rowheader', { name: /^Same as base S4/ })).toHaveTextContent(
 			'Same case as the base case'
 		);
@@ -479,6 +553,44 @@ describe('the focus', () => {
 		expect(statusLine().textContent).toBe('');
 	});
 
+	it('a click alone (no focus, as on Safari or a tablet) focuses the pressed cell, the one Tab stop, also after a rename', async () => {
+		const ws = setup(withMore(named('S4', 'Scenario 4')));
+		await openLineups(ws);
+		// The focus elsewhere in the grid first: the cell last wanted is another one.
+		const other = cell('Pump PA', 'PB in service, PA off');
+		other.focus();
+		await fireEvent.focusIn(other);
+		// A name the user typed: the same row.
+		await fireEvent.click(cell('Pump P9', 'Aged pipe'));
+		await settle();
+		expect(ws.scenarios[2]!.overrides).toContainEqual(status('P9', 'off'));
+		expect(document.activeElement).toBe(cell('Pump P9', 'Aged pipe'));
+		expect(tabStops()).toEqual([cell('Pump P9', 'Aged pipe')]);
+		// An app-made name: the row is renamed, the focus is on the cell under its new name.
+		(document.activeElement as HTMLElement).blur();
+		expect(document.activeElement).toBe(document.body);
+		await fireEvent.click(cell('Pump P3', 'Scenario 4'));
+		await settle();
+		const renamed = ws.caseName('S4');
+		expect(renamed).not.toBe('Scenario 4');
+		expect(document.activeElement).toBe(cell('Pump P3', renamed));
+		expect(tabStops()).toEqual([cell('Pump P3', renamed)]);
+	});
+
+	it('the Tab stop never vanishes with the focus outside the grid: the footer’s Undo of New lineup', async () => {
+		const ws = setup(twoSystems());
+		await openLineups(ws);
+		await fireEvent.click(inManager().getByRole('button', { name: 'New lineup' }));
+		await settle();
+		expect(document.activeElement).toBe(cell('Pump PA', 'Scenario 4'));
+		const undo = inManager().getByRole('button', { name: 'Undo add scenario' });
+		await press(undo);
+		expect(ws.scenarios.map((s) => s.id)).toEqual(['S1', 'S2', 'S3']);
+		// The focus stays on Undo (§8.9); the derived stop is on the nearest remaining row.
+		expect(document.activeElement).toBe(undo);
+		expect(tabStops()).toEqual([cell('Pump PA', 'Aged pipe')]);
+	});
+
 	it('the Tab stop never vanishes: an undone New lineup moves it to the nearest remaining row', async () => {
 		const ws = setup(twoSystems());
 		await openLineups(ws);
@@ -529,10 +641,12 @@ describe('the focus', () => {
 		expect(inManager().queryByRole('tablist')).toBeNull();
 		expect(inManager().queryByRole('grid')).toBeNull();
 		expect(inManager().getByRole('heading', { name: 'Cases (1)' })).toHaveClass('section-title');
-		expect(document.activeElement).toBe(
-			inManager().getByRole('heading', { name: 'Scenarios', level: 2 })
-		);
+		const title = inManager().getByRole('heading', { name: 'Scenarios', level: 2 });
+		expect(document.activeElement).toBe(title);
 		expect(statusLine()).toHaveTextContent('Undid add pump.');
+		// Focusable while it holds the focus only: out of the Tab order again once it leaves.
+		inManager().getByRole('button', { name: 'Close' }).focus();
+		expect(title).not.toHaveAttribute('tabindex');
 		// The tab last used is kept: back with two pumps, Pump lineups shows again.
 		await fireEvent.click(inManager().getByRole('button', { name: 'Done' }));
 		ws.redo();
@@ -540,6 +654,39 @@ describe('the focus', () => {
 		await tick();
 		await screen.findByRole('dialog', { name: 'Scenarios' });
 		expect(tab('Pump lineups')).toHaveAttribute('aria-selected', 'true');
+	});
+
+	it('Cases shown: an undo or redo across two pumps keeps the focus where it was; on the title when its tab goes', async () => {
+		const ws = setup(pumpTransferExample());
+		expect(
+			ws.updateStored((draft) => {
+				draft.components.push(pump('PX', 'Spare'));
+			}, 'add pump')
+		).toBe(true);
+		ws.openManager();
+		await tick();
+		await screen.findByRole('dialog', { name: 'Scenarios' });
+		expect(tab('Cases (1)')).toHaveAttribute('aria-selected', 'true');
+		const show = inManager().getByRole('button', { name: 'Show the base case' });
+		show.focus();
+		// Undo to one pump: the tab row goes; the Cases view stays, and the focus on its button.
+		await key({ key: 'z', ctrlKey: true });
+		expect(inManager().queryByRole('tablist')).toBeNull();
+		expect(statusLine()).toHaveTextContent('Undid add pump.');
+		expect(show.isConnected).toBe(true);
+		expect(document.activeElement).toBe(show);
+		// Redo back to two pumps: the tab row comes back, the focus still there.
+		await key({ key: 'y', ctrlKey: true });
+		expect(tab('Cases (1)')).toHaveAttribute('aria-selected', 'true');
+		expect(statusLine()).toHaveTextContent('Redid add pump.');
+		expect(document.activeElement).toBe(show);
+		// From the Cases tab itself, which an undo takes away: the focus on the dialog's title.
+		tab('Cases (1)').focus();
+		await key({ key: 'z', ctrlKey: true });
+		expect(inManager().queryByRole('tablist')).toBeNull();
+		expect(document.activeElement).toBe(
+			inManager().getByRole('heading', { name: 'Scenarios', level: 2 })
+		);
 	});
 
 	it('the footer’s Undo to one pump: the focus on the title too', async () => {
@@ -593,15 +740,23 @@ describe('New lineup', () => {
 		expect(button).toHaveAttribute('aria-disabled', 'true');
 		expect(button).toHaveAttribute('title', 'A project holds at most 20 scenarios.');
 		expect(button).toHaveAccessibleDescription('A project holds at most 20 scenarios.');
+		// Described by an sr-only span with the same words (a title reaches only the mouse, §8.2).
+		const [limit, ...more] = describers(button);
+		expect(more).toEqual([]);
+		expect(limit).toHaveClass('sr-only');
+		expect(limit!.textContent).toBe('A project holds at most 20 scenarios.');
 		await press(button);
 		expect(ws.scenarios).toHaveLength(MAX_SCENARIOS);
 		expect(statusLine().textContent).toBe('');
-		// The Cases tab's New scenario and Duplicate: the same description.
+		// The Cases tab's New scenario and Duplicate: the same description, by aria-describedby.
 		await fireEvent.click(tab('Cases (21)'));
 		for (const name of ['New scenario', 'Duplicate Case 4']) {
 			const b = inManager().getByRole('button', { name });
 			expect(b).toHaveAttribute('aria-disabled', 'true');
 			expect(b).toHaveAccessibleDescription('A project holds at most 20 scenarios.');
+			expect(describers(b).map((d) => d.textContent)).toEqual([
+				'A project holds at most 20 scenarios.'
+			]);
 		}
 	});
 });
@@ -810,6 +965,71 @@ describe('the alert line', () => {
 		await press(inManager().getByRole('button', { name: 'New lineup' }));
 		expect(alertLine().textContent).toBe('');
 	});
+
+	it('a refusal clears the status line: it no longer says what an earlier step did', async () => {
+		const project = station(15);
+		const lengths: Override[] = project.connections.map((c) => ({
+			kind: 'pipe',
+			connectionId: c.id,
+			pipeIndex: 0,
+			field: 'length',
+			value: 25
+		}));
+		const ws = setup(
+			withScenarios(project, [named('S1', 'Full', lengths), named('S2', 'Scenario 2')])
+		);
+		await openLineups(ws);
+		// A press that renames: the status line says so.
+		await press(cell('Pump P2', 'Scenario 2'));
+		expect(ws.caseName('S2')).not.toBe('Scenario 2');
+		expect(statusLine()).toHaveTextContent(/^«Scenario 2» is now «/);
+		await press(cell('Pump P1', 'Full'));
+		expect(alertLine()).toHaveTextContent(
+			'Could not turn Pump P1 off in Full: A scenario holds at most 30 changes.'
+		);
+		expect(statusLine().textContent).toBe('');
+	});
+
+	it('says a message again when it is the same words (two undos, two refusals)', async () => {
+		const ws = setup(twoSystems());
+		await openLineups(ws);
+		const lines = mutations(statusLine());
+		for (let i = 0; i < 2; i++) {
+			await fireEvent.click(inManager().getByRole('button', { name: 'New lineup' }));
+			await settle();
+		}
+		expect(ws.scenarios).toHaveLength(5);
+		await key({ key: 'z', ctrlKey: true });
+		expect(statusLine()).toHaveTextContent('Undid add scenario.');
+		const first = lines.count();
+		await key({ key: 'z', ctrlKey: true });
+		expect(ws.scenarios).toHaveLength(3);
+		expect(statusLine()).toHaveTextContent('Undid add scenario.');
+		// The line changed again, so a screen reader says the second undo too.
+		expect(lines.count()).toBeGreaterThan(first);
+		lines.stop();
+		document.body.innerHTML = '';
+
+		const project = station(15);
+		const lengths: Override[] = project.connections.map((c) => ({
+			kind: 'pipe',
+			connectionId: c.id,
+			pipeIndex: 0,
+			field: 'length',
+			value: 25
+		}));
+		const full = setup(withScenarios(project, [named('S1', 'Full', lengths)]));
+		await openLineups(full);
+		const alerts = mutations(alertLine());
+		const words = 'Could not turn Pump P1 off in Full: A scenario holds at most 30 changes.';
+		await press(cell('Pump P1', 'Full'));
+		expect(alertLine()).toHaveTextContent(words);
+		const once = alerts.count();
+		await press(cell('Pump P1', 'Full'));
+		expect(alertLine()).toHaveTextContent(words);
+		expect(alerts.count()).toBeGreaterThan(once);
+		alerts.stop();
+	});
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -915,6 +1135,56 @@ describe('on a phone', () => {
 				name: 'On'
 			})
 		);
+	});
+
+	it('Reset of a change equal to the base value removes it in one step, as Build’s Reset does', async () => {
+		phone();
+		const ws = setup(twoSystems());
+		// Build, in the base case: the standby PB turned on. S1 keeps its own "PB on", now equal
+		// to the base value (still the case's own, §8.5).
+		expect(
+			ws.editComponent('PB', 'change pump status', (c) => {
+				(c as Component & { status: string }).status = 'on';
+			})
+		).toBe(true);
+		ws.dismissNotice();
+		expect(ws.scenarios[0]!.overrides).toEqual([status('PB', 'on'), status('PA', 'off')]);
+		// Build's Reset of that change in S1, in a second workspace: the project it leaves.
+		const build = testWorkspace(JSON.parse(canonicalJson(ws.store.project)) as Project, {
+			now: NOW
+		});
+		build.setCase('S1');
+		build.componentChange('PB', 'status').reset();
+		expect(build.scenarios[0]!.overrides).toEqual([status('PA', 'off')]);
+
+		await openLineups(ws);
+		await fireEvent.change(picker(), { target: { value: 'S1' } });
+		const field = () =>
+			inManager().getByRole('radiogroup', { name: 'Pump PB' }).closest('.field') as HTMLElement;
+		expect(field()).toHaveTextContent('Changed Base: On Reset');
+		const depth = ws.store.undoDepth;
+		await fireEvent.click(
+			inManager().getByRole('button', { name: 'Reset Pump PB to the base value, On' })
+		);
+		await settle();
+		expect(ws.scenarios[0]!.overrides).toEqual([status('PA', 'off')]);
+		expect(ws.store.undoDepth).toBe(depth + 1);
+		expect(canonicalJson(ws.store.project)).toBe(canonicalJson(build.store.project));
+		// The mark and Reset are gone; the name the user typed stays, so nothing is said.
+		expect(field()).not.toHaveTextContent('Changed');
+		expect(inManager().queryByRole('button', { name: /^Reset Pump PB/ })).toBeNull();
+		expect(ws.caseName('S1')).toBe('PB in service, PA off');
+		expect(statusLine().textContent).toBe('');
+		expect(document.activeElement).toBe(
+			within(inManager().getByRole('radiogroup', { name: 'Pump PB' })).getByRole('radio', {
+				name: 'On'
+			})
+		);
+		// One undo step, named by the field it resets, as Build's is.
+		expect(ws.store.undoLabel).toBe('reset Pump PB in PB in service, PA off');
+		await press(inManager().getByRole('button', { name: /^Undo/ }));
+		expect(ws.scenarios[0]!.overrides).toEqual([status('PB', 'on'), status('PA', 'off')]);
+		expect(statusLine()).toHaveTextContent('Undid reset Pump PB in PB in service, PA off.');
 	});
 
 	it('the base case: a read-only list', async () => {

@@ -18,7 +18,8 @@
 	Phone (< 640 px, §8.10): one case at a time, only one of the two layouts in the DOM. "Case to
 	edit" (derived: the pick while it exists, else the default), its line, then each group's pumps:
 	Build's segments with ChangeNote's Changed · Base · Reset, every one through the same
-	editScenario; the base case a plain list.
+	editScenario (a Reset of a change equal to the base value removes it, as Build's Reset does);
+	the base case a plain list.
 
 	New lineup and the focus after an undo or redo are the manager's footer's: it calls addLineup,
 	hasFocus and focusActive.
@@ -27,13 +28,14 @@
 	import { tick } from 'svelte';
 	import type { FieldChange } from '$lib/components/ui/field-mode';
 	import SegmentedField from '$lib/components/ui/SegmentedField.svelte';
-	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { caseNameIn, useWorkspace } from '$lib/state/workspace.svelte';
 	import {
 		activeCell,
 		BASE_OPTION,
 		cellPress,
 		LINEUP_TABLE_WORDS as WORDS,
 		lineupPress,
+		lineupReset,
 		lineupTable,
 		NEW_LINEUP_LABEL,
 		newLineup,
@@ -90,12 +92,22 @@
 		return grid?.querySelector<HTMLElement>(`[data-cell="${row},${column}"]`) ?? null;
 	}
 
-	/** The scroll box's padding: the sticky header rows' height and the case column's width. */
+	/**
+	 * The focus ring's room past a gridcell's edge, in px (§8.2): a switch sits 5 px inside its
+	 * gridcell's top (its border and padding) and its ring reaches 6 px past it (a 2 px outline,
+	 * focus-visible:outline-offset-4), 1 px past the gridcell; 8 px keeps it clear with room.
+	 */
+	const RING = 8;
+
+	/**
+	 * The scroll box's padding: the sticky header rows' height and the case column's width, and
+	 * the focus ring's reach beyond them, so the whole indicator of a focused cell stays in view.
+	 */
 	function padSticky(node: HTMLElement) {
 		const head = node.querySelector('thead');
 		const corner = node.querySelector<HTMLElement>('[data-corner]');
-		node.style.scrollPaddingTop = `${head?.offsetHeight ?? 0}px`;
-		node.style.scrollPaddingLeft = `${corner?.offsetWidth ?? 0}px`;
+		node.style.scrollPaddingTop = `${(head?.offsetHeight ?? 0) + RING}px`;
+		node.style.scrollPaddingLeft = `${(corner?.offsetWidth ?? 0) + RING}px`;
 	}
 
 	/**
@@ -125,7 +137,10 @@
 
 	/**
 	 * Focus the derived active cell once the DOM has caught up (§8.7), scrolled into view: after a
-	 * press, an undo or redo, a rename or a filter change, and a move of the keys.
+	 * press, an undo or redo, a rename or a filter change, and a move of the keys. The gridcell is
+	 * what is scrolled, not the switch centred in it: a cell of the last row or column then leaves
+	 * the box scrolled to its end, so an arrow at that edge (not prevented, §8.7) has nothing left
+	 * to scroll, and no animated scroll of the box runs on after the next key has placed its cell.
 	 */
 	export async function focusActive(): Promise<void> {
 		await tick();
@@ -135,7 +150,8 @@
 		if (!element) return;
 		padSticky(box);
 		element.focus({ preventScroll: true });
-		element.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+		const gridcell = element.closest<HTMLElement>('[role="gridcell"]') ?? element;
+		gridcell.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
 	}
 
 	/**
@@ -291,15 +307,33 @@
 	}
 
 	/**
-	 * Reset presses the base value through the same editScenario, so the name rule applies; the
-	 * focus, whose Reset is gone, goes to the pump's chosen segment.
+	 * Reset removes the case's own value, as Build's Reset does: a value that differs from the base
+	 * by pressing the base value through the same editScenario; one equal to it (state 'same',
+	 * which pressing the base value would leave as it is) by removing the change in one step
+	 * through the commit path (updateStoredQuiet). Either way the name rule applies. The focus,
+	 * whose Reset is gone, goes to the pump's chosen segment.
 	 */
 	async function resetPump(row: LineupRow, column: LineupColumn, cell: LineupCell) {
-		apply(row, lineupPress(column, cell.base));
+		if (cell.state === 'same') removeOwn(row, column);
+		else apply(row, lineupPress(column, cell.base));
 		await tick();
 		const fields = phoneList?.querySelectorAll<HTMLElement>('[data-phone-pump]') ?? [];
 		const field = [...fields].find((f) => f.dataset.phonePump === column.id);
 		field?.querySelector<HTMLInputElement>('input:checked')?.focus();
+	}
+
+	/** Remove the case's own status change of `column`'s pump (the phone's Reset of a 'same'). */
+	function removeOwn(row: LineupRow, column: LineupColumn) {
+		if (row.caseId === null) return;
+		const reset = lineupReset(row.caseId, column);
+		const result = ws.updateStoredQuiet(reset.change, (after) =>
+			reset.label(caseNameIn(after, reset.caseId))
+		);
+		if (!result.ok) {
+			onalert(result.text);
+			return;
+		}
+		onstatus(result.renamed);
 	}
 
 	function pickCase(value: string) {
@@ -353,10 +387,13 @@
 		</div>
 		<div class="space-y-0.5" data-picked-line>
 			{#each pickedLine(table, picked) as line, i (i)}
-				<p class={i === 0 ? 'text-slate-700' : 'text-xs text-slate-600'}>{line}</p>
+				<p class={['break-words', i === 0 ? 'text-slate-700' : 'text-xs text-slate-600']}>
+					{line}
+				</p>
 			{/each}
 		</div>
-		<div bind:this={phoneList} class="space-y-3">
+		<!-- A long name with no spaces wraps (a pump's label too, in its 10 rem column). -->
+		<div bind:this={phoneList} class="space-y-3 [&_.label]:wrap-anywhere">
 			{#each table.groups as group, g (g)}
 				{@const columns = table.columns.filter((c) => c.group === g)}
 				<fieldset class="min-w-0 space-y-2">
@@ -488,7 +525,7 @@
 										tabindex={stop ? 0 : -1}
 										data-cell="{r},{c}"
 										class={[
-											'px-1 py-1 text-center align-middle',
+											'px-1 py-1 text-center align-middle focus-visible:-outline-offset-2',
 											r > 0 && 'border-t border-t-slate-200',
 											dividerClass(column)
 										]}

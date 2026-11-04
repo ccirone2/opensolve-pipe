@@ -8,7 +8,9 @@
 
 	Pump lineups (CLAUDE.md D24, proposal pump-lineups.md §8.1, slice L2): with two pumps or more, a
 	tab row (Cases ({n}), Pump lineups; the Project library's pattern) and the dialog xl on both
-	tabs, so its width never changes on a tab switch; the Cases prose then capped at max-w-prose.
+	tabs, so its width never changes on a tab switch (on a phone the sheet's height neither); the
+	Cases prose then capped at max-w-prose. The Cases view is drawn in one place with or without
+	the tab row, so an undo that adds or removes it keeps the focus on a Cases control.
 	The tab shown is derived: the one last used (page state) while the project has two pumps, else
 	Cases; a scenario's card asked for always opens Cases. Each tab has its own footer. One polite
 	status line and one alert line, outside the panels and above the footer, say what the actions
@@ -69,19 +71,25 @@
 	/** The tab shown, derived (decision 26): the one last used while there are tabs, else Cases. */
 	const tab = $derived(shownManagerTab(store.project, ws.managerTab));
 	const TABS: readonly ManagerTab[] = ['cases', 'lineups'];
+	/** The manager's lines are capped as the Cases prose is: on the Cases tab of the tab row. */
+	const prose = $derived(tabs && tab === 'cases');
 
 	let dialog: ReturnType<typeof Dialog> | undefined = $state();
 	let lineups: ReturnType<typeof PumpLineups> | undefined = $state();
 	/** The manager's polite status line and its alert line (§8.1), shared by both tabs. */
 	let status = $state('');
 	let alert = $state('');
+	/** Increments with every message, so the same words said twice are announced twice. */
+	let said = $state(0);
 	function say(text: string) {
 		status = text;
 		alert = '';
+		said++;
 	}
 	function warn(text: string) {
 		alert = text;
 		status = '';
+		said++;
 	}
 
 	function selectTab(next: ManagerTab) {
@@ -101,7 +109,8 @@
 	 * Undo or redo the last step, whichever it was (§8.9), saying what it did on the status line.
 	 * The focus stays where it was: put back on the table's active cell when it was in the grid;
 	 * on the dialog's title when the step took the project below two pumps while Pump lineups was
-	 * shown (the tab row, the table and its footer are gone).
+	 * shown (the tab row, the table and its footer are gone), or when what it was on is gone with
+	 * nothing in its place (the Cases tab, when the tab row goes).
 	 */
 	async function history(step: 'undo' | 'redo') {
 		const inGrid = lineups?.hasFocus() ?? false;
@@ -110,8 +119,10 @@
 		if (!done) return;
 		say(done.text);
 		await tick();
+		const lost = !document.activeElement || document.activeElement === document.body;
 		if (before === 'lineups' && tab === 'cases') dialog?.focusTitle();
 		else if (inGrid) await lineups?.focusActive();
+		else if (lost) dialog?.focusTitle();
 	}
 
 	function editingText(target: EventTarget | null): boolean {
@@ -288,11 +299,11 @@
 	}
 </script>
 
-<!-- The Cases tab (the manager as it was before the tab row): its prose at max-w-prose, the
-	cards full width (§8.1). -->
+<!-- The Cases tab (the manager as it was before the tab row): with the tab row (xl) its prose at
+	max-w-prose, the cards full width (§8.1); without it, exactly as before. -->
 {#snippet cases()}
 	<div class="space-y-4">
-		<p class="max-w-prose text-slate-700">
+		<p class={['text-slate-700', tabs && 'max-w-prose']}>
 			A scenario keeps another operating or design case of this network, such as a pump off, a valve
 			closed or a larger pipe, as a list of values changed from the base case. Editing the base case
 			updates every scenario that does not set its own value. The layout of the network is the same
@@ -310,7 +321,7 @@
 		<section class="card flex flex-wrap items-center gap-2 p-3" aria-labelledby="{id}-base">
 			<div class="min-w-0 flex-1 basis-48">
 				<h4 id="{id}-base" class="font-semibold">Base case</h4>
-				<p class="max-w-prose text-slate-700">The network as built.</p>
+				<p class={['text-slate-700', tabs && 'max-w-prose']}>The network as built.</p>
 			</div>
 			<CaseStatusChip status={store.caseStatus(null)} />
 			<button
@@ -385,7 +396,7 @@
 									{@const o = change.override}
 									{@const what = `${changeTargetLabel(store.project, o)} · ${changeFieldLabel(store.project, o)}`}
 									<li class="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1.5">
-										<div class="max-w-prose min-w-0 flex-1 basis-56">
+										<div class={['min-w-0 flex-1 basis-56', tabs && 'max-w-prose']}>
 											<p class="break-words">
 												<span class="text-slate-700">{what}:</span>
 												<strong>{valueText(o, o.value)}</strong>
@@ -415,7 +426,7 @@
 								{/each}
 							</ul>
 						{:else}
-							<p class="max-w-prose text-slate-700">
+							<p class={['text-slate-700', tabs && 'max-w-prose']}>
 								No changes yet: it solves as the base case. Show it, then change values in Build or
 								in Settings (the fluid).
 							</p>
@@ -434,7 +445,7 @@
 									{@const o = change.override}
 									{@const what = `${changeTargetLabel(store.project, o)} · ${changeFieldLabel(store.project, o)} ${valueText(o, o.value)}`}
 									<li class="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1.5">
-										<p class="max-w-prose min-w-0 flex-1 basis-56 break-words">
+										<p class={['min-w-0 flex-1 basis-56 break-words', tabs && 'max-w-prose']}>
 											{what}: no longer applies, ignored when solving ({change.message}).
 										</p>
 										<button
@@ -475,7 +486,7 @@
 										problem.index === null ? null : (scenario.overrides ?? [])[problem.index]}
 									<li class="flex flex-wrap items-center gap-x-2">
 										<Icon name="alert" class="size-4 shrink-0" />
-										<span class="max-w-prose min-w-0 flex-1 basis-48 break-words">
+										<span class={['min-w-0 flex-1 basis-48 break-words', tabs && 'max-w-prose']}>
 											{#if o}
 												The value {scenario.name} sets for {changeTargetLabel(store.project, o)}
 												{changeFieldLabel(store.project, o).toLowerCase()} is not valid: {problem.text}
@@ -545,11 +556,21 @@
 			</details>
 		{/each}
 
-		{#if full}<p id="{id}-full" class="max-w-prose text-slate-700">{LIMIT_TEXT}</p>{/if}
+		{#if full}<p id="{id}-full" class={['text-slate-700', tabs && 'max-w-prose']}>
+				{LIMIT_TEXT}
+			</p>{/if}
 	</div>
 {/snippet}
 
-<Dialog bind:this={dialog} title="Scenarios" wide={!tabs} xl={tabs} {onclose} onkeydown={keydown}>
+<Dialog
+	bind:this={dialog}
+	title="Scenarios"
+	wide={!tabs}
+	xl={tabs}
+	tall={tabs}
+	{onclose}
+	onkeydown={keydown}
+>
 	<div class="space-y-4 text-sm">
 		{#if tabs}
 			<div
@@ -581,30 +602,41 @@
 					</button>
 				{/each}
 			</div>
-			<div id="{id}-panel" role="tabpanel" aria-labelledby="{id}-tab-{tab}">
-				{#if tab === 'cases'}
-					{@render cases()}
-				{:else}
-					<PumpLineups bind:this={lineups} onstatus={say} onalert={warn} />
-				{/if}
-			</div>
-		{:else}
-			{@render cases()}
 		{/if}
+		<!-- One place for the Cases view with or without the tab row: an undo or redo that crosses
+			two pumps keeps its nodes, and so the focus (§8.9). -->
+		<div
+			id="{id}-panel"
+			role={tabs ? 'tabpanel' : undefined}
+			aria-labelledby={tabs ? `${id}-tab-${tab}` : undefined}
+		>
+			{#if tab === 'cases'}
+				{@render cases()}
+			{:else}
+				<PumpLineups bind:this={lineups} onstatus={say} onalert={warn} />
+			{/if}
+		</div>
 		{#if store.urlTooLong}
 			<p
 				class="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900"
 			>
 				<Icon name="alert" class="mt-0.5 size-4 shrink-0" />
-				<span class="max-w-prose">
+				<span class={[tabs && 'max-w-prose']}>
 					The link to this project is longer than {URL_LENGTH_WARNING.toLocaleString('en-US')} characters:
 					some email and chat apps cut long links short. Its scenarios are part of it.
 				</span>
 			</p>
 		{/if}
-		<!-- The manager's lines (§8.1): what an action of either tab did, a refusal. -->
-		<p role="status" class="max-w-prose break-words empty:hidden">{status}</p>
-		<p role="alert" class="max-w-prose break-words text-red-800 empty:hidden">{alert}</p>
+		<!-- The manager's lines (§8.1): what an action of either tab did, a refusal; each message
+			drawn afresh (keyed), so the same words twice are said twice. As wide as the Pump
+			lineups panel there, so a rename takes one line and the table keeps its six rows (§8.2);
+			capped as the Cases prose is on the Cases tab. -->
+		<p role="status" class={['break-words empty:hidden', prose && 'max-w-prose']}>
+			{#key said}{status}{/key}
+		</p>
+		<p role="alert" class={['break-words text-red-800 empty:hidden', prose && 'max-w-prose']}>
+			{#key said}{alert}{/key}
+		</p>
 	</div>
 	{#snippet footer()}
 		{#if tab === 'lineups'}

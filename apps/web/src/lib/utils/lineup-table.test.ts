@@ -24,6 +24,7 @@ import {
 	historyText,
 	LINEUP_TABLE_WORDS,
 	lineupPress,
+	lineupReset,
 	lineupTable,
 	NEW_LINEUP_LABEL,
 	newLineup,
@@ -470,6 +471,28 @@ describe('a press (§8.6)', () => {
 		);
 	});
 
+	it('the phone’s Reset of a change equal to the base value removes that change only', () => {
+		// PB on in the base: S1's own "PB on" now equals it (state 'same').
+		const p = twoProject();
+		const pb = p.components.find((c) => c.id === 'PB') as Project['components'][number] & {
+			status: string;
+		};
+		pb.status = 'on';
+		const t = table(p);
+		expect(cell(t, 'S1', 'PB').state).toBe('same');
+		const reset = lineupReset('S1', t.columns[1]!);
+		expect(reset.caseId).toBe('S1');
+		expect(reset.label('PB in service, PA off')).toBe('reset Pump PB in PB in service, PA off');
+		const after = reset.change(structuredClone(p));
+		expect(scenariosOf(after).map((s) => s.overrides)).toEqual([
+			[status('PA', 'off')],
+			scenariosOf(p)[1]!.overrides,
+			scenariosOf(p)[2]!.overrides
+		]);
+		expect(after.components).toEqual(p.components);
+		expect(cell(table(after), 'S1', 'PB')).toMatchObject({ state: 'base', marked: false });
+	});
+
 	it('words a refusal in ws.edit’s pattern with the scenario’s name', () => {
 		const t = table(twoProject());
 		const press = cellPress(t.columns[0]!, cell(t, 'S3', 'PA'));
@@ -731,6 +754,7 @@ describe('every string of §8.12, word for word', () => {
 			'turn Pump PA on',
 			'turn Pump PA off'
 		]);
+		expect(w.reset('Pump PA')).toBe('reset Pump PA');
 	});
 
 	it('the phone and the card', () => {

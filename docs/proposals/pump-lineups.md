@@ -924,15 +924,15 @@ Branch `web/pump-lineups-table`, after L1 merges.
 - The tablist follows the Project library's pattern: `role="tablist"` named `Scenarios view`, ← and → between the tabs, each panel a `tabpanel`.
 - The Cases panel keeps everything it has, including its current intro paragraph. With the tab row, its "Cases (n)" heading becomes `sr-only` (the tab says it), and after a delete focus goes to the `Cases ({n})` tab, which shows a focus ring; without the tab row the heading stays visible and stays the focus target, as today.
 - The long-link warning stays below both panels.
-- **The shown tab is derived** (decision 26): `pumps ≥ 2 ? ws.managerTab : 'cases'`. When an Undo takes the project below two pumps while Pump lineups is shown, the tab row goes and Cases shows; focus moves to the dialog's title, and the manager's status line says what the undo did.
+- **The shown tab is derived** (decision 26): `pumps ≥ 2 ? ws.managerTab : 'cases'`. When an Undo takes the project below two pumps while Pump lineups is shown, the tab row goes and Cases shows; focus moves to the dialog's title, and the manager's status line says what the undo did. The title is focusable only while it holds that focus, so every dialog still opens on its first control. The Cases view is drawn in one place with or without the tab row, so an Undo or Redo that crosses two pumps while Cases is shown keeps the focus on the Cases control that had it; when the focused control itself goes (the `Cases ({n})` tab), focus moves to the title too.
 
-**The manager's status line.** One polite `role="status"` line and one `role="alert"` line (`empty:hidden`), outside the tab panels and above the footer, used by both tabs: renames (§4.5), adds, undos and refusals made while the manager is open are said there, because the workspace notice sits behind the modal and fades after 6 s (`Workspace.svelte:50-58`). The Cases tab's actions (Remove a change, Duplicate, Move, Delete) report their renames there too.
+**The manager's status line.** One polite `role="status"` line and one `role="alert"` line (`empty:hidden`), outside the tab panels and above the footer, used by both tabs: renames (§4.5), adds, undos and refusals made while the manager is open are said there, because the workspace notice sits behind the modal and fades after 6 s (`Workspace.svelte:50-58`). The Cases tab's actions (Remove a change, Duplicate, Move, Delete) report their renames there too. Each message is drawn afresh, so the same words said twice (two undos of New lineup) are announced twice. On Pump lineups the two lines are as wide as the panel; on the Cases tab they are capped at `max-w-prose`, as its prose is.
 
 **Keys.** The manager handles Ctrl/⌘+Z, Ctrl/⌘+Shift+Z and Ctrl/⌘+Y on its own root (`keydown`, `stopPropagation`), except in a text field, as the workspace's window shortcut does (`Workspace.svelte:67-88`). It calls the same `undo()` and `redo()` functions as the Pump lineups footer's buttons, which write the status line: `ws.#history` only notifies the workspace notice, behind the modal (`workspace.svelte.ts:517-527`), so without this seam the panel could not say what an undo did.
 
 **Width.** With the tab row, the manager is `xl` (64 rem from 1,024 px, 42 rem from 640 px: `Dialog.svelte:62`) on both tabs.
 - Measured: `xl` shows 10 pump columns at 1280×800, against 5 at `wide`.
-- The width never changes on a tab switch: when it did in the prototype, the Cases tab moved out from under the pointer onto the backdrop, and a second click closed the dialog.
+- The width never changes on a tab switch: when it did in the prototype, the Cases tab moved out from under the pointer onto the backdrop, and a second click closed the dialog. On a phone, where the dialog is a bottom sheet whose top follows its height, the height does not change either: with the tab row the sheet is its full 92 dvh on both tabs (`Dialog`'s `tall`).
 - At `xl` the Cases tab's prose would run to about 140 characters a line, so its intro and the cards' text are capped at `max-w-prose`; the cards themselves stay full width. The 1280×800 measurement (§10.2) includes the Cases tab.
 - A project with fewer than two pumps keeps `wide`.
 
@@ -953,8 +953,8 @@ Top to bottom, with the chrome above and below the table kept to about three lin
    - With a `series` or `mixed` group shown, it ends `Pumps in series: one off stops the flow through their line (an off pump passes no flow).` This is true by D21: `status off` is a closed link (`services/solver/status.py:393-397`).
    - Opened from the card, it ends `Only the pumps on the Pumps together card are shown: {A, B and C}.` followed by an inline quiet button `Show every pump`, which clears `ws.managerPumps` and keeps the focus on the table's active cell.
 2. **The table** in a scroll box:
-   - `scroll-shadow-x`, `overflow-auto`, `overscroll-x-contain`, a rounded border, `max-h-[max(16rem,calc(85dvh-{c}rem))]`. The builder tunes the constant c so that, at 1280×800 with 21 rows and the condenser example's names, the dialog body does not scroll and at least 6 rows are fully visible in the box; an e2e test asserts both.
-   - Header rows stick to the top and the case column to the left. `scroll-padding-left` and `scroll-padding-top` keep a focused cell clear of them.
+   - `scroll-shadow-x`, `overflow-auto`, `overscroll-x-contain`, a rounded border, `max-h-[max(16rem,calc(85dvh-{c}rem))]`. The builder tunes the constant c so that, at 1280×800 with 21 rows and the condenser example's names, the dialog body does not scroll and at least 6 rows are fully visible in the box, on a fresh open and after a press that renames (the status line, as wide as the panel, then takes one line); an e2e test asserts both. Opened from the card, the filter sentence adds two lines to the intro there, and the body scrolls by 10 px (46 px after a press that renames) with six rows still fully in the box: the chrome is then more than about three lines, and no c keeps both (six rows need a 345 px box).
+   - Header rows stick to the top and the case column to the left. `scroll-padding-left` and `scroll-padding-top` keep a focused cell clear of them: their size plus 8 px, the reach of a switch's focus ring (a 2 px outline 4 px out) past its gridcell. A base case's cell, focusable itself, draws its ring inside its edge.
 3. **No limit line on this tab:** New lineup is `aria-disabled` and described by the limit (below).
 
 The manager's status and alert lines (§8.1) sit below the panel.
@@ -1059,7 +1059,7 @@ A press runs `ws.editScenario(scenarioId, (p) => updateComponent(p, pumpId, (c) 
 So when an Undo removes the active cell's row (an undone New lineup) or column (an undone pump), or the filter hides its column, one cell still holds the Tab stop. A stored cell index never outlives its row.
 
 **Scrolling and focus.**
-- Moving to a cell calls `scrollIntoView({ block: 'nearest', inline: 'nearest' })`.
+- Moving to a cell calls `scrollIntoView({ block: 'nearest', inline: 'nearest' })` on its gridcell, not on the switch centred in it: a cell of the last row or column then leaves the box scrolled to its end, so an arrow at that edge (not prevented) has nothing left to scroll, and no animated scroll of the box runs on after the next key has placed its cell.
 - Rows are keyed by scenario id and cells by pump id. That is not enough to keep focus: a keyed reorder moves DOM nodes, and a focused node that is moved loses focus (§7.5). So after a press, an undo or redo, a rename or a filter change made with focus in the grid, the panel awaits `tick()` and focuses the derived active cell.
 
 ### 8.8 New lineup
@@ -1095,7 +1095,7 @@ The layout is chosen with `mediaQuery('(max-width: 639px)')`, as `PumpChart` doe
    - **In a scenario,** each pump is Build's `SegmentedField`:
      - label the pump label; options `On` and `Off` from the schema and the registry;
      - `change` gives ChangeNote's `Changed · Base: {On|Off} · Reset`;
-     - Reset presses the base value through the same `editScenario`, so the name rule applies;
+     - Reset removes the case's own value, as Build's Reset does: a value that differs from the base by pressing the base value through the same `editScenario`; one equal to the base value (which §8.5 marks, and which pressing the base value would leave as it is) by one step through the commit path (`ws.updateStoredQuiet`) that removes that change, labelled `reset {pump label} in {scenario name}`. Either way the name rule applies;
      - passing a `change` keeps the field editable whichever case is shown.
    - **The base** is a plain `<dl>`: `{pump label}: {On|Off}`, with no controls.
 5. **The manager's status and alert lines, and the footer** (Undo, Redo, New lineup, Done, wrapping), as on desktop.
@@ -1148,7 +1148,7 @@ The layout is chosen with `mediaQuery('(max-width: 639px)')`, as `PumpChart` doe
 - `Could not turn {pump label} {on|off} in {scenario name}: A scenario holds at most 30 changes.`
 - the rename words of §4.5, for an action in either tab
 
-**Undo label:** `turn {pump label} {on|off} in {scenario name}`, the name after the step
+**Undo label:** `turn {pump label} {on|off} in {scenario name}`, the name after the step; the phone's Reset of a change equal to the base value, `reset {pump label} in {scenario name}`
 
 **Phone:**
 - `Case to edit`, `Base case`, `{name} ({changes text})`
@@ -1546,8 +1546,9 @@ Each slice adds its part.
    - PB turned on, marked "Base value Off";
    - a crossed lineup named with "; ".
 4. **From the card.** "Pump lineups table…" shows the card's pumps only; "Show every pump" shows them all.
-5. **Phone.** The picker; segments with Changed · Base · Reset; New lineup selects the new case; no sideways page scroll at 390 px and 320 px.
-6. **Layout and axe.** At 1280×800 with 21 rows and the condenser example's names, the dialog body does not scroll and at least 6 rows are fully visible in the table's box. The Cases tab at `xl` is measured too: no prose line longer than `max-w-prose`, and the body's scroll recorded. axe is clean with the tab open, filtered and unfiltered.
+5. **Phone.** The picker; segments with Changed · Base · Reset, and Reset of a change equal to the base value; New lineup selects the new case; no sideways page scroll at 390 px and 320 px, also with long names that have no spaces; a tab switch keeps the sheet in place, so a second tap lands on the tab row.
+6. **Layout and axe.** At 1280×800 with 21 rows and the condenser example's names, the dialog body does not scroll and at least 6 rows are fully visible in the table's box, on a fresh open and after a press that renames. A focused cell's whole focus ring stays clear of the sticky header rows and case column (moving up, Home at 640 px), also when a key follows an arrow at the grid's edge at once. The Cases tab at `xl` is measured too: no prose line longer than `max-w-prose`, and the body's scroll recorded. axe is clean with the tab open, filtered and unfiltered.
+7. **First focus.** A dialog opens on its Close button, not its title: the manager without and with its tab row, and Jump to.
 
 **Independent API proof** (L2 part):
 1. On `two-systems`, a standby put in service (`[PB on, PA off]`) and a crossed lineup each equal the hand edit, the same answer bit for bit as defined in §10.
@@ -1669,6 +1670,7 @@ Each slice adds its part.
 **Changed:**
 - `state/workspace.svelte.ts`: `editScenario` (with `quiet`); `ws.edit` refactored onto it with unchanged words; `managerTab` and `managerPumps`;
 - `components/workspace/ScenarioManager.svelte`: the tabs and the derived shown tab, `xl`, the Cases prose at `max-w-prose`, each tab's footer, the shared status and alert lines, the undo and redo keys, `aria-describedby` on New scenario and Duplicate when full, focus on the `Cases ({n})` tab after a Delete;
+- `components/ui/Dialog.svelte`: `onkeydown`, `focusTitle()` (the title focusable only while it holds the focus) and `tall` (a phone sheet's full height);
 - `PumpLineupsBlock.svelte`: the button;
 - `pump_groups_input.py` (the `two-systems` case) and the regenerated JSON;
 - `test_pump_lineups.py` (L2 part).

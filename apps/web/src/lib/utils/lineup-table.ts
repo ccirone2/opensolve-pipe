@@ -13,7 +13,8 @@
  *   base value and whether it is the case's own value (a change equal to the base value is still
  *   the case's own, as Build's Changed is).
  * - lineupPress (§8.6): what a press writes, Build's Status segment's change, with its undo label
- *   ("turn {pump label} {on|off}"; editScenario adds " in {scenario name}").
+ *   ("turn {pump label} {on|off}"; editScenario adds " in {scenario name}"); lineupReset (§8.10):
+ *   the phone's Reset of a change equal to the base value, which removes it as Build's Reset does.
  * - activeCell (§8.7, decision 26): the cell holding the grid's one Tab stop, derived from the
  *   cell the user last wanted and clamped to the table as it is now.
  * - pickedCase, pickerOptions and pickedLine (§8.10, decision 26): the phone's one case at a time.
@@ -22,7 +23,7 @@
  * It says only inputs: each case's status of each pump, which value is the case's own, and which
  * cases are the same case (§8.11). Pure: imports no store and never modifies a project.
  */
-import type { Component, Project } from '../api/types';
+import type { Component, Override, Project } from '../api/types';
 import { updateComponent } from './edit';
 import { entryFor } from './field-registry';
 import { schemaChoices } from './model-rules';
@@ -108,6 +109,8 @@ export const LINEUP_TABLE_WORDS = {
 		`Could not ${label} in ${scenarioName}: ${message}`,
 	// The undo label (editScenario adds " in {scenario name}", the name after the step)
 	turn: (pumpLabel: string, next: PumpStatus) => `turn ${pumpLabel} ${next}`,
+	/** The phone's Reset of a change equal to the base value: Build's Reset label of its field. */
+	reset: (pumpLabel: string) => `reset ${pumpLabel}`,
 	// Phone
 	caseToEdit: 'Case to edit',
 	option: (name: string, changes: string) => `${name} (${changes})`,
@@ -405,6 +408,38 @@ export function lineupPress(column: LineupColumn, next: PumpStatus): LineupPress
 /** A press of a cell: its other value. */
 export function cellPress(column: LineupColumn, cell: LineupCell): LineupPress {
 	return lineupPress(column, cell.value === 'on' ? 'off' : 'on');
+}
+
+/**
+ * The phone's Reset of a case's own status of `column`'s pump that equals the base value (cell
+ * state 'same', §8.10): pressing the base value would leave the case as it is, so the change is
+ * removed, as Build's Reset removes it (workspace fieldChange().reset). One stored step
+ * (ws.updateStoredQuiet, the commit path, so the name rule applies), labelled as Build's Reset of
+ * the phone's field, which the pump's label names: "reset {pump label} in {scenario name}", the
+ * name after the step.
+ */
+export function lineupReset(
+	caseId: string,
+	column: LineupColumn
+): {
+	caseId: string;
+	/** The undo label, given the scenario's name after the step. */
+	label: (scenarioName: string) => string;
+	change: (draft: Project) => Project;
+} {
+	const own = (o: Override) =>
+		o.kind === 'component' && o.componentId === column.id && o.field === 'status';
+	return {
+		caseId,
+		label: (name) => `${LINEUP_TABLE_WORDS.reset(column.label)} in ${name}`,
+		change: (draft) =>
+			withScenarios(
+				draft,
+				scenariosOf(draft).map((s) =>
+					s.id === caseId ? { ...s, overrides: overridesOf(s).filter((o) => !own(o)) } : s
+				)
+			)
+	};
 }
 
 /**

@@ -874,6 +874,33 @@ describe('followLineupNames', () => {
 		expect(namesOf(followLineupNames(before, after).project)).toEqual(['Pump PB off']);
 	});
 
+	it('counts the other changes of a 4d name whose pump leaves its station, in either order of edits', () => {
+		// 4d's Each pump off in PA and PB in parallel: "Pump PB off". The same two edits, a tank level
+		// in the case and the PRV in PB's line set active in the base (PB then on its own, where
+		// "Pump PB off" is the pure lineup name of PB off), in both orders, then a further level.
+		const start = withCases(prvStation('failed_open'), scenario(off('PB'), offName('Pump PB')));
+		const follow = (before: Project, after: Project) => followLineupNames(before, after).project;
+		const levelEdit = (project: Project, value: number) =>
+			follow(project, pressed(project, 'S1', [...off('PB'), level('A1', value)]));
+		const prvActive = (project: Project) =>
+			follow(
+				project,
+				edited(project, 'V1', (c) => ({ ...c, status: 'active' }) as Component)
+			);
+		const c = prvActive(levelEdit(start, 5));
+		const d = levelEdit(prvActive(start), 5);
+		expect(scenariosOf(c)).toEqual(scenariosOf(d));
+		expect(namesOf(c)).toEqual(['Pump PB off + 1 other change']);
+		expect(namesOf(levelEdit(c, 6))).toEqual(['Pump PB off + 1 other change']);
+		expect(namesOf(levelEdit(d, 6))).toEqual(['Pump PB off + 1 other change']);
+		// A stored case already in that state (no rename yet) follows on its next edit.
+		const stuck = withCases(
+			prvStation('active'),
+			scenario([...off('PB'), level('A1', 5)], 'Pump PB off')
+		);
+		expect(namesOf(levelEdit(stuck, 6))).toEqual(['Pump PB off + 1 other change']);
+	});
+
 	it('follows "Scenario n" from its first press, and back when the presses are reversed', () => {
 		const long = (s: string) => pumpIds(6).map((_, i) => `Condenser water pump ${s}-${i + 1}`);
 		const p = stations(

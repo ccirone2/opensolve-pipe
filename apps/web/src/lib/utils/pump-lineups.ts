@@ -437,10 +437,20 @@ interface AppMade {
 	pump?: string;
 	withId?: boolean;
 	/**
-	 * 4d's form that is also the case's lineupName: X is named on its own (a series, mixed or
-	 * other group), where the template rule gives "{label} off" too.
+	 * 4d's form that is also the case's pure lineup name (pureLineupName): X is named on its own (a
+	 * series, mixed or other group), where the template rule gives "{label} off" too.
 	 */
 	alsoLineup?: boolean;
+}
+
+/**
+ * The case's pure lineup name: lineupName of its pump status changes alone, without
+ * ` + n other changes` (§4.4). A 4d form equal to it names X as the template does, whatever the
+ * case's other changes.
+ */
+function pureLineupName(project: Project, scenario: Scenario): string | null {
+	const overrides = overridesOf(scenario).filter((o) => isPumpStatus(project, o));
+	return lineupName(project, { ...scenario, overrides });
 }
 
 /** The levels of copyName that turn `base` into `name` (0: itself), or null when none does. */
@@ -467,7 +477,8 @@ function copies(name: string, levels: number): string {
  * 1. "Scenario n" (newScenarioName of its own id) while it has no changes;
  * 2. its lineupName, while it changes a pump's status;
  * 3. while its pump status changes are exactly one, a pump X off (other changes allowed), 4d's
- *    offName of X, without or with its id (marked when it is the lineupName too);
+ *    offName of X, without or with its id (marked when it is the pure lineup name too, decided by
+ *    the pumps: its other changes left out);
  * 4. a copy of form 2 or 3, any number deep ("Scenario n (copy)" is not one: n is its own id's).
  */
 function appMade(project: Project, scenario: Scenario): AppMade | null {
@@ -482,11 +493,12 @@ function appMade(project: Project, scenario: Scenario): AppMade | null {
 	const lineup = lineupName(project, scenario);
 	if (only?.value === 'off') {
 		const name = project.components.find((c) => c.id === only.id)?.name ?? only.id;
+		const pure = pureLineupName(project, scenario);
 		for (const withId of [false, true]) {
 			const form = offName(name, withId ? only.id : undefined);
 			forms.push([
 				form,
-				{ form: 'off', levels: 0, pump: only.id, withId, alsoLineup: form === lineup }
+				{ form: 'off', levels: 0, pump: only.id, withId, alsoLineup: form === pure }
 			]);
 		}
 	}
@@ -507,10 +519,12 @@ const statusKey = (changes: readonly { id: string; value: PumpStatus }[]) =>
  * 1. "Scenario n" when it changes no pump's status (it claims nothing);
  * 2. 4d's form for X while its pump status changes are still exactly X off: the same form with X's
  *    name after (only status changes are compared, and a base edit never renames it: it names its
- *    own change against the base, which stays true). A name that is the lineupName too (X named
- *    on its own) takes rule 3 while X is still named on its own after the edit, so that its other
- *    changes are counted (§4.4: a case with other changes never wears a pure lineup's name), and
- *    keeps 4d's form when the edit puts X into a parallel group (§15);
+ *    own change against the base, which stays true). A name that is the pure lineup name too (X
+ *    named on its own) takes rule 3 while X is still named on its own after the edit, and so does
+ *    a name whose form after is the pure lineup name after (an edit that takes X out of a parallel
+ *    group), so that its other changes are counted (§4.4: a case with other changes never wears a
+ *    pure lineup's name) whatever the order of the edits; it keeps 4d's form while X is in a
+ *    parallel group (§15 items 2 and 5);
  * 3. otherwise its lineupName after;
  * 4. a copy keeps its levels only while its own pump status changes are as they were (a pump's
  *    rename, a base edit, a change of the frame): the copy still copies the same case.
@@ -528,15 +542,12 @@ function followedName(
 	const only = statuses.length === 1 ? statuses[0]! : null;
 	const ownAfter = (id: string) =>
 		lineupGroups(after).some((g) => g.kind !== 'parallel' && g.pumpIds.includes(id));
-	if (
-		made.form === 'off' &&
-		only &&
-		only.id === made.pump &&
-		only.value === 'off' &&
-		!(made.alsoLineup && ownAfter(only.id))
-	) {
+	if (made.form === 'off' && only && only.id === made.pump && only.value === 'off') {
 		const name = after.components.find((c) => c.id === only.id)?.name ?? only.id;
-		return copies(offName(name, made.withId ? only.id : undefined), made.levels);
+		const form = offName(name, made.withId ? only.id : undefined);
+		const alsoLineup =
+			(made.alsoLineup && ownAfter(only.id)) || form === pureLineupName(after, now);
+		if (!alsoLineup) return copies(form, made.levels);
 	}
 	const name = lineupName(after, now) ?? newScenarioName(after, now.id);
 	return kept ? copies(name, made.levels) : name;

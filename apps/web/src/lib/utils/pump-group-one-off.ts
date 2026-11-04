@@ -15,6 +15,12 @@
  *   sides of it, and the shown case's own system duty check agrees (D13). The chart takes the
  *   cases in lineupChartPriority's order (one lineup of each number running first), at most
  *   MAX_GROUP_CASES.
+ * - The curve family (D24 slice L3, proposal pump-lineups.md §9.1, §9.5): a ring's own group
+ *   curve, from the same answer, is drawn only when this case's group curve is drawn, the ring's
+ *   answer is a group curve, its station differs from this case's inside only in which members are
+ *   switched on (insideOf, both as solved) and the curve has flow; its ring is called the crossing
+ *   with the group system curve only when its duty check agrees, the claim is `on` and the curve
+ *   is drawn. Each ring's curve state is said in OTHER_CURVE_WORDS.
  * - Running combinations: every case's members, with the group table's cell rules applied to that
  *   case's own solve (Compare's rule says which responses have values), a line per case saying
  *   which members carry flow, are on and carry none, are off or have no result (read from the
@@ -28,8 +34,10 @@
  * Pure: every value is the API's; the store's fingerprint is passed in (no util imports the store).
  */
 import type {
+	Component,
 	Flag,
 	Project,
+	PumpGroupCurvePoint,
 	PumpGroupCurveResponse,
 	PumpGroupStation,
 	SolveResponse,
@@ -40,13 +48,21 @@ import { CHECK_TITLES, OUTCOME_ORDER, OUTCOME_TITLES } from './design-checks';
 import type { Calculating } from './goal-seek';
 import { canonicalJson } from './json';
 import { CASE_STATUS_LABELS } from './labels';
-import { andList, dutyFlow, slotStyle, stationPortWords, type GroupSlot } from './pump-group-chart';
+import {
+	andList,
+	DUTY_CHECK_FLOOR,
+	dutyFlow,
+	runningWords,
+	slotStyle,
+	stationPortWords,
+	type GroupSlot
+} from './pump-group-chart';
 import { MAX_GROUP_PUMPS, pressureControlOnly, refusalWords, wordsText } from './pump-groups';
 import { carriesFlow, lineupChartPriority, memberLabels } from './pump-lineups';
 import { Formatter, flagsForElement, pumpStatusLabel, type Column } from './results';
 import type { CaseId } from './scenarios';
 
-export { DUTY_CLAIM_RULE } from './pump-group-chart';
+export { DUTY_CLAIM_RULE, runningWords } from './pump-group-chart';
 export { addedNotice, memberLabels, offName, offOverride } from './pump-lineups';
 
 /**
@@ -117,6 +133,79 @@ export function sharedRest(
 ): boolean {
 	if (!shown || !other) return false;
 	return fingerprint(restOf(shown, station)) === fingerprint(restOf(other, station));
+}
+
+/**
+ * The station as its group curve sees it (D24 §9.1 condition 4): its interior components, the
+ * members without their `status`, the interior connections, the fluid, the settings without the
+ * design checks (D19: a check never changes a solved value), and the library entries used inside
+ * (an entry is kept when its id is any string of the interior, as restOf keeps one used outside).
+ * The group curve is the station solved alone (D21), so two cases whose insides are equal differ
+ * in their group curves only by which members are switched on.
+ */
+export function insideOf(project: Project, station: PumpGroupStation): Project {
+	const inside = new Set(station.interiorComponentIds);
+	const insideConnections = new Set(station.interiorConnectionIds);
+	const members = new Set(station.memberIds);
+	const components = project.components
+		.filter((c) => inside.has(c.id))
+		.map((c): Component => {
+			if (c.type !== 'pump' || !members.has(c.id)) return c;
+			const unswitched: Partial<typeof c> = { ...c };
+			delete unswitched.status;
+			return unswitched as Component;
+		});
+	const connections = project.connections.filter((c) => insideConnections.has(c.id));
+	const used = stringsIn([components, connections]);
+	const settings = { ...project.settings };
+	delete settings.designChecks;
+	const interior: Project = {
+		...project,
+		settings,
+		components,
+		connections,
+		pumpLibrary: project.pumpLibrary.filter((c) => used.has(c.id))
+	};
+	// Absent when none is left, as in a project without a library (hydraulicFingerprint).
+	const pipeLibrary = (project.pipeLibrary ?? []).filter((s) => used.has(s.id));
+	const resistanceLibrary = (project.resistanceLibrary ?? []).filter((e) => used.has(e.id));
+	if (pipeLibrary.length) interior.pipeLibrary = pipeLibrary;
+	else delete interior.pipeLibrary;
+	if (resistanceLibrary.length) interior.resistanceLibrary = resistanceLibrary;
+	else delete interior.resistanceLibrary;
+	return interior;
+}
+
+/**
+ * How another case's station compares with the shown case's inside, both as solved (D24 §9.1):
+ * - `same`: the same inside, members switched on alike (the ink curve is its own group curve);
+ * - `statuses`: the same inside but for which members are switched on (its curve can be drawn);
+ * - `differs`: anything else inside differs (a speed, a setpoint, a valve), or a case is missing.
+ */
+export type InsideComparison = 'same' | 'statuses' | 'differs';
+
+/**
+ * The two cases' insideOf fingerprints compared, then the members' statuses (`status` of each of
+ * the station's members, as solved). Symmetric: either case may be the one shown.
+ */
+export function sameInside(
+	shown: Project | null,
+	other: Project | null,
+	station: PumpGroupStation,
+	fingerprint: (project: Project) => string
+): InsideComparison {
+	if (!shown || !other) return 'differs';
+	if (fingerprint(insideOf(shown, station)) !== fingerprint(insideOf(other, station))) {
+		return 'differs';
+	}
+	const statuses = (project: Project) =>
+		station.memberIds.map((id) => {
+			const c = project.components.find((x) => x.id === id);
+			return c?.type === 'pump' ? c.status : null;
+		});
+	const a = statuses(shown);
+	const b = statuses(other);
+	return a.every((s, i) => s === b[i]) ? 'same' : 'statuses';
 }
 
 /** Two answers name the same station: its ports, arrangement, members and interior. */
@@ -222,6 +311,52 @@ export interface OtherGroupCase {
 	claim: DutyClaim | null;
 	/** "Compute them again" applies: cancelled by the user, or failed. */
 	retry: boolean;
+	/**
+	 * Its own group curve when drawn (D24 §9.1): the response's points, the members switched on in
+	 * that case as solved and the members' count; null when not drawn.
+	 */
+	curve: { points: readonly PumpGroupCurvePoint[]; on: number; of: number } | null;
+	/**
+	 * Why its curve is or is not drawn (D24 §9.1, §9.5). Null without a ring, and while the chart
+	 * is 4d's: this case's own group curve not drawn, or the ring's case given no `inside` and `on`.
+	 */
+	curveState: OtherCurveState | null;
+	/** The curve state in words (OTHER_CURVE_WORDS, a stale case's k "as last solved"); null with none. */
+	curveWords: string | null;
+}
+
+/** Why a ring's own group curve is or is not drawn (D24 §9.1), and what its ring is then (§9.5). */
+export type OtherCurveState =
+	| 'crossing'
+	| 'through'
+	| 'not_through'
+	| 'same_inside'
+	| 'inside_differs'
+	| 'no_group_curve'
+	| 'no_flow';
+
+/**
+ * Each curve state in words (D24 §9.6, the notes' list; the table's column starts them with a
+ * capital), from the members switched on in words (runningWords: "3 running", or "as last solved:
+ * 3 running" for a stale case).
+ */
+export const OTHER_CURVE_WORDS: Readonly<Record<OtherCurveState, (running: string) => string>> = {
+	crossing: (running) => `drawn (${running}): it crosses the group system curve at the ring`,
+	through: (running) => `drawn (${running}): it passes through the ring`,
+	not_through: (running) => `drawn (${running}): it does not pass through the ring (D13)`,
+	same_inside: () => "the same as this case's: the station is the same inside",
+	inside_differs: () =>
+		'not drawn: the station differs inside in more than which pumps are switched on',
+	no_group_curve: () => 'none: an active PRV or PSV inside',
+	no_flow: () => 'not drawn: no flow at any rise'
+};
+
+/**
+ * This case's own group curve is drawn (D24 §9.1 condition 3): its ready answer has a point with
+ * a flow. Without it the chart is 4d's: rings only.
+ */
+export function groupCurveDrawn(state: GroupCurveState | undefined): boolean {
+	return state?.status === 'ready' && state.response.points.some((p) => p.flow !== null);
 }
 
 export interface OtherCasesInput {
@@ -240,7 +375,22 @@ export interface OtherCasesInput {
 		shared: boolean;
 		/** This case as solved (ws.store.caseInputs): a refusal's topology. */
 		solved: Project | null;
+		/**
+		 * sameInside(…) of the case shown and this case (D24 §9.1 condition 4). Absent: no curve
+		 * state (4d's chart, rings only).
+		 */
+		inside?: InsideComparison;
+		/**
+		 * The members switched on in this case as solved: pumpLineup(undefined, caseInputs(caseId),
+		 * memberIds).on.length (D24 §9.1). Absent: no curve state.
+		 */
+		on?: number;
 	}[];
+	/**
+	 * This case's own group curve is drawn (groupCurveDrawn; D24 §9.1 condition 3; default
+	 * false): without it no other case's curve is drawn and none has a curve state.
+	 */
+	curveDrawn?: boolean;
 	/** The keys on the chart: ticked and within MAX_GROUP_CASES. */
 	shownKeys: ReadonlySet<string>;
 	/** "Also show the other cases' station duties" is ticked. */
@@ -295,7 +445,10 @@ export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 			number: null,
 			duty: null,
 			claim: null,
-			retry: false
+			retry: false,
+			curve: null,
+			curveState: null,
+			curveWords: null
 		};
 		const as = (state: OtherGroupCase['state'], words: string, retry = false): OtherGroupCase => ({
 			...base,
@@ -376,6 +529,9 @@ export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 		}
 		const duty = { flow: response.duty.flow, head: response.duty.head };
 		const claim = dutyClaim({ shared: v.shared, duty, system: input.systemShown });
+		const curveState = otherCurveState(v, response, claim, input.curveDrawn ?? false);
+		const drawn =
+			curveState === 'crossing' || curveState === 'through' || curveState === 'not_through';
 		return {
 			...base,
 			state: 'ready',
@@ -383,9 +539,36 @@ export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 			number: ++number,
 			duty,
 			claim,
-			retry: false
+			retry: false,
+			curve: drawn ? { points: response.points, on: v.on!, of: input.memberIds.length } : null,
+			curveState,
+			curveWords: curveState ? OTHER_CURVE_WORDS[curveState](runningWords(v.on!, v.stale)) : null
 		};
 	});
+}
+
+/**
+ * A ring's curve state (D24 §9.1, §9.5), the first that applies: none while the chart is 4d's
+ * (this case's group curve not drawn, or no `inside` and `on` given); its answer is the group
+ * system curve's (a group curve refused for an active PRV or PSV inside); the station is the same
+ * inside (its group curve is the one drawn for this case); it differs inside in more than which
+ * members are switched on; no point has a flow above DUTY_CHECK_FLOOR. Otherwise its curve is
+ * drawn, and its ring is called the crossing only when its own duty check agrees (D13) and 4d's
+ * claim is `on`; on its curve when the check agrees; else not on it.
+ */
+function otherCurveState(
+	v: OtherCasesInput['valued'][number],
+	response: PumpGroupCurveResponse,
+	claim: DutyClaim,
+	curveDrawn: boolean
+): OtherCurveState | null {
+	if (!curveDrawn || v.inside === undefined || v.on === undefined) return null;
+	if (v.group?.status !== 'ready') return 'no_group_curve';
+	if (v.inside === 'same') return 'same_inside';
+	if (v.inside === 'differs') return 'inside_differs';
+	if (!response.points.some((p) => p.flow !== null && p.flow > DUTY_CHECK_FLOOR)) return 'no_flow';
+	if (!response.dutyCheck?.agrees) return 'not_through';
+	return claim === 'on' ? 'crossing' : 'through';
 }
 
 // ---------------------------------------------------------------------------------------------

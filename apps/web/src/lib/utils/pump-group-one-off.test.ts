@@ -2,7 +2,8 @@
  * One pump off, drawn together (CLAUDE.md D21 slice 4d), with pump lineups (D24 slice L1b): 4d's
  * names for one pump off (the Add cases block's plan is tested in pump-lineups.test.ts), whether
  * two cases share the rest of the network, the duty claim, the other cases' states and the chart's cases,
- * Running combinations with its lineup line, and its extremes. The responses are the shared
+ * Running combinations with its lineup line, and its extremes; and for the curve family (D24
+ * slice L3) the station inside and each other case's curve state. The responses are the shared
  * fixture's real API answers (the `one-off`, `one-off-dead-headed`, `lineups` and
  * `lineups-closed-leg` cases and their scenario cases,
  * apps/api/tests/fixtures/pump_groups_input.py); a few edits are synthetic, as named.
@@ -21,9 +22,18 @@ import type {
 	TopologyIssue
 } from '$lib/api/types';
 import { hydraulicFingerprint, type GroupCurveState } from '$lib/state/project.svelte';
+import {
+	lineupAnswers,
+	lineupInput,
+	lineupOn,
+	lineups,
+	lineupSolved,
+	lineupStation,
+	readyState
+} from '$lib/testing/curve-family';
 import fixture from './__fixtures__/pump-groups-input.json';
 import { ratedCurveRange } from './pump-chart';
-import { groupTable, type GroupMemberInput } from './pump-group-chart';
+import { DUTY_CHECK_FLOOR, groupTable, type GroupMemberInput } from './pump-group-chart';
 import { refusalWords, wordsText } from './pump-groups';
 import {
 	chartKeys,
@@ -31,16 +41,23 @@ import {
 	DUTY_CLAIM_RULE,
 	DUTY_CLAIM_WORDS,
 	dutyClaim,
+	groupCurveDrawn,
+	insideOf,
 	MAX_GROUP_CASES,
 	offName,
+	OTHER_CURVE_WORDS,
 	otherGroupCases,
 	restOf,
 	runningCombinations,
+	runningWords,
+	sameInside,
 	sameStation,
 	sharedRest,
 	type CombinationsInput,
-	type OtherCasesInput
+	type OtherCasesInput,
+	type OtherGroupCase
 } from './pump-group-one-off';
+import { pumpLineup } from './pump-lineups';
 import { applyScenario, SCENARIO_NAME_LIMIT, withScenarios } from './scenarios';
 
 interface Answer {
@@ -961,5 +978,283 @@ describe('the extremes over the cases', () => {
 			'0 L/s in Base case and 1 other case; physically invalid (over 2 of 2 cases)'
 		);
 		expect(pbHeld.invalid).toBe(true);
+	});
+});
+
+describe('the station inside, and the other cases’ own group curves (D24 slice L3)', () => {
+	const shownSolved = lineupSolved('');
+	const inside = (shown: Project | null, other: Project | null, s = lineupStation) =>
+		sameInside(shown, other, s, hydraulicFingerprint);
+	const byKey = (list: OtherGroupCase[]) => Object.fromEntries(list.map((o) => [o.key, o]));
+
+	it('holds the station’s interior without the members’ status: its connections, the fluid, the settings without design checks, the library used inside', () => {
+		const project = lineups.project;
+		const interior = insideOf(project, lineupStation);
+		expect(interior.components.map((c) => c.id)).toEqual(lineupStation.interiorComponentIds);
+		expect(interior.connections.map((c) => c.id)).toEqual(lineupStation.interiorConnectionIds);
+		for (const id of lineupStation.memberIds) {
+			expect(interior.components.find((c) => c.id === id)).not.toHaveProperty('status');
+		}
+		// Everything else of a member and of each other interior component as stored.
+		const p1 = project.components.find((c) => c.id === 'P1')!;
+		expect({ ...interior.components.find((c) => c.id === 'P1'), status: 'on' }).toEqual(p1);
+		expect(interior.components.find((c) => c.id === 'CV1')).toEqual(
+			project.components.find((c) => c.id === 'CV1')
+		);
+		expect(interior.fluid).toEqual(project.fluid);
+		expect(interior.pumpLibrary.map((c) => c.id)).toEqual(['PC-A']);
+		// The design checks never change a solved value (D19); the one-off project has some.
+		const withChecks = oneOff.project;
+		expect(withChecks.settings.designChecks).toBeDefined();
+		expect(insideOf(withChecks, station).settings).not.toHaveProperty('designChecks');
+		expect(insideOf(withChecks, station).settings.solverOptions).toEqual(
+			withChecks.settings.solverOptions
+		);
+		// The input is not changed.
+		expect(project.components.find((c) => c.id === 'P1')).toHaveProperty('status', 'on');
+	});
+
+	it('compares two cases inside: the same, the same but for the members switched on, or other', () => {
+		// By number running and each pump off: only statuses differ inside, whichever is shown.
+		for (const key of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']) {
+			expect(inside(shownSolved, lineupSolved(key))).toBe('statuses');
+			expect(inside(lineupSolved(key), shownSolved)).toBe('statuses');
+		}
+		expect(inside(lineupSolved('S1'), lineupSolved('S4'))).toBe('statuses');
+		// A member's speed is inside; the delivery tank's level is not.
+		expect(inside(shownSolved, lineupSolved('S7'))).toBe('differs');
+		expect(inside(lineupSolved('S7'), shownSolved)).toBe('differs');
+		expect(inside(shownSolved, lineupSolved('S8'))).toBe('same');
+		expect(inside(lineupSolved('S8'), shownSolved)).toBe('same');
+		expect(inside(lineupSolved('S1'), lineupSolved('S1'))).toBe('same');
+		expect(inside(null, shownSolved)).toBe('differs');
+		expect(inside(shownSolved, null)).toBe('differs');
+	});
+
+	it('counts what the group curve sees inside, never what does not change it (synthetic edits)', () => {
+		const base = oneOff.project;
+		const s = station;
+		// A design check: the same inside.
+		const checks = structuredClone(base);
+		checks.settings.designChecks!.npshMargin!.minimumMargin = 2.0;
+		expect(inside(checks, base, s)).toBe('same');
+		// An interior pipe, the fluid, the members' curve: another inside.
+		const longer = structuredClone(base);
+		longer.connections.find((c) => c.id === 'LA1')!.piping.pipes[0]!.length += 1;
+		expect(inside(longer, base, s)).toBe('differs');
+		const warm = structuredClone(base);
+		warm.fluid = { ...warm.fluid, temperature: warm.fluid.temperature! + 20 };
+		expect(inside(warm, base, s)).toBe('differs');
+		const reshaped = structuredClone(base);
+		for (const p of reshaped.pumpLibrary[0]!.points) p.head *= 1.02;
+		expect(inside(reshaped, base, s)).toBe('differs');
+		// An outside pipe and the delivery tank: the same inside.
+		const outer = structuredClone(base);
+		outer.connections.find((c) => c.id === 'L2')!.piping.pipes[0]!.length += 10;
+		expect(inside(outer, base, s)).toBe('same');
+		// A resistance entry used only outside, revalued: the same inside; used inside: other.
+		const entry: ResistanceSpec = {
+			id: 'RS1',
+			name: 'K',
+			source: 'synthetic',
+			kind: 'Cv',
+			value: 400
+		};
+		const outside = structuredClone(base);
+		outside.resistanceLibrary = [entry];
+		outside.connections.find((c) => c.id === 'L2')!.piping.fittings[0]!.resistanceId = 'RS1';
+		const outsideRevalued = structuredClone(outside);
+		outsideRevalued.resistanceLibrary![0]!.value = 500;
+		expect(insideOf(outside, s)).not.toHaveProperty('resistanceLibrary');
+		expect(inside(outsideRevalued, outside, s)).toBe('same');
+		const insideUsed = structuredClone(base);
+		insideUsed.resistanceLibrary = [entry];
+		insideUsed.connections.find((c) => c.id === 'LA1')!.piping.fittings[0]!.resistanceId = 'RS1';
+		const insideRevalued = structuredClone(insideUsed);
+		insideRevalued.resistanceLibrary![0]!.value = 500;
+		expect(insideOf(insideUsed, s).resistanceLibrary!.map((e) => e.id)).toEqual(['RS1']);
+		expect(inside(insideRevalued, insideUsed, s)).toBe('differs');
+	});
+
+	it('draws a lineup sibling’s curve, the base’s with a lineup shown, a stale one’s; never the same inside, another inside, unticked or past the cap', () => {
+		// The base shown: by number running and each pump off on the chart (the cap of six), S7
+		// and S8 past it.
+		const shownBase = byKey(otherGroupCases(lineupInput('')));
+		for (const key of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']) {
+			const o = shownBase[key]!;
+			expect(o.curveState).toBe('crossing');
+			expect(o.curve).toEqual({
+				points: body(lineupAnswers(key).groupCurve).points,
+				on: lineupOn(key),
+				of: 4
+			});
+		}
+		expect([1, 2, 3].map((n) => lineupOn(`S${n}`))).toEqual([3, 2, 1]);
+		for (const key of ['S7', 'S8']) {
+			expect(shownBase[key]).toMatchObject({ state: 'unticked', curve: null, curveState: null });
+		}
+		// S4 and S5 unticked: S7 (a speed inside) and S8 (the tank) come in, neither drawn.
+		const swapped = byKey(otherGroupCases(lineupInput('', { unticked: ['S4', 'S5'] })));
+		expect(swapped.S4).toMatchObject({ state: 'unticked', curve: null, curveState: null });
+		expect(swapped.S7).toMatchObject({
+			state: 'ready',
+			claim: 'on',
+			curve: null,
+			curveState: 'inside_differs',
+			curveWords: 'not drawn: the station differs inside in more than which pumps are switched on'
+		});
+		expect(swapped.S8).toMatchObject({
+			state: 'ready',
+			claim: 'rest_differs',
+			curve: null,
+			curveState: 'same_inside',
+			curveWords: "the same as this case's: the station is the same inside"
+		});
+		// A lineup shown: the base is another case, four running (its duty within the flows of
+		// "3 of 4 running"'s own group system curve, which crosses its curve there).
+		const shownS1 = byKey(otherGroupCases(lineupInput('S1')));
+		expect(shownS1['']).toMatchObject({ state: 'ready', claim: 'on', curveState: 'crossing' });
+		expect(shownS1['']!.curve!.on).toBe(4);
+		// Out of date: drawn as its ring is, its k as last solved.
+		const stale = byKey(otherGroupCases(lineupInput('', { stale: ['S1'] })));
+		expect(stale.S1).toMatchObject({ stale: true, curveState: 'crossing' });
+		expect(stale.S1!.curveWords).toBe(
+			'drawn (as last solved: 3 running): it crosses the group system curve at the ring'
+		);
+	});
+
+	it('draws none while this case’s own group curve is not drawn, or without 4d’s inputs widened', () => {
+		const flat = (list: OtherGroupCase[]) =>
+			list.map((o) => [o.key, o.state, o.curve, o.curveState, o.curveWords]);
+		const none = otherGroupCases({ ...lineupInput(''), curveDrawn: false });
+		expect(none.filter((o) => o.state === 'ready')).toHaveLength(6);
+		expect(none.every((o) => o.curve === null && o.curveState === null)).toBe(true);
+		// The default: not drawn.
+		const { curveDrawn: _drawn, ...noFlag } = lineupInput('');
+		void _drawn;
+		expect(flat(otherGroupCases(noFlag))).toEqual(flat(none));
+		// 4d's inputs (no `inside`, no `on`): 4d's chart, rings only.
+		expect(flat(otherGroupCases(lineupInput('', { without: true })))).toEqual(flat(none));
+		// This case's curve without a flow at any point: not drawn.
+		const flowless = structuredClone(body(lineups.groupCurve));
+		flowless.points = flowless.points.map((p) => ({ ...p, flow: null }));
+		expect(groupCurveDrawn({ status: 'ready', response: flowless })).toBe(false);
+		expect(groupCurveDrawn(readyState(lineups.groupCurve))).toBe(true);
+		expect(groupCurveDrawn({ status: 'loading' })).toBe(false);
+		expect(groupCurveDrawn(undefined)).toBe(false);
+	});
+
+	it('draws none for a PRV- or PSV-refused case (its ring from its group system curve) or one without flow', () => {
+		// S2 refused for an active PRV inside (synthetic: prv-inside's issues), its duty from S2's
+		// own group system answer.
+		const prvIssues = (named('prv-inside').groupCurve.body as { issues: TopologyIssue[] }).issues;
+		const refused = otherGroupCases(
+			lineupInput('', {
+				edit: (v) =>
+					v.key === 'S2'
+						? {
+								...v,
+								group: { status: 'refused', message: 'PRV', issues: prvIssues },
+								system: readyState(lineupAnswers('S2').systemCurve),
+								inside: 'differs'
+							}
+						: v
+			})
+		);
+		expect(byKey(refused).S2).toMatchObject({
+			state: 'ready',
+			curve: null,
+			curveState: 'no_group_curve',
+			curveWords: 'none: an active PRV or PSV inside'
+		});
+		// One-off's both pumps off: a curve of no flow at every rise (the API's own answer).
+		const oneOffInput = (id: string) => ({
+			key: id,
+			caseId: id,
+			name: oneOff.project.scenarios!.find((s) => s.id === id)!.name,
+			stale: false,
+			group: { status: 'ready' as const, response: body(scenarioCase(id).groupCurve) },
+			system: undefined,
+			shared: id !== 'S3',
+			solved: applyScenario(oneOff.project, id).project,
+			inside: sameInside(
+				oneOff.project,
+				applyScenario(oneOff.project, id).project,
+				station,
+				hydraulicFingerprint
+			),
+			on: pumpLineup(undefined, applyScenario(oneOff.project, id).project, ['PA', 'PB']).on.length
+		});
+		const flows = body(scenarioCase('S4').groupCurve).points.map((p) => p.flow);
+		expect(flows.every((q) => q !== null && Math.abs(q) <= DUTY_CHECK_FLOOR)).toBe(true);
+		const states = otherGroupCases({
+			valued: ['S1', 'S2', 'S3', 'S4'].map(oneOffInput),
+			shownKeys: new Set(['S1', 'S2', 'S3', 'S4']),
+			othersOn: true,
+			shownSettled: true,
+			station,
+			systemShown: baseSystem,
+			memberIds: ['PA', 'PB'],
+			project: oneOff.project,
+			boxes: ['PA', 'PB'],
+			curveDrawn: true
+		});
+		expect(states.map((o) => [o.key, o.curveState, o.curve?.on ?? null])).toEqual([
+			['S1', 'crossing', 1],
+			['S2', 'crossing', 1],
+			['S3', 'same_inside', null],
+			['S4', 'no_flow', null]
+		]);
+		expect(states[3]!.curveWords).toBe('not drawn: no flow at any rise');
+	});
+
+	it('calls a ring the crossing only with its duty check agreeing, the claim on and its curve drawn', () => {
+		// Crossing: every lineup with the base shown (its system duty check agrees).
+		expect(otherGroupCases(lineupInput(''))[0]).toMatchObject({
+			key: 'S1',
+			claim: 'on',
+			curveState: 'crossing'
+		});
+		// Through: its duty on its drawn curve, the claim not on (no group system curve shown;
+		// with "1 of 4 running" shown, flows beyond that case's own curve).
+		const noSystem = otherGroupCases({ ...lineupInput(''), systemShown: null })[0]!;
+		expect(noSystem).toMatchObject({ claim: 'no_curve', curveState: 'through' });
+		expect(noSystem.curveWords).toBe('drawn (3 running): it passes through the ring');
+		const lowShown = byKey(otherGroupCases(lineupInput('S3')));
+		expect(lowShown['']).toMatchObject({ claim: 'beyond_range', curveState: 'through' });
+		expect(lowShown.S2).toMatchObject({ claim: 'on', curveState: 'crossing' });
+		// Not through (synthetic: S1's duty check disagreeing), whatever the claim.
+		const disagree = structuredClone(body(lineupAnswers('S1').groupCurve));
+		disagree.dutyCheck = { ...disagree.dutyCheck!, agrees: false };
+		const notThrough = otherGroupCases(
+			lineupInput('', {
+				edit: (v) => (v.key === 'S1' ? { ...v, group: { status: 'ready', response: disagree } } : v)
+			})
+		)[0]!;
+		expect(notThrough).toMatchObject({ claim: 'on', curveState: 'not_through' });
+		expect(notThrough.curve).not.toBeNull();
+		expect(notThrough.curveWords).toBe(
+			'drawn (3 running): it does not pass through the ring (D13)'
+		);
+	});
+
+	it('words every curve state as the proposal’s table, with a stale case’s k as last solved', () => {
+		const words = Object.fromEntries(
+			Object.entries(OTHER_CURVE_WORDS).map(([state, w]) => [state, w(runningWords(3, false))])
+		);
+		expect(words).toEqual({
+			crossing: 'drawn (3 running): it crosses the group system curve at the ring',
+			through: 'drawn (3 running): it passes through the ring',
+			not_through: 'drawn (3 running): it does not pass through the ring (D13)',
+			same_inside: "the same as this case's: the station is the same inside",
+			inside_differs:
+				'not drawn: the station differs inside in more than which pumps are switched on',
+			no_group_curve: 'none: an active PRV or PSV inside',
+			no_flow: 'not drawn: no flow at any rise'
+		});
+		expect(runningWords(2, true)).toBe('as last solved: 2 running');
+		expect(OTHER_CURVE_WORDS.through(runningWords(2, true))).toBe(
+			'drawn (as last solved: 2 running): it passes through the ring'
+		);
 	});
 });

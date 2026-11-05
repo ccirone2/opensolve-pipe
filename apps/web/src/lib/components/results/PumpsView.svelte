@@ -14,14 +14,17 @@
 	group curve is computed on demand for this solve and case, cached with it (ProjectStore
 	loadGroupCurve), and after its answer the group system curve (slice 4b, loadGroupSystemCurve).
 
-	Slice 4d (one pump off): for a parallel station, while the base case is shown and current, "Add
-	cases with one pump off" makes one scenario per member running in the base case, in one undo
-	step, and turns on "Also show the other cases' station duties": each other case's group curve
-	is asked for (one request at a time, after the case shown's curves and while no calculation
-	runs; at most six cases), its duty drawn as a numbered ring. "Running combinations" lists every
-	case's members. The card asks again for the curves a solve, Solve all or goal seek cancelled,
-	once no calculation runs; a change of members or of the case shown withdraws the other cases'
-	requests (those still waiting, on a case switch), which are asked again after the shown case's.
+	Slice 4d (one pump off) with pump lineups (CLAUDE.md D24 slice L1, proposal pump-lineups.md
+	§7): for a parallel station, while the base case is shown and current, the Add cases block makes
+	the cases of its preset (page state: By number running, the pumps that stop first by the stop
+	order switched off, or Each pump off, 4d's cases) in one undo step, and turns on "Also show the
+	other cases' station duties": each other case's group curve is asked for (one request at a
+	time, after the case shown's curves and while no calculation runs; at most six cases, one
+	lineup of each number running first), its duty drawn as a numbered ring. "Running
+	combinations" lists every case's members. The card asks again for the curves a solve, Solve
+	all or goal seek cancelled, once no calculation runs; a change of members or of the case shown
+	withdraws the other cases' requests (those still waiting, on a case switch), which are asked
+	again after the shown case's.
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
@@ -66,20 +69,25 @@
 		type GroupMemberInput
 	} from '$lib/utils/pump-group-chart';
 	import {
-		addedNotice,
 		chartKeys,
 		combinationExtremes,
-		onePumpOffPlan,
 		otherGroupCases,
 		runningCombinations,
 		sharedRest,
-		withOnePumpOffCases,
 		type CombinationsInput,
 		type OtherGroupCase
 	} from '$lib/utils/pump-group-one-off';
+	import {
+		lineupChartPriority,
+		lineupPlan,
+		movedStopOrder,
+		withLineupCases,
+		type LineupPreset
+	} from '$lib/utils/pump-lineups';
 	import type { CaseId } from '$lib/utils/scenarios';
 	import PumpChart from './PumpChart.svelte';
 	import PumpGroupChart from './PumpGroupChart.svelte';
+	import type { LineupsBlockProps } from './PumpLineupsBlock.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 
 	interface Props {
@@ -379,7 +387,7 @@
 		}
 	}
 
-	// ---- One pump off and the other cases (slice 4d) ------------------------------------------
+	// ---- Add cases (D24) and the other cases (slice 4d) ---------------------------------------
 
 	/** The station the card shows: the group curve's answer, else the group system curve's. */
 	const groupStation = $derived(
@@ -419,10 +427,23 @@
 				return [{ key: c ?? '', caseId: c, name: ws.caseName(c), stale: results.stale, response }];
 			});
 	});
-	/** The cases on the chart: cases with one pump off first, then case order, at most six. */
+	/**
+	 * The cases on the chart: one lineup of each number running first, most running first, then
+	 * the other lineups, then case order, at most six (D24 §4.6, lineupChartPriority).
+	 */
 	const chartCaseKeys = $derived(
 		chartKeys(valuedOthers, ws.store.project, groupMembers, ws.pumpGroupUnticked)
 	);
+	/**
+	 * The other cases with values in the chart's order (D24 §4.6, unticked ones in their place):
+	 * "Cases on this chart" lists them, and the rings are numbered, in that order (§7.9, §6).
+	 */
+	const chartOrdered = $derived.by(() => {
+		const rank = new Map(
+			lineupChartPriority(valuedOthers, ws.store.project, groupMembers).map((key, i) => [key, i])
+		);
+		return [...valuedOthers].sort((a, b) => (rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0));
+	});
 	/**
 	 * Whether a case as solved is the same as the one shown outside the station (sharedRest),
 	 * kept while both projects and the station are the same objects: the fingerprints are not
@@ -448,7 +469,7 @@
 		if (!groupStation) return [];
 		const station = groupStation.station;
 		return otherGroupCases({
-			valued: valuedOthers.map((v) => ({
+			valued: chartOrdered.map((v) => ({
 				key: v.key,
 				caseId: v.caseId,
 				name: v.name,
@@ -624,7 +645,7 @@
 	}
 
 	/**
-	 * Solve all in the One pump off block: the Scenarios menu's reasons, from the one function
+	 * Solve all in the Add cases block: the Scenarios menu's reasons, from the one function
 	 * CaseMenu.svelte calls (a single solve named by its case).
 	 */
 	const toSolve = $derived(ws.store.casesToSolve());
@@ -646,35 +667,68 @@
 			hint: `Solves each case whose results are missing or out of date, one after another: up to ${count} solve${count === 1 ? '' : 's'}.`
 		};
 	});
-	/** "Add cases with one pump off": what it would make now, from the base case's results. */
-	const oneOff = $derived.by(() => {
+	/**
+	 * The Add cases block (D24 §7.4): what its preset would make now, from the base case's results
+	 * (Compare's rule), with the stop order derived from the one the user set (ws.pumpStopOrder,
+	 * used while it holds exactly the pumps on; never written here).
+	 */
+	const plan = $derived.by(() => {
 		if (!groupStation) return null;
 		const results = ws.store.resultsFor(null);
 		const response = caseResponse(ws.store.caseStatus(null), results);
-		const plan = onePumpOffPlan({
+		return lineupPlan({
 			project: ws.store.project,
 			shownCase: ws.store.activeCase,
 			station: groupStation.station,
 			memberIds: groupMembers,
-			base: response ? { response, stale: results.stale } : null
+			base: response ? { response, stale: results.stale } : null,
+			preset: ws.lineupPreset,
+			savedOrder: ws.pumpStopOrder
 		});
-		return { ...plan, solveAll };
 	});
-	function addOnePumpOff() {
-		const plan = oneOff;
-		if (!plan || plan.gate || plan.refusal || !plan.add.length) return;
-		const names = plan.add.map((a) => a.name);
+	/**
+	 * Add the cases in one undo step, its label the preset's, its notice the plan's (said first in
+	 * the step's notice); then "Also show the other cases' station duties" is ticked (4d's).
+	 */
+	function addLineups() {
+		const now = plan;
+		if (!now || now.gate || now.refusal || !now.add.length) return;
 		const added = ws.updateStored(
-			(draft) => withOnePumpOffCases(draft, plan.add),
-			'add cases with one pump off'
+			(draft) => withLineupCases(draft, now.add),
+			now.undoLabel,
+			now.notice ?? ''
 		);
 		if (!added) return;
 		ws.pumpGroupOthers = true;
-		ws.notify('info', addedNotice(names));
+	}
+	function setPreset(preset: LineupPreset) {
+		ws.lineupPreset = preset;
+	}
+	/** A move in the stop order (page state), from the order used, which the plan derived. */
+	function moveStop(pumpId: string, dir: 'up' | 'down') {
+		const order = plan?.stopOrder?.order;
+		if (order) ws.pumpStopOrder = movedStopOrder(order, pumpId, dir);
+	}
+	/** Default order: none saved, so the default is used (the last listed stops first). */
+	function resetStopOrder() {
+		ws.pumpStopOrder = [];
 	}
 	function solveAllCases() {
 		if (solveAll.canRun) void ws.solveAll();
 	}
+	const lineups = $derived<LineupsBlockProps | null>(
+		plan
+			? {
+					plan,
+					solveAll,
+					onpreset: setPreset,
+					onmove: moveStop,
+					ondefaultorder: resetStopOrder,
+					onadd: addLineups,
+					onsolveall: solveAllCases
+				}
+			: null
+	);
 
 	/** Running combinations: every case's members, the shown first (slice 4d §3). */
 	const combinationsInput = $derived.by((): CombinationsInput | null => {
@@ -801,9 +855,7 @@
 			oninspect={(id) => ws.inspect({ kind: 'component', id })}
 			flagText={(flag) => ws.flagText(flag)}
 			{image}
-			{oneOff}
-			onaddoneoff={addOnePumpOff}
-			onsolveall={solveAllCases}
+			{lineups}
 			{otherCases}
 			othersOn={ws.pumpGroupOthers}
 			{...hasScenarios ? { onothers: setOthers } : {}}

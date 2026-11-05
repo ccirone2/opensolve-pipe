@@ -24,14 +24,17 @@
 	same. "Read along the curves" steps over the group curve's samples, giving each member's flow
 	and the station's at that rise exactly as the response does, and marks them on the chart.
 
-	Slice 4d (one pump off, proposal §8 and §17): under the group table, "One pump off" adds in one
-	step the cases of the base case with each running pump off (a parallel station only, while the
-	base case is shown and current) with Solve all beside it; "Also show the other cases' station
-	duties" draws each other case's duty as a numbered slate ring ("Cases on this chart", at most
-	six), said to lie on the group system curve shown only when that case leaves the rest of the
-	network as it is (D13 allowing); "Running combinations" lists every case's members, a list on
-	phones, with the extremes over the current cases (on screen only). Presentation only: the
-	caller (PumpsView) computes every value and makes every request.
+	Slice 4d (one pump off, proposal §8 and §17), with pump lineups (CLAUDE.md D24 slice L1,
+	proposal pump-lineups.md §7): under the group table, the Add cases block (PumpLineupsBlock: By
+	number running or Each pump off, 4d's cases) adds in one step cases of the base case with pumps
+	off (a parallel station only, while the base case is shown and current) with Solve all beside
+	it; "Also show the other cases' station duties" draws each other case's duty as a numbered
+	slate ring ("Cases on this chart", at most six, one lineup of each number running first), said
+	to lie on the group system curve shown only when that case leaves the rest of the network as
+	it is (D13 allowing); "Running combinations" lists every case's members with a line saying
+	which carry flow (D24 §7.10), a list on phones, with the extremes over the current cases (on
+	screen only). Presentation only: the caller (PumpsView) computes every value and makes every
+	request.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
@@ -82,7 +85,6 @@
 		MAX_GROUP_CASES,
 		type CombinationsTable,
 		type ExtremeLine,
-		type OnePumpOffPlan,
 		type OtherGroupCase
 	} from '$lib/utils/pump-group-one-off';
 	import { SEVERITY_LABELS } from '$lib/utils/results';
@@ -90,6 +92,7 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import FlagIcon from './FlagIcon.svelte';
 	import IssueDetail from './IssueDetail.svelte';
+	import PumpLineupsBlock, { type LineupsBlockProps } from './PumpLineupsBlock.svelte';
 
 	interface Props {
 		/** Pumps with a result, in table order: each a box. */
@@ -140,18 +143,10 @@
 		/** What an image names and whether one can be made (as the pump chart's). */
 		image?: ChartImageSource;
 		/**
-		 * "One pump off" (slice 4d): the plan of "Add cases with one pump off" and the block's Solve
-		 * all (null: no block).
+		 * The Add cases block (CLAUDE.md D24 slice L1, PumpLineupsBlock): its plan, its Solve all and
+		 * the caller's changes (null: no block). Drawn while the card shows a station.
 		 */
-		oneOff?:
-			| (OnePumpOffPlan & {
-					solveAll: { count: number; canRun: boolean; reason: string; hint: string };
-			  })
-			| null;
-		/** Add the cases (one undo step); the focus then moves to the block's Solve all. */
-		onaddoneoff?: () => void;
-		/** Solve every case not yet solved (the Scenarios menu's Solve all). */
-		onsolveall?: () => void;
+		lineups?: LineupsBlockProps | null;
 		/** The other cases with values, each in its state (slice 4d). */
 		otherCases?: readonly OtherGroupCase[];
 		/** "Also show the other cases' station duties" is ticked. */
@@ -199,9 +194,7 @@
 		oninspect,
 		flagText = (flag) => flag.message,
 		image,
-		oneOff = null,
-		onaddoneoff,
-		onsolveall,
+		lineups = null,
 		otherCases = [],
 		othersOn = false,
 		onothers,
@@ -370,7 +363,6 @@
 	let systemRetryButton: HTMLButtonElement | undefined = $state();
 	let othersCancelButton: HTMLButtonElement | undefined = $state();
 	let othersRetryButton: HTMLButtonElement | undefined = $state();
-	let solveAllButton: HTMLButtonElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let noCanvas = $state(false);
 	let showTable = $state(false);
@@ -418,16 +410,6 @@
 		if (!retry || document.activeElement !== retry) return;
 		void tick().then(() => (othersCancelButton ?? figure)?.focus());
 	});
-
-	/** "Add cases with one pump off": then the focus is on the block's Solve all (slice 4d). */
-	function addCases() {
-		if (!oneOff || oneOff.gate || oneOff.refusal || !oneOff.add.length) return;
-		onaddoneoff?.();
-		void tick().then(() => solveAllButton?.focus());
-	}
-	function solveAllCases(event: MouseEvent) {
-		if (oneOff?.solveAll.canRun && event.detail <= 1) onsolveall?.();
-	}
 
 	/** The chart chunk, kept once loaded (the image never waits for it again). */
 	let chartModule: typeof import('./chart-setup') | null = null;
@@ -1094,53 +1076,9 @@
 						The share of each pump and its loss on the way come with the group curve.
 					</p>
 				{/if}
-				{#if oneOff && stationShown}
-					<!-- One pump off (slice 4d): the cases of the base case with each running pump off. -->
-					<section class="space-y-1" aria-labelledby="{id}-one-off">
-						<h4 id="{id}-one-off" class="text-xs font-semibold">One pump off</h4>
-						{#if oneOff.gate}
-							<p class="text-xs text-slate-700">{oneOff.gate}</p>
-						{:else}
-							<p class="text-xs text-slate-700">{oneOff.about}</p>
-							{#each oneOff.notes as note, i (i)}
-								<p class="text-xs text-slate-600">{note}</p>
-							{/each}
-						{/if}
-						{#if !oneOff.gate || oneOff.showSolveAll}
-							<div class="flex flex-wrap items-center gap-2">
-								{#if !oneOff.gate}
-									<button
-										type="button"
-										class="btn"
-										aria-disabled={!!oneOff.refusal}
-										aria-describedby={oneOff.refusal ? `${id}-one-off-refusal` : undefined}
-										onclick={addCases}>{oneOff.label}</button
-									>
-								{/if}
-								{#if oneOff.showSolveAll}
-									<button
-										bind:this={solveAllButton}
-										type="button"
-										class="btn"
-										aria-disabled={!oneOff.solveAll.canRun}
-										aria-describedby="{id}-solve-all"
-										title={oneOff.solveAll.reason || undefined}
-										onclick={solveAllCases}
-									>
-										<Icon name="play" class="size-4" /> Solve all{oneOff.solveAll.count
-											? ` (${oneOff.solveAll.count})`
-											: ''}
-									</button>
-									<span id="{id}-solve-all" class="sr-only"
-										>{oneOff.solveAll.reason || oneOff.solveAll.hint}</span
-									>
-								{/if}
-							</div>
-						{/if}
-						{#if !oneOff.gate && oneOff.refusal}
-							<p id="{id}-one-off-refusal" class="hint">{oneOff.refusal}</p>
-						{/if}
-					</section>
+				{#if lineups && stationShown}
+					<!-- Add cases (D24 slice L1): the cases of the base case with pumps off. -->
+					<PumpLineupsBlock {...lineups} />
 				{/if}
 				{#if combinations && stationShown}
 					<!-- Running combinations (slice 4d): every case's members; a list below 640 px. -->
@@ -1211,6 +1149,9 @@
 											]}
 										>
 											<span class="block font-medium">{group.heading}</span>
+											{#if group.lineup}<span class="block text-xs text-slate-700"
+													>{group.lineup}</span
+												>{/if}
 											{#if group.detail}<span class="block text-xs text-slate-600"
 													>{group.detail}</span
 												>{/if}

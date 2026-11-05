@@ -9,13 +9,23 @@
 	the solve's, so its connection is named as solved once the results are out of date
 	(utils/results.ts resultsProject), as the Links table names it. For the base case, nothing: its
 	tab and the Compare cases tab beside it say it (proposal build-density.md §15).
+
+	The heading names the case by its stored name, as every other place does, and adds the name it
+	was solved under when a rename came after the solve (CLAUDE.md D24, proposal pump-lineups.md
+	§5): a rename leaves the case current (names are not in the hydraulic fingerprint), and a name
+	the app made follows its pumps without the user's hand.
 -->
 <script lang="ts">
 	import type { Override, ScenarioResult } from '$lib/api/types';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import { resultsProject } from '$lib/utils/results';
 	import { changeElement } from '$lib/utils/scenario-problems';
-	import { changeFieldLabel, changeTargetLabel, changeValueText } from '$lib/utils/scenarios';
+	import {
+		changeFieldLabel,
+		changeTargetLabel,
+		changeValueText,
+		findScenario
+	} from '$lib/utils/scenarios';
 
 	let { scenario }: { scenario: ScenarioResult | null } = $props();
 	const ws = useWorkspace();
@@ -23,6 +33,14 @@
 
 	const applied = $derived(scenario?.overrides.filter((o) => o.state === 'applied') ?? []);
 	const ignored = $derived(scenario?.overrides.filter((o) => o.state !== 'applied') ?? []);
+	/** The case's stored name (the response's when it is no longer stored). */
+	const name = $derived(
+		scenario ? (findScenario(ws.store.project, scenario.id)?.name ?? scenario.name) : ''
+	);
+	/** The name it was solved under, when a rename came after the solve (D24, §5). */
+	const solvedUnder = $derived(
+		scenario && name !== scenario.name ? ` (solved as «${scenario.name}»)` : ''
+	);
 	/** The project as it was solved (the base and its scenarios as sent), for fields and units. */
 	const solvedAs = $derived(ws.store.solvedProject ?? ws.labelsProject);
 	/** "Pipe 2 of A → B": a pipe by the connection as solved, its number being the solve's. */
@@ -50,7 +68,8 @@
 		aria-labelledby="{id}-title"
 	>
 		<h3 id="{id}-title" class="font-semibold">
-			Scenario: {scenario.name} <span class="font-mono text-xs font-normal">({scenario.id})</span>
+			Scenario: {name}
+			<span class="font-mono text-xs font-normal">({scenario.id})</span>{solvedUnder}
 		</h3>
 		{#if scenario.description}
 			<p class="break-words whitespace-pre-line">{scenario.description}</p>

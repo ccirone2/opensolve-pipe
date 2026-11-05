@@ -1,296 +1,59 @@
 /**
- * One pump off, drawn together (CLAUDE.md D21 slice 4d, proposal pump-groups.md §8 and §17): the
- * Pumps together card's N−1 for a parallel station.
+ * One pump off, drawn together (CLAUDE.md D21 slice 4d, proposal pump-groups.md §8 and §17), with
+ * pump lineups (CLAUDE.md D24 slice L1, proposal pump-lineups.md §7): the Pumps together card's
+ * other cases.
  *
- * - "Add cases with one pump off": one D15 scenario per member running in the base case, each the
- *   base with that pump's `status` off and nothing else (the proposal's single override, always
- *   relative to the base, so it is offered only while the base case is shown and current). A
- *   member whose case exists (a scenario whose only change is that) is skipped, a member on but
- *   held at zero flow gets none (with it off the base's state is the same), and the add is refused
- *   past the schema's scenario limit with the count.
+ * - The cases the card's Add cases block makes are pump-lineups.ts's lineupPlan (By number
+ *   running, or Each pump off: 4d's cases, whose existing case is found by sameCase and whose
+ *   idle member, on but carrying no flow, is read from its flow), drawn by PumpLineupsBlock.
  * - Other cases' station duties: each from that case's own group-curve answer (never computed
  *   here), drawn as a numbered ring only when its station is the one shown; a ring is called a
  *   point of the group system curve shown only when that case, as solved, is the same as this one
  *   outside the station (hydraulicFingerprint of each project without the station's interior, the
  *   design checks and the library entries no element outside refers to: D21, the curve depends on
  *   nothing inside), its flow is above zero, the curve has a rise at the computed flows on both
- *   sides of it, and the shown case's own system duty check agrees (D13).
+ *   sides of it, and the shown case's own system duty check agrees (D13). The chart takes the
+ *   cases in lineupChartPriority's order (one lineup of each number running first), at most
+ *   MAX_GROUP_CASES.
  * - Running combinations: every case's members, with the group table's cell rules applied to that
- *   case's own solve (Compare's rule says which responses have values), and the extremes over the
- *   current cases (screen only, never in the image or the export: D17).
+ *   case's own solve (Compare's rule says which responses have values), a line per case saying
+ *   which members carry flow, are on and carry none, are off or have no result (read from the
+ *   solve, never from the name; D24 §7.10), and the extremes over the current cases (screen
+ *   only, never in the image or the export: D17).
  *
  * Names need not be unique: two members of one name are told apart by their ids wherever words
- * alone name them (the cases made, the block's notes, Running combinations' row headers, the
- * extremes; memberLabels).
+ * alone name them (the cases made, the block's notes, Running combinations' row headers and
+ * lines, the extremes; memberLabels).
  *
  * Pure: every value is the API's; the store's fingerprint is passed in (no util imports the store).
  */
 import type {
 	Flag,
-	Override,
 	Project,
 	PumpGroupCurveResponse,
 	PumpGroupStation,
-	Scenario,
 	SolveResponse,
 	UnitPreferences
 } from '../api/types';
 import type { CaseStatus, GroupCurveState, GroupSystemCurveState } from '../state/project.svelte';
 import { CHECK_TITLES, OUTCOME_ORDER, OUTCOME_TITLES } from './design-checks';
 import type { Calculating } from './goal-seek';
-import { componentById } from './graph';
 import { canonicalJson } from './json';
 import { CASE_STATUS_LABELS } from './labels';
 import { andList, dutyFlow, slotStyle, stationPortWords, type GroupSlot } from './pump-group-chart';
 import { MAX_GROUP_PUMPS, pressureControlOnly, refusalWords, wordsText } from './pump-groups';
+import { carriesFlow, lineupChartPriority, memberLabels } from './pump-lineups';
 import { Formatter, flagsForElement, pumpStatusLabel, type Column } from './results';
-import {
-	findScenario,
-	makeOverride,
-	MAX_SCENARIOS,
-	newScenarioId,
-	overridesOf,
-	sameValue,
-	SCENARIO_NAME_LIMIT,
-	scenariosOf,
-	withScenarios,
-	type CaseId
-} from './scenarios';
+import type { CaseId } from './scenarios';
 
 export { DUTY_CLAIM_RULE } from './pump-group-chart';
+export { addedNotice, memberLabels, offName, offOverride } from './pump-lineups';
 
-/** Other cases on the group chart at once: every case with one pump off of a full group. */
+/**
+ * Other cases on the group chart at once: every case with one pump off of a full group, and
+ * every number running of one (N − 1 ≤ 5; D24 §7.9).
+ */
 export const MAX_GROUP_CASES = MAX_GROUP_PUMPS;
-
-// ---------------------------------------------------------------------------------------------
-// The cases with one pump off
-// ---------------------------------------------------------------------------------------------
-
-/** The one change of a case with one pump off: that pump's status off. */
-export function offOverride(pumpId: string): Override {
-	return makeOverride({ kind: 'component', componentId: pumpId }, 'status', 'off');
-}
-
-/** `scenario` is the case with `pumpId` off: its only change is that pump's status off. */
-export function isOnePumpOff(scenario: Scenario, pumpId: string): boolean {
-	const overrides = overridesOf(scenario);
-	return overrides.length === 1 && sameValue(overrides[0], offOverride(pumpId));
-}
-
-/**
- * "Pump PA off", or with the pump's id when another member has its name ("Booster pump (PA)
- * off"), the name cut to the scenario name limit as copyName cuts (never the id).
- */
-export function offName(pumpName: string, id?: string): string {
-	const suffix = id === undefined ? ' off' : ` (${id}) off`;
-	return pumpName.length + suffix.length <= SCENARIO_NAME_LIMIT
-		? `${pumpName}${suffix}`
-		: `${pumpName.slice(0, SCENARIO_NAME_LIMIT - suffix.length)}${suffix}`;
-}
-
-/**
- * Each member's name in words, by id: its name, with its id after it where another member has the
- * same name ("Booster pump (PA)"), since names need not be unique (a duty and a standby unit often
- * share one).
- */
-export function memberLabels(
-	members: readonly { id: string; name: string }[]
-): Map<string, { name: string; shared: boolean }> {
-	const count = new Map<string, number>();
-	for (const m of members) count.set(m.name, (count.get(m.name) ?? 0) + 1);
-	return new Map(
-		members.map((m) => {
-			const shared = (count.get(m.name) ?? 0) > 1;
-			return [m.id, { name: shared ? `${m.name} (${m.id})` : m.name, shared }];
-		})
-	);
-}
-
-export interface OnePumpOffInput {
-	/** The stored project (its scenarios, names and component order). */
-	project: Project;
-	/** The case shown (ws.store.activeCase). */
-	shownCase: CaseId;
-	/** The station the card shows (stationResponse(...)?.station); null: no block. */
-	station: PumpGroupStation | null;
-	/** The card's members (groupMembers). */
-	memberIds: readonly string[];
-	/** The base case's response by Compare's rule, and whether it is out of date. */
-	base: { response: SolveResponse; stale: boolean } | null;
-}
-
-export interface OnePumpOffPlan {
-	/** Why the action is not offered (null: offered). */
-	gate: string | null;
-	/** What the action makes, when offered. */
-	about: string | null;
-	/** The cases to add: the pump, the id it will have (on the growing project) and its name. */
-	add: { pumpId: string; id: string; name: string }[];
-	/** The members whose case exists, with that scenario. */
-	existing: { pumpId: string; scenarioId: string; scenarioName: string }[];
-	/** Members on but held at zero flow in the base case: no case. */
-	idle: string[];
-	/** The idle and "has its case already" sentences, in member order (keyed by index). */
-	notes: string[];
-	/** Why the add is refused: nothing to add, or past the scenario limit (null: it can be made). */
-	refusal: string | null;
-	/** "Add cases with one pump off (2)"; no count when there is nothing to add. */
-	label: string;
-	/** The block's Solve all is drawn (offered, or gates 3–5: the base case shown). */
-	showSolveAll: boolean;
-}
-
-const LABEL = 'Add cases with one pump off';
-
-/**
- * What "Add cases with one pump off" would make now, or why it is not offered (gates in order:
- * a parallel station; the base case shown; its results current; two members or more on; one
- * running). Without a station, nothing (the block is not drawn).
- */
-export function onePumpOffPlan(input: OnePumpOffInput): OnePumpOffPlan {
-	const { project, shownCase, station, base } = input;
-	const plan = (gate: string | null, showSolveAll: boolean): OnePumpOffPlan => ({
-		gate,
-		about: null,
-		add: [],
-		existing: [],
-		idle: [],
-		notes: [],
-		refusal: null,
-		label: LABEL,
-		showSolveAll
-	});
-	if (!station) return plan(null, false);
-	if (station.arrangement === 'series') {
-		return plan(
-			'Cases with one pump off are offered for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.',
-			false
-		);
-	}
-	if (station.arrangement === 'mixed') {
-		return plan(
-			'Cases with one pump off are offered for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.',
-			false
-		);
-	}
-	if (shownCase !== null) {
-		const shown = findScenario(project, shownCase)?.name ?? shownCase;
-		return plan(
-			`Cases with one pump off are made from the base case: show the base case to add them. To study ${shown} with a pump off, duplicate it in Scenarios and set that pump off there.`,
-			false
-		);
-	}
-	if (!base || base.stale) {
-		return plan(
-			"The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now.",
-			true
-		);
-	}
-	const order = new Map(project.components.map((c, i) => [c.id, i]));
-	const members = [...input.memberIds].sort(
-		(a, b) => (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity)
-	);
-	const labels = memberLabels(
-		members.map((id) => ({ id, name: componentById(project, id)?.name ?? id }))
-	);
-	const name = (id: string) => labels.get(id)?.name ?? id;
-	const results = base.response.solvedState.pumpResults;
-	const on = members.filter((id) => results[id] && results[id].status !== 'off');
-	if (on.length < 2) {
-		const off = members.filter((id) => results[id]?.status === 'off').map(name);
-		return plan(
-			`Needs two or more of these pumps switched on in the base case: ${andList(off)} ${off.length === 1 ? 'is' : 'are'} off.`,
-			true
-		);
-	}
-	const running = members.filter((id) => results[id]?.status === 'running');
-	if (!running.length) {
-		return plan(
-			'No pump of the group runs in the base case, so switching one off changes nothing.',
-			true
-		);
-	}
-	const scenarios = scenariosOf(project);
-	const notes: string[] = [];
-	const existing: OnePumpOffPlan['existing'] = [];
-	const idle: string[] = [];
-	const wanted: { pumpId: string; name: string }[] = [];
-	for (const id of members) {
-		const status = results[id]?.status;
-		if (status === 'no_flow') {
-			idle.push(id);
-			notes.push(
-				`${name(id)} carries no flow in the base case, so with it off the base case's state is the same: no case is made for it.`
-			);
-		} else if (status === 'running') {
-			const found = scenarios.find((s) => isOnePumpOff(s, id));
-			if (found) {
-				existing.push({ pumpId: id, scenarioId: found.id, scenarioName: found.name });
-				notes.push(`${name(id)} has its case already: ${found.name}.`);
-			} else {
-				const plain = componentById(project, id)?.name ?? id;
-				wanted.push({ pumpId: id, name: offName(plain, labels.get(id)?.shared ? id : undefined) });
-			}
-		}
-	}
-	const ids = newIds(project, wanted.length);
-	const add = wanted.map((w, i) => ({ ...w, id: ids[i]! }));
-	const total = scenarios.length + add.length;
-	const refusal = !add.length
-		? `Every case with one pump off already exists: ${andList(existing.map((e) => e.scenarioName))}.`
-		: total > MAX_SCENARIOS
-			? `Adding ${add.length} ${add.length === 1 ? 'case' : 'cases'} would make ${total} scenarios; a project holds at most ${MAX_SCENARIOS} scenarios.`
-			: null;
-	return {
-		gate: null,
-		about: `Makes one scenario per pump running in the base case (${andList(running.map(name))}): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.`,
-		add,
-		existing,
-		idle,
-		notes,
-		refusal,
-		label: add.length ? `${LABEL} (${add.length})` : LABEL,
-		showSolveAll: true
-	};
-}
-
-/** The ids `count` new scenarios take, each the first free one on the growing project. */
-function newIds(project: Project, count: number): string[] {
-	const ids: string[] = [];
-	let next = project;
-	for (let i = 0; i < count; i++) {
-		const id = newScenarioId(next);
-		ids.push(id);
-		next = withScenarios(next, [...scenariosOf(next), { id, name: id, overrides: [] }]);
-	}
-	return ids;
-}
-
-/**
- * The project with one case per pump added, in order: `{id, name, overrides: [offOverride]}`,
- * each id the first free one on the growing project (S1, S2, …), `name` the scenario's name
- * (offName of the pump's), no description.
- */
-export function withOnePumpOffCases(
-	project: Project,
-	pumps: readonly { pumpId: string; name: string }[]
-): Project {
-	let next = project;
-	for (const pump of pumps) {
-		const scenario: Scenario = {
-			id: newScenarioId(next),
-			name: pump.name,
-			overrides: [offOverride(pump.pumpId)]
-		};
-		next = withScenarios(next, [...scenariosOf(next), scenario]);
-	}
-	return next;
-}
-
-/** The notice after the add. */
-export function addedNotice(names: readonly string[]): string {
-	return `Added ${names.length} ${names.length === 1 ? 'case' : 'cases'} with one pump off: ${andList(names)}. Solve all solves every case not yet solved; Undo removes them.`;
-}
 
 // ---------------------------------------------------------------------------------------------
 // The rest of the network, and whether a ring is a point of the group system curve shown
@@ -416,28 +179,9 @@ export function dutyClaim(input: {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The keys in the order the chart takes them: every case with one pump off of a current member
- * first (a scenario whose only change is that member's status off), in case order, then every
- * other case, in case order.
- */
-export function chartPriority(
-	keys: readonly { key: string; caseId: CaseId }[],
-	project: Project,
-	memberIds: readonly string[]
-): string[] {
-	const oneOff = (caseId: CaseId) => {
-		const scenario = findScenario(project, caseId);
-		return !!scenario && memberIds.some((m) => isOnePumpOff(scenario, m));
-	};
-	return [
-		...keys.filter((k) => oneOff(k.caseId)).map((k) => k.key),
-		...keys.filter((k) => !oneOff(k.caseId)).map((k) => k.key)
-	];
-}
-
-/**
- * The keys of the cases on the chart: chartPriority's order without the cases unticked under
- * "Cases on this chart", at most MAX_GROUP_CASES, so a case unticked lets the next one in.
+ * The keys of the cases on the chart: lineupChartPriority's order (D24 §4.6) without the cases
+ * unticked under "Cases on this chart", at most MAX_GROUP_CASES, so a case unticked lets the next
+ * one in.
  */
 export function chartKeys(
 	keys: readonly { key: string; caseId: CaseId }[],
@@ -445,7 +189,7 @@ export function chartKeys(
 	memberIds: readonly string[],
 	unticked: readonly string[]
 ): string[] {
-	return chartPriority(keys, project, memberIds)
+	return lineupChartPriority(keys, project, memberIds)
 		.filter((key) => !unticked.includes(key))
 		.slice(0, MAX_GROUP_CASES);
 }
@@ -458,7 +202,7 @@ export interface OtherGroupCase {
 	stale: boolean;
 	/** On the chart: ticked under "Cases on this chart" and within the limit. */
 	onChart: boolean;
-	/** The ring number (case order among the cases drawn); null when not drawn. */
+	/** The ring number (the order of `valued` among the cases drawn); null when not drawn. */
 	number: number | null;
 	state:
 		| 'unticked'
@@ -481,7 +225,10 @@ export interface OtherGroupCase {
 }
 
 export interface OtherCasesInput {
-	/** The other cases with values (Compare's rule), in case order. */
+	/**
+	 * The other cases with values (Compare's rule), in the chart's order (lineupChartPriority's,
+	 * unticked ones in their place; D24 §7.9): listed and numbered in this order.
+	 */
 	valued: readonly {
 		key: string;
 		caseId: CaseId;
@@ -534,7 +281,7 @@ const CALCULATION_WORDS: Readonly<Record<NonNullable<Calculating>, string>> = {
 	goalSeek: 'the goal seek'
 };
 
-/** Each other case with values, in case order, in its state with its words and its ring. */
+/** Each other case with values, in the order given, in its state with its words and its ring. */
 export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 	const { station, project } = input;
 	let number = 0;
@@ -682,6 +429,11 @@ export interface CombinationGroup {
 	key: string;
 	/** "Pump PA off (out of date) · ring 1". */
 	heading: string;
+	/**
+	 * The lineup line (D24 §7.10), read from the case's solve: "2 of 4 carrying flow: Pump P1 and
+	 * Pump P2; off: Pump P3 and Pump P4"; null without values.
+	 */
+	lineup: string | null;
 	/** The second line: the station's duty, a state's words, or Compare's words without values. */
 	detail: string | null;
 	stale: boolean;
@@ -701,6 +453,37 @@ export const INVALID_MARKED = ['flow', 'head', 'shaftPower', 'npshMargin'] as co
 /** A case's response has values (a converged solve). */
 const hasValues = (response: SolveResponse | null): response is SolveResponse =>
 	!!response && response.success && response.solvedState.converged;
+
+/**
+ * The lineup line of a case with values (D24 §7.10): `{r} of {n} carrying flow: {A and B}; on,
+ * carrying no flow: {C}; off: {D}; no result: {E}`, each part only when it applies and the list
+ * after the count only when r > 0. A member carries flow when on with |operatingFlow| above
+ * DUTY_CHECK_FLOOR (carriesFlow), whatever its state word: one on behind a closed valve reads
+ * `running` at zero flow and is "on, carrying no flow". It never says "running", which in a
+ * lineup's name means switched on.
+ */
+function lineupLine(
+	members: readonly { id: string }[],
+	response: SolveResponse,
+	name: (id: string) => string
+): string {
+	const results = response.solvedState.pumpResults;
+	const carrying: string[] = [];
+	const idle: string[] = [];
+	const off: string[] = [];
+	const none: string[] = [];
+	for (const { id } of members) {
+		const r = results[id];
+		(!r ? none : r.status === 'off' ? off : carriesFlow(r) ? carrying : idle).push(name(id));
+	}
+	const count = `${carrying.length} of ${members.length} carrying flow`;
+	return [
+		carrying.length ? `${count}: ${andList(carrying)}` : count,
+		...(idle.length ? [`on, carrying no flow: ${andList(idle)}`] : []),
+		...(off.length ? [`off: ${andList(off)}`] : []),
+		...(none.length ? [`no result: ${andList(none)}`] : [])
+	].join('; ');
+}
 
 /** "Not met: Operating region, Motor power · Met: NPSH margin", the API's results copied. */
 function checksWords(response: SolveResponse, pumpId: string): string {
@@ -757,6 +540,7 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 			return {
 				key: c.key,
 				heading,
+				lineup: null,
 				detail:
 					c.status === 'not_converged'
 						? 'Did not converge: no values shown'
@@ -797,7 +581,15 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 				flags
 			};
 		});
-		return { key: c.key, heading, detail: c.station, stale, values: true, rows };
+		return {
+			key: c.key,
+			heading,
+			lineup: lineupLine(members, response, (id) => labels.get(id)?.name ?? id),
+			detail: c.station,
+			stale,
+			values: true,
+			rows
+		};
 	});
 	return { columns, groups };
 }

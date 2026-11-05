@@ -139,6 +139,7 @@ def test_every_address_is_read() -> None:
     # The modules this guard was written for are among those read.
     assert ("10.76.", False) in found["unit/test_pump_groups_one_off.py"]
     assert ("10.77.", False) in found["reference/test_project_library.py"]
+    assert ("10.78.", False) in found["unit/test_pump_lineups.py"]
     assert len(found) > 20
 
 

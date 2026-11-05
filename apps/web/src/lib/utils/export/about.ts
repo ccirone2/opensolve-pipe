@@ -19,6 +19,7 @@ import { flagText } from '../flag-text';
 import { goalSeekReport, outcomeText } from '../goal-seek';
 import { CASE_STATUS_LABELS } from '../labels';
 import { groupMethodsLines } from '../pump-group-chart';
+import { solvedCaseWords } from '../pump-lineups';
 import { compareVersions } from '../results';
 import { findScenario } from '../scenarios';
 import { methodsText, solveStatusLines } from '../trace';
@@ -595,7 +596,11 @@ function groupMethodLines(c: CaseView): string[] {
 	return lines;
 }
 
-/** Each case's methods text, exactly as the Methods view's Copy as text gives it (§2.8). */
+/**
+ * Each case's methods text, exactly as the Methods view's Copy as text gives it (§2.8). A scenario
+ * is named as the other sheets name it, by its stored name and id, with the name it was solved
+ * under when a rename came after the solve (CLAUDE.md D24, proposal pump-lineups.md §5, §6).
+ */
 function methodsTexts(ctx: ExportContext): { c: CaseView; text: string }[] {
 	return ctx.responded.map((c) => {
 		const response = c.response!;
@@ -605,7 +610,7 @@ function methodsTexts(ctx: ExportContext): { c: CaseView; text: string }[] {
 			...(ctx.hasScenarios
 				? {
 						caseName: response.scenario
-							? `scenario ${response.scenario.name} (${response.scenario.id})`
+							? solvedCaseWords(c.input.name, response.scenario)
 							: 'base case'
 					}
 				: {}),

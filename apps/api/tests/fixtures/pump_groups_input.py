@@ -59,6 +59,20 @@ scenario id, ``{solve, groupCurve, systemCurve}``, the same three requests with 
   station flow); with PB off, PA runs beyond its curve data.
 - ``one-off-dead-headed``: ``dead-headed`` with S1 "Pump PA off" as the card makes it: PB, held
   at zero flow in the base case, runs with PA off.
+- ``lineups`` (pump lineups, D24; docs/proposals/pump-lineups.md §10.1): ``lineups_project()``,
+  four ``curve_a`` pumps P1 to P4 on Crane-tee headers, each leg with a swing check valve, on
+  CoolProp water at 20 °C, every pump carrying flow in the base case; its scenarios exactly as
+  the card's "Add cases" writes them, By number running in the default stop order (S1 to S3: P4,
+  then P3 and P4, then P2 to P4 off), then Each pump off (S4 to S6: P1, P2, P3 off; P4's case is
+  S1 already), and two for slice L3: S7 "Pump P1 at 90 % speed" (the station differs inside
+  other than in which pumps are on) and S8 "Delivery tank 5 m higher" (the same inside).
+- ``lineups-closed-leg``: ``closed_leg_project()``, PA and PB between two ideal tees with a gate
+  valve VB on PB's discharge isolated in the base case, so PB is on and carries no flow
+  (``running`` at exactly zero flow); S1 "Pump PB off", where PB's leg is closed off on both
+  sides and PB has no result.
+
+The lineup cases are asked from a client address of their own (``_lineups_client``): with them
+the fixture sends more requests than the rate limit lets one address send in a minute.
 """
 
 import copy
@@ -68,10 +82,21 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from opensolve_pipe.main import app
+from opensolve_pipe.models.fluids import BuiltinFluid
 from tests.differential.corpus import items, load
 from tests.reference import derivations_pump_groups as dpg
 from tests.reference import derivations_pumps as dp
-from tests.reference.case_format import control_valve
+from tests.reference.case_format import (
+    check_valve,
+    control_valve,
+    crane_tee,
+    ideal_tee,
+    isolation_valve,
+    make_project,
+    pump,
+    reservoir,
+)
+from tests.reference.line import Line
 
 GENERATED_BY = "apps/api/tests/fixtures/pump_groups_input.py"
 
@@ -93,6 +118,11 @@ US_UNITS = {
 
 def _client() -> TestClient:
     return TestClient(app, client=("192.0.2.252", 50000))
+
+
+def _lineups_client() -> TestClient:
+    """The lineup cases' client: the rate limit (60 requests a minute) counts by address."""
+    return TestClient(app, client=("192.0.2.249", 50000))
 
 
 def _dump(project: Any) -> dict[str, Any]:
@@ -298,6 +328,105 @@ def fcv_outside_project() -> dict[str, Any]:
     fcv = _parallel()
     _split(fcv, "L2", _dump(control_valve("FC", 1.0, "fcv", 0.06)), "inlet", "outlet")
     return fcv
+
+
+WATER_20C = BuiltinFluid(kind="builtin", fluid_id="water", temperature=293.15)
+"""CoolProp water at 20 °C (it has a vapor pressure, so NPSH margins exist)."""
+
+LINEUP_HEADER = Line(0.2027, 1.5)
+"""The headers between neighbouring tees of ``lineups`` (test input)."""
+LINEUP_OUTLET = Line(0.1541, 150.0, (("elbow_90_lr", 2), ("exit", 1)))
+"""``lineups``' delivery line to the upper tank (test input)."""
+CLOSED_LEG_PIPE = Line(0.1023, 5.0)
+"""Every pipe of ``lineups-closed-leg`` (test input)."""
+
+
+def lineups_project() -> dict[str, Any]:
+    """Four ``curve_a`` pumps on a Crane-tee ladder (the pump lineups proposal's measurement
+    station, §3.3 and §10.1; the derivations' ``Ladder`` layout): R1 → L0 → TS1:run_inlet; leg k
+    leaves TSk:branch (k < 4) and TS3:run_outlet feeds leg 4; TSk:run_outlet → HSk →
+    TS(k+1):run_inlet. Leg k: a suction pipe, Pk, a pipe, a swing check valve CVk and a pipe to
+    TDk:branch (k < 4), leg 4 to TD3:run_inlet; TD(k+1):run_outlet → HDk → TDk:run_inlet;
+    TD1:run_outlet → Lout → R2, whose level is 20 m above R1's, the pumps 3 m above R1's level.
+    Every dimension is a test input; the efficiency points are ``one_off_project``'s,
+    illustrative."""
+    n = 4
+    curve = dp.curve_a()
+    components: list[Any] = [reservoir("R1", 0.0, 1.0)]
+    components += [crane_tee(f"TS{k + 1}", 0.5) for k in range(n - 1)]
+    connections = [dpg.LADDER_INLET.connect("L0", "R1:port_1", "TS1:run_inlet")]
+    starts = [f"TS{k + 1}:branch" for k in range(n - 1)] + [f"TS{n - 1}:run_outlet"]
+    ends = [f"TD{k + 1}:branch" for k in range(n - 1)] + [f"TD{n - 1}:run_inlet"]
+    for k in range(n - 2):
+        connections += [
+            LINEUP_HEADER.connect(f"HS{k + 1}", f"TS{k + 1}:run_outlet", f"TS{k + 2}:run_inlet"),
+            LINEUP_HEADER.connect(f"HD{k + 1}", f"TD{k + 2}:run_outlet", f"TD{k + 1}:run_inlet"),
+        ]
+    for k in range(n):
+        pid, cv = f"P{k + 1}", f"CV{k + 1}"
+        components += [pump(pid, 4.0, curve.id), check_valve(cv, 4.0, "check")]
+        connections += [
+            dpg.SUCTION_LEG.connect(f"S{k + 1}", starts[k], f"{pid}:suction"),
+            dpg.DISCHARGE_TO_CV.connect(f"D{k + 1}a", f"{pid}:discharge", f"{cv}:inlet"),
+            dpg.DISCHARGE_FROM_CV.connect(f"D{k + 1}b", f"{cv}:outlet", ends[k]),
+        ]
+    components += [crane_tee(f"TD{k + 1}", 1.0) for k in range(n - 1)]
+    components.append(reservoir("R2", 19.0, 2.0))
+    connections.append(LINEUP_OUTLET.connect("Lout", "TD1:run_outlet", "R2:port_1"))
+    project = make_project(
+        "lineups",
+        "Four pumps on Crane tees",
+        WATER_20C,
+        components,
+        connections,
+        pump_library=[curve],
+    )
+    data = _dump(project)
+    data["pumpLibrary"][0]["efficiencyCurve"] = copy.deepcopy(
+        one_off_project()["pumpLibrary"][0]["efficiencyCurve"]
+    )
+    return data
+
+
+def closed_leg_project() -> dict[str, Any]:
+    """PA and PB between two ideal tees (the pump lineups review's probe, §3.5): R1 → L1 → T1;
+    T1:run_outlet → a1 → PA → a2 → T2:run_inlet; T1:branch → b1 → PB → b2 → VB (a gate valve,
+    isolated in the base case) → b3 → T2:branch; T2:run_outlet → L2 → R2. PB is on and carries
+    no flow. Every dimension is a test input."""
+    curve = dp.curve_a()
+    pipe = CLOSED_LEG_PIPE
+    components: list[Any] = [
+        reservoir("R1", 0.0, 1.0),
+        ideal_tee("T1", 0.0),
+        pump("PA", 0.0, curve.id),
+        pump("PB", 0.0, curve.id),
+        isolation_valve("VB", 0.0, "gate", status="isolated"),
+        ideal_tee("T2", 0.0),
+        reservoir("R2", 25.0, 2.0),
+    ]
+    connections = [
+        pipe.connect("L1", "R1:port_1", "T1:run_inlet"),
+        pipe.connect("a1", "T1:run_outlet", "PA:suction"),
+        pipe.connect("a2", "PA:discharge", "T2:run_inlet"),
+        pipe.connect("b1", "T1:branch", "PB:suction"),
+        pipe.connect("b2", "PB:discharge", "VB:inlet"),
+        pipe.connect("b3", "VB:outlet", "T2:branch"),
+        pipe.connect("L2", "T2:run_outlet", "R2:port_1"),
+    ]
+    project = make_project(
+        "lineups-closed-leg",
+        "PB behind a closed valve",
+        WATER_20C,
+        components,
+        connections,
+        pump_library=[curve],
+    )
+    return _dump(project)
+
+
+def _carries_flow(result: dict[str, Any]) -> bool:
+    """On, with its flow above the duty check's floor (10⁻⁶ m³/s; pump-lineups.md §3.5)."""
+    return bool(result["status"] != "off" and abs(result["operatingFlow"]) > 1.0e-6)
 
 
 def generate() -> dict[str, Any]:
@@ -529,6 +658,75 @@ def generate() -> dict[str, Any]:
     assert case["solve"]["solvedState"]["pumpResults"]["PB"]["status"] == "no_flow"
     s1 = case["scenarioCases"]["S1"]["solve"]["solvedState"]
     assert s1["pumpResults"]["PB"]["status"] == "running", s1["pumpResults"]["PB"]
+    cases.append(case)
+
+    client = _lineups_client()
+    lineups = lineups_project()
+    members = ["P1", "P2", "P3", "P4"]
+
+    def lineup(sid: str, name: str, stopped: list[str]) -> dict[str, Any]:
+        return {"id": sid, "name": name, "overrides": [_off(p) for p in stopped]}
+
+    lineups["scenarios"] = [
+        lineup("S1", "3 of 4 running (Pump P4 off)", ["P4"]),
+        lineup("S2", "2 of 4 running (Pump P3, Pump P4 off)", ["P3", "P4"]),
+        lineup("S3", "1 of 4 running (Pump P2, Pump P3, Pump P4 off)", ["P2", "P3", "P4"]),
+        lineup("S4", "Pump P1 off", ["P1"]),
+        lineup("S5", "Pump P2 off", ["P2"]),
+        lineup("S6", "Pump P3 off", ["P3"]),
+        {
+            "id": "S7",
+            "name": "Pump P1 at 90 % speed",
+            "overrides": [
+                {"kind": "component", "componentId": "P1", "field": "speed", "value": 0.9}
+            ],
+        },
+        {
+            "id": "S8",
+            "name": "Delivery tank 5 m higher",
+            "overrides": [
+                {"kind": "component", "componentId": "R2", "field": "liquidLevel", "value": 7.0}
+            ],
+        },
+    ]
+    case = _case(
+        client,
+        "lineups",
+        "Four pumps on Crane tees; by number running, each pump off, one pump's speed and the "
+        "delivery tank 5 m higher",
+        lineups,
+        members,
+        system=200,
+        scenarios=[s["id"] for s in lineups["scenarios"]],
+    )
+    results = case["solve"]["solvedState"]["pumpResults"]
+    assert all(_carries_flow(results[m]) for m in members), results
+    base_station = case["groupCurve"]["body"]["station"]
+    for sid, scenario_case in case["scenarioCases"].items():
+        assert scenario_case["groupCurve"]["status"] == 200, (sid, scenario_case["groupCurve"])
+        assert scenario_case["groupCurve"]["body"]["station"] == base_station, sid
+        assert scenario_case["systemCurve"]["status"] == 200, (sid, scenario_case["systemCurve"])
+    cases.append(case)
+
+    closed = closed_leg_project()
+    closed["scenarios"] = [lineup("S1", "Pump PB off", ["PB"])]
+    case = _case(
+        client,
+        "lineups-closed-leg",
+        "PA and PB between ideal tees, PB's discharge valve isolated: PB on at zero flow; PB off",
+        closed,
+        ["PA", "PB"],
+        system=200,
+        scenarios=["S1"],
+    )
+    pb = case["solve"]["solvedState"]["pumpResults"]["PB"]
+    assert pb["status"] == "running", pb
+    assert pb["operatingFlow"] == 0.0, pb
+    assert _carries_flow(case["solve"]["solvedState"]["pumpResults"]["PA"])
+    # With PB off too, its leg is closed off on both sides: no result for PB (ISOLATED_SECTION).
+    s1 = case["scenarioCases"]["S1"]["solve"]["solvedState"]["pumpResults"]
+    assert "PB" not in s1, s1
+    assert _carries_flow(s1["PA"]), s1["PA"]
     cases.append(case)
 
     return {"generatedBy": GENERATED_BY, "cases": cases}

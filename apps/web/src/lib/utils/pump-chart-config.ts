@@ -893,6 +893,10 @@ export function pumpGroupConfig(
 			label: compact ? c.shortLabel : c.label,
 			yAxisID: 'y',
 			data: joinSegments(runs),
+			// Parsed, so Chart.js finds the flow falls along the curve (rise order): with the
+			// chart's `parsing: false` it takes the data as sorted by x and, where x max cuts the
+			// curve (D24 §9.4), draws only the index range a binary search finds (library-facts.md).
+			parsing: { xAxisKey: 'x', yAxisKey: 'y' },
 			borderColor: SLATE,
 			backgroundColor: SLATE,
 			borderWidth: 1.5,

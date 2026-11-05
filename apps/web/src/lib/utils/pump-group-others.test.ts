@@ -1955,6 +1955,60 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		expect(clips(plain)).toEqual(clips(unclipped));
 	});
 
+	it('draws each other case’s curve to the plot’s edge where x max cuts it, every point inside drawn (Chart.js draws it)', () => {
+		// Each curve runs in rise order, so its flow falls (§9.2). Chart.js takes a line's data as
+		// sorted by x without its own parsing, and where x max is set it then draws only the index
+		// range a binary search finds: the base's curve lost all but its first two points with
+		// "1 of 4 running" shown (library-facts.md, Chart.js 4.5.1).
+		for (const [shown, xMax] of [
+			['S3', 100],
+			['S2', 120]
+		] as const) {
+			const { data } = lineupView(shown);
+			expect(data.xMax).toBe(xMax);
+			const chart = new Chart(
+				fakeCanvas(800, 500) as never,
+				{ ...config(data, { curveLabels: tools }), platform: BasicPlatform } as never
+			);
+			try {
+				// Drawn again with the same axes: Chart.js then updates only the range it draws.
+				chart.update();
+				const x = chart.scales.x!;
+				expect(x.max).toBe(xMax);
+				const family = chart.data.datasets.flatMap((d, i) =>
+					(d as unknown as Dataset).curveFamily === true ? [i] : []
+				);
+				let cut = 0;
+				for (const i of family) {
+					const label = `${chart.data.datasets[i]!.label} (${shown}, dataset ${i})`;
+					const points = chart.data.datasets[i]!.data as { x: number; y: number | null }[];
+					const meta = chart.getDatasetMeta(i);
+					const { _drawStart: start, _drawCount: count } = meta.controller as unknown as {
+						_drawStart: number;
+						_drawCount: number;
+					};
+					if (points.some((p) => p.x > xMax)) cut++;
+					// Each point inside the plot, and its neighbours, so the line reaches the edge.
+					const wanted = new Set(
+						points.flatMap((p, k) =>
+							p.y !== null && p.x >= x.min && p.x <= xMax ? [k - 1, k, k + 1] : []
+						)
+					);
+					for (const k of wanted) {
+						if (k < 0 || k >= points.length || points[k]!.y === null) continue;
+						expect(k, label).toBeGreaterThanOrEqual(start);
+						expect(k, label).toBeLessThan(start + count);
+						expect((meta.data[k] as unknown as { skip: boolean }).skip, label).toBe(false);
+					}
+				}
+				// Some curve is cut at x max, the base's (4 running) among them with S3 shown.
+				expect(cut).toBeGreaterThan(0);
+			} finally {
+				chart.destroy();
+			}
+		}
+	});
+
 	it('sets x min only when the other curves alone reach below zero flow', () => {
 		const { data } = lineupView('');
 		const below = data.otherCurves.flatMap((c) =>

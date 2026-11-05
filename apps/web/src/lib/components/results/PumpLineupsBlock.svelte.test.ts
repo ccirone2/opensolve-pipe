@@ -9,7 +9,10 @@
  * step with its notice, "Also show" ticked and the focus on Solve all, then each case solved with
  * its lineup line; the scenario limit; page state reset on load. Drawn alone from lineupPlan's
  * real plans: the preview's item kinds, the refusals, the gates, an idle pump and the names-count
- * sentence. Every string is §7.12's, word for word.
+ * sentence. Every string is §7.12's, word for word. D24 slice L2 (§8.1, §10.2 "The card"): the
+ * block's "Pump lineups table…" opens the Scenarios manager on Pump lineups showing the card's
+ * pumps only (on the fixture's `two-systems`, whose card holds PA and PB of six pumps), and is
+ * drawn under a gate too.
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -505,6 +508,46 @@ describe('the Add cases block in the workspace', () => {
 		expect(document.activeElement).not.toHaveAccessibleName(/^Solve all/);
 	});
 
+	it('“Pump lineups table…” opens the manager on Pump lineups, showing the card’s pumps only', async () => {
+		const two = solvedCase('two-systems');
+		const calls: string[] = [];
+		const solver: Solver = {
+			solve: async () => structuredClone(two.solve),
+			groupCurve: async (_project, ids, request) => {
+				calls.push(`${request?.curve ?? 'group'} ${ids.join(',')}`);
+				const sent = request?.curve === 'system' ? two.systemCurve! : two.groupCurve;
+				return structuredClone(sent.body as PumpGroupCurveResponse);
+			}
+		};
+		const ws = testWorkspace(withScenarios(structuredClone(two.project), []), { solver });
+		ws.pumpGroup = ['PA', 'PB'];
+		render(WorkspaceView, { workspace: ws });
+		await ws.solve();
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await waitFor(() => expect(calls).toEqual(['group PA,PB', 'system PA,PB']));
+		const button = inBlock().getByRole('button', { name: 'Pump lineups table…' });
+		await fireEvent.click(button);
+		const manager = await screen.findByRole('dialog', { name: 'Scenarios' });
+		expect(ws.managerTab).toBe('lineups');
+		expect(ws.managerPumps).toEqual(['PA', 'PB']);
+		expect(within(manager).getByRole('tab', { name: 'Pump lineups' })).toHaveAttribute(
+			'aria-selected',
+			'true'
+		);
+		const grid = within(manager).getByRole('grid', { name: 'Pumps on or off in each case' });
+		const headers = within(grid)
+			.getAllByRole('columnheader')
+			.map((h) => h.textContent?.replace(/\s+/g, ' ').trim());
+		expect(headers).toEqual(['Case', 'Pump PA PA', 'Pump PB PB']);
+		expect(manager).toHaveTextContent(
+			'Only the pumps on the Pumps together card are shown: Pump PA and Pump PB.'
+		);
+		// Done forgets the filter: the header's Scenarios shows every pump.
+		await fireEvent.click(within(manager).getByRole('button', { name: 'Done' }));
+		expect(ws.managerPumps).toBeNull();
+	});
+
 	it('resets the preset and the stop order when another project is loaded', async () => {
 		const { ws, calls } = setup(withoutScenarios());
 		await openCard(ws, calls);
@@ -644,6 +687,23 @@ describe('the Add cases block, drawn alone', () => {
 		expect(region()).toHaveTextContent(
 			'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.'
 		);
+	});
+
+	it('draws “Pump lineups table…” at its foot, under a gate too', async () => {
+		const ontable = vi.fn();
+		const series = (solvedCase('series').groupCurve.body as PumpGroupCurveResponse).station;
+		draw(planOn(lineups, { station: series }), { ontable });
+		expect(
+			alone()
+				.getAllByRole('button')
+				.map((b) => b.textContent?.trim())
+		).toEqual(['Pump lineups table…']);
+		await fireEvent.click(alone().getByRole('button', { name: 'Pump lineups table…' }));
+		expect(ontable).toHaveBeenCalledTimes(1);
+		document.body.innerHTML = '';
+		draw(planOn(lineups), { ontable });
+		const buttons = alone().getAllByRole('button');
+		expect(buttons.at(-1)).toHaveAccessibleName('Pump lineups table…');
 	});
 
 	it('reports the preset chosen, and a move, to the caller', async () => {

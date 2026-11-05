@@ -42,7 +42,8 @@ What the web app's layout is converging on, distilled from the owner's direction
 
 ### Accessibility is part of compact
 - Visually hidden (`sr-only`), not `display: none`, for anything that must stay in the accessibility tree (a list's "—" cell, a phone's heading row, a title the tab already shows).
-- A control's visible words are part of its accessible name (WCAG 2.5.3); targets ≥ 24 px (2.5.8); disclosures are native `<summary>`; axe-core runs in the e2e suite with disclosures open.
+- A control's visible words are part of its accessible name (WCAG 2.5.3), with one exception: **a switch's state word is its value, not its label; its name comes from its row and column headers** (`aria-labelledby`, the word `aria-hidden`, a test that no name holds it). Targets ≥ 24 px (2.5.8); disclosures are native `<summary>`; axe-core runs in the e2e suite with disclosures open.
+- **A matrix of toggles is a grid: one Tab stop, arrows between cells; a phone shows one row at a time with segments** (the Scenarios manager's Pump lineups, D24). `role="grid"` with explicit roles; the Tab stop is derived from the cell last wanted and clamped to the table, so an undo never leaves the grid without one; Home, End, Ctrl+Home and Ctrl+End; an arrow at an edge is not prevented. The focus goes back to the active cell after a press, an undo or a rename, and its whole ring stays clear of sticky headers. On a phone a picker chooses the row, and its cells are Build's segments with Changed · Base · Reset.
 
 ## How a new UI change ships
 

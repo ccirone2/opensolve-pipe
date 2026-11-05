@@ -110,10 +110,10 @@
 		return `Solving ${run.index + 1} of ${run.cases.length}: ${ws.caseName(run.cases[run.index] ?? null)}…`;
 	});
 
+	/** The manager on the tab last used (CLAUDE.md D24, proposal pump-lineups.md §8.1). */
 	function openManager() {
 		casesOpen = false;
-		ws.managerFocus = null;
-		ws.managerOpen = true;
+		ws.openManager();
 	}
 
 	async function toggleCases() {
@@ -396,10 +396,5 @@
 	<ProjectLibrary onclose={() => ws.closeLibrary()} />
 {/if}
 {#if ws.managerOpen}
-	<ScenarioManager
-		onclose={() => {
-			ws.managerOpen = false;
-			ws.managerFocus = null;
-		}}
-	/>
+	<ScenarioManager onclose={() => ws.closeManager()} />
 {/if}

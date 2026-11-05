@@ -52,6 +52,7 @@
 		pumpLine,
 		saveHiddenPanels,
 		untickedAfter,
+		valueNotes,
 		type ChipKey,
 		type OtherCaseInput,
 		type PanelKey,
@@ -82,6 +83,11 @@
 		oncancel?: () => void;
 		/** Open the pump's trace, which defines the system curve (H_sys) among its equations. */
 		ontrace?: () => void;
+		/**
+		 * Show the Results view Checks, with the focus on its tab: the verdicts of the design
+		 * checks whose limits the chart draws (pumps-results-layout.md §5.3, D19).
+		 */
+		onchecks?: () => void;
 		/** Another pump of the solve is speed-controlled and on: it keeps regulating in the system curve. */
 		othersControlled?: boolean;
 		/** The case shown, in a project with scenarios ("Winter"): the caption names it. */
@@ -117,6 +123,7 @@
 		onretry,
 		oncancel,
 		ontrace,
+		onchecks,
 		othersControlled = false,
 		caseName,
 		others = [],
@@ -233,6 +240,15 @@
 		if (flow !== undefined) cursor = Math.min(xMax, Math.max(0, flow));
 	}
 	let figure: HTMLElement | undefined = $state();
+	let readSlider: HTMLInputElement | undefined = $state();
+	/**
+	 * Back to the duty: the button goes as it is pressed, so the focus moves to the slider it
+	 * belongs to (pumps-results-layout.md F40, §7 Focus), as on the group chart.
+	 */
+	function backToDuty() {
+		cursor = null;
+		void tick().then(() => readSlider?.focus());
+	}
 	let cancelButton: HTMLButtonElement | undefined = $state();
 	/** The button that computes the curve again (failed, cancelled or not computed). */
 	let retryButton: HTMLButtonElement | undefined = $state();
@@ -360,6 +376,14 @@
 	const notes = $derived(
 		chartNotes({ data, result, system, othersControlled, shown, speedShown, checksShown })
 	);
+	/** The notes about the values, in the screen's order (pumps-results-layout.md §5.3). */
+	const valued = $derived(valueNotes(notes, data));
+	/** The system curve's request line: being computed, failed, or not computed (the strip's). */
+	const curveState = $derived(notes.curve?.kind === 'missing' ? null : notes.curve);
+	/** The points without a head, a plain line after the request's (§5.2: no mark on a fact). */
+	const coverage = $derived(notes.curve?.kind === 'missing' ? notes.curve.text : null);
+	/** The strip has nothing to show: it takes no room (its live line stays, empty). */
+	const stripIdle = $derived(!notes.pump && !curveState && !coverage);
 
 	// Before the DOM drops Cancel when the curve stops loading (cancelled, computed or failed): if
 	// it has the focus, what replaces it takes it: the button to compute it again, else the chart.
@@ -451,6 +475,12 @@
 							? 'The chart is being drawn.'
 							: '')
 	);
+	/**
+	 * The results' own reason (not converged, a failed solve shown, a calculation), which lasts:
+	 * shown beside the button. A passing one (a curve computed, the chart drawn) changes on every
+	 * redraw, so it stays visually hidden and in the title (pumps-results-layout.md §5.3, Actions).
+	 */
+	const imageLasting = $derived(!!image?.unavailable);
 	let makingImage = false;
 
 	/**
@@ -493,13 +523,13 @@
 	}
 </script>
 
-<figure
-	bind:this={figure}
-	class="space-y-2"
-	aria-labelledby="{id}-caption"
-	aria-busy={loading}
-	tabindex="-1"
->
+<!--
+	One anatomy (proposal pumps-results-layout.md §5.1, §5.3 item 2): the caption, the canvas, the
+	reading controls, the strip of the system curve's request, the actions, then the notes about
+	the values. `aria-busy` is the canvas's, the part that is redrawn, so no live line below has a
+	busy ancestor (§5.3 markup rules, §7).
+-->
+<figure bind:this={figure} class="space-y-2" aria-labelledby="{id}-caption" tabindex="-1">
 	<figcaption id="{id}-caption" class="text-sm font-medium">
 		Pump and system curves: {name}{caseName ? `, ${caseName}` : ''}
 	</figcaption>
@@ -513,29 +543,37 @@
 			style:height="{heightRem}rem"
 			role="img"
 			aria-label={summary}
+			aria-busy={loading}
 			onpointermove={pointerRead}
 			onpointerdown={pointerRead}
 		>
 			<canvas bind:this={canvas} aria-hidden="true"></canvas>
 		</div>
 		{#if chips.length}
+			<!-- Toggle chips (§5.3, Reading): filled with a check when on, outlined when off. -->
 			<div role="group" aria-label="Show" class="flex flex-wrap items-center gap-2">
-				<span class="text-xs text-slate-700" aria-hidden="true">Show</span>
+				<span class="text-xs font-medium text-slate-700" aria-hidden="true">Show</span>
 				{#each chips as chip (chip)}
+					{@const on = isShown(chip)}
 					<button
 						type="button"
-						class={['btn px-3 text-sm', isShown(chip) && 'border-blue-700 bg-blue-50']}
-						aria-pressed={isShown(chip)}
-						onclick={() => togglePanel(chip)}>{CHIP_LABELS[chip]}</button
+						class={['btn px-3', on && 'border-blue-700 bg-blue-50 text-blue-900 hover:bg-blue-100']}
+						aria-pressed={on}
+						onclick={() => togglePanel(chip)}
+						>{#if on}<Icon name="check" class="size-4 shrink-0 text-blue-700" />{/if}{CHIP_LABELS[
+							chip
+						]}</button
 					>
 				{/each}
 			</div>
 		{/if}
 		{#if xMax > 0}
-			<div class="space-y-1">
+			<!-- A container: the readout's pairs go two-up from 26 rem, one per line below (§5.5). -->
+			<div class="@container space-y-1">
 				<div class="flex flex-wrap items-center gap-x-3">
 					<label for="{id}-read" class="text-xs font-medium text-slate-700">Read at flow</label>
 					<input
+						bind:this={readSlider}
 						id="{id}-read"
 						type="range"
 						class="min-h-11 min-w-40 flex-1 accent-slate-700"
@@ -555,27 +593,27 @@
 						}}
 					/>
 					{#if data.operating && cursor !== null}
-						<button
-							type="button"
-							class="btn btn-quiet px-2 text-blue-800"
-							onclick={() => (cursor = null)}>Back to the duty</button
+						<button type="button" class="btn btn-quiet px-2 text-blue-800" onclick={backToDuty}
+							>Back to the duty</button
 						>
 					{/if}
 				</div>
 				{#if readAt !== null}
-					<p class="flex flex-wrap gap-x-3 text-xs text-slate-700 tabular-nums">
-						<span class="font-medium"
+					<!-- One paragraph, not live (pump-chart.md §4.3): each pair kept on one line, the
+						separators visually hidden, so its text reads as one sentence (§5.3, Reading). -->
+					<p
+						data-pump-readout
+						class="grid grid-cols-1 gap-x-4 text-sm tabular-nums @min-[26rem]:grid-cols-2"
+					>
+						<span class="col-span-full font-medium"
 							>{cursor === null ? 'At the duty' : 'At'} {fmt(readAt)} {data.flowUnit}:</span
 						>
-						{#each readout as item, i (item.key)}
-							<span class="whitespace-nowrap"
-								>{#if i}<span class="sr-only">,&nbsp;</span>{/if}{item.label}
-								{fmt(item.value)}
-								{item.unit}</span
-							>
-						{:else}
-							<span>no line is drawn at this flow</span>
-						{/each}
+						{#each readout as item, i (item.key)}<span class="whitespace-nowrap"
+								>{#if i}<span class="sr-only">,&nbsp;</span>{/if}<span class="text-slate-600"
+									>{item.label}</span
+								>
+								<span class="font-medium">{fmt(item.value)} {item.unit}</span></span
+							>{:else}<span>no line is drawn at this flow</span>{/each}
 					</p>
 				{/if}
 			</div>
@@ -585,33 +623,46 @@
 			The chart cannot be drawn in this browser. The table below lists its points.
 		</p>
 	{/if}
-	{#if notes.pump}
-		<p class="text-xs text-slate-700">{notes.pump}</p>
-	{/if}
-	{#if notes.curve?.kind === 'loading'}
+	<!--
+		The strip (§5.3, The strip): the pump's state, then the system curve's request, one row: an
+		always-present polite line, empty when idle and never role=status (a pane-wide status query
+		finds the Results header's alone, §5.3 markup rules), its button after it and described by
+		it; then the points' coverage, plain. Visually hidden while it has nothing to say, so it
+		takes no room, its line still in the accessibility tree.
+	-->
+	<div data-pump-strip class={['space-y-1', stripIdle && 'sr-only']}>
+		{#if notes.pump}
+			<p class="text-xs text-slate-700">{notes.pump}</p>
+		{/if}
 		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-			<p id="{id}-curve-state" class="text-xs text-slate-600">{notes.curve.text}</p>
-			{#if oncancel}
+			<span
+				id="{id}-curve-state"
+				aria-live="polite"
+				aria-atomic="true"
+				class={[
+					'inline-flex items-center gap-1.5 text-xs',
+					curveState?.kind === 'error' ? 'text-red-800' : 'text-slate-700'
+				]}
+				>{#if curveState?.kind === 'loading'}<Icon
+						name="spinner"
+						class="size-3.5 shrink-0 text-slate-500 motion-safe:animate-spin"
+					/>{:else if curveState?.kind === 'error'}<Icon
+						name="octagon"
+						class="size-3.5 shrink-0 text-red-700"
+					/>{/if}{curveState?.text ?? ''}</span
+			>
+			{#if curveState?.kind === 'loading' && oncancel}
 				<button
 					bind:this={cancelButton}
 					type="button"
 					class="btn btn-quiet px-2 text-blue-800"
 					aria-label="Cancel the system curve"
+					aria-describedby="{id}-curve-state"
 					onclick={oncancel}
 				>
 					Cancel
 				</button>
-			{/if}
-		</div>
-	{:else if notes.curve?.kind === 'error' || notes.curve?.kind === 'cancelled'}
-		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-			<p
-				id="{id}-curve-state"
-				class={['text-xs', notes.curve.kind === 'error' ? 'text-red-800' : 'text-slate-600']}
-			>
-				{notes.curve.text}
-			</p>
-			{#if onretry}
+			{:else if (curveState?.kind === 'error' || curveState?.kind === 'cancelled') && onretry}
 				<button
 					bind:this={retryButton}
 					type="button"
@@ -619,33 +670,90 @@
 					aria-describedby="{id}-curve-state"
 					onclick={onretry}
 				>
-					{notes.curve.kind === 'error' ? 'Try again' : 'Compute the system curve'}
+					{curveState.kind === 'error' ? 'Try again' : 'Compute the system curve'}
 				</button>
 			{/if}
 		</div>
-	{:else if notes.curve}
-		<p class="text-xs text-slate-700">{notes.curve.text}</p>
-	{/if}
-	{#if notes.method}
-		<!-- How the curve shown was computed, where it is shown (GOALS §4.2): the request
-			(POST /api/v1/system-curve) returns points without a trace; the pump's trace defines it. -->
-		<p class="text-xs text-slate-600">
-			{notes.method}
-			{#if ontrace}
+		{#if coverage}
+			<p class="text-xs text-slate-700">{coverage}</p>
+		{/if}
+	</div>
+	{#if !unavailable && !loadFailed}
+		<!-- Actions (§5.3): the names told apart from the group chart's by a visually hidden
+			suffix; a lasting reason why no image can be made shown, a passing one hidden. -->
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+			<button
+				type="button"
+				class="btn btn-quiet px-2 text-blue-800"
+				aria-expanded={tableShown}
+				aria-controls="{id}-table"
+				onclick={() => (showTable = !showTable)}
+			>
+				<!-- The space outside the hidden suffix, so every name computation keeps it. -->
+				{tableShown ? 'Hide data table' : 'Show data table'}
+				<span class="sr-only">of the pump chart</span>
+			</button>
+			{#if image}
+				<!-- The chart drawn again at a fixed size, with its caption, as a PNG (export.md §5.5). -->
 				<button
 					type="button"
-					class="inline-flex min-h-11 items-center px-1 text-left text-blue-800 underline underline-offset-2"
-					onclick={ontrace}>Trace of {name}</button
+					class="btn btn-quiet px-2 text-blue-800"
+					data-chart-image
+					aria-label="Download image of the pump and system curves: {name}{caseName
+						? `, ${caseName}`
+						: ''}"
+					aria-disabled={!!imageReason}
+					aria-describedby={imageReason ? `${id}-image-reason` : undefined}
+					title={(!imageLasting && imageReason) || undefined}
+					onclick={() => void downloadImage()}
 				>
+					<Icon name="download" class="size-4" /> Download image
+				</button>
+				{#if imageReason}<span
+						id="{id}-image-reason"
+						class={imageLasting ? 'text-xs text-slate-700' : 'sr-only'}>{imageReason}</span
+					>{/if}
 			{/if}
-		</p>
+		</div>
 	{/if}
-	{#if notes.extrapolated}
-		<p class="text-xs text-slate-600">{notes.extrapolated}</p>
-	{/if}
-	{#each [...notes.facts, ...notes.panels, ...notes.checks] as note (note)}
-		<p class="text-xs text-slate-600">{note}</p>
-	{/each}
+	<!-- Notes about the values (§5.3): facts first, unmarked (§5.2), chartNotes' words. -->
+	<div class="space-y-1" data-pump-notes>
+		{#each [...valued.first, ...valued.facts, ...valued.panels] as note (note)}
+			<p class="text-xs text-slate-700">{note}</p>
+		{/each}
+		{#if valued.extrapolated}
+			<p class="text-xs text-slate-700">{valued.extrapolated}</p>
+		{/if}
+		{#if valued.method}
+			<!-- How the curve shown was computed, where it is shown (GOALS §4.2): the request
+				(POST /api/v1/system-curve) returns points without a trace; the pump's trace defines it.
+				The link is inline in its sentence (WCAG 2.5.8's inline exception, §5.3). -->
+			<p class="text-xs text-slate-700" data-pump-method>
+				{valued.method}
+				{#if ontrace}
+					<button
+						type="button"
+						class="text-left text-blue-800 underline underline-offset-2 hover:text-blue-900"
+						onclick={ontrace}>Trace of {name}</button
+					>
+				{/if}
+			</p>
+		{/if}
+		{#if valued.checks.length}
+			<!-- The design checks' limits drawn (D19), never a verdict: Checks has those. -->
+			<div class="space-y-1 pt-1" data-pump-checks>
+				<p class="text-xs font-medium text-slate-700">Design-check limits drawn</p>
+				{#each valued.checks as note (note)}
+					<p class="text-xs text-slate-700">{note}</p>
+				{/each}
+				{#if onchecks}
+					<button type="button" class="btn btn-quiet px-2 text-blue-800" onclick={onchecks}
+						>Go to Checks</button
+					>
+				{/if}
+			</div>
+		{/if}
+	</div>
 	{#if others.length}
 		<fieldset class="space-y-1">
 			<legend class="text-xs font-medium text-slate-700">Cases on the chart</legend>
@@ -717,37 +825,6 @@
 				</div>
 			{/if}
 		{/if}
-	{/if}
-	{#if !unavailable && !loadFailed}
-		<div class="flex flex-wrap items-center gap-x-3">
-			<button
-				type="button"
-				class="btn btn-quiet px-2 text-blue-800"
-				aria-expanded={tableShown}
-				aria-controls="{id}-table"
-				onclick={() => (showTable = !showTable)}
-			>
-				{tableShown ? 'Hide data table' : 'Show data table'}
-			</button>
-			{#if image}
-				<!-- The chart drawn again at a fixed size, with its caption, as a PNG (export.md §5.5). -->
-				<button
-					type="button"
-					class="btn btn-quiet px-2 text-blue-800"
-					data-chart-image
-					aria-label="Download image of the pump and system curves: {name}{caseName
-						? `, ${caseName}`
-						: ''}"
-					aria-disabled={!!imageReason}
-					aria-describedby={imageReason ? `${id}-image-reason` : undefined}
-					title={imageReason || undefined}
-					onclick={() => void downloadImage()}
-				>
-					<Icon name="download" class="size-4" /> Download image
-				</button>
-				{#if imageReason}<span id="{id}-image-reason" class="sr-only">{imageReason}</span>{/if}
-			{/if}
-		</div>
 	{/if}
 	{#if tableShown}
 		<div id="{id}-table" class="space-y-3">

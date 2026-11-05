@@ -39,7 +39,6 @@
 		PumpGroupStation,
 		SolvedState
 	} from '$lib/api/types';
-	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import {
 		hydraulicFingerprint,
@@ -65,6 +64,7 @@
 		markChanged,
 		pumpTable,
 		resultsProject,
+		type ResultsView,
 		type TableSort
 	} from '$lib/utils/results';
 	import { defaultGroup, pressureControlOnly, suggestGroups } from '$lib/utils/pump-groups';
@@ -105,10 +105,13 @@
 		changed?: ReadonlySet<string>;
 		/** A sort for the table (the Summary's links). */
 		sortRequest?: (TableSort & { id: number }) | null;
+		/** Show another Results view with the focus on its tab (the pump chart's Go to Checks). */
+		onview?: (view: ResultsView) => void;
 	}
 
-	let { solved, changed = new Set(), sortRequest = null }: Props = $props();
+	let { solved, changed = new Set(), sortRequest = null, onview }: Props = $props();
 	const ws = useWorkspace();
+	const uid = $props.id();
 	const table = $derived(
 		markChanged(pumpTable(ws.labelsProject, solved, ws.displayUnits), changed)
 	);
@@ -851,20 +854,42 @@
 			rule that put it there).{/if}
 	</p>
 	{#if viewed && result}
-		<div class="card space-y-3 p-3">
-			{#if pumps.length > 1}
-				<SelectField
-					label="Pump chart"
-					hint="The pump and system curves of one pump at a time; each system curve is computed when its pump is shown."
-					value={viewed.key}
-					options={pumps.map((row) => ({ value: row.key, label: row.name }))}
-					shared
-					onchange={(id) => {
-						chosen = id;
-						unticked = []; // the new pump's chart starts with every case ticked
-					}}
-				/>
-			{/if}
+		<div class="card space-y-3 p-3" data-pump-chart>
+			<!--
+				The header row (proposal pumps-results-layout.md §5.3 item 2): the h3 and, with more
+				than one pump, the select it names, beside it from a 21 rem container and under it
+				below (§5.5). The select's sentence stays visible: a choice starts a system curve, a
+				cost (§6.4 item 8).
+			-->
+			<div class="@container">
+				<div class="flex flex-col gap-x-3 gap-y-1 @min-[21rem]:flex-row @min-[21rem]:items-center">
+					<h3 id="{uid}-pump-chart" class="shrink-0 text-base font-semibold" tabindex="-1">
+						Pump chart
+					</h3>
+					{#if pumps.length > 1}
+						<select
+							class="input pr-8 @min-[21rem]:w-auto @min-[21rem]:flex-1"
+							aria-labelledby="{uid}-pump-chart"
+							aria-describedby="{uid}-pump-chart-hint"
+							value={viewed.key}
+							onchange={(event) => {
+								chosen = event.currentTarget.value;
+								unticked = []; // the new pump's chart starts with every case ticked
+							}}
+						>
+							{#each pumps as row (row.key)}
+								<option value={row.key}>{row.name}</option>
+							{/each}
+						</select>
+					{/if}
+				</div>
+				{#if pumps.length > 1}
+					<p id="{uid}-pump-chart-hint" class="hint">
+						The pump and system curves of one pump at a time; each system curve is computed when its
+						pump is shown.
+					</p>
+				{/if}
+			</div>
 			{#key viewed.key}
 				<PumpChart
 					{result}
@@ -879,6 +904,7 @@
 						: undefined}
 					oncancel={response ? () => ws.store.cancelSystemCurve(viewed.key) : undefined}
 					ontrace={() => ws.inspect(viewed.element)}
+					{...onview && solved.designChecks?.length ? { onchecks: () => onview('checks') } : {}}
 					{othersControlled}
 					{...hasScenarios ? { caseName: ws.caseName(ws.store.activeCase) } : {}}
 					{others}

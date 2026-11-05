@@ -13,7 +13,10 @@
 	<summary
 		class="inline-flex min-h-11 cursor-pointer list-none items-center gap-1 font-medium text-blue-800 [&::-webkit-details-marker]:hidden"
 	>
-		<Icon name="right" class="size-3 shrink-0 transition-transform group-open:rotate-90" />
+		<Icon
+			name="right"
+			class="size-3 shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+		/>
 		Details
 	</summary>
 	<p class="break-words">Calculation server's message: {detail}</p>

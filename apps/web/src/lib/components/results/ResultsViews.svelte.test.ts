@@ -571,6 +571,17 @@ describe('pump chart: the system curve on demand (D10)', () => {
 				.getAllByRole('option')
 				.map((o) => o.textContent)
 		).toEqual(['Transfer pump', 'Booster pump']);
+		// Named by the chart's heading, beside it; its cost sentence visible and its description
+		// (proposal pumps-results-layout.md §5.3 item 2).
+		const heading = panel.getByRole('heading', { level: 3, name: 'Pump chart' });
+		expect(heading).toHaveAttribute('tabindex', '-1');
+		expect(picker).toHaveAttribute('aria-labelledby', heading.id);
+		expect(picker.parentElement).toBe(heading.parentElement);
+		const hint = panel.getByText(
+			'The pump and system curves of one pump at a time; each system curve is computed when its pump is shown.'
+		);
+		expect(hint).toBeVisible();
+		expect(picker).toHaveAccessibleDescription(hint.textContent!.replace(/\s+/g, ' ').trim());
 		expect(panel.getAllByRole('figure')).toHaveLength(1);
 		expect(
 			panel.getByRole('figure', { name: 'Pump and system curves: Transfer pump' })

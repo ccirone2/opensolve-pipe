@@ -218,7 +218,7 @@ test('solve one case and all of them, read the comparison and the other cases on
 		/other cases' operating points: Base case .* at .*; Higher tank /
 	);
 	await expect(figure.getByRole('group', { name: 'Cases on the chart' })).toBeVisible();
-	await figure.getByRole('button', { name: 'Show data table' }).click();
+	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
 	const byCase = figure.getByRole('table', { name: 'Operating points by case' });
 	await expect(byCase.getByRole('rowheader')).toHaveText([
 		'Slower pump (shown)',

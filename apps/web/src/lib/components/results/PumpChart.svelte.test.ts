@@ -8,6 +8,7 @@ import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SystemCurveState } from '$lib/state/project.svelte';
+import type { PumpChecksInput } from '$lib/utils/pump-chart';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '$lib/testing/results';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
@@ -114,7 +115,7 @@ describe('pump chart', () => {
 			prefs: SI_UNITS,
 			system: READY
 		});
-		const toggle = screen.getByRole('button', { name: 'Show data table' });
+		const toggle = screen.getByRole('button', { name: 'Show data table of the pump chart' });
 		expect(toggle).toHaveAttribute('aria-expanded', 'false');
 		await fireEvent.click(toggle);
 		expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -165,7 +166,8 @@ describe('pump chart', () => {
 			system: { status: 'loading' }
 		});
 		expect(screen.getByText('Computing the system curve for this solve…')).toBeInTheDocument();
-		expect(screen.getByRole('figure')).toHaveAttribute('aria-busy', 'true');
+		// Busy is the canvas's, the part redrawn (pumps-results-layout.md §5.3), not the figure's.
+		expect(screen.getByRole('img')).toHaveAttribute('aria-busy', 'true');
 		await vi.waitFor(() => expect(charts).toHaveLength(1));
 		const labels = (i: number) => (charts[i]!.config as Recorded).data.datasets.map((d) => d.label);
 		expect(labels(0)).not.toContain('System curve');
@@ -175,7 +177,7 @@ describe('pump chart', () => {
 		await vi.waitFor(() => expect(charts).toHaveLength(2));
 		expect(labels(1)).toContain('System curve');
 		expect(screen.queryByText(/Computing the system curve/)).toBeNull();
-		expect(screen.getByRole('figure')).toHaveAttribute('aria-busy', 'false');
+		expect(screen.getByRole('img')).toHaveAttribute('aria-busy', 'false');
 		expect(screen.getByRole('img')).toHaveAccessibleName(/and system curve; operating point/);
 	});
 
@@ -243,12 +245,16 @@ describe('pump chart', () => {
 			screen.getByText('The system curve was not computed: a goal seek was started.')
 		).toBeInTheDocument();
 		// No system curve is shown in either state.
-		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		);
 		expect(screen.getByRole('table', { name: 'Pump curve at 100 % speed' })).toBeInTheDocument();
 		expect(screen.queryByRole('table', { name: 'System curve' })).toBeNull();
 	});
 
 	it('offers Cancel while the system curve is computed; cancelled, it offers to compute it', async () => {
+		// The canvas drawn, so its busy state can be read (pumps-results-layout.md §5.3).
+		withCanvas();
 		const oncancel = vi.fn();
 		const onretry = vi.fn();
 		const props = { result: pumpResult(), name: 'P', prefs: SI_UNITS, oncancel, onretry };
@@ -269,7 +275,7 @@ describe('pump chart', () => {
 		);
 		// The focus goes to what replaced Cancel, not to the page.
 		expect(document.activeElement).toBe(again);
-		expect(screen.getByRole('figure')).toHaveAttribute('aria-busy', 'false');
+		expect(screen.getByRole('img')).toHaveAttribute('aria-busy', 'false');
 		await fireEvent.click(again);
 		expect(onretry).toHaveBeenCalledTimes(1);
 	});
@@ -329,7 +335,7 @@ describe('pump chart', () => {
 		);
 		// Focus elsewhere stays where it is.
 		await view.rerender({ ...props, system: { status: 'cancelled', by: 'user' } });
-		const table = screen.getByRole('button', { name: 'Show data table' });
+		const table = screen.getByRole('button', { name: 'Show data table of the pump chart' });
 		table.focus();
 		await view.rerender({ ...props, system: { status: 'loading' } });
 		await tick();
@@ -339,7 +345,7 @@ describe('pump chart', () => {
 	it('leaves the focus alone when Cancel did not have it, and offers no Cancel without a way to', async () => {
 		const props = { result: pumpResult(), name: 'P', prefs: SI_UNITS, oncancel: vi.fn() };
 		const view = render(PumpChart, { ...props, system: { status: 'loading' } });
-		const table = screen.getByRole('button', { name: 'Show data table' });
+		const table = screen.getByRole('button', { name: 'Show data table of the pump chart' });
 		table.focus();
 		await view.rerender({ ...props, system: { status: 'cancelled', by: 'user' } });
 		await tick();
@@ -369,7 +375,9 @@ describe('pump chart', () => {
 				'1 of 4 system-curve points have no head: the line has gaps there, and the data table says why for each (no steady state carries the flow, its head is undetermined, its solve did not converge, or it was not computed).'
 			)
 		).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		);
 		const table = screen.getByRole('table', { name: 'System curve' });
 		expect(within(table).getByRole('columnheader', { name: 'Why no head' })).toBeInTheDocument();
 		const rows = within(table)
@@ -420,7 +428,9 @@ describe('pump chart', () => {
 			names: { project, solved: project },
 			system: { status: 'ready', curve }
 		});
-		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		);
 		const table = screen.getByRole('table', { name: 'System curve' });
 		const cell = within(table).getAllByRole('row')[3]!.querySelectorAll('td')[2]!;
 		const details = cell.querySelector('details')!;
@@ -473,7 +483,9 @@ describe('pump chart', () => {
 			/^Pump curve of Transfer pump at 87\.32 % speed \(flow control\); operating point/
 		);
 		// The curve's data range at that speed (the affinity law the solver applies).
-		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		);
 		expect(
 			screen.getByRole('table', { name: 'Pump curve at 87.32 % speed (flow control)' })
 		).toBeInTheDocument();
@@ -572,7 +584,7 @@ describe('pump chart', () => {
 			expect(button()).toHaveTextContent('Download image');
 			expect(button()).toHaveAttribute('data-chart-image');
 			expect(button().parentElement).toBe(
-				screen.getByRole('button', { name: 'Show data table' }).parentElement
+				screen.getByRole('button', { name: 'Show data table of the pump chart' }).parentElement
 			);
 		});
 
@@ -674,7 +686,7 @@ describe('pump chart', () => {
 			});
 			// The figure's notes as shown, pointing to where the reasons are.
 			expect(request.notes.method).toBe(
-				document.querySelector('figure p.text-slate-600:not([id])')?.firstChild?.textContent?.trim()
+				document.querySelector('figure [data-pump-method]')?.firstChild?.textContent?.trim()
 			);
 			expect(request.notes.method).toMatch(/speed-controlled ones regulating to their setpoints/);
 			expect(request.others.map((o) => o.label)).toEqual(['Winter']);
@@ -739,7 +751,8 @@ describe('pump chart panels (proposal pump-chart.md §4)', () => {
 		render(PumpChart, { result: rich(), name: 'Transfer pump', prefs: SI_UNITS });
 		await vi.waitFor(() => expect(charts).toHaveLength(1));
 		const slider = screen.getByRole('slider', { name: 'Read at flow' });
-		const line = () => slider.closest('div.space-y-1')!.querySelector('p')!.textContent!;
+		const line = () =>
+			screen.getByRole('figure').querySelector('[data-pump-readout]')!.textContent!;
 		expect(line().replace(/\s+/g, ' ')).toContain('At the duty 20 L/s: Pump head 22 m');
 		await fireEvent.input(slider, { target: { value: '10' } });
 		const text = line().replace(/\s+/g, ' ');
@@ -752,5 +765,316 @@ describe('pump chart panels (proposal pump-chart.md §4)', () => {
 		expect(charts[0]!.draws).toBeGreaterThan(0);
 		await fireEvent.click(screen.getByRole('button', { name: 'Back to the duty' }));
 		expect(line()).toContain('At the duty');
+	});
+});
+
+// The pump chart's reading, strip, actions and notes (proposal pumps-results-layout.md §5.3
+// item 2, §7, slice S1). The pump results and curves are made-up test inputs.
+describe('pump chart layout (pumps-results-layout.md §5.3)', () => {
+	afterEach(() => localStorage.clear());
+
+	/** Every panel, a rising stretch, an extrapolated duty and an NPSHr curve (test input). */
+	const full = () =>
+		pumpResult({
+			operatingFlow: 0.034,
+			operatingHead: 7.5,
+			inCurveRange: false,
+			efficiencyCurve: [
+				{ flow: 0.004, efficiency: 0.4 },
+				{ flow: 0.012, efficiency: 0.7 },
+				{ flow: 0.02, efficiency: 0.6 }
+			],
+			bestEfficiencyPoint: { flow: 0.012, efficiency: 0.7, head: 18, headExtrapolated: false },
+			powerCurve: [
+				{ flow: 0.004, shaftPower: 2000 },
+				{ flow: 0.02, shaftPower: 5000 }
+			],
+			npshrCurve: [
+				{ flow: 0, npshr: 1 },
+				{ flow: 0.03, npshr: 4 }
+			],
+			risingHeadRanges: [{ flowMin: 0, flowMax: 0.005 }]
+		});
+	/**
+	 * The system curve with NPSHa falling 10, 8, 4, 1 m against NPSHr 1, 2, 3, 4 m at 0 to 30 L/s:
+	 * NPSHa − NPSHr goes from +1 m at 20 L/s to −3 m at 30 L/s, so the lines cross at
+	 * 20 + 10 × 1 / (1 + 3) = 22.5 L/s.
+	 */
+	const withNpsha = (): SystemCurveState => {
+		const curve = systemCurveResponse();
+		[10, 8, 4, 1].forEach((npsha, i) => (curve.points[i]!.npshAvailable = npsha));
+		return { status: 'ready', curve };
+	};
+	/** Design checks with every limit the chart draws (test input, the user's values). */
+	const limits: PumpChecksInput = {
+		checks: {
+			npshMargin: { minimumMargin: 1, source: { kind: 'user' } },
+			operatingRegion: { preferredMin: 0.7, preferredMax: 1.2, source: { kind: 'user' } }
+		},
+		curve: {
+			id: 'C1',
+			name: 'Curve',
+			points: [
+				{ flow: 0, head: 30 },
+				{ flow: 0.03, head: 12 }
+			],
+			allowableOperatingRegion: { flowMin: 0.004, flowMax: 0.025 },
+			minimumContinuousStableFlow: 0.003,
+			motorRatedPower: 5500
+		},
+		sources: { npshMargin: 'your values', operatingRegion: 'your values' }
+	};
+
+	it('hands the focus to the slider when Back to the duty goes (F40)', async () => {
+		withCanvas();
+		render(PumpChart, { result: pumpResult(), name: 'Transfer pump', prefs: SI_UNITS });
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const slider = screen.getByRole('slider', { name: 'Read at flow' });
+		await fireEvent.input(slider, { target: { value: '10' } });
+		const back = screen.getByRole('button', { name: 'Back to the duty' });
+		back.focus();
+		await fireEvent.click(back);
+		await tick();
+		expect(screen.queryByRole('button', { name: 'Back to the duty' })).toBeNull();
+		expect(slider).toHaveFocus();
+		expect(screen.getByRole('figure').querySelector('[data-pump-readout]')).toHaveTextContent(
+			/^At the duty 20 L\/s:/
+		);
+	});
+
+	it('reads the readout as one paragraph of pairs, each kept on one line', async () => {
+		withCanvas();
+		render(PumpChart, { result: pumpResult(), name: 'P', prefs: SI_UNITS, system: READY });
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const readout = screen.getByRole('figure').querySelector('[data-pump-readout]')!;
+		expect(readout.tagName).toBe('P');
+		// Today's text: the separator is a comma and a no-break space.
+		expect(readout.textContent).toBe('At the duty 20 L/s: Pump head 22 m,\u00a0System head 22 m');
+		const pairs = [...readout.children].slice(1);
+		expect(pairs.map((p) => p.className)).toEqual(['whitespace-nowrap', 'whitespace-nowrap']);
+		// The separator is the screen reader's only.
+		expect(pairs[1]!.firstElementChild).toHaveClass('sr-only');
+		expect(pairs[1]!.firstElementChild).toHaveTextContent(',');
+		expect(readout).not.toHaveAttribute('aria-live');
+	});
+
+	it('draws the chips as toggles: filled with a check when on, outlined when off, the same words', async () => {
+		withCanvas();
+		const result = pumpResult({
+			efficiencyCurve: [
+				{ flow: 0.005, efficiency: 0.4 },
+				{ flow: 0.03, efficiency: 0.65 }
+			],
+			powerCurve: [
+				{ flow: 0.005, shaftPower: 3500 },
+				{ flow: 0.03, shaftPower: 5500 }
+			]
+		});
+		render(PumpChart, { result, name: 'P', prefs: SI_UNITS });
+		const chips = within(screen.getByRole('group', { name: 'Show' })).getAllByRole('button');
+		const look = () =>
+			chips.map((chip) => ({
+				text: chip.textContent,
+				pressed: chip.getAttribute('aria-pressed'),
+				btn: chip.classList.contains('btn'),
+				filled: chip.classList.contains('bg-blue-50'),
+				check: chip.querySelectorAll('svg[aria-hidden="true"]').length
+			}));
+		expect(look()).toEqual([
+			{ text: 'Efficiency', pressed: 'true', btn: true, filled: true, check: 1 },
+			{ text: 'Shaft power', pressed: 'true', btn: true, filled: true, check: 1 }
+		]);
+		await fireEvent.click(chips[1]!);
+		expect(look()[1]).toEqual({
+			text: 'Shaft power',
+			pressed: 'false',
+			btn: true,
+			filled: false,
+			check: 0
+		});
+		expect(chips[1]).toHaveAccessibleName('Shaft power');
+	});
+
+	it('keeps the system curve’s line always there: polite, not a status, never under a busy element', async () => {
+		withCanvas();
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			oncancel: vi.fn(),
+			onretry: vi.fn()
+		};
+		const view = render(PumpChart, { ...props, system: READY });
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const figure = screen.getByRole('figure');
+		const strip = figure.querySelector('[data-pump-strip]')!;
+		const line = strip.querySelector('[aria-live]')!;
+		// Idle: present and empty, the strip taking no room.
+		expect(line).toHaveAttribute('aria-live', 'polite');
+		expect(line).toHaveAttribute('aria-atomic', 'true');
+		expect(line).not.toHaveAttribute('role');
+		expect(line.textContent).toBe('');
+		expect(strip).toHaveClass('sr-only');
+		expect(line.closest('[aria-busy="true"]')).toBeNull();
+		expect(figure).not.toHaveAttribute('aria-busy');
+		expect(within(figure).queryByRole('status')).toBeNull();
+
+		// Loading: the same element speaks; the canvas is busy, the line is not under it.
+		await view.rerender({ ...props, system: { status: 'loading' } });
+		expect(strip.querySelector('[aria-live]')).toBe(line);
+		expect(line).toHaveTextContent('Computing the system curve for this solve…');
+		expect(strip).not.toHaveClass('sr-only');
+		expect(screen.getByRole('img')).toHaveAttribute('aria-busy', 'true');
+		expect(line.closest('[aria-busy="true"]')).toBeNull();
+		const cancel = screen.getByRole('button', { name: 'Cancel the system curve' });
+		expect(line.contains(cancel)).toBe(false);
+		expect(line.nextElementSibling).toBe(cancel);
+		expect(cancel).toHaveAccessibleDescription('Computing the system curve for this solve…');
+		expect(within(figure).queryByRole('status')).toBeNull();
+
+		// Failed: the same line, its button after it, outside it.
+		await view.rerender({ ...props, system: { status: 'error', message: 'Made-up message.' } });
+		expect(strip.querySelector('[aria-live]')).toBe(line);
+		expect(line).toHaveTextContent('The system curve could not be computed: Made-up message.');
+		expect(line.querySelector('button')).toBeNull();
+		expect(line.nextElementSibling).toBe(screen.getByRole('button', { name: 'Try again' }));
+
+		// Points without a head: a plain line after it, outside the live line, which is idle.
+		await view.rerender({
+			...props,
+			system: { status: 'ready', curve: systemCurveResponse('P1', [1]) }
+		});
+		expect(strip.querySelector('[aria-live]')).toBe(line);
+		expect(line.textContent).toBe('');
+		const coverage = within(strip as HTMLElement).getByText(/^1 of 4 system-curve points/);
+		expect(coverage.tagName).toBe('P');
+		expect(line.contains(coverage)).toBe(false);
+		expect(strip).not.toHaveClass('sr-only');
+	});
+
+	it('shows a lasting reason why no image is made, and keeps a passing one hidden', async () => {
+		withCanvas();
+		const source = (unavailable: string): ChartImageSource => ({
+			projectName: 'P',
+			timestamp: '2026-10-25T12:32:05Z',
+			methodVersion: '1.2.0',
+			stale: false,
+			unavailable,
+			origin: 'https://opensolve-pipe.app',
+			notify: () => {}
+		});
+		const props = { result: pumpResult(), name: 'P', prefs: SI_UNITS };
+		const view = render(PumpChart, { ...props, system: { status: 'loading' }, image: source('') });
+		const button = () => screen.getByRole('button', { name: /^Download image/ });
+		const reason = () => document.getElementById(button().getAttribute('aria-describedby')!)!;
+		// Passing (a curve computed): visually hidden, and in the title.
+		expect(reason()).toHaveTextContent('Wait until the system curve is computed, or cancel it.');
+		expect(reason()).toHaveClass('sr-only');
+		expect(button()).toHaveAttribute(
+			'title',
+			'Wait until the system curve is computed, or cancel it.'
+		);
+		// Lasting (the results' own): visible text beside the button, its description.
+		await view.rerender({ ...props, system: READY, image: source('Made-up lasting reason.') });
+		expect(reason()).toHaveTextContent('Made-up lasting reason.');
+		expect(reason()).not.toHaveClass('sr-only');
+		expect(reason()).toHaveClass('text-xs');
+		expect(reason().parentElement).toBe(button().parentElement);
+		expect(button()).toHaveAccessibleDescription('Made-up lasting reason.');
+		expect(button()).toHaveAttribute('aria-disabled', 'true');
+		expect(button()).not.toHaveAttribute('title');
+	});
+
+	it('names its data table button for the pump chart, its visible words unchanged', async () => {
+		withCanvas();
+		render(PumpChart, { result: pumpResult(), name: 'P', prefs: SI_UNITS, system: READY });
+		const toggle = screen.getByRole('button', { name: 'Show data table of the pump chart' });
+		expect(toggle.querySelector('.sr-only')).toHaveTextContent('of the pump chart');
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAccessibleName('Hide data table of the pump chart');
+	});
+
+	it('puts the actions under the strip and the notes after them: facts first, the method, the limits', async () => {
+		withCanvas();
+		const ontrace = vi.fn();
+		const onchecks = vi.fn();
+		render(PumpChart, {
+			result: full(),
+			name: 'Transfer pump',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03],
+			system: withNpsha(),
+			checks: limits,
+			ontrace,
+			onchecks
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const figure = screen.getByRole('figure');
+		const notes = figure.querySelector('[data-pump-notes]')!;
+		const toggle = screen.getByRole('button', { name: 'Show data table of the pump chart' });
+		const after = (a: Node, b: Node) =>
+			!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+		expect(after(figure.querySelector('[data-pump-strip]')!, toggle)).toBe(true);
+		expect(after(toggle, notes)).toBe(true);
+		const lines = [...notes.querySelectorAll('p')].map((p) =>
+			p.textContent!.replace(/\s+/g, ' ').trim()
+		);
+		const order = [
+			/^The head rises with flow from 0 to 5 L\/s \(amber\)/,
+			/^NPSHa falls below NPSHr at about 22\.5 L\/s \(read from the drawn lines\)/,
+			/^Best efficiency point \(\+\): 70 % at 12 L\/s/,
+			/^Shutoff head \(–\): 30 m\.$/,
+			/^Efficiency: the duty's flow is outside the efficiency curve's data/,
+			/^Shaft power ρgQH\/η over the flows/,
+			/^Dashed: the pump curve extrapolated beyond its data \(0 to 30 L\/s/,
+			/^System curve: the network of this solve, .* minus the EGL at the suction\. Trace of Transfer pump$/,
+			/^Design-check limits drawn$/,
+			/^Shaded blue \(POR\)/,
+			/^Shaded grey \(AOR\)/,
+			/^Dash-dot line: the minimum continuous stable flow/,
+			/^Dotted on the NPSH panel/,
+			/^Dashed on the power panel/,
+			/^These are the limits of the design checks you turned on/
+		];
+		expect(lines).toHaveLength(order.length);
+		order.forEach((pattern, i) => expect(lines[i]).toMatch(pattern));
+		// The method's Trace is an inline link in its sentence, its name unchanged.
+		const method = notes.querySelector('[data-pump-method]')!;
+		const trace = within(method as HTMLElement).getByRole('button', {
+			name: 'Trace of Transfer pump'
+		});
+		expect(trace).toHaveClass('underline');
+		expect(trace).not.toHaveClass('min-h-11');
+		await fireEvent.click(trace);
+		expect(ontrace).toHaveBeenCalledTimes(1);
+		// Go to Checks closes the limits.
+		const go = screen.getByRole('button', { name: 'Go to Checks' });
+		expect(after(notes.querySelectorAll('p')[order.length - 1]!, go)).toBe(true);
+		expect(go.parentElement).toBe(notes.querySelector('[data-pump-checks]'));
+		await fireEvent.click(go);
+		expect(onchecks).toHaveBeenCalledTimes(1);
+	});
+
+	it('offers Go to Checks only with the limits shown and a way to go there', async () => {
+		withCanvas();
+		const props = {
+			result: full(),
+			name: 'P',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03] as [number, number],
+			checks: limits
+		};
+		const view = render(PumpChart, props);
+		expect(screen.getByText('Design-check limits drawn')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Go to Checks' })).toBeNull();
+		await view.rerender({ ...props, onchecks: vi.fn() });
+		expect(screen.getByRole('button', { name: 'Go to Checks' })).toBeInTheDocument();
+		await fireEvent.click(
+			within(screen.getByRole('group', { name: 'Show' })).getByRole('button', {
+				name: 'Design checks'
+			})
+		);
+		expect(screen.queryByText('Design-check limits drawn')).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Go to Checks' })).toBeNull();
 	});
 });

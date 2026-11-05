@@ -78,7 +78,7 @@ async function solveAll(page: Page, counter: { n: number }, expected: number) {
 	await expect(resultsPane(page).getByRole('heading', { name: 'Converged' })).toBeVisible();
 }
 
-/** The Pumps tab at rest: no figure busy and no request in progress, for `stable` ms on end. */
+/** The Pumps tab at rest: nothing busy and no request in progress, for `stable` ms on end. */
 async function settle(page: Page, stable = 1500) {
 	let since = 0;
 	await expect
@@ -90,11 +90,8 @@ async function settle(page: Page, stable = 1500) {
 						(p) => !(p as HTMLElement).hidden
 					) as HTMLElement | undefined;
 					if (!tab) return false;
-					if (
-						[...tab.querySelectorAll('figure')].some((f) => f.getAttribute('aria-busy') === 'true')
-					) {
-						return false;
-					}
+					// Busy is a figure's or, from S1, its canvas's (pumps-results-layout.md §5.3).
+					if (tab.querySelector('[aria-busy="true"]')) return false;
 					return !/Computing|Solving/.test(tab.innerText);
 				});
 				if (!quiet) {

@@ -233,6 +233,43 @@ describe('pumps not running', () => {
 		expect(off.operating).toBeNull();
 		expect(off.held).toBeNull();
 	});
+
+	it('gives other cases’ table rows a bare speed, for "Speed (%)", and none for an off pump', () => {
+		// pumps-results-layout.md §5.3, the data region: bare numbers under "Speed (%)".
+		const rows = otherCasesData(
+			[
+				{
+					key: 'S1',
+					name: 'Slower',
+					result: pumpResult({ speed: 0.873214 }),
+					stale: false,
+					system: null
+				},
+				{
+					key: 'S2',
+					name: 'Off',
+					result: pumpResult({ status: 'off', operatingFlow: 0, operatingHead: 0 }),
+					stale: false,
+					system: null
+				},
+				{
+					key: 'S3',
+					name: 'Held',
+					result: pumpResult({ status: 'no_flow', operatingFlow: 0, operatingHead: 30 }),
+					stale: true,
+					system: null
+				}
+			],
+			SI_UNITS,
+			[0, 0.03],
+			1
+		).map((o) => o.row);
+		expect(rows).toEqual([
+			{ flow: '20', head: '22', speed: '87.32', state: 'Running' },
+			{ flow: '—', head: '—', speed: '—', state: 'Off' },
+			{ flow: '0', head: '30', speed: '100', state: 'Held at zero flow' }
+		]);
+	});
 });
 
 // The notes the screen and the image both use (proposal export.md §3.4).

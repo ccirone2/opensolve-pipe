@@ -357,7 +357,10 @@ test('a system-curve point without a head says why, with names and in the displa
 	// The API's own sentence is kept under Details, closed until asked for.
 	const server = why.getByText(`Calculation server's message: ${point.message}`);
 	await expect(server).toBeHidden();
-	await why.getByText('Details', { exact: true }).click();
+	// Named for its point by a visually hidden suffix (pumps-results-layout.md §6.2).
+	await why
+		.getByText(`Details of the point at ${sig4(point.flow / GPM)} gpm`, { exact: true })
+		.click();
 	await expect(server).toBeVisible();
 	// The words fit the screen: no sideways scroll of the page, on a phone too.
 	expect(

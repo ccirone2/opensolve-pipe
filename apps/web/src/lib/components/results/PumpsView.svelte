@@ -837,13 +837,21 @@
 </script>
 
 <div class="space-y-4">
-	<ResultsTable
-		{table}
-		{sortRequest}
-		caption="Results per pump"
-		first="Pump"
-		onselect={(row) => ws.inspect(row.element)}
-	/>
+	<!--
+		Results per pump (proposal pumps-results-layout.md §5.3 item 1): the table and its note under
+		a visible heading, the title every other section has (tabindex −1, the section nav's target
+		from S2); the table keeps its visually hidden caption, its name. A plain div, not a landmark.
+	-->
+	<div class="space-y-2" data-pump-table>
+		<h3 id="{uid}-per-pump" class="text-base font-semibold" tabindex="-1">Results per pump</h3>
+		<ResultsTable
+			{table}
+			{sortRequest}
+			caption="Results per pump"
+			first="Pump"
+			onselect={(row) => ws.inspect(row.element)}
+		/>
+	</div>
 	<p class="text-xs text-slate-600">
 		Head is the rise in the energy grade line across the pump; for a pump held at zero flow it is
 		the head across it (its shutoff head when its discharge is closed off). NPSH available is

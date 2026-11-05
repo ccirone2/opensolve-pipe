@@ -519,6 +519,28 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		expect(systemCurve).toHaveBeenCalledTimes(1);
 	});
 
+	it('heads the table "Results per pump", visibly, its caption kept (pumps-results-layout.md §5.3)', async () => {
+		const { panel } = await solveAndOpenPumps(pumpTransferExample(), pumpTransferSolved());
+		const headings = panel.getAllByRole('heading');
+		expect(headings.map((h) => [h.tagName, h.textContent!.trim()])).toEqual([
+			['H3', 'Results per pump'],
+			['H3', 'Pump chart']
+		]);
+		const heading = headings[0]!;
+		expect(heading).toBeVisible();
+		expect(heading).not.toHaveClass('sr-only');
+		expect(heading).toHaveAttribute('tabindex', '-1');
+		expect(heading).toHaveClass('text-base', 'font-semibold');
+		// The table keeps its name from its visually hidden caption, and follows its heading.
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		expect(table.querySelector('caption')).toHaveClass('sr-only');
+		expect(heading.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		// Not a landmark: the tab gains no region for it.
+		expect(heading.closest('section, [role="region"]')).toBe(
+			screen.getByRole('region', { name: 'Results' })
+		);
+	});
+
 	it('cancels the curve being computed; computed again on request, it is shown', async () => {
 		const { systemCurve, answers, panel } = await solveAndOpenPumps(
 			pumpTransferExample(),

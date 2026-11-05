@@ -748,23 +748,161 @@ const sizeOf = (page: Page) => {
 	return `${v.width}x${v.height}`;
 };
 
+// ---- S1: the pump chart (§9 S1) -----------------------------------------------------------------
+
+/**
+ * §5.7 row 2: the pump chart's Show data table at most this far below its canvas, measured idle
+ * after the requests; at 320×640 no budget (§5.7: the sideways, nav and outline checks only).
+ */
+const SHOW_TABLE_BELOW_CANVAS: Readonly<Record<string, number>> = {
+	'1280x800': 300,
+	'390x844': 400
+};
+
+const pumpFigure = (page: Page) =>
+	resultsView(page, 'Pumps').then((tab) =>
+		tab.getByRole('figure', { name: /^Pump and system curves/ })
+	);
+
+/**
+ * The pump chart's part of S1, at the size shown (soft, so a run reports every check): its
+ * budget, the tab's outline down to the Pumps together card (§7: h3 Results per pump, h3 Pump
+ * chart, h4 Other cases on the pump chart), the containers (§5.5: none above a "Fields shown in …"
+ * group, whose sheet is fixed on a phone) and its two live lines at rest (§7 Live regions).
+ */
+async function pumpChartPart(page: Page, where: string) {
+	const size = sizeOf(page);
+	const figure = await pumpFigure(page);
+	const budget = SHOW_TABLE_BELOW_CANVAS[size];
+	if (budget !== undefined) {
+		const canvas = await figure.getByRole('img').boundingBox();
+		const toggle = await figure
+			.getByRole('button', { name: /^(Show|Hide) data table of the pump chart$/ })
+			.boundingBox();
+		expect.soft(canvas && toggle, `the canvas and Show data table drawn, ${where}`).toBeTruthy();
+		if (canvas && toggle) {
+			const below = Math.round(toggle.y - (canvas.y + canvas.height));
+			console.log(`${where}: Show data table ${below} px below the pump canvas (budget ${budget})`);
+			expect
+				.soft(below, `Show data table below the pump canvas, ${where}`)
+				.toBeLessThanOrEqual(budget);
+		}
+	}
+
+	const read = await page.evaluate(() => {
+		const pane = document.querySelector('section[aria-label="Results"]')!;
+		const tab = [...pane.querySelectorAll('[role="tabpanel"]')].find(
+			(p) => !(p as HTMLElement).hidden
+		)!;
+		const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+		const card = tab.querySelector('[data-pumps-together]');
+		const headings = [...tab.querySelectorAll('h1,h2,h3,h4,h5,h6')]
+			.filter((h) => h.checkVisibility() && h.getBoundingClientRect().height > 1)
+			.map((h) => ({
+				level: Number(h.tagName[1]),
+				text: squash(h.textContent),
+				inCard: !!card && card.contains(h)
+			}));
+		const containers: string[] = [];
+		const groups = [...document.querySelectorAll('[role="group"][aria-label^="Fields shown in"]')];
+		for (const group of groups) {
+			for (let e = group.parentElement; e; e = e.parentElement) {
+				const type = getComputedStyle(e).containerType;
+				if (type !== 'normal') {
+					containers.push(
+						`${group.getAttribute('aria-label')}: <${e.tagName.toLowerCase()} class="${e.className}"> ${type}`
+					);
+				}
+			}
+		}
+		const figure = [...tab.querySelectorAll('figure')].find((f) =>
+			squash(f.querySelector(':scope > figcaption')?.textContent).startsWith(
+				'Pump and system curves'
+			)
+		)!;
+		const lines = [
+			figure.querySelector('[data-pump-strip] [aria-live]'),
+			figure.querySelector('[data-overlay-state]')
+		]
+			.filter((l): l is Element => l !== null)
+			.map((l) => ({
+				id: l.id,
+				live: l.getAttribute('aria-live'),
+				atomic: l.getAttribute('aria-atomic'),
+				role: l.getAttribute('role'),
+				text: squash(l.textContent),
+				busyAncestor: !!l.parentElement?.closest('[aria-busy="true"]'),
+				buttons: l.querySelectorAll('button').length
+			}));
+		return {
+			headings,
+			groups: groups.length,
+			containers,
+			lines,
+			scenarios: !!figure.querySelector('[data-pump-others]'),
+			// The card's group curve keeps its status until S3 (§10 S3); the pump chart has none.
+			statuses: figure.querySelectorAll('[role="status"]').length
+		};
+	});
+
+	// The outline down to the card, in order: the pump chart's part (§7).
+	const before = read.headings.filter((h) => !h.inCard);
+	expect
+		.soft(before, `the headings above the Pumps together card, ${where}`)
+		.toEqual([
+			{ level: 3, text: 'Results per pump', inCard: false },
+			{ level: 3, text: 'Pump chart', inCard: false },
+			...(read.scenarios
+				? [{ level: 4, text: 'Other cases on the pump chart', inCard: false }]
+				: [])
+		]);
+	const next = read.headings[before.length];
+	expect.soft(next?.level, `the card's heading next, ${where}`).toBe(3);
+	expect.soft(next?.text ?? '', `the card's heading next, ${where}`).toMatch(/^Pumps together/);
+
+	// §5.5: no container above a "Fields shown in …" group (a phone's sheet is fixed).
+	expect.soft(read.groups, `"Fields shown in …" groups, ${where}`).toBeGreaterThan(0);
+	expect
+		.soft(read.containers, `containers above a "Fields shown in …" group, ${where}`)
+		.toEqual([]);
+
+	// The live lines, at rest: there, polite, never a status, never busy, holding no button.
+	expect
+		.soft(read.lines.length, `the pump chart's live lines, ${where}`)
+		.toBe(read.scenarios ? 2 : 1);
+	for (const line of read.lines) {
+		expect.soft(line, `the live line ${line.id || 'of the other cases'}, ${where}`).toEqual({
+			id: line.id,
+			live: 'polite',
+			atomic: 'true',
+			role: null,
+			text: '',
+			busyAncestor: false,
+			buttons: 0
+		});
+	}
+	expect.soft(read.statuses, `role=status in the pump chart, ${where}`).toBe(0);
+}
+
 /**
  * Check and measure the view at the project's size and, on the phone, at 320×640 too (reflow at
  * 400 % zoom; pump-lineups.e2e.ts resizes the same way).
  */
 async function atEachSize(page: Page, info: TestInfo, view: string, extra: object) {
 	await noSidewaysScroll(page, `${view} at ${sizeOf(page)}`);
+	await pumpChartPart(page, `${view} at ${sizeOf(page)}`);
 	await measure(page, info, `${view}-${sizeOf(page)}`, extra);
 	if (info.project.name !== 'mobile') return;
 	await page.setViewportSize({ width: 320, height: 640 });
 	await settle(page, 1000);
 	await noSidewaysScroll(page, `${view} at 320x640`);
+	await pumpChartPart(page, `${view} at 320x640`);
 	await measure(page, info, `${view}-320x640`, extra);
 }
 
-// ---- S0: no sideways scroll ---------------------------------------------------------------------
+// ---- S0: no sideways scroll; S1: the pump chart's budget and outline -----------------------------
 
-test('the condenser example after Add cases, the card open: the Results pane’s scroller does not scroll sideways', async ({
+test('the condenser example after Add cases, the card open: the Results pane’s scroller does not scroll sideways; the pump chart holds its budget', async ({
 	page
 }, info) => {
 	test.setTimeout(420_000);
@@ -772,16 +910,74 @@ test('the condenser example after Add cases, the card open: the Results pane’s
 	await atEachSize(page, info, '3-condenser', extra);
 });
 
-test('one-off, the Pumps tab’s defaults: nothing scrolls sideways', async ({ page }, info) => {
+test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump chart holds its budget', async ({
+	page
+}, info) => {
 	test.setTimeout(240_000);
 	const extra = await oneOff(page);
 	await atEachSize(page, info, '1-one-off', extra);
+
+	// S1 (§5.3, §10): a case in which Pump PA is off says so in its box's description, beside
+	// the box; the others do not. The fixture's scenarios set PA off in "Pump PA off" and "Both
+	// pumps off" (pump-groups-input.json).
+	const figure = await pumpFigure(page);
+	const cases = figure.getByRole('group', { name: 'Cases on the chart' });
+	const NOTE = 'off in this case: no operating point';
+	for (const name of ['Pump PA off', 'Both pumps off']) {
+		const box = cases.getByRole('checkbox', { name, exact: true });
+		await expect(box).toHaveAccessibleDescription(new RegExp(`\\(${NOTE}\\)`));
+	}
+	for (const name of ['Pump PB off', 'Delivery tank 5 m higher']) {
+		const box = cases.getByRole('checkbox', { name, exact: true });
+		await expect(box).toHaveAccessibleDescription('');
+	}
+	await expect(cases.getByText(`(${NOTE})`, { exact: true })).toHaveCount(2);
+	await expect(cases.getByText(`(${NOTE})`, { exact: true }).first()).toBeVisible();
 });
 
-test('lineups, every disclosure and data table open: nothing scrolls sideways', async ({
+test('lineups, every disclosure and data table open: nothing scrolls sideways; the pump chart holds its budget', async ({
 	page
 }, info) => {
 	test.setTimeout(420_000);
 	const extra = await lineups(page);
 	await atEachSize(page, info, '2-lineups', extra);
+
+	// S1 (§5.1, §5.3): the data region opens after the notes and before the other cases, the
+	// operating point at its top and the case shown's tables first.
+	const figure = await pumpFigure(page);
+	const order = await figure.evaluate((f) => {
+		const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+		const region = f.querySelector('[data-pump-data]');
+		const notes = f.querySelector('[data-pump-notes]');
+		const others = f.querySelector('[data-pump-others]');
+		const follows = (a: Element | null, b: Element | null) =>
+			!!a && !!b && !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+		return {
+			afterNotes: follows(notes, region),
+			beforeOthers: follows(region, others),
+			first: squash(region?.firstElementChild?.textContent),
+			tables: [...(region?.querySelectorAll('table') ?? [])].map((t) =>
+				squash(t.querySelector('caption')?.textContent)
+			)
+		};
+	});
+	expect(order.afterNotes).toBe(true);
+	expect(order.beforeOthers).toBe(true);
+	expect(order.first).toMatch(/^Operating point: [\d.]+ L\/s at [\d.]+ m/);
+	expect(order.tables[0]).toBe('Operating points by case');
+	expect(order.tables[1]).toMatch(/^Pump curve at /);
+	expect(order.tables[2]).toBe('System curve');
+	// The case shown first in "Operating points by case", "Speed (%)" with bare numbers.
+	const byCase = figure.getByRole('table', { name: 'Operating points by case' });
+	await expect(byCase.getByRole('columnheader')).toHaveText([
+		'Case',
+		'Flow (L/s)',
+		'Head (m)',
+		'Speed (%)',
+		'State'
+	]);
+	await expect(byCase.getByRole('rowheader').first()).toHaveText(/\(shown\)$/);
+	for (const cell of await byCase.getByRole('row').nth(1).getByRole('cell').all()) {
+		await expect(cell).not.toContainText('%');
+	}
 });

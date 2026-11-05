@@ -771,7 +771,10 @@ export interface OtherCaseData {
 	curveLabel: string;
 	/** Its system curve, when computed (a null head is a gap). */
 	system: { x: number; y: number | null }[] | null;
-	/** Table row: flow, head, speed and state, formatted. */
+	/**
+	 * Table row: flow, head, speed and state, formatted; the speed a bare number, under "Speed (%)"
+	 * (proposal pumps-results-layout.md §5.3, the data region; "—" for an off pump).
+	 */
 	row: { flow: string; head: string; speed: string; state: string };
 	systemRows: SystemRow[];
 }
@@ -817,8 +820,7 @@ export function otherCasesData(
 			row: {
 				flow: data.operating ? fmt(data.operating.x) : data.held ? '0' : '—',
 				head: data.operating ? fmt(data.operating.y) : data.held ? fmt(data.held.y) : '—',
-				speed:
-					other.result.status === 'off' ? '—' : `${formatNumber(other.result.speed * 100, 4)} %`,
+				speed: other.result.status === 'off' ? '—' : formatNumber(other.result.speed * 100, 4),
 				state: STATE_WORDS[other.result.status] ?? other.result.status
 			},
 			systemRows: data.systemRows

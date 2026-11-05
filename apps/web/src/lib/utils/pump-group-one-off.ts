@@ -269,8 +269,9 @@ export function dutyClaim(input: {
 
 /**
  * The keys of the cases on the chart: lineupChartPriority's order (D24 §4.6) without the cases
- * unticked under "Cases on this chart", at most MAX_GROUP_CASES, so a case unticked lets the next
- * one in.
+ * unticked under "Cases on this chart", at most MAX_GROUP_CASES. A case past the cap reads as
+ * unticked, and the card's untick unticks those cases too (untickedAfter, pump-chart.ts), so the
+ * place a case leaves stays free: none comes in by itself, and the case can be ticked again.
  */
 export function chartKeys(
 	keys: readonly { key: string; caseId: CaseId }[],

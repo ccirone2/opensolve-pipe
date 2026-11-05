@@ -55,6 +55,7 @@
 	import {
 		MAX_CHART_CASES,
 		ratedCurveRange,
+		untickedAfter,
 		type OtherCaseInput,
 		type PumpChecksInput
 	} from '$lib/utils/pump-chart';
@@ -668,10 +669,16 @@
 		ws.pumpGroupOthers = on;
 		if (!on) for (const v of valuedOthers) cancelCase(v.caseId);
 	}
+	/** Tick or untick a case under "Cases on this chart"; unticking leaves its place free. */
 	function tickOther(key: string, on: boolean) {
 		ws.pumpGroupUnticked = on
 			? ws.pumpGroupUnticked.filter((k) => k !== key)
-			: [...ws.pumpGroupUnticked, key];
+			: untickedAfter(
+					ws.pumpGroupUnticked,
+					key,
+					valuedOthers.map((o) => o.key),
+					chartCaseKeys
+				);
 		if (!on) cancelCase(caseOf(key));
 	}
 	function cancelOthers() {

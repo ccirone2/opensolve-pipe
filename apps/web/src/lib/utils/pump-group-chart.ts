@@ -25,6 +25,13 @@
  * whether a ring is a point of the group system curve shown); duties within the duty checks'
  * tolerances share one ring.
  *
+ * Slice L3 of pump lineups (CLAUDE.md D24, proposal pump-lineups.md §9): a ring's own group curve,
+ * where pump-group-one-off.ts says it is drawn, is a slate line split as the group curve is, with
+ * its labels (placeCurveLabels places them on the canvas, pure), one legend entry for the family,
+ * the axes it needs (x cut where other curves pass everything else, y capped near the pumps with
+ * the group system curve cut there), its words in the notes and the accessible name, and its
+ * points in a table of their own. Without a curve drawn the chart is 4d's.
+ *
  * Identity never rests on colour alone: each member has a colour (the dataviz palette's blue and,
  * a step darker than its slot 3 to clear 3:1 on white, aqua; orange stays the system's), a dash
  * pattern from its third slot on, a marker with a text stand-in, a direct label, a legend entry
@@ -111,6 +118,12 @@ export const GROUP_OTHER = '#475569';
 export const OTHER_SYMBOL = '○';
 
 /**
+ * Other cases' own group curves (D24 slice L3): their one legend entry, on screen and in the image
+ * (a canvas legend item does not wrap: 62 characters).
+ */
+export const OTHER_CURVES_LABEL = "Other cases' group curves (slate; dashed beyond a pump's data)";
+
+/**
  * When a ring is called a point of the group system curve shown (pump-group-one-off.ts
  * dutyClaim): the notes' sentence, while a ring and a group system curve are drawn.
  */
@@ -194,7 +207,9 @@ export interface GroupChartData {
 	} | null;
 	/**
 	 * The group system curve in flow order (station's flow, rise): a null rise is a point without
-	 * one (a gap); null without a group system curve response or points.
+	 * one (a gap); null without a group system curve response or points. While other cases' curves
+	 * are drawn, the line as drawn under `yMax` (D24 §9.4: its points inside the plot and those
+	 * next to one); `systemMissing` and `systemTotal` count the whole curve.
 	 */
 	system: { x: number; y: number | null }[] | null;
 	/** Points of the group system curve without a rise (gaps), of `systemTotal`. */
@@ -202,6 +217,66 @@ export interface GroupChartData {
 	systemTotal: number;
 	/** Other cases' station duties, as rings (slice 4d): in number order, empty without any. */
 	others: OtherRing[];
+	/**
+	 * Other cases' own group curves (D24 slice L3, §9.1): one per case whose curve is drawn, in
+	 * number order; empty without any (the chart is then 4d's).
+	 */
+	otherCurves: OtherCurve[];
+	/**
+	 * This case's members switched on, as solved (groupChartData's `on`): its ink curve's label
+	 * while other cases' curves are drawn (§9.3); null when not given.
+	 */
+	on: number | null;
+	/**
+	 * The x-axis maximum (display units, §9.4): set only when other cases' curves pass the largest
+	 * flow of everything else; they are cut at it. Null: Chart.js's own range.
+	 */
+	xMax: number | null;
+	/**
+	 * A point of another case's curve lies beyond `xMax`: the curves are cut at the plot's right
+	 * edge (the clip note). x max rounded up can lie beyond every one of them: nothing is cut.
+	 */
+	curvesCut: boolean;
+	/**
+	 * The x-axis minimum (display units, §9.4: other cases' curves do not widen the x-axis): 0 when
+	 * only they reach below zero flow (round-off at their shutoff rise, about −10⁻¹¹ L/s, would
+	 * start the axis a tick below zero). Null: Chart.js's own range.
+	 */
+	xMin: number | null;
+	/**
+	 * The y-axis maximum (display units, §9.4, decision 25): while other cases' curves are drawn,
+	 * from every drawn head but the group system curve's, whose points above it are cut from
+	 * `system`. Null: Chart.js's own range (4b's and 4d's charts).
+	 */
+	yMax: number | null;
+	/** The group system curve had a rise above `yMax`: it is cut at the plot's top (the clip note). */
+	systemCut: boolean;
+}
+
+/**
+ * An other case's own group curve on the chart (D24 slice L3, §9.1, §9.2): slate, solid where
+ * every member is inside its data and dashed where one runs beyond it, as the group curve is.
+ */
+export interface OtherCurve {
+	/** '' for the base, else the scenario id. */
+	key: string;
+	/** Its case's ring number. */
+	number: number;
+	/** The case's name, "(out of date)" after it when its results are. */
+	name: string;
+	/** Members switched on in that case as solved (k), of `of`. */
+	k: number;
+	of: number;
+	stale: boolean;
+	/** "3 running", or for a stale case "as last solved: 3 running" (runningWords). */
+	running: string;
+	/** The response's points in rise order (display units), as groupCurveRuns splits them. */
+	solid: ChartPoint[][];
+	beyond: ChartPoint[][];
+	/** The dataset's label (tooltips) from 640 px and in the image: "1 · {name}: group curve, 3 running". */
+	label: string;
+	/** Below 640 px, where a tooltip does not wrap: "1 · 3 running: group curve". */
+	shortLabel: string;
 }
 
 /** A case of a ring: its number, name and duty (display units, the flow as words give it). */
@@ -215,6 +290,15 @@ export interface OtherRingCase {
 	rise: number;
 	/** Whether it lies on the group system curve shown, in short words (DUTY_CLAIM_WORDS). */
 	claim: string;
+	/**
+	 * Its own group curve's state in words (D24 §9.6, OTHER_CURVE_WORDS), for the notes and the
+	 * accessible name; null without a curve state (4d's chart).
+	 */
+	curve: string | null;
+	/** The same words starting with a capital: the "Its group curve" column. */
+	curveCell: string | null;
+	/** Its own group curve is drawn. */
+	drawn: boolean;
 }
 
 /**
@@ -227,7 +311,11 @@ export interface OtherRing {
 	point: ChartPoint;
 	/** The dataset's and the legend's label: "1 · Pump PA off (station duty)". */
 	label: string;
-	/** On the chart: "1 · Pump PA off", "1, 2 · A, B and 1 more" past two names. */
+	/**
+	 * On the chart: "1 · Pump PA off", "1, 2 · A, B and 1 more" past two names; its numbers only
+	 * when every case of the ring has its own curve drawn (D24 §9.3: the labels and the legend
+	 * name them).
+	 */
 	tag: string;
 	/** On a phone's screen: "1", "1, 2". */
 	short: string;
@@ -242,14 +330,17 @@ export const speedPercent = (speed: number) => `${formatNumber(speed * 100, 4)} 
 /**
  * The chart's data: each member's curve at its speed (members with one curve at one speed on one
  * line), each member's point, from `response` the group curve and the station's duty, and from
- * `system` (the same request with curve 'system') the group system curve.
+ * `system` (the same request with curve 'system') the group system curve. With `others` (slice
+ * 4d) their rings, and their own group curves where drawn (D24 slice L3) with the axes those
+ * need; `on` is this case's members switched on as solved, its curve's label (§9.3).
  */
 export function groupChartData(
 	members: readonly GroupMemberInput[],
 	prefs: UnitPreferences,
 	response: PumpGroupCurveResponse | null,
 	system: PumpGroupCurveResponse | null = null,
-	others: readonly OtherGroupCase[] = []
+	others: readonly OtherGroupCase[] = [],
+	on: number | null = null
 ): GroupChartData {
 	const flowUnit = displayUnit('flow', prefs);
 	const headUnit = displayUnit('head', prefs);
@@ -307,12 +398,24 @@ export function groupChartData(
 	const onCurve = !!response?.dutyCheck?.agrees;
 	const onSystem = !!system?.systemDutyCheck?.agrees;
 	const crossing = onCurve && onSystem && !!response?.points.length && systemDrawn;
+	const curve = response && response.points.length ? groupCurveRuns(response.points, at) : null;
+	const rings = otherRings(others, at, flowUnit, headUnit);
+	const otherCurves = familyCurves(others, at);
+	const axes = familyAxes({
+		lines,
+		points,
+		curve,
+		system: systemLine,
+		station: duty ? at(duty.flow, duty.head) : null,
+		rings,
+		otherCurves
+	});
 	return {
 		flowUnit: unitLabel('flow', flowUnit),
 		headUnit: unitLabel('head', headUnit),
 		lines,
 		points,
-		curve: response && response.points.length ? groupCurveRuns(response.points, at) : null,
+		curve,
 		missing: response ? response.points.filter((p) => p.flow === null).length : 0,
 		total: response?.points.length ?? 0,
 		station: duty
@@ -334,11 +437,150 @@ export function groupChartData(
 					tag: crossing ? 'Group (crossing)' : 'Group'
 				}
 			: null,
-		system: systemLine,
+		// The line as drawn (cut above y max while the family is drawn); its gaps counted whole.
+		system: axes.system,
 		systemMissing: (systemLine ?? []).filter((p) => p.y === null).length,
 		systemTotal: systemLine?.length ?? 0,
-		others: otherRings(others, at, flowUnit, headUnit)
+		others: rings,
+		otherCurves,
+		on,
+		xMin: axes.xMin,
+		xMax: axes.xMax,
+		curvesCut: axes.curvesCut,
+		yMax: axes.yMax,
+		systemCut: axes.systemCut
 	};
+}
+
+/**
+ * Each other case whose own group curve is drawn (otherGroupCases' `curve`: on the chart, ready,
+ * the same station), in number order: its response's points in rise order as groupCurveRuns
+ * splits them, and its labels (D24 §9.2, §9.6).
+ */
+function familyCurves(
+	others: readonly OtherGroupCase[],
+	at: (flow: number, head: number) => ChartPoint
+): OtherCurve[] {
+	return others
+		.filter((o) => o.onChart && o.state === 'ready' && o.curve && o.number !== null)
+		.sort((a, b) => a.number! - b.number!)
+		.map((o) => {
+			const { points, on: k, of } = o.curve!;
+			const runs = groupCurveRuns(points, at);
+			const name = `${o.name}${o.stale ? ' (out of date)' : ''}`;
+			const running = runningWords(k, o.stale);
+			return {
+				key: o.key,
+				number: o.number!,
+				name,
+				k,
+				of,
+				stale: o.stale,
+				running,
+				solid: runs.solid,
+				beyond: runs.beyond,
+				label: `${o.number} · ${name}: group curve, ${running}`,
+				shortLabel: `${o.number} · ${running}: group curve`
+			};
+		});
+}
+
+/**
+ * "3 running"; for a stale case "as last solved: 3 running" (D24 §9.1): its k is its last
+ * solve's, while its name may already have followed a later toggle (§4.5).
+ */
+export function runningWords(on: number, stale: boolean): string {
+	return stale ? `as last solved: ${on} running` : `${on} running`;
+}
+
+/** The steps of a rounded axis maximum (D24 §9.4): {1, 1.2, …, 8} × 10ⁿ. */
+const NICE_STEPS = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8] as const;
+
+/**
+ * The least of {1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8} × 10ⁿ at or above `value` (D24 §9.4); null for
+ * a value that is not positive and finite.
+ */
+export function roundUpNice(value: number): number | null {
+	if (!Number.isFinite(value) || value <= 0) return null;
+	// From a decade below: log10 can round up across a power of ten.
+	const n = Math.floor(Math.log10(value)) - 1;
+	for (let exponent = n; ; exponent++) {
+		for (const step of NICE_STEPS) {
+			// Rounded to 12 figures: 3 × 10⁻¹ is 0.3, not 0.30000000000000004.
+			const candidate = Number((step * 10 ** exponent).toPrecision(12));
+			if (candidate >= value) return candidate;
+		}
+	}
+}
+
+/**
+ * The axes while other cases' curves are drawn (D24 §9.4; with none, Chart.js's own range and the
+ * group system curve whole, as in 4b and 4d):
+ * - y max: the largest head of everything drawn but the group system curve (the members' lines and
+ *   points, this case's group curve and the others', the Group point, every ring) × 1.05, rounded
+ *   up (roundUpNice). The group system curve keeps only its points drawn inside and those next
+ *   to one, so its line runs to the plot's top edge, where the chart clips it, and its gaps there
+ *   stay: nothing it shows above every pump's head can be a crossing, since no group curve
+ *   reaches there.
+ * - x max: only when the other cases' curves pass the largest flow of everything else (the
+ *   members' lines and points, this case's group curve and its group system curve as drawn, the
+ *   Group point, every ring), that flow × 1.05, rounded up; the other curves are cut at it, where
+ *   a point of one lies beyond it (`curvesCut`, the clip note's clause).
+ * - x min: 0 when only the other cases' curves reach below zero flow (nor do they widen it there).
+ */
+function familyAxes(input: {
+	lines: readonly GroupLine[];
+	points: readonly GroupPoint[];
+	curve: { solid: ChartPoint[][]; beyond: ChartPoint[][] } | null;
+	system: { x: number; y: number | null }[] | null;
+	station: ChartPoint | null;
+	rings: readonly OtherRing[];
+	otherCurves: readonly OtherCurve[];
+}): {
+	xMin: number | null;
+	xMax: number | null;
+	curvesCut: boolean;
+	yMax: number | null;
+	system: { x: number; y: number | null }[] | null;
+	systemCut: boolean;
+} {
+	const { lines, points, curve, station, rings, otherCurves } = input;
+	if (!otherCurves.length) {
+		const system = input.system;
+		return { xMin: null, xMax: null, curvesCut: false, yMax: null, system, systemCut: false };
+	}
+	const runs = (c: { solid: ChartPoint[][]; beyond: ChartPoint[][] } | null) =>
+		c ? [...c.solid, ...c.beyond].flat() : [];
+	const own: ChartPoint[] = [
+		...lines.flatMap((l) => [...l.curve, ...l.extrapolated.flat()]),
+		...points.map((p) => p.point),
+		...runs(curve),
+		...(station ? [station] : []),
+		...rings.map((r) => r.point)
+	];
+	const family = otherCurves.flatMap((c) => runs(c));
+	const yMax = roundUpNice(Math.max(...[...own, ...family].map((p) => p.y)) * 1.05);
+	let system = input.system;
+	let systemCut = false;
+	if (system && yMax !== null) {
+		const line = system;
+		const inside = (i: number) => {
+			const y = line[i]?.y;
+			return y !== null && y !== undefined && y <= yMax;
+		};
+		systemCut = line.some((p) => p.y !== null && p.y > yMax);
+		// A point drawn inside, or next to one (a point above it, or a gap beside it): any other
+		// lies wholly above the plot or beyond the line drawn there.
+		system = line.filter((_, i) => inside(i) || inside(i - 1) || inside(i + 1));
+	}
+	const drawnSystem = (system ?? []).filter((p): p is ChartPoint => p.y !== null);
+	const largest = Math.max(...[...own, ...drawnSystem].map((p) => p.x));
+	const familyLargest = Math.max(...family.map((p) => p.x));
+	const xMax = familyLargest > largest ? roundUpNice(largest * 1.05) : null;
+	const curvesCut = xMax !== null && family.some((p) => p.x > xMax);
+	const smallest = Math.min(...[...own, ...drawnSystem].map((p) => p.x));
+	const xMin = Math.min(...family.map((p) => p.x)) < 0 && smallest >= 0 ? 0 : null;
+	return { xMin, xMax, curvesCut, yMax, system, systemCut };
 }
 
 /** Two duties agree within the duty checks' tolerances (the flow's, and the rise's of 4b). */
@@ -372,7 +614,10 @@ function otherRings(
 			name,
 			flow: fromSI(dutyFlow(duty.flow), flowUnit),
 			rise: fromSI(duty.head, headUnit),
-			claim: o.words
+			claim: o.words,
+			curve: o.curveWords,
+			curveCell: o.curveWords === null ? null : upperFirst(o.curveWords),
+			drawn: o.curve !== null
 		};
 		const joined = rings.find((r) => dutiesAgree(r.first, duty));
 		if (joined) {
@@ -406,10 +651,17 @@ function otherRings(
 			label: merged
 				? `${numbers} · ${andList(ring.names)} (station duties, equal within the duty checks' tolerances)`
 				: `${numbers} · ${ring.names[0]} (station duty)`,
-			tag: `${numbers} · ${shown}`,
+			// Its numbers only when every case of it has its curve drawn (D24 §9.3): the labels on
+			// the curves, the legend, the notes and the tables name them, and lineup names are long.
+			tag: ring.cases.every((c) => c.drawn) ? numbers : `${numbers} · ${shown}`,
 			short: numbers
 		};
 	});
+}
+
+/** "drawn (…)" → "Drawn (…)" (a table cell). */
+function upperFirst(text: string): string {
+	return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** A slot's style (slots past the sixth reuse the palette: never reached, at most six members). */
@@ -499,6 +751,19 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 					}
 				]
 			: []),
+		// Other cases' own group curves (D24 §9.6): one entry for the family; its labels and the
+		// notes say which curve is which.
+		...(data.otherCurves.length
+			? [
+					{
+						key: 'other-curves',
+						label: OTHER_CURVES_LABEL,
+						kind: 'line' as const,
+						color: GROUP_OTHER,
+						dash: []
+					}
+				]
+			: []),
 		...(data.system?.some((p) => p.y !== null)
 			? [
 					{
@@ -536,6 +801,165 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 			symbol: OTHER_SYMBOL
 		}))
 	];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Labels on the curves (D24 slice L3, §9.3)
+// ---------------------------------------------------------------------------------------------
+
+/** A box on the canvas (px; y grows downwards). */
+export interface PxBox {
+	left: number;
+	right: number;
+	top: number;
+	bottom: number;
+}
+
+/** A curve to label, as the chart draws it. */
+export interface CurveLabelInput {
+	/** Its anchor: its drawn point of largest flow inside the plot (curveAnchor), px; null: none. */
+	anchor: { x: number; y: number } | null;
+	/** Members switched on in its case, as solved. */
+	k: number;
+	/** Its case's ring numbers; empty for this case's own (ink) curve. */
+	numbers: readonly number[];
+}
+
+/** A label placed by placeCurveLabels. */
+export interface PlacedCurveLabel {
+	text: string;
+	/** The curves it labels, by their index in the input: more than one when merged. */
+	curves: number[];
+	/** This case's own curve: drawn in ink, the others in slate. */
+	shown: boolean;
+	/** The text's left end and its baseline (px: textAlign 'left', textBaseline 'alphabetic'). */
+	x: number;
+	y: number;
+	/** Its row: 0, or moved up one or two rows. */
+	row: number;
+	box: PxBox;
+}
+
+/** The labels drawn, and how many curves have their label left out for space. */
+export interface CurveLabelPlacement {
+	labels: PlacedCurveLabel[];
+	leftOut: number;
+}
+
+/** A label's row (px): a label that would overlap moves up by one, at most twice (§9.3). */
+export const CURVE_LABEL_ROW = 14;
+/** Rows in all: the anchor's and two above it. */
+const CURVE_LABEL_ROWS = 3;
+/** How far a label sits left of and above its anchor (px). */
+const CURVE_LABEL_OFFSET = 4;
+/** How far inside the plot's left edge a label is clamped (px), as the system curve's tag is. */
+const CURVE_LABEL_EDGE = 2;
+/** Labels closer than this side by side read as one (px; m4's spacing): they overlap. */
+const CURVE_LABEL_GAP = 3;
+
+/**
+ * A curve's label (§9.3): another case's "{numbers} · {k} running" (numbers ascending), "{k}
+ * running" on a phone (`compact`); this case's own "{k} running (this case)", "{k} running" on a
+ * phone. The image takes the desktop's.
+ */
+export function curveLabelText(numbers: readonly number[], k: number, compact = false): string {
+	if (!numbers.length) return compact ? `${k} running` : `${k} running (this case)`;
+	const sorted = [...numbers].sort((a, b) => a - b);
+	return compact ? `${k} running` : `${sorted.join(', ')} · ${k} running`;
+}
+
+/**
+ * A curve's anchor (§9.3): of its drawn points (px), the one of largest flow (rightmost) inside
+ * the plot, edges included; null when none is inside (the curve is not seen, and not labelled).
+ */
+export function curveAnchor(
+	points: readonly { x: number; y: number }[],
+	plot: PxBox
+): { x: number; y: number } | null {
+	let best: { x: number; y: number } | null = null;
+	for (const p of points) {
+		const inside = p.x >= plot.left && p.x <= plot.right && p.y >= plot.top && p.y <= plot.bottom;
+		if (inside && (!best || p.x > best.x)) best = { x: p.x, y: p.y };
+	}
+	return best;
+}
+
+function overlaps(a: PxBox, b: PxBox): boolean {
+	return (
+		a.left < b.right + CURVE_LABEL_GAP &&
+		b.left < a.right + CURVE_LABEL_GAP &&
+		a.top < b.bottom &&
+		b.top < a.bottom
+	);
+}
+
+/**
+ * Where the curves' labels go (§9.3), pure: the chart's plugin calls it with Chart.js's pixels
+ * and `ctx.measureText`, the tests with a fixed-width `measure`.
+ * - Each label is right-aligned 4 px left of its anchor and 4 px above it, clamped inside the
+ *   plot's left edge.
+ * - Labels of other cases' curves with equal k whose anchors are less than one label width apart
+ *   (the width of the later one's own label) merge into one at the rightmost anchor, their numbers
+ *   ascending: "1, 4, 5, 6 · 3 running". This case's label never merges.
+ * - From left to right, a label that would overlap one placed before or an obstacle (a ring's
+ *   tag, a marker, a member's label) moves up one 14 px row, at most twice; a row that would leave
+ *   the plot's top does not fit either. A label that still overlaps is left out, and `leftOut`
+ *   counts the curves it labels (the notes say so; the data table lists every curve).
+ */
+export function placeCurveLabels(
+	curves: readonly CurveLabelInput[],
+	obstacles: readonly PxBox[],
+	plot: PxBox,
+	measure: (text: string) => number,
+	compact = false
+): CurveLabelPlacement {
+	type Group = {
+		curves: number[];
+		numbers: number[];
+		k: number;
+		shown: boolean;
+		anchor: { x: number; y: number };
+	};
+	const items = curves
+		.flatMap((c, i) => (c.anchor ? [{ i, c, anchor: c.anchor }] : []))
+		.sort((a, b) => a.anchor.x - b.anchor.x || a.i - b.i);
+	const groups: Group[] = [];
+	const lastOfK = new Map<number, Group>();
+	for (const { i, c, anchor } of items) {
+		const shown = c.numbers.length === 0;
+		if (!shown) {
+			const last = lastOfK.get(c.k);
+			const width = measure(curveLabelText(c.numbers, c.k, compact));
+			if (last && anchor.x - last.anchor.x < width) {
+				last.curves.push(i);
+				last.numbers.push(...c.numbers);
+				last.anchor = anchor;
+				continue;
+			}
+		}
+		const group: Group = { curves: [i], numbers: [...c.numbers], k: c.k, shown, anchor };
+		groups.push(group);
+		if (!shown) lastOfK.set(c.k, group);
+	}
+	groups.sort((a, b) => a.anchor.x - b.anchor.x);
+	const labels: PlacedCurveLabel[] = [];
+	let leftOut = 0;
+	for (const g of groups) {
+		const text = curveLabelText(g.numbers, g.k, compact);
+		const width = measure(text);
+		const x = Math.max(plot.left + CURVE_LABEL_EDGE, g.anchor.x - CURVE_LABEL_OFFSET - width);
+		let placed: PlacedCurveLabel | null = null;
+		for (let row = 0; row < CURVE_LABEL_ROWS && !placed; row++) {
+			const y = g.anchor.y - CURVE_LABEL_OFFSET - row * CURVE_LABEL_ROW;
+			const box = { left: x, right: x + width, top: y - CURVE_LABEL_ROW, bottom: y };
+			if (box.top < plot.top) break;
+			const taken = [...labels.map((l) => l.box), ...obstacles].some((b) => overlaps(box, b));
+			if (!taken) placed = { text, curves: g.curves, shown: g.shown, x, y, row, box };
+		}
+		if (placed) labels.push(placed);
+		else leftOut += g.curves.length;
+	}
+	return { labels, leftOut };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -648,6 +1072,11 @@ export interface GroupNotesInput {
 	prefs: UnitPreferences;
 	/** The other cases with values, each in its state (slice 4d; default none). */
 	others?: readonly OtherGroupCase[];
+	/**
+	 * Curves whose labels placeCurveLabels left out for space where the chart was drawn (D24 §9.3;
+	 * default 0): the notes count them.
+	 */
+	labelsLeftOut?: number;
 }
 
 /** The figure's notes, from one function the screen and the image both use. */
@@ -659,7 +1088,8 @@ export function groupNotes({
 	project,
 	solved,
 	prefs,
-	others = []
+	others = [],
+	labelsLeftOut = 0
 }: GroupNotesInput): GroupNotes {
 	const headUnit = displayUnit('head', prefs);
 	const head = (m: number) => `${formatNumber(fromSI(m, headUnit), 4)} ${data.headUnit}`;
@@ -841,9 +1271,43 @@ export function groupNotes({
 		dashed,
 		others: otherNotes(data, others, stationResponse(state, system), project, {
 			drawn: !!data.curve && data.missing < data.total,
-			pressureControl: undefinedThere
+			pressureControl: undefinedThere,
+			labelsLeftOut
 		})
 	};
+}
+
+/**
+ * The frame sentence's last part while a group curve is drawn and the rings' own curves are
+ * judged (D24 §9.6): it replaces 4d's, exactly. The list of rings then says which applies.
+ */
+export const OTHER_CURVES_FRAME =
+	"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13). Where its case differs from this one inside the station only in which pumps are switched on, and its curve has flow, that curve is drawn in slate and labelled with the number of pumps switched on; where it differs only outside the station, it is the group curve drawn for this case; otherwise it is not drawn. The list below says, for each ring, which.";
+
+/**
+ * The clip note (D24 §9.4, §9.6), after the frame sentence when the axes cut a curve: each clause
+ * only when that cut was made (null with none): x max set cuts nothing when every other curve
+ * ends inside it.
+ */
+export function clipNote(data: Pick<GroupChartData, 'curvesCut' | 'systemCut'>): string | null {
+	const clauses = [
+		...(data.curvesCut
+			? [
+					"other cases' group curves are cut at the chart's right edge, the largest flow of this case's own lines and the rings"
+				]
+			: []),
+		...(data.systemCut ? ["the group system curve is cut at the top, above every pump's head"] : [])
+	];
+	return clauses.length
+		? upperFirst(`${clauses.join('; ')}; the data tables list all their points.`)
+		: null;
+}
+
+/** The notes' count of curves whose labels are left out for space (D24 §9.3); null for none. */
+export function labelsLeftOutNote(n: number): string | null {
+	return n > 0
+		? `Labels of ${n} ${n === 1 ? 'curve' : 'curves'} are left out for space; the data table lists every curve.`
+		: null;
 }
 
 /**
@@ -864,6 +1328,11 @@ export function groupNotes({
  * the station and its duty from the group system answer: stationResponse), and a ring is its
  * case's duty from its group system curve where one is active in that case too
  * (otherGroupCases), else from its group curve.
+ *
+ * With the rings' own curves judged (D24 slice L3: a group curve drawn and the rings' cases given
+ * their curve states), the frame's last sentence is OTHER_CURVES_FRAME, the clip note follows the
+ * frame when the axes cut a curve, each ring's entry in the list gains "; group curve: {words}",
+ * and the count of curves whose labels are left out for space comes last.
  */
 function otherNotes(
 	data: GroupChartData,
@@ -875,6 +1344,8 @@ function otherNotes(
 		drawn: boolean;
 		/** The group curve is refused only for an active PRV or PSV inside. */
 		pressureControl: boolean;
+		/** Curves whose labels are left out for space (placeCurveLabels). */
+		labelsLeftOut: number;
 	}
 ): string[] {
 	if (others.length && others.every((o) => o.state === 'off')) {
@@ -885,6 +1356,8 @@ function otherNotes(
 	}
 	const lines: string[] = [];
 	const cases = data.others.flatMap((ring) => ring.cases).sort((a, b) => a.number - b.number);
+	/** The rings' own curves are judged (D24 §9.6): the frame sentence is L3's. */
+	const family = curve.drawn && cases.some((c) => c.curve !== null);
 	if (cases.length && station) {
 		const s = stationPortWords(station.station.inlet, project);
 		const d = stationPortWords(station.station.outlet, project);
@@ -909,14 +1382,19 @@ function otherNotes(
 							]
 						: []),
 				"Each pump's own flow and head in each case are in Running combinations.",
-				curve.drawn
-					? "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
-					: curve.pressureControl
-						? "With an active PRV or PSV inside, the station has no group curve, so none is drawn here; each ring is its case's duty from its group system curve where one is active in that case too, else from its group curve."
-						: "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13); no group curve is drawn here."
+				family
+					? OTHER_CURVES_FRAME
+					: curve.drawn
+						? "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
+						: curve.pressureControl
+							? "With an active PRV or PSV inside, the station has no group curve, so none is drawn here; each ring is its case's duty from its group system curve where one is active in that case too, else from its group curve."
+							: "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13); no group curve is drawn here."
 			].join(' ')
 		);
 	}
+	// The clip note (D24 §9.4): only while the family is drawn, and only for the cuts made.
+	const clip = clipNote(data);
+	if (clip) lines.push(clip);
 	if (cases.length && data.system?.some((p) => p.y !== null)) lines.push(DUTY_CLAIM_RULE);
 	if (cases.length) {
 		const fmt = (v: number) => formatNumber(v, 4);
@@ -924,7 +1402,7 @@ function otherNotes(
 			`Other cases on the chart (slate rings, numbered): ${cases
 				.map(
 					(c) =>
-						`${c.number} · ${c.name}, ${fmt(c.flow)} ${data.flowUnit} at a rise of ${fmt(c.rise)} ${data.headUnit}: ${c.claim}`
+						`${c.number} · ${c.name}, ${fmt(c.flow)} ${data.flowUnit} at a rise of ${fmt(c.rise)} ${data.headUnit}: ${c.claim}${c.curve === null ? '' : `; group curve: ${c.curve}`}`
 				)
 				.join('; ')}.`
 		);
@@ -937,6 +1415,8 @@ function otherNotes(
 				.join('; ')}.`
 		);
 	}
+	const leftOut = labelsLeftOutNote(curve.labelsLeftOut);
+	if (leftOut) lines.push(leftOut);
 	return lines;
 }
 
@@ -1216,9 +1696,13 @@ export function groupSummary(
 		? `; other cases' station duties: ${cases
 				.map(
 					(c) =>
-						`${c.number} · ${c.name}, ${fmt(c.flow)} ${data.flowUnit} at a rise of ${fmt(c.rise)} ${data.headUnit} (${c.claim})`
+						`${c.number} · ${c.name}, ${fmt(c.flow)} ${data.flowUnit} at a rise of ${fmt(c.rise)} ${data.headUnit} (${c.claim}${c.curve === null ? '' : `; group curve: ${c.curve}`})`
 				)
 				.join('; ')}`
+		: '';
+	// Their own group curves drawn (D24 §9.6): each by its ring number and its members on.
+	const family = data.otherCurves.length
+		? `; other cases' group curves drawn: ${andList(data.otherCurves.map((c) => `${c.number} (${c.running})`))}`
 		: '';
 	const curve =
 		data.curve && data.missing < data.total ? '; group curve shown' : '; no group curve shown';
@@ -1227,7 +1711,7 @@ export function groupSummary(
 			? '; group system curve shown'
 			: '; no group system curve shown'
 		: '';
-	return `Pump curves and points of ${parts.join('; ')}${station}${others}${curve}${systemCurve}.`;
+	return `Pump curves and points of ${parts.join('; ')}${station}${others}${family}${curve}${systemCurve}.`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1375,6 +1859,16 @@ export function groupSampleRows(
 	prefs: UnitPreferences,
 	project?: Project
 ): GroupSampleRow[] {
+	return sampleRows(response.points, memberIds, prefs, project);
+}
+
+/** groupSampleRows over a group curve's points (the shown case's, or another case's: D24). */
+function sampleRows(
+	points: readonly PumpGroupCurvePoint[],
+	memberIds: readonly string[],
+	prefs: UnitPreferences,
+	project?: Project
+): GroupSampleRow[] {
 	// The outer loop's own words follow "not converged: " (the schema's reason): told once, ids in
 	// quotes named and values in display units when the project is given.
 	const notConverged = (message: string) => {
@@ -1388,7 +1882,7 @@ export function groupSampleRows(
 	const flowUnit = displayUnit('flow', prefs);
 	const headUnit = displayUnit('head', prefs);
 	const fmt = (v: number) => formatNumber(v, 4);
-	return [...response.points]
+	return [...points]
 		.sort((a, b) => a.head - b.head)
 		.map((p) => ({
 			rise: fmt(fromSI(p.head, headUnit)),
@@ -1415,6 +1909,48 @@ export function groupSampleRows(
 							: p.message
 		}));
 }
+
+/** The rows of one other case's group curve in the data table (D24 §9.6). */
+export interface OtherCurveRowGroup {
+	/** '' for the base, else the scenario id. */
+	key: string;
+	/** The row group's header: "1 · {name}: 3 running" ("as last solved: 3 running" when stale). */
+	header: string;
+	/** Every point of its response, in rise order, those cut from the chart included. */
+	rows: { rise: string; flow: string; note: string }[];
+}
+
+/**
+ * "Other cases' group curves (station's flow at each rise)": one row group per case whose own
+ * group curve is drawn, in number order; each point's rise and the station's flow as
+ * groupSampleRows formats them, its duty's rise noted "Its duty's rise (its duty check).", and a
+ * point without a flow by its message, as groupSampleRows gives it.
+ */
+export function otherCurveRows(
+	others: readonly OtherGroupCase[],
+	prefs: UnitPreferences,
+	project?: Project
+): OtherCurveRowGroup[] {
+	return others
+		.filter((o) => o.onChart && o.state === 'ready' && o.curve && o.number !== null)
+		.sort((a, b) => a.number! - b.number!)
+		.map((o) => ({
+			key: o.key,
+			header: `${o.number} · ${o.name}${o.stale ? ' (out of date)' : ''}: ${runningWords(o.curve!.on, o.stale)}`,
+			rows: sampleRows(o.curve!.points, [], prefs, project).map((row) => ({
+				rise: row.rise,
+				flow: row.flow,
+				note: [row.duty ? "Its duty's rise (its duty check)." : '', row.note]
+					.filter(Boolean)
+					.join(' ')
+			}))
+		}));
+}
+
+/** The column "Its group curve" of "Other cases' station duties" (D24 §9.6). */
+export const OTHER_CURVE_COLUMN = 'Its group curve';
+/** The new table's caption (D24 §9.6). */
+export const OTHER_CURVES_CAPTION = "Other cases' group curves (station's flow at each rise)";
 
 /** A group system curve's sample as the data table lists it (formatted, display units). */
 export interface GroupSystemRow {

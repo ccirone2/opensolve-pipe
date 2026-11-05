@@ -8,7 +8,14 @@
  */
 import type { Chart as ChartInstance, ChartConfiguration, LegendItem, Plugin } from 'chart.js';
 import type { ChartPoint, OtherCaseData, PanelKey, PumpChartData } from './pump-chart';
-import type { GroupChartData, GroupReadoutMark } from './pump-group-chart';
+import type {
+	CurveLabelInput,
+	CurveLabelPlacement,
+	GroupChartData,
+	GroupReadoutMark,
+	PlacedCurveLabel,
+	PxBox
+} from './pump-group-chart';
 
 /**
  * The chart's palette: categorical slots 1 and 2 of the dataviz reference palette (validated
@@ -748,6 +755,53 @@ export const GROUP_BEYOND_LABEL = 'Group curve, a pump beyond its data (dashed)'
 export const GROUP_SYSTEM_CURVE_LABEL =
 	"Group system curve (the rest of the network between the station's inlet and outlet, station's flow)";
 export const GROUP_SYSTEM_TAG = 'Group system curve';
+/**
+ * Other cases' own group curves (CLAUDE.md D24 slice L3): their one entry in the image's legend
+ * (pump-group-chart.ts OTHER_CURVES_LABEL, the page's, equal by test), which Chart.js's labels
+ * collapse the family's datasets into (flag `curveFamily`, §9.6).
+ */
+export const OTHER_CURVES_LEGEND = "Other cases' group curves (slate; dashed beyond a pump's data)";
+
+/**
+ * The labels on the curves (D24 §9.3): the page's pure placement, pump-group-chart.ts
+ * placeCurveLabels and curveAnchor, passed in as Chart.js's legend labels are, so this module
+ * imports nothing of the page at run time.
+ */
+export interface CurveLabelTools {
+	place: (
+		curves: readonly CurveLabelInput[],
+		obstacles: readonly PxBox[],
+		plot: PxBox,
+		measure: (text: string) => number,
+		compact?: boolean
+	) => CurveLabelPlacement;
+	anchor: (
+		points: readonly { x: number; y: number }[],
+		plot: PxBox
+	) => { x: number; y: number } | null;
+}
+
+/** A box the curve labels keep clear of (D24 §9.3), and what it is. */
+export interface CurveLabelObstacle {
+	/** A point's marker, a member's or the Group point's label, a ring's tag, a curve's tag. */
+	kind: 'marker' | 'label' | 'ring' | 'curve';
+	text?: string;
+	box: PxBox;
+}
+
+/**
+ * The curve labels as one drawing placed them (pumpGroupConfig's `onlabels`): the labels drawn,
+ * the curves whose label was left out for space (the notes count them), and, for measuring the
+ * layout, the plot, the boxes kept clear of and the axes' ranges (display units).
+ */
+export interface CurveLabelsDrawn {
+	plot: PxBox;
+	labels: PlacedCurveLabel[];
+	leftOut: number;
+	obstacles: CurveLabelObstacle[];
+	x: { min: number; max: number } | null;
+	y: { min: number; max: number } | null;
+}
 
 export interface PumpGroupConfigOptions {
 	/** Chart.js's own legend labels, from the chart chunk (as pumpChartConfig's). */
@@ -768,9 +822,18 @@ export interface PumpGroupConfigOptions {
 	readout?: () => GroupReadoutMark | null;
 	/**
 	 * A phone's screen (slice 4d): an other case's ring is labelled by its number only on the
-	 * canvas (the legend, the name and the tables name it); never in the image.
+	 * canvas (the legend, the name and the tables name it); never in the image. D24 slice L3: the
+	 * other cases' curves are labelled "{k} running" and their tooltips take the short form.
 	 */
 	compactLabels?: boolean;
+	/**
+	 * The labels on the curves while other cases' curves are drawn (D24 §9.3; absent: none
+	 * drawn), placed where placeCurveLabels puts them with Chart.js's pixels and the canvas's
+	 * measured text.
+	 */
+	curveLabels?: CurveLabelTools;
+	/** Told after every drawing where the curve labels went (absent: not told). */
+	onlabels?: (drawn: CurveLabelsDrawn) => void;
 }
 
 /**
@@ -784,6 +847,13 @@ export interface PumpGroupConfigOptions {
  * transparent fill, drawn on top (`order: -1`: Chart.js draws the last dataset in its sorted
  * order first) so a Group dot or a member's marker at the same place shows through; the image's
  * legend lists them last.
+ *
+ * D24 slice L3 (proposal pump-lineups.md §9.2–9.6): other cases' own group curves, where drawn,
+ * slate at 1.5 px (dashed [6, 4] where a member runs beyond its data, gaps where a point has no
+ * flow), under every other line (`order: 1`); their labels and this case's "{k} running (this
+ * case)" placed by placeCurveLabels clear of the markers, the points' labels and the tags; the
+ * axes' ranges the data sets (§9.4); one entry for the family in the image's legend; each curve's
+ * tooltip label its case's, the short form on a phone's screen.
  */
 export function pumpGroupConfig(
 	d: GroupChartData,
@@ -793,13 +863,57 @@ export function pumpGroupConfig(
 		forImage = false,
 		htmlLegend = false,
 		readout,
-		compactLabels = false
+		compactLabels = false,
+		curveLabels,
+		onlabels
 	}: PumpGroupConfigOptions
 ): PumpChartConfig {
 	const { ink: INK, grid: GRID, text: TEXT, system: SYSTEM, slate: SLATE } = CHART_COLORS;
 	const fmt = format;
 	const font = (size: number) => (forImage ? { font: { size } } : {});
 	const crossed = (marker: string) => marker === 'cross' || marker === 'crossRot';
+	/**
+	 * A marker's clip (px beyond each edge of the plot): Chart.js's own allowance for a point, its
+	 * radius (hovered, its hover radius) and its border, kept on every edge. Chart.js allows none
+	 * beyond an edge whose bound the configuration sets (x min, x max and y max while other cases'
+	 * curves are drawn, D24 §9.4), which would cut a marker there in half: only other cases'
+	 * curves are cut at the plot's edge.
+	 */
+	const markerClip = (radius: number, hoverRadius: number, borderWidth: number) =>
+		Math.max(radius, hoverRadius) + borderWidth;
+	/** A phone's screen (never the image): short labels on the canvas and in the tooltips. */
+	const compact = compactLabels && !forImage;
+	/**
+	 * Other cases' own group curves (D24 §9.2): per case a solid dataset and a dashed one where a
+	 * member runs beyond its data, each run joined with gaps (a point without a flow breaks both).
+	 */
+	const family = d.otherCurves.flatMap((c) => {
+		const line = (runs: ChartPoint[][], dash: readonly number[]) => ({
+			// The tooltip's: the case's name and its members on, or on a phone the short form.
+			label: compact ? c.shortLabel : c.label,
+			yAxisID: 'y',
+			data: joinSegments(runs),
+			// Parsed, so Chart.js finds the flow falls along the curve (rise order): with the
+			// chart's `parsing: false` it takes the data as sorted by x and, where x max cuts the
+			// curve (D24 §9.4), draws only the index range a binary search finds (library-facts.md).
+			parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+			borderColor: SLATE,
+			backgroundColor: SLATE,
+			borderWidth: 1.5,
+			...(dash.length ? { borderDash: [...dash] } : {}),
+			pointRadius: 0,
+			pointHitRadius: 4,
+			spanGaps: false,
+			// Drawn first, under this case's lines and the system curve; the rings stay on top.
+			order: 1,
+			curveFamily: true,
+			curveNumber: c.number
+		});
+		return [
+			...(c.solid.length ? [line(c.solid, [])] : []),
+			...(c.beyond.length ? [line(c.beyond, [6, 4])] : [])
+		];
+	});
 	const datasets = [
 		...d.lines.flatMap((line) => [
 			{
@@ -865,6 +979,8 @@ export function pumpGroupConfig(
 					}
 				]
 			: []),
+		// After the group curve and before the group system curve, as the page's legend lists them.
+		...family,
 		...(d.system?.some((p) => p.y !== null)
 			? [
 					{
@@ -893,6 +1009,7 @@ export function pumpGroupConfig(
 			pointRadius: 8,
 			pointHoverRadius: 10,
 			pointHitRadius: 12,
+			clip: markerClip(8, 10, p.held || crossed(p.style.marker) ? 3 : 1.5),
 			showLine: false,
 			caseLabel: p.name,
 			memberIds: [p.id]
@@ -910,6 +1027,7 @@ export function pumpGroupConfig(
 						pointRadius: 7,
 						pointHoverRadius: 9,
 						pointHitRadius: 12,
+						clip: markerClip(7, 9, 2),
 						showLine: false,
 						caseLabel: d.station.tag
 					}
@@ -926,6 +1044,7 @@ export function pumpGroupConfig(
 			pointRadius: 10,
 			pointHoverRadius: 12,
 			pointHitRadius: 12,
+			clip: markerClip(10, 12, 2),
 			showLine: false,
 			// Drawn last, on top: Chart.js draws datasets from the last in its sorted order.
 			order: -1,
@@ -939,9 +1058,19 @@ export function pumpGroupConfig(
 		id: 'groupLabels',
 		afterDatasetsDraw(chart) {
 			const ctx = chart.ctx;
+			const size = forImage ? 14 : 12;
+			/** What the curve labels keep clear of (D24 §9.3): every marker, label and tag drawn here. */
+			const obstacles: CurveLabelObstacle[] = [];
+			/** A text's box at its baseline: the font's size above it, a quarter below (descenders). */
+			const textBox = (x: number, y: number, width: number): PxBox => ({
+				left: x,
+				right: x + width,
+				top: y - size,
+				bottom: y + size / 4
+			});
 			ctx.save();
 			ctx.fillStyle = INK;
-			ctx.font = `${forImage ? 14 : 12}px system-ui, sans-serif`;
+			ctx.font = `${size}px system-ui, sans-serif`;
 			let n = 0;
 			chart.data.datasets.forEach((dataset, i) => {
 				const label = (dataset as { caseLabel?: string }).caseLabel;
@@ -952,7 +1081,26 @@ export function pumpGroupConfig(
 				const width = ctx.measureText(label).width;
 				const x =
 					point.x + 10 + width > chart.chartArea.right ? point.x - 10 - width : point.x + 10;
-				ctx.fillText(label, x, n++ % 2 === 0 ? point.y - 10 : point.y + 20);
+				const y = n++ % 2 === 0 ? point.y - 10 : point.y + 20;
+				ctx.fillText(label, x, y);
+				// The point's marker (its radius and half its border), then its label or a ring's tag.
+				const { pointRadius, borderWidth } = dataset as {
+					pointRadius?: number;
+					borderWidth?: number;
+				};
+				const r = (pointRadius ?? 0) + (borderWidth ?? 0) / 2;
+				obstacles.push(
+					{
+						kind: 'marker',
+						text: label,
+						box: { left: point.x - r, right: point.x + r, top: point.y - r, bottom: point.y + r }
+					},
+					{
+						kind: (dataset as { otherCase?: boolean }).otherCase ? 'ring' : 'label',
+						text: label,
+						box: textBox(x, y, width)
+					}
+				);
 			});
 			// A curve's label at its last drawn point, above the line, inside the plot.
 			chart.data.datasets.forEach((dataset, i) => {
@@ -978,10 +1126,80 @@ export function pumpGroupConfig(
 				const y = Math.max(chart.chartArea.top + 14, end.y - 8);
 				ctx.fillStyle = (dataset as { labelColor?: string }).labelColor ?? INK;
 				ctx.fillText(tag, x, y);
+				obstacles.push({ kind: 'curve', text: tag, box: textBox(x, y, width) });
 			});
+			const placement = curveLabelsOf(chart, obstacles);
+			ctx.textAlign = 'left';
+			ctx.textBaseline = 'alphabetic';
+			for (const label of placement.labels) {
+				ctx.fillStyle = label.shown ? INK : SLATE;
+				ctx.fillText(label.text, label.x, label.y);
+			}
 			ctx.restore();
+			const { left, right, top, bottom } = chart.chartArea;
+			const range = (id: string) => {
+				const scale = chart.scales?.[id];
+				return scale ? { min: scale.min, max: scale.max } : null;
+			};
+			onlabels?.({
+				plot: { left, right, top, bottom },
+				labels: placement.labels,
+				leftOut: placement.leftOut,
+				obstacles,
+				x: range('x'),
+				y: range('y')
+			});
 		}
 	};
+	/**
+	 * The curve labels' placement (D24 §9.3), while other cases' curves are drawn: each such curve
+	 * and this case's group curve anchored at its drawn point of largest flow inside the plot (in
+	 * Chart.js's pixels), placed by placeCurveLabels with the canvas's measured text, clear of
+	 * `obstacles`. None without the family, or without the page's placement.
+	 */
+	function curveLabelsOf(
+		chart: ChartInstance<'line'>,
+		obstacles: readonly CurveLabelObstacle[]
+	): CurveLabelPlacement {
+		if (!curveLabels || !d.otherCurves.length) return { labels: [], leftOut: 0 };
+		const { left, right, top, bottom } = chart.chartArea;
+		const plot = { left, right, top, bottom };
+		/** The drawn points (px) of the datasets `which` picks: a gap's point is not drawn. */
+		const drawn = (which: (dataset: Record<string, unknown>) => boolean) =>
+			chart.data.datasets.flatMap((dataset, i) =>
+				which(dataset as unknown as Record<string, unknown>) && chart.isDatasetVisible(i)
+					? chart
+							.getDatasetMeta(i)
+							.data.filter((_, k) => (dataset.data[k] as ChartDatum | undefined)?.y != null)
+							.map((el) => ({ x: el.x, y: el.y }))
+					: []
+			);
+		const curves: CurveLabelInput[] = d.otherCurves.map((c) => ({
+			anchor: curveLabels.anchor(
+				drawn((ds) => ds.curveFamily === true && ds.curveNumber === c.number),
+				plot
+			),
+			k: c.k,
+			numbers: [c.number]
+		}));
+		if (d.on !== null) {
+			curves.push({
+				anchor: curveLabels.anchor(
+					drawn((ds) => ds.label === GROUP_CURVE_LABEL || ds.label === GROUP_BEYOND_LABEL),
+					plot
+				),
+				k: d.on,
+				numbers: []
+			});
+		}
+		return curveLabels.place(
+			curves,
+			obstacles.map((o) => o.box),
+			plot,
+			(text) => chart.ctx.measureText(text).width,
+			compact
+		);
+	}
 	// "Read along the curves": the sample read, a dashed line at its rise and a ring on each
 	// point read there (drawn last, over the curves).
 	const readoutMark: Plugin<'line'> = {
@@ -1032,6 +1250,9 @@ export function pumpGroupConfig(
 				x: {
 					type: 'linear',
 					beginAtZero: true,
+					// Set only where other cases' curves would widen it: they are cut there (D24 §9.4).
+					...(d.xMin !== null ? { min: d.xMin } : {}),
+					...(d.xMax !== null ? { max: d.xMax } : {}),
 					title: { display: true, text: `Flow (${d.flowUnit})`, color: TEXT, ...font(15) },
 					grid: { color: GRID },
 					ticks: { color: TEXT, ...font(14) }
@@ -1039,6 +1260,8 @@ export function pumpGroupConfig(
 				y: {
 					type: 'linear',
 					beginAtZero: true,
+					// While other cases' curves are drawn: near the pumps, the group system curve cut (§9.4).
+					...(d.yMax !== null ? { max: d.yMax } : {}),
 					title: { display: true, text: `Head or rise (${d.headUnit})`, color: TEXT, ...font(15) },
 					grid: { color: GRID },
 					ticks: { color: TEXT, ...font(14) }
@@ -1056,20 +1279,42 @@ export function pumpGroupConfig(
 							(chartData.datasets[item.datasetIndex ?? -1] as { legend?: boolean } | undefined)
 								?.legend !== false,
 						...font(14),
-						generateLabels: (c) =>
-							legendLabels(c)
-								.map((item) => {
-									const ds = c.data.datasets[item.datasetIndex ?? -1] as
-										{ showLine?: boolean; pointStyle?: unknown } | undefined;
-									return {
-										...item,
-										pointStyle: (ds?.showLine === false && typeof ds.pointStyle === 'string'
-											? ds.pointStyle
-											: 'line') as 'circle' | 'line'
-									};
-								})
-								// Other cases' rings last (their `order` would list them first); stable.
-								.sort((a, b) => otherCase(c, a) - otherCase(c, b))
+						generateLabels: (c) => {
+							const items = legendLabels(c).map((item) => {
+								const ds = c.data.datasets[item.datasetIndex ?? -1] as
+									{ showLine?: boolean; pointStyle?: unknown } | undefined;
+								return {
+									...item,
+									pointStyle: (ds?.showLine === false && typeof ds.pointStyle === 'string'
+										? ds.pointStyle
+										: 'line') as 'circle' | 'line'
+								};
+							});
+							// Other cases' own group curves as one entry, a solid slate line (D24 §9.6).
+							const first = items.find((item) => curveFamily(c, item));
+							return (
+								items
+									.filter((item) => item === first || !curveFamily(c, item))
+									.map((item) =>
+										item === first
+											? {
+													...item,
+													text: OTHER_CURVES_LEGEND,
+													strokeStyle: SLATE,
+													fillStyle: SLATE,
+													lineDash: []
+												}
+											: item
+									)
+									// Other cases' rings last (their `order` would list them first), the rest in
+									// the datasets' order (the family's `order` would list it after the points).
+									.sort(
+										(a, b) =>
+											otherCase(c, a) - otherCase(c, b) ||
+											(a.datasetIndex ?? 0) - (b.datasetIndex ?? 0)
+									)
+							);
+						}
 					}
 				},
 				tooltip: forImage
@@ -1092,4 +1337,10 @@ export function pumpGroupConfig(
 function otherCase(chart: ChartInstance, item: LegendItem): number {
 	const ds = chart.data.datasets[item.datasetIndex ?? -1] as { otherCase?: boolean } | undefined;
 	return ds?.otherCase ? 1 : 0;
+}
+
+/** A legend item of an other case's own group curve (D24 slice L3). */
+function curveFamily(chart: ChartInstance, item: LegendItem): boolean {
+	const ds = chart.data.datasets[item.datasetIndex ?? -1] as { curveFamily?: boolean } | undefined;
+	return ds?.curveFamily === true;
 }

@@ -91,6 +91,8 @@ whichever is looser) and pressures (0.5 % or 0.01 m × ρg); flows 0.5 % with D2
 floor of 10⁻⁶ m³/s for the station's duty and its members, and the reference suite's Qtol of
 10⁻⁸ m³/s for every other flow (a zero flow); a grid flow is the duty's flow when within 10⁻¹²
 of it, relative.
+
+Slice L3's proofs, of the curve family (§10.3), are in their own section at the end.
 """
 
 import copy
@@ -1665,3 +1667,437 @@ def test_l2_3_every_order_of_a_cases_changes_gives_the_same_answer(
         moved = with_order(p, sid, [stored[i] for i in order])
         problems += [f"{sid} {order}: {q}" for q in reorder_problems(two.answers, p, sid, moved)]
     assert not problems, "\n".join(problems)
+
+
+# =========================================================================== slice L3: the family
+#
+# Pump lineups, slice L3 (CLAUDE.md D24; the proposal's §3.4, §3.5, §9.5 and §10.3, "Independent
+# API proof (L3 part)"): what the group chart relies on when it draws each other case's own
+# group curve beside the case shown, the classic curve family. Written by a tester who read
+# neither ``services/`` nor the web source, from D6, D13, D21 and D24, SDD §4 and §5, the models
+# and the proposal; it reuses L1's stations, plan, client and helpers above, unchanged. The
+# drawing itself is the web's own unit test (§10.3).
+#
+# The family (proofs 1 to 5) is ``crane4``'s: the base case and each case as L1 writes it (both
+# stop orders and Each pump off: three, two and one of four running), each curve the default
+# ``/pump-group-curve`` answer (curve 'group'), as the chart asks it. Proof 6 is on ``ladder``.
+# Every comparison is between the API's answers, except proof 2's shutoff, also compared with
+# s²H₀(0) from the test input's curves: no expected hydraulic number is typed, and the counts
+# (the rises, the pumps on) are read from the base's answers.
+#
+# 1. Each curve's duty check agrees, and its duty point is the ring: at the duty's rise, the
+#    duty's flow and every member's flow of the case's ``/solve`` within D6. The ring is on its
+#    own curve.
+# 2. Each curve samples the base's rises, evenly spaced from 0 to the shutoff (s²H₀(0) from the
+#    test input's curves, and the base's ``/solve``'s shutoff head of the pumps on), plus its own
+#    duty's rise, so curves compare rise by rise.
+# 3. At every shared rise where both compared flows are above the duty check's floor, the flows
+#    rise strictly with the number running; below the shutoff every flow is above it. At the
+#    shutoff every flow is round-off around zero, so no pair is compared there today; a pair of
+#    real flows there would be.
+# 4. The four "3 running" curves differ by more than D6 somewhere: not one curve.
+# 5. Straight lines between each curve's points cross the base's group system curve, joined the
+#    same way, once and within D6 of the case's duty.
+# 6. ``ladder``'s idle-pump case (P3 off): its group curve differs from the base's by more than
+#    D6 while its duty is the base's within D6 (D13), each duty check agreeing.
+#
+# Each case's curve must be its own (``own_answer``, asked once for the family): the base's
+# curve, or another lineup's, answered for a case would pass proofs 2 and 5 as they compare.
+
+FAMILY = "crane4"
+"""The family's station: four ``curve_a`` pumps on Crane tees, every one carrying flow."""
+BASE = "base"
+"""The base case's key among the family's curves (the cases' are their scenario ids)."""
+CROSSING = 1.0e-9
+"""Relative: two crossings found on the segments that meet at one vertex are one crossing."""
+
+Point = tuple[float, float]
+"""A point of a curve as the chart draws it: (flow, m³/s; rise, m)."""
+
+
+@dataclass(frozen=True)
+class Family:
+    """``crane4``'s curve family: the group curve of the base case (``BASE``) and of each case
+    (by its id), the number of members each runs (the pumps on in the base less those the case
+    writes off), and where a case's curve is not its own (``own_answer``)."""
+
+    station: Station
+    curves: dict[str, dict[str, Any]]
+    running: dict[str, int]
+    own: list[str]
+
+    def written(self, key: str) -> tuple[str, ...]:
+        """The pumps the case writes off (none for the base)."""
+        return () if key == BASE else self.station.cases[key]
+
+    def off(self, key: str) -> set[str]:
+        """The members off in the case: those it writes off and those off in the base."""
+        st = self.station
+        return set(self.written(key)) | (set(st.members) - set(st.pumps.on))
+
+    def solve(self, lab: Lab, key: str) -> dict[str, Any]:
+        """The case's ``/solve`` (the base's for ``BASE``)."""
+        return self.station.solve if key == BASE else lab.solve(self.station.name, key)
+
+
+def family_of(lab: Lab) -> Family:
+    st = lab.station(FAMILY)
+    curves = {BASE: st.group, **{sid: lab.group(FAMILY, sid) for sid in st.cases}}
+    on = len(st.pumps.on)
+    running = {BASE: on, **{sid: on - len(written) for sid, written in st.cases.items()}}
+    own = [
+        f"{sid} {written}: {p}"
+        for sid, written in st.cases.items()
+        for p in own_answer(lab, st, sid, written, curves[sid])
+    ]
+    return Family(st, curves, running, own)
+
+
+@pytest.fixture(scope="module")
+def family(lab: Lab) -> Family:
+    return family_of(lab)
+
+
+def rises(answer: dict[str, Any]) -> list[float]:
+    """The group curve's rises other than its duty point's: the rises it samples evenly."""
+    return [p["head"] for p in answer["points"] if not p["isDuty"]]
+
+
+def flows_by_rise(answer: dict[str, Any]) -> dict[float, float | None]:
+    """The group curve's flow at each of its rises (None where a point has no flow)."""
+    return {p["head"]: p["flow"] for p in answer["points"]}
+
+
+def shutoff(project: dict[str, Any], pump_id: str) -> float:
+    """A pump's shutoff head s²H₀(0): its speed squared times its curve's head at zero flow, a
+    point of the test input's curve."""
+    pump_data = pgi._component(project, pump_id)
+    curve = next(c for c in project["pumpLibrary"] if c["id"] == pump_data["curveId"])
+    [h0] = [p["head"] for p in curve["points"] if p["flow"] == 0.0]
+    return float(pump_data["speed"]) ** 2 * float(h0)
+
+
+def beyond_d6(a: float, b: float) -> float:
+    """How far two answers' flows are apart beyond D6 (above 0: by more than 0.5 % of the
+    larger, and more than the duty check's floor), whichever of the two is the reference."""
+    return abs(a - b) - max(RELATIVE * max(abs(a), abs(b)), DUTY_FLOW_FLOOR)
+
+
+def largest_difference(a: dict[str, Any], b: dict[str, Any]) -> tuple[float, float]:
+    """The largest ``beyond_d6`` of two group curves' flows over the rises both sample, each with
+    a flow, and the rise it is at."""
+    fa, fb = flows_by_rise(a), flows_by_rise(b)
+    found: list[tuple[float, float]] = []
+    for h in sorted(set(rises(a)) & set(rises(b))):
+        qa, qb = fa[h], fb[h]
+        if qa is not None and qb is not None:
+            found.append((beyond_d6(qa, qb), h))
+    assert found, "no rise that both curves sample with a flow"
+    return max(found)
+
+
+def polyline(points: Iterable[tuple[float | None, float | None]]) -> list[tuple[Point, Point]]:
+    """The straight segments between consecutive points, in the order given, as the chart joins
+    them: a point without a flow or a rise is a gap."""
+    segments: list[tuple[Point, Point]] = []
+    last: Point | None = None
+    for q, h in points:
+        if q is None or h is None:
+            last = None
+            continue
+        if last is not None:
+            segments.append((last, (q, h)))
+        last = (q, h)
+    return segments
+
+
+def crossings(a: Sequence[tuple[Point, Point]], b: Sequence[tuple[Point, Point]]) -> list[Point]:
+    """Where two polylines cross: for each segment of one and each of the other, the point both
+    pass (a0 + s·(a1 − a0) = b0 + t·(b1 − b0), solved by Cramer's rule, with s and t in [0, 1]);
+    a crossing found on the segments that meet at one vertex is counted once (``CROSSING``).
+    Parallel segments have none."""
+    found: list[Point] = []
+    for a0, a1 in a:
+        for b0, b1 in b:
+            daq, dah = a1[0] - a0[0], a1[1] - a0[1]
+            dbq, dbh = b1[0] - b0[0], b1[1] - b0[1]
+            den = daq * dbh - dah * dbq
+            if den == 0.0:
+                continue
+            rq, rh = b0[0] - a0[0], b0[1] - a0[1]
+            s = (rq * dbh - rh * dbq) / den
+            t = (rq * dah - rh * daq) / den
+            if not (0.0 <= s <= 1.0 and 0.0 <= t <= 1.0):
+                continue
+            point = (a0[0] + s * daq, a0[1] + s * dah)
+            if not any(one_point(point, p) for p in found):
+                found.append(point)
+    return found
+
+
+def one_point(a: Point, b: Point) -> bool:
+    """Two crossings are one when both coordinates agree within ``CROSSING``, relative."""
+    return all(abs(x - y) <= CROSSING * max(abs(x), abs(y)) for x, y in zip(a, b, strict=True))
+
+
+# --------------------------------------------------------------------------- L3 1. the ring
+
+
+def test_l3_1_each_ring_is_on_its_own_group_curve(lab: Lab, family: Family) -> None:
+    """Each curve of the family, the base's and every case's, is its own (``own_answer``) and its
+    duty check agrees (D21; the chart says a ring is on its own curve only then, D24). The
+    agreement is read again from the answers, not taken on the flag: exactly one point is the
+    duty's, at the duty's rise bit for bit; its station flow is the duty's, and each member's
+    flow there is its flow in the case's ``/solve``, within D6 (the duty check's floor), the
+    pumps the case writes off reading 'off' and no other. A curve of the base answered for a
+    case fails it: its members' flows are not the case's."""
+    assert not family.own, "\n".join(family.own)
+    st = family.station
+    compared: list[Compared] = []
+    problems: list[str] = []
+    for key, answer in family.curves.items():
+        what = f"{FAMILY} {key} {family.written(key)}"
+        duty, check = answer["duty"], answer["dutyCheck"]
+        if duty is None or check is None:
+            problems.append(f"{what}: no duty or duty check ({answer['message']})")
+            continue
+        if check["agrees"] is not True:
+            problems.append(f"{what}: the duty check disagrees: {check['message']}")
+        ring = [p for p in answer["points"] if p["isDuty"]]
+        if [p["head"] for p in ring] != [duty["head"]]:
+            problems.append(f"{what}: duty points at {[p['head'] for p in ring]}, not {duty}")
+            continue
+        [point] = ring
+        compared.append(
+            flow(
+                f"{what}: the ring's flow, the duty's", point["flow"], duty["flow"], DUTY_FLOW_FLOOR
+            )
+        )
+        at = {m["pumpId"]: m for m in point["members"]}
+        if sorted(at) != sorted(st.members) or len(at) != len(point["members"]):
+            problems.append(
+                f"{what}: members at the ring {[m['pumpId'] for m in point['members']]}"
+            )
+        off = {pid for pid, m in at.items() if m["status"] == "off"}
+        if off != family.off(key):
+            problems.append(f"{what}: off at the ring {sorted(off)}, not {sorted(family.off(key))}")
+        pumps = family.solve(lab, key)["solvedState"]["pumpResults"]
+        compared += [
+            flow(
+                f"{what}: {pid}'s flow at the ring, its /solve's",
+                m["flow"],
+                pumps[pid]["operatingFlow"],
+                DUTY_FLOW_FLOOR,
+            )
+            for pid, m in at.items()
+        ]
+    assert len(compared) == len(family.curves) * (1 + len(st.members)), problems
+    assert not report(compared, problems), "\n".join(report(compared, problems))
+
+
+# --------------------------------------------------------------------------- L3 2. the rises
+
+
+def test_l3_2_each_curve_samples_the_bases_rises_and_its_own_duty(family: Family) -> None:
+    """The base's curve samples evenly spaced rises (their number read from it) from its lowest,
+    the default min(0, the duty's rise), to its highest, the shutoff, compared twice within D6:
+    with the largest s²H₀(0) of the pumps on, from the test input's curves (a closed-form value,
+    D8), and with the largest shutoff head of the pumps on in the base's ``/solve`` (each one's
+    ``shutoffHead``). A shutoff wrong in both API answers fails the first; one wrong in
+    ``/solve``'s report alone fails the second. Each case's curve has the base's range and
+    samples exactly the base's rises plus its own duty's, in rise order, bit for bit, its one
+    duty point at its duty's rise; so curves compare rise by rise."""
+    assert not family.own, "\n".join(family.own)
+    st = family.station
+    base = family.curves[BASE]
+    grid, span = rises(base), base["headRange"]
+    assert len(grid) >= 2, grid
+    assert span["min"] == min(0.0, base["duty"]["head"]) == grid[0], (span, grid[0])
+    assert span["max"] == grid[-1], (span, grid[-1])
+    step = (span["max"] - span["min"]) / (len(grid) - 1)
+    uneven = [
+        (i, h) for i, h in enumerate(grid) if abs(h - (span["min"] + i * step)) > GRID * span["max"]
+    ]
+    assert not uneven, uneven
+    pumps = st.solve["solvedState"]["pumpResults"]
+    tops = [
+        head(
+            "the highest rise, the shutoff: the largest s²H₀(0) of the pumps on, from the input",
+            span["max"],
+            max(shutoff(st.project, pid) for pid in st.pumps.on),
+        ),
+        head(
+            "the highest rise, the shutoff: the largest shutoff head of the pumps on in /solve",
+            span["max"],
+            max(pumps[pid]["shutoffHead"]["head"] for pid in st.pumps.on),
+        ),
+    ]
+    assert not report(tops), "\n".join(report(tops))
+    problems: list[str] = []
+    for key, answer in family.curves.items():
+        what = f"{FAMILY} {key} {family.written(key)}"
+        duty = answer["duty"]
+        if duty is None:
+            problems.append(f"{what}: no duty ({answer['message']})")
+            continue
+        if answer["headRange"] != span:
+            problems.append(f"{what}: range {answer['headRange']}, the base's {span}")
+        heads = [p["head"] for p in answer["points"]]
+        want = sorted({*grid, duty["head"]})
+        if heads != want:
+            extra = sorted(set(heads) ^ set(want))
+            problems.append(
+                f"{what}: {len(heads)} rises, not the base's {len(grid)} + its duty's;"
+                f" differing {extra[:6]}"
+            )
+        at_duty = [p["head"] for p in answer["points"] if p["isDuty"]]
+        if at_duty != [duty["head"]]:
+            problems.append(f"{what}: duty points at {at_duty}, its duty's rise {duty['head']!r}")
+    assert not problems, "\n".join(problems)
+
+
+# --------------------------------------------------------------------------- L3 3. the order
+
+
+def test_l3_3_flows_rise_strictly_with_the_number_running(family: Family) -> None:
+    """At every rise all the curves sample (the base's, proof 2) where both flows of two curves
+    of different counts are above the duty check's floor, the curve with more pumps running
+    passes strictly more flow (§10.3). Below the shutoff (the highest rise) every flow is above
+    the floor, so every pair is compared at every such rise. At the shutoff a pair is compared
+    by the same rule: today every flow there is round-off around zero (or the point has none,
+    D13, §3.4), so none is, but real flows there in the wrong order would fail it. The number
+    running is the input's and the curve's: at every point with a flow, the members off are
+    exactly the case's. A property of identical pumps, not a claim of the web (§10.3). Curves of
+    the base answered for the cases fail it: their flows are equal."""
+    assert not family.own, "\n".join(family.own)
+    grid = rises(family.curves[BASE])
+    below, top = grid[:-1], grid[-1]
+    flows = {key: flows_by_rise(answer) for key, answer in family.curves.items()}
+    problems: list[str] = []
+    for key, answer in family.curves.items():
+        for p in answer["points"]:
+            off = {m["pumpId"] for m in p["members"] if m["status"] == "off"}
+            if p["flow"] is not None and off != family.off(key):
+                problems.append(f"{key} at {p['head']!r} m: off {sorted(off)}")
+    pairs = 0
+    compared = 0
+    at_top = 0
+    for a, b in itertools.combinations(family.curves, 2):
+        if family.running[a] == family.running[b]:
+            continue
+        more, fewer = (a, b) if family.running[a] > family.running[b] else (b, a)
+        pairs += 1
+        for h in grid:
+            q_more, q_fewer = flows[more].get(h), flows[fewer].get(h)
+            what = f"at {h!r} m: {more} ({family.running[more]} running) {q_more!r} m³/s"
+            what += f", {fewer} ({family.running[fewer]} running) {q_fewer!r} m³/s"
+            if q_more is None or q_fewer is None or min(q_more, q_fewer) <= DUTY_FLOW_FLOOR:
+                if h != top:
+                    problems.append(f"{what}: not both above the floor below the shutoff")
+                continue
+            compared += 1
+            if h == top:
+                at_top += 1
+            if not q_more > q_fewer:
+                problems.append(f"{what}: not more flow with more running")
+    assert pairs, family.running
+    assert compared == pairs * len(below) + at_top, (pairs, compared, problems[:10])
+    assert not problems, "\n".join(problems)
+
+
+# --------------------------------------------------------------------------- L3 4. equal count
+
+
+def test_l3_4_the_four_3_running_curves_are_not_one_curve(family: Family) -> None:
+    """The cases with one pump off, one for each pump on in the base (their number read from
+    it), are not one curve: two of them differ by more than D6 at some rise both sample (0.5 %
+    of the larger flow, or the duty check's floor). The chart never claims curves of equal count
+    are one (D24); merging their labels is a drawing rule (§9.3). Measured: "P4 off" is 1.6 to
+    2.4 % below each of the others, while "P1 off", "P2 off" and "P3 off" are within 0.4 % of
+    one another. Curves of the base answered for the cases fail it: they are one curve."""
+    assert not family.own, "\n".join(family.own)
+    st = family.station
+    on = len(st.pumps.on)
+    singles = [sid for sid in st.cases if family.running[sid] == on - 1]
+    assert sorted(st.cases[sid] for sid in singles) == sorted((m,) for m in st.pumps.on), singles
+    worst = max(
+        (largest_difference(family.curves[a], family.curves[b]), a, b)
+        for a, b in itertools.combinations(singles, 2)
+    )
+    (excess, rise), a, b = worst
+    assert excess > 0.0, (
+        f"{a} {st.cases[a]} and {b} {st.cases[b]}, the farthest apart of the {len(singles)}, "
+        f"are within D6 at every rise (closest to D6 at {rise!r} m, {excess!r} m³/s)"
+    )
+
+
+# --------------------------------------------------------------------------- L3 5. the crossing
+
+
+def test_l3_5_each_curve_crosses_the_base_group_system_curve_at_its_duty(
+    lab: Lab, family: Family
+) -> None:
+    """The base's group system curve (the default request, the curve the chart draws while the
+    base is shown) joined by straight lines between its points in flow order, and each curve of
+    the family joined the same way in rise order, a point without a value a gap: the two cross
+    exactly once, within D6 of that curve's duty (its flow within 0.5 % or the duty check's
+    floor, its rise within 0.5 % or 0.01 m). Each lineup duty lies on the base's group system
+    curve (L1's proof 3) and on its own group curve (proof 1); this is the drawn crossing, with
+    the error of the straight lines between samples (§3.4). A group system curve of another rest
+    (the delivery tank higher) fails it."""
+    assert not family.own, "\n".join(family.own)
+    st = family.station
+    system = lab.api.system(st.project, st.members)
+    assert system["scenario"] is None, system["scenario"]
+    assert system["station"] == family.curves[BASE]["station"], system["station"]
+    rest = polyline((p["flow"], p["head"]) for p in system["systemPoints"])
+    assert rest, system["message"]
+    compared: list[Compared] = []
+    problems: list[str] = []
+    for key, answer in family.curves.items():
+        what = f"{FAMILY} {key} {family.written(key)}"
+        duty = answer["duty"]
+        if duty is None:
+            problems.append(f"{what}: no duty ({answer['message']})")
+            continue
+        found = crossings(polyline((p["flow"], p["head"]) for p in answer["points"]), rest)
+        if len(found) != 1:
+            problems.append(f"{what}: {len(found)} crossings {found}")
+            continue
+        [(q, h)] = found
+        compared += [
+            flow(f"{what}: the crossing's flow, the duty's", q, duty["flow"], DUTY_FLOW_FLOOR),
+            head(f"{what}: the crossing's rise, the duty's", h, duty["head"]),
+        ]
+    assert len(compared) == 2 * len(family.curves), problems
+    assert not report(compared, problems), "\n".join(report(compared, problems))
+
+
+# --------------------------------------------------------------------------- L3 6. an idle pump
+
+
+def test_l3_6_the_idle_pump_case_has_its_own_curve_and_the_base_duty(lab: Lab) -> None:
+    """``ladder``: P3 is on and carries no flow in the base, and the case with it off (L1's
+    idle-only case) has the base's duty within D6 (D13; ``compare_duties``, P3's head at zero
+    flow read by its state) while its group curve differs from the base's by more than D6 at
+    some rise both sample, as P3 delivers at low rises (§3.5): one ring, two curves. Both duty
+    checks agree, so the ring is on each, and the case's curve is its own (``own_answer``). The
+    base's curve answered for the case fails it, and so does the case stopping P2, which
+    carries flow (its duty is not the base's)."""
+    st = lab.station("ladder")
+    [(sid, written)] = st.idle_only.items()
+    assert written == ("P3",), written
+    assert st.pumps.idle == {"P3"}, st.pumps
+    case = lab.group("ladder", sid)
+    problems = [f"{sid}: {p}" for p in own_answer(lab, st, sid, written, case)]
+    for name, answer in (("the base", st.group), (sid, case)):
+        check = answer["dutyCheck"]
+        if check is None or check["agrees"] is not True:
+            problems.append(f"{name}: the duty check {check}")
+    compared, duty_problems = compare_duties(st.group, case)
+    problems += duty_problems
+    excess, rise = largest_difference(st.group, case)
+    if not excess > 0.0:
+        problems.append(f"{sid}'s curve is within D6 of the base's at every rise ({rise!r} m)")
+    assert compared
+    assert not report(compared, problems), "\n".join(report(compared, problems))

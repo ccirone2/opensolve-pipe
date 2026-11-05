@@ -25,6 +25,11 @@
 	all or goal seek cancelled, once no calculation runs; a change of members or of the case shown
 	withdraws the other cases' requests (those still waiting, on a case switch), which are asked
 	again after the shown case's.
+
+	Pump lineups slice L3 (CLAUDE.md D24, proposal pump-lineups.md §9.1): each other case is
+	compared with the case shown inside the station, both as solved (sameInside, its fingerprints
+	kept as the rest's are), and its members switched on counted, so the card can draw a ring's own
+	group curve while the shown case's is drawn; this case's count labels its own curve.
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
@@ -71,16 +76,20 @@
 	import {
 		chartKeys,
 		combinationExtremes,
+		groupCurveDrawn,
 		otherGroupCases,
 		runningCombinations,
+		sameInside,
 		sharedRest,
 		type CombinationsInput,
+		type InsideComparison,
 		type OtherGroupCase
 	} from '$lib/utils/pump-group-one-off';
 	import {
 		lineupChartPriority,
 		lineupPlan,
 		movedStopOrder,
+		pumpLineup,
 		withLineupCases,
 		type LineupPreset
 	} from '$lib/utils/pump-lineups';
@@ -465,20 +474,58 @@
 		restMemo[key] = { shown, other, station, shared: value };
 		return value;
 	}
+	/**
+	 * How a case as solved compares with the one shown inside the station (D24 §9.1 condition 4,
+	 * sameInside), kept as `shared` is: the fingerprints are not computed again on every change of
+	 * a curve's state.
+	 */
+	const insideMemo: Record<
+		string,
+		{
+			shown: Project | null;
+			other: Project | null;
+			station: PumpGroupStation;
+			inside: InsideComparison;
+		}
+	> = {};
+	function inside(caseId: CaseId, station: PumpGroupStation): InsideComparison {
+		const shown = ws.store.caseInputs(ws.store.activeCase);
+		const other = ws.store.caseInputs(caseId);
+		const key = caseId ?? '';
+		const known = insideMemo[key];
+		if (known && known.shown === shown && known.other === other && known.station === station) {
+			return known.inside;
+		}
+		const value = sameInside(shown, other, station, hydraulicFingerprint);
+		insideMemo[key] = { shown, other, station, inside: value };
+		return value;
+	}
+	/** The members switched on in a case as solved (D24 §9.1's k; null without its project). */
+	const runningIn = (solvedCase: Project | null) =>
+		solvedCase ? pumpLineup(undefined, solvedCase, groupMembers).on.length : null;
+	/** This case's members switched on as solved: its own curve's label (D24 §9.3). */
+	const shownOn = $derived(runningIn(caseSolved));
 	const otherCases = $derived.by((): OtherGroupCase[] => {
 		if (!groupStation) return [];
 		const station = groupStation.station;
 		return otherGroupCases({
-			valued: chartOrdered.map((v) => ({
-				key: v.key,
-				caseId: v.caseId,
-				name: v.name,
-				stale: v.stale,
-				group: ws.store.groupCurve(v.response, groupMembers),
-				system: ws.store.groupSystemCurve(v.response, groupMembers),
-				shared: shared(v.caseId, station),
-				solved: ws.store.caseInputs(v.caseId)
-			})),
+			valued: chartOrdered.map((v) => {
+				const solvedCase = ws.store.caseInputs(v.caseId);
+				const on = runningIn(solvedCase);
+				return {
+					key: v.key,
+					caseId: v.caseId,
+					name: v.name,
+					stale: v.stale,
+					group: ws.store.groupCurve(v.response, groupMembers),
+					system: ws.store.groupSystemCurve(v.response, groupMembers),
+					shared: shared(v.caseId, station),
+					solved: solvedCase,
+					// Its curve state (D24 §9.1): for every case with its project as solved.
+					...(on !== null ? { inside: inside(v.caseId, station), on } : {})
+				};
+			}),
+			curveDrawn: groupCurveDrawn(groupState),
 			shownKeys: new Set(chartCaseKeys),
 			othersOn: ws.pumpGroupOthers,
 			shownSettled,
@@ -862,6 +909,7 @@
 			{image}
 			{lineups}
 			{otherCases}
+			{shownOn}
 			othersOn={ws.pumpGroupOthers}
 			{...hasScenarios ? { onothers: setOthers } : {}}
 			onotherstick={tickOther}

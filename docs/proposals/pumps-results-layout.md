@@ -1,12 +1,12 @@
 # The Pumps tab below the pump chart: sections, one way through, every feature kept
 
-**Status: Proposed, for the owner (2026-11-05). Nothing is built.** Web only, on `web/pumps-layout`: no API, model or solver change, `METHOD_VERSION` stays 1.6.0, `schemaVersion` stays 1, nothing new in the link, no new dependency. Every placement here is a designers' web default, reversible under D14, except the four questions in §12, which are the owner's. Measured and read against main's content at `3da7bae`; the branch adds only the re-tick fix of `web/cases-on-chart-retick` (`untickedAfter`), which changes no layout. Follows [`ui-ux-refinement.md`](ui-ux-refinement.md) and [`build-density.md`](build-density.md): measure the running app, act, then hold the result in a test.
+**Status: Proposed, for the owner (2026-11-05). Nothing is built.** Web only, on `web/pumps-layout`: no API, model or solver change, `METHOD_VERSION` stays 1.6.0, `schemaVersion` stays 1, nothing new in the link, no new dependency. Every placement here is a designers' web default, reversible under D14, except the four questions in §12, which are the owner's. Measured and read against main's content at `3da7bae`; the branch adds only the re-tick fix of `web/cases-on-chart-retick` (`untickedAfter`), which changes no layout. Revised the same day for an accessibility review and a design review, each finding checked against the code (§14 records where each landed). Follows [`ui-ux-refinement.md`](ui-ux-refinement.md) and [`build-density.md`](build-density.md): measure the running app, act, then hold the result in a test.
 
 ## 1. Scope
 
 **The owner's request (2026-11-05), in the owner's words:** "i love all the features in Results under the Pumps tab, but everything from below the pump chart and down is very unrefined from a UI/UX perspective. it just looks patched together and needs to be structured in a way that the user can navigate and manipulate the features without getting confused by poor, unstructured formatting."
 
-Read as: **keep every feature; restructure how they are presented, navigated and manipulated.** In scope is everything from the pump chart's canvas down, in `PumpsView.svelte`, `PumpChart.svelte`, `PumpGroupChart.svelte` and `PumpLineupsBlock.svelte` (`apps/web/src/lib/components/results/`): the chips, the readout, the notes, the system curve's states, the other cases, the data table and the image of the pump chart; and the whole Pumps together card, with its members, group chart, notes, tables, Read along the curves, Add cases, the other cases' station duties, the curve family, Running combinations and the extremes. Out of scope: the Results per pump table above (it gains only a visually hidden heading), what the canvases draw (the label collisions are the owner's open items 107 and 108), and the server's words.
+Read as: **keep every feature; restructure how they are presented, navigated and manipulated.** In scope is everything from the pump chart's canvas down, in `PumpsView.svelte`, `PumpChart.svelte`, `PumpGroupChart.svelte` and `PumpLineupsBlock.svelte` (`apps/web/src/lib/components/results/`): the chips, the readout, the notes, the system curve's states, the other cases, the data table and the image of the pump chart; and the whole Pumps together card, with its members, group chart, notes, tables, Read along the curves, Add cases, the other cases' station duties, the curve family, Running combinations and the extremes. Out of scope: the Results per pump table above (it gains only a visible heading, "Results per pump"), what the canvases draw (the label collisions are the owner's open items 107 and 108), and the server's words.
 
 **Already decided, not re-opened** (§8 lists each): GOALS §3, §4.2, §4.5, §4.6 and §4.7; D3, D10, D13, D15, D17, D19, D21 and D24 with their owner's answers; the pump chart's owner decision on the best efficiency point; the owner's table rules of 2026-10-31 (`build-density.md` §14 to §18).
 
@@ -20,7 +20,7 @@ Read as: **keep every feature; restructure how they are presented, navigated and
 
 ## 2. How this was found
 
-The API and the built web app were run locally and driven with Playwright (the e2e suite's Chromium) at 1280×800 and 390×844, in three states:
+The API (the e2e suite's app, `apps/api/tests/e2e_app.py`) and the web app on Vite's dev server were run locally and driven with Playwright (the e2e suite's Chromium) at 1280×800 and 390×844, in three states. The dev server's layout is the build's, but S0's `tests/pumps-layout.e2e.ts` records the before numbers again on the e2e build (`pnpm build && pnpm preview`), and the budgets are set from those.
 
 1. **one-off** (`pump-groups-input.json`): 2 pumps and 4 scenarios, after Solve all (5 solves), Pumps tab with defaults: the card closed, no data table, every chip on.
 2. **lineups** (the same fixture): 4 pumps on Crane tees and 8 scenarios, after Solve all (9 solves). The card open, "Also show the other cases' station duties" ticked (6 rings, the curve family drawn), every disclosure at or below the chart opened (5 of 5) and both data tables shown.
@@ -85,15 +85,15 @@ At 1280×800 the Results pane's Pumps tab is **480 px wide** (the default split)
 
 ### 2.2 The commonest actions (KLM)
 
-The Keystroke-Level Model (Card, Moran & Newell 1980), with `build-density.md` §3.2's constants: M 1.35 s, P 1.1 s, a press 0.2 s, and a scroll counted as one P (a wheel or a flick) per pane height. "After" values are estimates from §5's layout, to be measured in each slice (§9).
+The Keystroke-Level Model (Card, Moran & Newell 1980), with `build-density.md` §3.2's constants: M 1.35 s, P 1.1 s, a press 0.2 s, and a scroll counted as one P (a wheel or a flick) per pane height. "After" values are estimates from §5's layout, to be measured in each slice (§9). In a 454 px tab the nav shows about four of its seven buttons; it keeps the current one and the next in view (§5.4), so reaching a button two or more past the current one costs a sideways scroll, one more P.
 
 | Action (condenser) | Before | Before (KLM) | After (estimate) | After (KLM) |
 |---|---|---|---|---|
 | Read the station's duty after opening the card, desktop | 5 scrolls (3,522 px into the card) | 6.85 s | on the first screen (about +300 px) | 1.35 s |
 | From the group chart to its data table, desktop | 10 scrolls (+6,481 px), point, press | 13.65 s | 1 scroll (about +400 px), point, press | 3.75 s |
 | The same, phone | 16 scrolls (+9,658 px), point, press | 20.25 s | 2 scrolls (about +700 px), point, press | 4.85 s |
-| From the group chart to Add cases, desktop | 4 scrolls (+2,668 px), point, press | 7.05 s | the nav's "Add cases" pill (point, press), then point, press | 3.95 s |
-| Find the smallest NPSH margin over the cases, desktop | 9 scrolls to the extremes (+5,791 px), then read 18 lines | 11.25 s and the reading | the nav's "Running combinations" pill, then the extremes grouped by pump | 2.65 s and the reading |
+| From the group chart to Add cases, desktop | 4 scrolls (+2,668 px), point, press | 7.05 s | the nav's "Add cases" button, the next after "Group chart" and so in view (point, press), then point, press | 3.95 s (measured in S2 and S4) |
+| Find the smallest NPSH margin over the cases, desktop, from the group chart | 9 scrolls to the extremes (+5,791 px), then read 18 lines | 11.25 s and the reading | the nav scrolled sideways (P), its "Running combinations" button, then the extremes grouped by pump | 3.75 s and the reading (measured in S2 and S5; six pumps' extremes may need one scroll more) |
 
 ## 3. What works well (keep it)
 
@@ -101,7 +101,7 @@ The Keystroke-Level Model (Card, Moran & Newell 1980), with `build-density.md` �
 - **The screen and the image say the same thing.** One words function per chart (`chartNotes`, `groupNotes` and `groupNoteLines`) feeds the screen and the PNG footer, and the export's group words are checked word for word against the card's helpers. A layout change can move markup without the image or the workbook drifting.
 - **Physics flagged by default** (GOALS §4.6): FlagIcon by severity, and the red icon with "physically invalid:" on invalid cells and extremes. Refusals are given in words with the members still drawn.
 - **The requests are well behaved** (D10): one at a time, on demand, cancelled by a solve or a goal seek. Each has its Cancel and its retry, and the focus passes between them.
-- **The readouts** are native range inputs whose value text carries the reading, with Escape and "Back to the duty".
+- **The readouts** are native range inputs whose value text carries the reading, with Escape and "Back to the duty". On the group chart that button hands the focus back to the slider as it goes; the pump chart's does not (F40).
 - **The case is named on every result** (D15): the captions, "(shown)", "(out of date)" and the amber stale tint.
 - **The default view is compact.** The one-off project shows 859 px below the chart with the card closed, and the closed card names its members. The disorder appears once the card is open and scenarios exist.
 - **The components are presentation only.** PumpsView computes every value and makes every request (`PumpsView.svelte:376–692`); the card and the block take props. So the restructure moves markup without touching a request effect.
@@ -137,7 +137,7 @@ High first; within a severity, in the order an engineer meets them. The ids in t
 | F22 | medium | The card's tables are hand-built, with no Sort, Fields or Flagged only, unlike Results per pump above them. At phone width they get three treatments: a sideways table, a squeezed five-column table and a list. | `PumpGroupChart.svelte:1026–1294` | U-P21, U-P22, X-P36, X-P37, X-P39, X-P44 |
 | F23 | medium | Small scroll boxes sit inside the scrolling pane: a scroll trap on touch and 13 extra Tab stops. Some have no edge shadow. Running combinations' group lines are cut at the box's edge. | `PumpChart.svelte:805–941` | U-P23, U-P24, X-P40 |
 | F24 | medium | Cases come in three orders (the pump chart's list, the rings, Running combinations). Ring numbers read like pump counts ("1 · 5 of 6 running"). Markers disagree between the list and the chart (☆ against ✳; □ and ▢ alike) and change as cases are unticked. | `pump-chart.ts:815–821`; `PumpsView.svelte:801` | U-P11, U-P27, X-P20, X-P21, X-P22 |
-| F25 | medium | Cases that draw nothing take chart slots. "Pump P1 off" on P1's chart takes one of 5, so three cases that would draw are disabled. | `PumpsView.svelte:226–240` | U-P12, X-P23 |
+| F25 | medium | Cases with no operating point take chart slots. "Pump P1 off" on P1's chart takes one of 5 and, with the other cases' system curves off, draws nothing, so three cases that would draw are disabled. (With those curves on, its system curve is drawn: `pump-chart-config.ts:476–490`.) | `PumpsView.svelte:226–258` | U-P12, X-P23 |
 | F26 | medium | Text points to hidden or distant places without a link: "the data table says why", "see Running combinations", "Results → Checks", "on its pump chart above". | notes | U-P28, X-P18, X-P49 |
 | F27 | medium | The legends differ. The pump chart's is inside the canvas and mouse-only. The group's is an HTML list taller than its chart on a phone (452 against 256 px), naming every member again. | `pump-chart-config.ts:704–722`; `PumpGroupChart.svelte:671–692` | U-P32, X-P30, X-P31 |
 | F28 | medium | The readouts are run-on 12 px sentences: six values on the pump chart, 5 to 7 lines with six pumps on the group chart. | `PumpGroupChart.svelte:736` | U-P34 |
@@ -152,6 +152,7 @@ High first; within a severity, in the order an engineer meets them. The ids in t
 | F37 | low | Case names and the stop order use pump ids ("P6 off") where every other line says "Condenser water pump CWP-6". | `pump-lineups.ts` | U-P36 |
 | F38 | low | View choices are kept for different lengths: chips per browser, the pump chart's unticks until a pump switch, the card's until a reload, the data tables never. The "(shown)" item looks like a checkbox without its box, and member labels move on tick. | `PumpChart.svelte:173, 642`; `PumpGroupChart.svelte:617` | U-P38, U-P39, X-P50, X-P54 |
 | F39 | low | No layout budget guards the Results card (`tests/build-density.e2e.ts` has none), so each slice added height unchecked. | `tests/` | X-P57 |
+| F40 | low | The pump chart's "Back to the duty" removes itself when pressed and moves no focus, so the keyboard focus falls to the page. The group chart's moves it to its slider, and its test says so (`PumpGroupChart.svelte.test.ts:917–923`); the pump chart's test (`PumpChart.svelte.test.ts:753`) asserts nothing about focus. Found by the accessibility review. | `PumpChart.svelte:546–551` | A11Y-03 |
 
 ## 5. The recommended structure
 
@@ -162,15 +163,15 @@ Each chart is built the same way, top to bottom:
 1. its **title** (the figcaption, which is also the image title);
 2. the **canvas**;
 3. the **reading controls**: the Show chips (pump chart), the slider and its readout;
-4. one **request strip**: each request's state on one line, with its own Cancel or retry beside it, and the warnings about the curve, marked;
+4. one **request strip**: one line per request drawn on this chart, its state first and its own Cancel, Try again or Compute after it, then the lines about the curve's coverage (points without a head or a rise), plain;
 5. the **legend** (the group chart; the pump chart's stays inside its canvas);
-6. the **actions**: Show data table and Download image, with the unavailable reason visible;
-7. the **data region**, which opens right there;
-8. the **notes about the values**, always shown, warnings and checks first, marked;
-9. the **reference** disclosures, each naming what it holds;
+6. the **actions**: Show data table and Download image, with any lasting unavailable reason visible;
+7. the **notes about the values**, always shown, the facts that qualify the reading and the checks first;
+8. the **reference** disclosures, each naming what it holds;
+9. the **data region**, which opens here, after the notes and the reference, so opening it never pushes a note or a check away from its chart; the toggle's `aria-controls` points at it;
 10. the **other cases**, under their own heading: the switch first, then the list it reveals, its progress, its notes.
 
-The card adds two plain sections around its chart, **Station** before it and **Running combinations** after it. Between them sits **Add cases**, a framed panel, as the one part that changes the project.
+The card adds two plain sections around its chart, **Station** before it and **Running combinations** after it. Between them sits **Add cases**, a framed panel, as the one part that changes the project. The group curve's request line heads Station rather than the group chart's strip, since the station's shares and losses wait for it too (§5.3).
 
 ### 5.2 Type and marks
 
@@ -179,195 +180,230 @@ The card adds two plain sections around its chart, **Station** before it and **R
   - h4: 14 px semibold, with a rule above.
   - h5: `.section-title`, 12 px small caps.
   - Legends and field labels inside a section: 12 px medium, so no label outranks its heading.
-- **Answers:** 14 px with tabular figures. These are the station's values, the readouts, Running combinations' lead and the extremes.
+- **Answers:** 14 px with tabular figures. These are the station's values, the readouts and Running combinations' lead. The extremes stay 12 px, as today, with their values in medium weight, so 18 to 24 lines stay short (§5.7).
 - **Notes:** 12 px in one tone (slate-700). Help and reference text is slate-600.
-- **Marks**, from the ui-guide's status lines: ⚠ for a warning, ✓ for a check that agrees, ⬣ for a request that failed, a spinner while one runs.
-  - **Placement.** A warning mark is `role="img"` named "Warning" and sits beside its sentence's `<p>`, never inside it, so the sentence's text and its test anchors are unchanged. Plain notes carry no mark.
+- **Marks** say only the severities the app already gives; none is new (GOALS §4.6):
+  - **A physics flag** shows FlagIcon by its severity. Where a mark stands for one, it is `role="img"` named by the worst severity present: the red octagon named "Physically invalid", the amber alert named "Warning". ⚠ never stands for an invalid value.
+  - **A request that failed:** ⬣ with its sentence. **A request running:** the spinner, `motion-safe:animate-spin`.
+  - **A check that agrees:** ✓, `aria-hidden`, since its sentence says so. A check that does not agree, or is not known, gets no mark: it is not a flag, and its sentence says what it found.
+  - **No mark on a fact.** The rising-head ranges are "named in a note as a fact … It is not a flag" (`pump-chart.md` §10, slice 2 as built), and the canvas's amber underlay already ties the note to the curve. The NPSHa note reads the drawn lines beyond the duty; it is not the solve's cavitation flag. The coverage lines ("n of 41 system-curve points have no head …") state what the request returned. None of them gets a mark.
+  - **Placement.** A mark is its own element before its sentence's `<p>`, never inside it, so the sentence's text and its test anchors are unchanged.
   - **Design checks.** Their limits never get one: they are design practice, never a flag (D19).
+- **Tags** that are not controls ("(shown)", "Changes the project") have no border and no pill radius: `rounded bg-slate-100 px-1.5 text-xs text-slate-700` for "(shown)", plain `text-xs text-slate-600` for "Changes the project". The rounded, bordered, 44 px shape is for controls only (F20).
 
 ### 5.3 Top to bottom, every element placed
 
 The Pumps tabpanel (`PumpsView.svelte`'s `space-y-4` column), the same order at every width.
 
-**0. The section nav** (new; §5.4). Shown with the Pumps together card, that is with two or more pumps with results.
+**Markup rules for every section** (the static mock drawn for this proposal follows them, and a slice built from it must too):
 
-**1. Results per pump.** Unchanged: the ResultsTable and its note. A visually hidden h3 "Results per pump" is added before it, as the nav's target and the outline's first stop.
+- A fieldset's `<legend>` is its first child, so the group keeps its name ("Cases on the chart" is pinned by `PumpsView.svelte.test.ts:97` and `scenarios.e2e.ts:220`; "Cases on this chart" by `PumpGroupChart.svelte.test.ts:1177` and `PumpGroupOneOff.svelte.test.ts:624`).
+- A tag beside a heading is the heading's sibling, in a `div.flex.flex-wrap.items-center.gap-2`, never inside it; a region stays labelled by its heading alone.
+- Every glyph (✓, ›, chevrons, case markers) is an `aria-hidden` element, the app's `Icon` where one exists, never CSS `::before` text, which Chromium puts into accessible names.
+- Controls stay `.btn` (or a native control in a 44 px row) at `min-h-ctl`, 44 px: the chips, the strip's buttons, the summaries.
+- Every chevron that turns gets `motion-reduce:transition-none`, as `SummaryView.svelte:266` and `FieldSections.svelte:130` have; today `PumpGroupChart.svelte:587, 973, 1000`, `PumpLineupsBlock.svelte:154` and `IssueDetail.svelte:16` lack it.
+- A request's live line is an always-present `<span aria-live="polite" aria-atomic="true">`, the first child of its row, empty when idle; its button comes after it, outside it, described by it. It is not `role="status"`: an always-present status in the tab would make the pane-wide `resultsPane(page).getByRole('status')` match two elements (`tests/cancel.e2e.ts:55`, and `solveConverged` at `tests/support.ts:119`, which `pump-chart.e2e.ts:61` calls with the Pumps tab shown). `data-stop-status` already works this way (`PumpLineupsBlock.svelte:259`). No live line has an `aria-busy` ancestor: each figure's `aria-busy` moves to its canvas wrapper, the part that is redrawn.
+
+**0. The section nav** (new; §5.4). Shown with the Pumps together card, that is with two or more pumps with results. It is the tabpanel's first child: static there, and pinned to the pane's top only once the pump canvas has scrolled out.
+
+**1. Results per pump.** The ResultsTable and its note, unchanged, under a new **visible** h3 "Results per pump" (16 px semibold, tabindex −1, the nav's target), so the table gets the visible title every other section has. Its visually hidden caption stays.
 
 **2. Pump chart** (`div.card`, `data-pump-chart`; shown when a pump has a result)
 
-- **Header row.** The h3 "Pump chart" (tabindex −1). With more than one pump, the select sits beside it, labelled by the h3, so its name stays "Pump chart". Its sentence ("The pump and system curves of one pump at a time; …") becomes `help`, shown on focus. Below a 21 rem container the select drops under the heading.
-- **The figure** (attributes unchanged), with the figcaption "Pump and system curves: {pump}, {case}".
+- **Header row.** The h3 "Pump chart" (tabindex −1). With more than one pump, the select sits beside it, labelled by the h3, so its name stays "Pump chart". Its sentence ("The pump and system curves of one pump at a time; each system curve is computed when its pump is shown.") stays a visible hint under the row: a choice starts a system curve, so it is a cost hint, kept visible like the other two; as floating help it would also cover the figcaption that names the pump just chosen. Below a 21 rem container the select drops under the heading.
+- **The figure** (attributes unchanged but `aria-busy`, which moves to the canvas wrapper), with the figcaption "Pump and system curves: {pump}, {case}".
   - **In place of the canvas when needed:** the chunk-failure alert or "The chart cannot be drawn in this browser. The table below lists its points." Either forces the data region open and hides the chips, the slider and the actions, as today.
-  - **The canvas** (`role="img"` with its summary; the Chart.js legend inside it). Its legend click stays: it is how a design-check mark is hidden (`pump-chart-config.ts:211–212`).
+  - **The canvas** (`role="img"` with its summary and, now, `aria-busy`; the Chart.js legend inside it). Its legend click stays: it is how a design-check mark is hidden (`pump-chart-config.ts:211–212`).
   - **Reading.**
-    - The group "Show": chips Efficiency, Shaft power, NPSH, Speed range and Design checks, drawn as toggle chips (a ✓ and a fill when pressed, an outline when not; `aria-pressed`; remembered per browser as today).
-    - Then "Read at flow" with "Back to the duty".
-    - Then the readout "At the duty 21.58 L/s: Pump head 40.33 m, System head 40.34 m, …". It is 14 px label and value pairs with the same text (the separators visually hidden), not live.
+    - The group "Show": chips Efficiency, Shaft power, NPSH, Speed range and Design checks, drawn as toggle chips: `.btn` at 44 px, a fill and an `<Icon name="check">` (an `aria-hidden` svg, no text) when pressed, an outline when not; `aria-pressed`; remembered per browser as today. The chips' text stays "Efficiency", "Shaft power", … exactly (`PumpChart.svelte.test.ts:716–720`).
+    - Then "Read at flow" with "Back to the duty". Pressing the button removes it, so the focus moves to the slider, as on the group chart: the slider is bound (`bind:this={readSlider}`) and the handler is `() => { cursor = null; void tick().then(() => readSlider?.focus()); }` (F40). Escape stays.
+    - Then the readout: one `<p data-pump-readout>`, not live, "At the duty 21.58 L/s: Pump head 40.33 m, System head 40.34 m, …". Each pair is an inline `whitespace-nowrap` span "label value unit" at 14 px and the ", " separators are visually hidden, so its text is unchanged and `pump-chart.e2e.ts:30–44`, which find it as a `<p>` and read it with a regex, stay as they are.
     - This is the order `pump-chart.md` §4.1 gives.
-  - **The strip** (nothing when idle).
-    - **Pump state.** First, the pump note: "This pump is off: …" or "This pump is held at zero flow by its check …".
-    - **The system curve's row.** One always-present `role="status"` span (empty when idle) holds its state, with the button beside it:
+  - **The strip** (nothing visible when idle), one row per line:
+    - **Pump state.** First, the pump note: "This pump is off: …" or "This pump is held at zero flow by its check …" (plain).
+    - **The system curve's line** (`{id}-curve-state`), with its button after it:
       - spinner "Computing the system curve for this solve…" [Cancel] (named "Cancel the system curve");
       - ⬣ "The system curve could not be computed: {message}" [Try again];
-      - "The system curve has not been computed for this solve." or "…was not computed: you cancelled it." (and the goal-seek and new-solve variants), with [Compute the system curve], described by the sentence.
-    - **Missing heads.** ⚠ "No point of the system curve has a head …" or "N of 41 system-curve points have no head: …".
+      - "The system curve has not been computed for this solve." or "…was not computed: you cancelled it." (and the goal-seek and new-solve variants), with [Compute the system curve].
+    - **Coverage.** "No point of the system curve has a head …" or "N of 41 system-curve points have no head: …", a plain `<p>` after the line, no mark (§5.2).
     - **Focus.** The Cancel to Try again or Compute handover (`PumpChart.svelte:353–370`, with the figure as fallback) is unchanged.
   - **Actions** (one line, wrapping at 270 px; `export.md` §5.5).
-    - [Show data table] or [Hide data table]: same names, `aria-expanded`, `aria-controls`, now also described by the figcaption, so the two charts' buttons are told apart.
-    - [⤓ Download image]: same name, `data-chart-image` and reasons. While it is unavailable, its reason shows beside it as 12 px text: the same element its `aria-describedby` already points to.
-  - **The data region** (when shown, or forced). The case shown first:
-    - "Operating point: x L/s at y m" or "Held at zero flow: …" stays its first line, since the table is the chart's long description (`pump-chart.md` §4.4).
-    - "Operating points by case" (Case, Flow, Head, Speed (%), State; bare numbers under "Speed (%)"; a list below 640 px).
-    - The grid of the shown case's tables, two-up only from a 40 rem container: "Pump curve at …", "System curve" (with NPSHa, and Why no head with its Details), the efficiency, shaft power, NPSHr and speed-range curves.
-    - Last, each other case's "System curve, {case}".
-    - Every box gets `scroll-shadow-x`. From S7, each curve table is its own disclosure, "{caption} ({n} points)", full height when open.
+    - [Show data table] or [Hide data table]: same visible words, `aria-expanded`, `aria-controls`. The name gains a visually hidden suffix, `Show data table<span class="sr-only"> of the pump chart</span>`, so the two charts' buttons differ in screen-reader lists, rotors and voice control's numbering (F18). WCAG 2.5.3 holds: the visible words start the name.
+    - [⤓ Download image]: same name, `data-chart-image` and reasons. A lasting reason (the image's own `unavailable`) shows beside it as 12 px text, the element its `aria-describedby` already points to. The passing ones ("Wait until the system curve is computed, or cancel it.", "The chart is being drawn.") stay visually hidden and in its `title`: the strip already shows the request, and `drawn` is reset on every rebuild (`PumpChart.svelte:391`, `:439–441`), so a visible reason would flash and move the line on every chip, untick or case change.
   - **Notes about the values** (always shown, words from `chartNotes`, unchanged), in this order:
-    - ⚠ each rising-head range;
-    - ⚠ "NPSHa falls below NPSHr at about … the pump would cavitate beyond that flow.";
+    - each rising-head range, and "NPSHa falls below NPSHr at about … the pump would cavitate beyond that flow.", first and unmarked (§5.2);
     - the best efficiency point or none, the shutoff head and the speed range;
     - the panels' notes;
     - "Dashed: the pump curve extrapolated beyond its data …";
     - then the method sentence, visible: "System curve: the network of this solve, solved again … minus the EGL at the suction." It ends with "Trace of {pump}" as an inline link: a button styled as a link, same name, no 44 px block, under WCAG 2.5.8's inline exception, as the refusals' element names already are (D10: "its method note links the pump's trace").
     - With the Design checks chip on: a small label "Design-check limits drawn", each limit note without a mark, and the closing sentence, followed by [Go to Checks]. That button switches the Results view to Checks and focuses its tab.
+  - **The data region** (when shown, or forced; after the notes, §5.1). The case shown first:
+    - "Operating point: x L/s at y m" or "Held at zero flow: …" moves to its top: today it follows "Operating points by case" and the other cases' system curves (`PumpChart.svelte:743–850`). The table is the chart's long description (`pump-chart.md` §4.4).
+    - "Operating points by case" (Case, Flow, Head, Speed (%), State; bare numbers under "Speed (%)"; a list below 640 px).
+    - The grid of the shown case's tables, two-up only from a 40 rem container: "Pump curve at …", "System curve" (with NPSHa, and Why no head with its Details), the efficiency, shaft power, NPSHr and speed-range curves.
+    - Last, each other case's "System curve, {case}".
+    - Every box gets `scroll-shadow-x`, and is a Tab stop only while it overflows (§5.7). From S7 each curve table is its own disclosure, "{caption} ({n} points)", full height when open, and open by default when its Why no head column has entries, so the reasons the chart's note points to ("the data table says why", `pump-chart.ts:894`) stay one press away (D10's owner rule).
   - **h4 "Other cases on the pump chart"** (with scenarios and another case with a result for this pump; inside the figure, so every figure-scoped test still finds it):
-    - The fieldset "Cases on the chart", with "● {case} (shown)" as a static tag (same words; not a 44 px row with no box).
+    - The fieldset "Cases on the chart", its legend the first child. "{case} (shown)" is the first item of the case grid, a tag (same words; not a 44 px row with no box).
     - One 44 px checkbox per other case: the marker in a fixed-width column, the name, " (out of date)". They sit in an auto-fill grid (13 rem minimum: two columns in a 480 px pane, one on a phone).
-    - A ticked case in which this pump is off or carries no flow says so beside its box, outside the label: "(off in this case: no point drawn)". From S8 such a case takes no slot.
-    - Capped boxes look unavailable (greyed, a not-allowed cursor), stay `aria-disabled`, and are described by "At most 6 cases at once.".
+    - A case in which this pump is off (`result.status === 'off'`) says so beside its box, outside the label: "(off in this case: no operating point)". The note's id joins the box's `aria-describedby` (with the cap's id when both apply), so a screen-reader user who ticks it hears that it draws no point. A pump held at zero flow has its point drawn, so it gets no note. From S8 an off case takes no slot while the other cases' system curves are off (§9).
+    - Capped boxes: the checkbox greyed (`opacity-45` on the input), `cursor-not-allowed` on the row, and the name kept at slate-600 (7.6:1), since it is what the user reads to decide which case to untick. They stay focusable, `aria-disabled`, and described by the visible "At most 6 cases at once.".
     - Then the checkbox "Also show the other cases' system curves", with its cost sentence **kept visible**: on touch, focus comes only with the tap that starts about 41 solves.
-    - Then, beside it, its always-present status "Computing system curves: 1 of 3…" with [Cancel] (named "Cancel the other cases' system curves").
+    - Then its line, "Computing system curves: 1 of 3…", with [Cancel] after it (named "Cancel the other cases' system curves").
+- **"Back to the sections"** (while the nav is shown): a button visually hidden until focused, after the card's last control. It focuses the nav's current button.
 
 **3. Pumps together** (`section.card`, `data-pumps-together`, a region named by its heading; two or more pumps with results; closed by default, D21)
 
-- **The h3** holding the toggle button "Pumps together", with "(members)" while closed: kept, a recorded departure (§6.4 item 13).
+- **The h3** holding the toggle button "Pumps together", with "(members)" while closed: kept, a recorded departure (§6.4 item 13). The nav's "Pumps together" button focuses this toggle, not the h3: its name starts "Pumps together" and it carries `aria-expanded`.
   - While closed, a second, muted line describes the button (`aria-describedby`, so its name still starts "Pumps together"): "The station's duty, the group curve, each pump's share and cases with fewer pumps running", plus "; Running combinations" with scenarios.
 - **Members.**
   - The fieldset "Pumps in the group" as a grid (13 rem minimum; names wrap; the slot symbol's column reserved, so a label never moves on tick).
   - "At most 6 pumps in a group." when capped.
-  - "The calculation server finds the part of the network …" becomes `help` on focus, still the fieldset's description.
+  - "The calculation server finds the part of the network …" stays a visible hint and becomes the fieldset's description: new `aria-describedby` on the fieldset, which has none today (`PumpGroupChart.svelte:596–632`).
   - While the members are the default suggestion: "Suggested for {pump}, the pump on the pump chart above; tick pumps to choose your own."
   - The other suggestions:
     - one: its "Also found: …" button, wrapping (`whitespace-normal`, left-aligned);
     - two or more: a disclosure "Other groups found: {n}" holding them;
     - either way described by "Showing a group found replaces the pumps ticked."
-- **When the card has no values:** the unavailable sentence (not converged, not the latest, Solve all stopped, the latest solve failed) replaces everything below. With no member ticked: "Tick the pumps to see together."
+- **When the card has no values:** the unavailable sentence (not converged, not the latest, Solve all stopped, the latest solve failed) replaces everything below. With no member ticked: "Tick the pumps to see together." No section below the members is drawn then, so the nav has none of their buttons (§5.4).
 - **h4 "Station"** (tabindex −1). Its answer first:
+  - **The group curve's line** (`{id}-curve-state`), moved here from the figure because the station's shares and losses wait for it as the chart does, with its button after it: spinner "Computing the group curve…" [Cancel the group curve] · ⬣ "…" [Try again] · cancelled or not computed [Compute the group curve]. While it is pending, "The share of each pump and its loss on the way come with the group curve." follows it. The focus handovers (`PumpGroupChart.svelte:415–454`) are unchanged.
   - **The refusal**, when refused, visible (`data-group-refusal`): the bold sentence and the list "Why they do not form a station" or "Why the group curve is not defined", with element names as buttons and each "Details".
   - **The dl "The station"** at 14 px with the values in bold: "Station flow, into the station at {S}", "Rise from {S} to {D}", and in series "Lost in the piping between the pumps". It is still the only `<dl>` on a card without scenarios.
-  - **The region and table "The pumps in the group[, {case}]"** (`scroll-shadow-x`).
-    - Columns as today except the last Flags column. Each flagged row is followed by a **flag line**, ResultsTable's own row-notes pattern (`ResultsTable.svelte:470–474`): sticky to the box's visible width (`w-[100cqw]`), `data-row-notes`, `data-label="Flags"`. It holds each flag as FlagBadge's tinted pill followed by **its text, visible** at 12 px.
+  - **The region and table "The pumps in the group[, {case}]"** (`scroll-shadow-x`; a size container, §5.5).
+    - Columns as today except the last Flags column. Each flagged row is followed by a **flag line**, ResultsTable's own row-notes pattern (`ResultsTable.svelte:470–474`): sticky to the box's visible width (`w-[100cqw]`), `data-row-notes`, `data-label="Flags"`.
+    - The line starts with a visually hidden "{pump}, flags:", so table navigation, which reads the one-cell row without its pump, names it. Then each flag: a tinted pill with only its icon and severity word (no visually hidden copy, no `title`), followed by **its text, visible** at 12 px. The sentence is read once.
     - The tints come from a small `flagTone(severity)` beside `SEVERITY_LABELS`, since FlagBadge reads the workspace and the card's unit tests mount none.
     - The sticky Pump names wrap at 12 rem.
     - Below 640 px the table reads as a list (Running combinations' classes, explicit roles kept), with the flag line under the pump's name.
-  - "The share of each pump and its loss on the way come with the group curve." while it is pending.
 - **h4 "Group chart"** (tabindex −1).
-  - **The figure** (attributes unchanged), with the figcaption "{members} in parallel|in series[, {case}][ (out of date)]".
+  - **The figure** (attributes unchanged but `aria-busy`, moved to the canvas wrapper and set while any of its curves loads), with the figcaption "{members} in parallel|in series[, {case}][ (out of date)]".
   - **In place of the canvas when needed:** the alert or the cannot-be-drawn note. Otherwise the canvas (`groupSummary`).
-  - **Reading.** "Read along the curves" with "Back to the duty" and Escape. Its hint "Steps over the group curve's samples, …" becomes `help` on focus. The readout (`data-group-readout`, same text) is 14 px pump and value pairs, in two columns from a 26 rem container and one pair per line on a phone.
-  - **The strip.** One always-present `role="status"` span holds the curves' states (texts unchanged), each with its button beside it on the same line:
-    - the group curve: Computing… [Cancel the group curve] · ⬣ … [Try again] · cancelled or not computed [Compute the group curve];
-    - the group system curve: [Cancel the group system curve] · [Try the group system curve again] · [Compute the group system curve];
-    - other state lines, with ⚠ where they qualify the answer ("n of m group-curve points have no flow …", "n of m group-system-curve points have no rise …", "No group curve for this case: …", "No group system curve: …"); "Tick two pumps or more to compute their group curve." plain.
-    - The focus handovers (`PumpGroupChart.svelte:415–454`) are unchanged.
-  - **The legend** ("Legend", entries unchanged), two columns from a 26 rem container.
-  - **Actions:** [Show data table] (described by the figcaption) and [⤓ Download image] (name, `data-chart-image` and reasons unchanged, the reason visible).
-  - **The data region** (`#data`), opened here, in this order:
-    1. "Each pump's point (flow through it)";
-    2. the duty sentence split into two paragraphs, each with its own Details: "● Group duty (station's flow): …; Duty check: …" and "System duty check: …";
-    3. "Group curve (station's flow at each rise)";
-    4. "Group system curve (…)";
-    5. "Other cases' station duties" (a list below 640 px);
-    6. "Other cases' group curves (…)" after it (`pump-lineups.md` §9.6).
+  - **Reading.** "Read along the curves" with "Back to the duty" and Escape. The readout (`data-group-readout`, same text) is 14 px pump and value pairs, in two columns from a 26 rem container and one pair per line on a phone. The pairs come from a new `parts` on `GroupReadoutSample` whose joining equals its `text` (tested), with visually hidden ", " separators, so `pump-groups.e2e.ts:362`'s exact text still holds. Its hint "Steps over the group curve's samples, …" stays a visible hint after the readout, as today, and the slider's description: as floating help it would cover the readout for as long as the slider has focus, and Escape, which would dismiss it (WCAG 1.4.13), already means "Back to the duty".
+  - **The strip**, one row per line:
+    - the group system curve's line (`{id}-system-state`) with its button after it: [Cancel the group system curve] · [Try the group system curve again] · [Compute the group system curve];
+    - the coverage lines, plain `<p>`s (texts unchanged): "n of m group-curve points have no flow …", "n of m group-system-curve points have no rise …", "No group curve for this case: …", "No group system curve: …"; "Tick two pumps or more to compute their group curve.".
+    - The focus handovers are unchanged.
+  - **The legend** ("Legend", entries unchanged; `pump-groups.e2e.ts` reads them at :266, :294, :475, :638, :727, :889 and :960): the symbol entries (members, rings) two-up from an 18 rem container, the line entries one per row, so on a phone it is no taller than its canvas (F27; §5.7).
+  - **Actions:** [Show data table] (named "Show data table of the group chart" by the same visually hidden suffix) and [⤓ Download image] (name, `data-chart-image` and reasons unchanged; a lasting reason visible, the passing ones as on the pump chart, `PumpGroupChart.svelte:475, 532–533`).
   - **Notes about the values** (words from `groupNotes`, unchanged), in this order:
-    - ✓ or ⚠ the duty check (with its Details and "Several steady states can exist …" when it disagrees);
-    - ✓ or ⚠ the system duty check (with its Details);
+    - the duty check (with its Details and "Several steady states can exist …" when it disagrees): ✓ when it agrees, no mark otherwise;
+    - the system duty check (with its Details), the same way;
     - the frame ("Pump curves and points are at each pump's flanges. … At the duty Pump P1 loses 1.931 m, …");
     - the member notes;
     - the dashed note.
+    - Each Details' summary gains a visually hidden subject, `Details<span class="sr-only"> of the duty check</span>`, "… of the system duty check", and so on, through an optional `subject` on IssueDetail; its other callers (ResultsPanel, GoalSeekResult) are unchanged.
   - **Reference**, three native disclosures with `.more-summary`, closed:
     - "How to read this chart: the axes, the group system curve, each pump's own system curve" holds the axes note, the system note and the own-system-curves note, with [Go to the pump chart];
     - "How the group curve is computed" (or "How this curve is computed", as today);
     - "How the group system curve is computed".
+  - **The data region** (`#data`, after the reference, §5.1), in this order:
+    1. "Each pump's point (flow through it)";
+    2. the duty sentence split into two paragraphs, each with its own Details: "● Group duty (station's flow): …; Duty check: …" and "System duty check: …";
+    3. "Group curve (station's flow at each rise)";
+    4. "Group system curve (…)";
+    5. "Other cases' station duties" (a list below 640 px), which today comes before the group-curve tables (`PumpGroupChart.svelte:1424–1572` before `:1573–1674`);
+    6. "Other cases' group curves (…)" after it (`pump-lineups.md` §9.6).
   - **h5 "Other cases on the group chart"** (with scenarios and a station shown):
     - **The switch, first:** "Also show the other cases' station duties", with its cost sentence kept visible.
     - **While it is off:** the one line "Other cases' station duties are not on the chart: tick “Also show …” to compute them (n other cases with results)."
-    - **While it is on:** under it, the fieldset "Cases on this chart":
-      - "● {case} (shown)" as a tag;
+    - **While it is on:** under it, the fieldset "Cases on this chart", its legend the first child:
+      - "{case} (shown)" as a tag, the grid's first item;
       - checkboxes "○ n · {name} (out of date)", the ring and number in a reserved column, in `lineupChartPriority` order;
-      - capped boxes greyed, with "At most 6 other cases at once.".
-    - **Progress:** an always-present `role="status"` "Computing the other cases' station duties: k of n…" with [Cancel] beside it ("Cancel the other cases' station duties").
-    - **When some were not computed:** "Not every other case's station duty was computed: see Running combinations." with [Compute them again] (its unavailable reason visible) and [Go to Running combinations].
-    - **The ring notes, visible:** the ring frame and `OTHER_CURVES_FRAME`, the clip note, `DUTY_CLAIM_RULE`, the ring list "Other cases on the chart (slate rings, numbered): …", "Not on the chart: …", and "Labels of n curves are left out for space; …".
+      - capped boxes as on the pump chart, with "At most 6 other cases at once.".
+    - **Progress:** its line (`{id}-others-state`), "Computing the other cases' station duties: k of n…", with [Cancel] after it ("Cancel the other cases' station duties").
+    - **When some were not computed:** "Not every other case's station duty was computed: see Running combinations." with [Compute them again] (a lasting reason visible) and [Go to Running combinations].
+    - **The ring notes, visible:** the ring frame and `OTHER_CURVES_FRAME`, the clip note, `DUTY_CLAIM_RULE`, the ring list "Other cases on the chart (slate rings, numbered): …", "Not on the chart: …" (its doubled words fixed in S0), and "Labels of n curves are left out for space; …".
 - **h4 "Add cases"** (`PumpLineupsBlock`; the region "Add cases", `data-add-cases`; while a station is shown).
-  - **The panel.** It is framed and tinted (a border, `bg-slate-50`), with the tag "Changes the project" beside the heading, outside it, so the heading's name stays "Add cases".
-  - **While a gate holds:** only its sentence, Solve all (gates 4 to 6) and "Pump lineups table…" (D24 §7.2).
-  - **When every planned case exists** (and none was refused for the cap of 20):
-    - ✓ "The {n} cases {by number running | with each pump off} exist: {S1, S2 and S3}.";
-    - [▶ Solve all (n)] with its reason visible when it is unavailable;
-    - a disclosure "Cases to add: {By number running | Each pump off}, all {n} made" holding the full form, the refused Add and the refusal among it;
-    - "Pump lineups table…" at the foot.
-  - **Otherwise, D24 §7.11's order:**
-    1. the segments "Cases to add" (label 12 px);
-    2. About;
-    3. the interchangeability sentence;
-    4. the stop order's disclosure;
-    5. the "Cases:" preview;
-    6. the names line;
-    7. new: "In the names, P6 is Condenser water pump CWP-6, …", only when some member's name does not contain its id;
-    8. [Add n cases] [▶ Solve all (n)] with visible reasons;
-    9. the refusal;
-    10. "Pump lineups table…".
-  - **After an Add:** "Now ticked: “Also show the other cases' station duties” (Group chart)." The focus still moves to the block's Solve all (D24 §7.8).
-  - The sr-only polite status (`data-stop-status`) is unchanged.
+  - **The panel.** It is framed and tinted (a border, `bg-slate-50`). Its header is a `div.flex.flex-wrap.items-center.gap-2` holding the h4 and, as a sibling, the plain tag "Changes the project"; the region keeps `aria-labelledby` on the h4 alone, so its name stays "Add cases" (`PumpLineupsBlock.svelte.test.ts:111`).
+  - **While a gate holds:** only its sentence, Solve all (gates 4 to 6) and "Pump lineups table…" (D24 §7.2), as today.
+  - **Otherwise, one structure in every state.** No control moves from one branch of the markup to another, so a control in use keeps the focus. D24 §7.11's order is kept:
+    1. the segments "Cases to add" (label 12 px), outside any disclosure;
+    2. one native disclosure, `data-lineup-plan`, holding About, the interchangeability sentence, the stop order's own disclosure (now `data-stop-order`), the "Cases:" preview (with its "already a scenario (S1)" lines), the frame line, the names line and, new, "In the names, P6 is Condenser water pump CWP-6, …" (only when some member's name does not contain its id). Its summary says what it holds: "The plan: {n} cases {by number running | with each pump off}: {k} to add", or ": all {n} made", or ": {e} made, {b} not made (the base case's state)";
+    3. one row: [Add n cases] (`aria-disabled` with its refusal when nothing is left to add) and the single [▶ Solve all (n)], `bind:this={solveAllButton}`, in every state. Solve all appears exactly once in the block;
+    4. the refusal, visible as today. With every planned case made it is D24's own line and names them ("Every case by number running already exists: «…», «…» and «…»."), so no second line repeats it;
+    5. Solve all's lasting reason, visible ("Every case's results are current.");
+    6. "Pump lineups table…".
+  - **The fold.** The plan disclosure is drawn closed only when every planned case exists, `plan.add.length === 0 && plan.existing.length > 0` (an add refused for the cap of 20 still has cases to add, so it never folds; a plan of base-state cases only is not done either). It is drawn open otherwise, opens itself whenever cases come to remain (another preset, a scenario deleted), and is never closed by code: after the user's own Add it stays as the user left it (ui-guide: a disclosure never closes itself). Folded, the block is the segments, the plan's summary, the row, the refusal and the table button.
+  - **After an Add** that ticked it: the visible line "Now ticked: “Also show the other cases' station duties” (Group chart)." The same sentence is written into `data-stop-status`, the block's polite live line, since the focus moves to the block's Solve all (D24 §7.8) and would not pass the line.
 - **h4 "Running combinations"** (tabindex −1; with scenarios and a station shown).
-  - **The lead** (14 px; ⚠ when a case has a warning or a physically invalid value): "{n} cases, {k | none} physically invalid[, {w} with warnings], {m | none} out of date." For the lineups fixture: "9 cases, none physically invalid, 1 with warnings, none out of date."
-  - **h5 "Extremes over these cases (current results)"**, now nested under the table it summarises.
-    - The dl "Extremes over these cases" keeps its element and every word. Its lines are grouped by pump: the pump's name once as a visible label, `aria-hidden`, while each term keeps "Pump P1, largest flow" with the name visually hidden after the first. It is 14 px, with the red icon and "physically invalid:" where invalid.
+  - **The lead** (14 px): "{n} cases: {v} with current results ({k | none} physically invalid, {w | none} with warnings), {m | none} out of date, {f | none} without results."
+    - v counts the cases with current results, m those whose results are out of date, f those with none (failed, not reached, not solved): v + m + f = n.
+    - k and w count over the v current cases, as the extremes do: k the cases where a member has a flag of severity invalid, w those where a member has one of severity warning and none invalid. A design check is never a warning (D19); an info flag counts in neither.
+    - Its mark is the worst severity among them: the red octagon named "Physically invalid", or the amber alert named "Warning"; none when k and w are both none.
+    - For the lineups fixture: "9 cases: 9 with current results (none physically invalid, 1 with warnings), none out of date, none without results."
+  - **h5 "Extremes over these cases (current results)"**, now nested under the section it summarises.
+    - The dl "Extremes over these cases" keeps its element, its `<div><dt/><dd/></div>` groups and every word, and gains no other child. It is grouped by pump inside the terms. Each pump's first term shows the name on a line of its own: `<dt><span class="block font-semibold">Booster pump (PA)</span><span class="sr-only">, </span>largest flow:</dt>`. Its later terms keep the name visually hidden: `<dt><span class="sr-only">Booster pump (PA), </span>largest shaft power:</dt>`. Every dt's text stays exactly as pinned, colons included (`PumpGroupOneOff.svelte.test.ts:906–913`, `pump-groups.e2e.ts:632`), and axe's definition-list and dlitem rules pass. 12 px (§5.2), with the red icon and "physically invalid:" where invalid.
     - Then "Not counted (out of date): …".
-  - **The region and table "Running combinations"** (`data-running-combinations`; its caption visually hidden beside the h4, still its name; `scroll-shadow-x`).
-    - **Order:** the case shown, then the cases in ring order (`lineupChartPriority`), then the cases without a ring.
+  - **The region and table "Running combinations"** (`data-running-combinations`; its caption visually hidden beside the h4, still its name; `scroll-shadow-x`; a size container, §5.5).
+    - **Order:** the case shown, then the other cases with values in `lineupChartPriority` order (PumpsView's `chartOrdered`, `PumpsView.svelte:450–455`), then the cases without values in case order. A case's place does not depend on whether it is ticked under "Cases on this chart" or on whether "Also show …" is on, so neither reorders the table. "· ring n" stays a label.
     - **Group heading lines:** "{name} (shown)(out of date) · ring n", the lineup line and the station line, each sticky to the box's visible width, so they wrap in view.
-    - **Pump names** become trace buttons, as in the group table.
+    - **Pump names** become trace buttons **only in the shown case's group** (`group.shown`). A trace opens for the case shown (`ws.inspect` takes no case, `workspace.svelte.ts:1137`; `ResultsPanel.svelte:506`), so a button in another case's group would show the shown case's trace beside that case's values (GOALS §4.2, D10, D15). Other groups keep plain row headers; a case-aware trace is Later (§13).
     - **Flags:** a flag line under a flagged pump's row, as in the group table, keeping `data-label="Flags"`.
     - **Invalid and stale:** invalid cells marked, stale groups amber.
     - **Phones:** a list below 640 px with no "Flags None" line ("None" stays sr-only).
+- **"Back to the sections"**, visually hidden until focused, after the card's last control.
 
 Nothing comes after the card.
 
 ### 5.4 The section nav
 
-The tab gets one way through, built on the ui-guide's sideways pill row.
+The tab gets one way through, built on the ui-guide's sideways row.
 
-- **Markup and place.** A `nav` named "Pumps view sections", sticky at the top of the Results pane's scroller, white, with a rule under it. It is 52 px tall: 44 px pills and 8 px of padding, 7.8 % of the desktop pane and 8.4 % of a phone's, inside the ui-guide's 15 % chrome rule.
+- **Markup.** `<nav aria-label="Pumps view sections">` holds a visible lead word, "Go to", and `<div role="toolbar" aria-labelledby="{lead}" aria-orientation="horizontal">` with one button per section. A toolbar, unlike a plain row of buttons, tells keyboard and screen-reader users that the arrow keys move between its buttons (the APG toolbar pattern).
+- **Look.** It sits under the Results view row, a `tablist` of filled, rounded pills (`ResultsPanel.svelte:963–990`), and must not look like it: quiet `rounded-md` buttons with no fill, the current one marked by a 2 px blue-700 underline and semibold, never filled.
+- **Size.** Buttons at `min-h-ctl` (44 px), `px-2`, 14 px. The scrolling element has `py-1`, so the focus ring (2 px at a 2 px offset) is never clipped (see "One shared component"), with a 1 px rule under the nav: about 53 px at the default text size, all in rem, so it grows with text zoom.
+- **Place.** The tabpanel's first child, above Results per pump, static there. It is pinned (`sticky -top-4 z-[35]`, white) only while both of these hold:
+  - the pump chart's canvas (or what stands in its place) has scrolled out above the scroller's top, seen by an IntersectionObserver. While the pump chart is in view the nav is not over it, so at the default desktop split the whole 624 px canvas still fits the 666 px pane (F12);
+  - the nav takes at most 15 % of the scroller's `clientHeight`, the ui-guide's chrome rule: about 8 % of the 666 px desktop pane and 8.5 % of a 620 px phone pane. A landscape phone (844×390, a pane of about 280 px, so about 19 %) and the `short:` variant (320×256 at 400 % zoom, where the workspace scrolls as one page, `Workspace.svelte:204`) keep it static.
+  - `-top-4` cancels the scroller's `py-4` (`ResultsPanel.svelte:683`), as ResultsTable's Fields sheet uses `-top-2` in its `p-2` (`ResultsTable.svelte:303, 314`); with `top-0` it would stick 16 px low and content would scroll visibly above it. `z-[35]` puts it above ResultsTable's sticky header cells (z-20 and z-30, `ResultsTable.svelte:379, 390`) and the group tables' row headers (z-10, `PumpGroupChart.svelte:1046, 1075`), none of which is in a stacking context of its own, and below the Fields sheet (z-50).
 - **When.** Shown with the Pumps together card. A project with one pump has no card, and no nav.
-- **Pills.**
-  - Always: "Per pump", "Pump chart" and "Pumps together".
-  - While the card is open: "Station", "Group chart", "Add cases" (while the block is drawn) and "Running combinations" (with scenarios and a station).
-  - **Marks.** A pill gets ⚠ (with sr-only "has warnings") when its section holds a physics flag of warning or invalid severity, a physically invalid value, a refusal or a request error. Never for a design check (D19), never for a note.
+- **Buttons from what is drawn.** Each section registers its target on mount and unregisters it on destroy, through a small context PumpsView provides. PumpsView keeps them in document order, and the toolbar draws one button per registered target:
+  - "Per pump", "Pump chart" and "Pumps together" while those are drawn;
+  - "Station" and "Group chart" only while the card shows its values, never with the unavailable sentence or with no member ticked;
+  - "Add cases" while the block is drawn, "Running combinations" while that section is.
+- **Targets.** The section's heading (tabindex −1), except "Pumps together", whose target is the card's toggle button, so the press lands on the control and its expanded state is announced.
 - **One Tab stop.**
-  - The Tab stop is the current pill, else the first; ←, →, Home and End move between pills.
-  - Enter or Space scrolls the section's heading under the nav (`scroll-margin-top` is the nav's height plus 8 px) and focuses it (tabindex −1).
+  - ←, →, Home and End move between the buttons.
+  - The Tab stop is the button last focused while the focus is in the toolbar, else the current one, else the first.
+  - When the buttons change (the card closed, the last member unticked, a solve that fails, the scenarios removed), the stop is clamped: the same section if its button is still there, else the nearest earlier one.
+  - While the focus is in the toolbar, the observer below moves `aria-current` only, never `tabindex`.
+- **A press.** Enter or Space scrolls the target to the top, `target.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })` with `reduced` from `matchMedia('(prefers-reduced-motion: reduce)')`, then `target.focus({ preventScroll: true })`, so the focus causes no second jump. Targets below the pump chart have `scroll-margin-top: calc(var(--pumps-nav-h) + 0.5rem)`. "Per pump" and "Pump chart" have 0.5 rem, since the nav is static when they are in view.
 - **Buttons, never links.** The URL fragment is the project (D3), so a `href="#…"` would replace it; a test asserts `location.hash` unchanged after every press.
-- **Where you are.** `aria-current="location"` marks the pill whose heading was passed last. An IntersectionObserver on the scroller sets it, paused while the Pumps tabpanel is hidden (ResultsPanel keeps visited views mounted).
-- **Focus never hidden.** While the Pumps tab is shown, the scroller gets `scroll-padding-top` equal to the nav's height, so a focused control is never covered (WCAG 2.4.11). Other views keep none.
-- **One shared component.** The wheel that scrolls the row sideways, the edge shadows and the current pill scrolled into view are the view row's (`ResultsPanel.svelte:458–476, 960–990`), made a shared component in S2.
+- **Marks.** A button carries its section's worst mark, by §5.2's severities: the red octagon for an invalid flag or a physically invalid value, else the amber alert for a warning flag, else ⬣ for a refusal or a failed request. A visually hidden text follows the label and starts with a comma, so it never runs into it: ", has physically invalid values", ", has warnings", ", has a refusal" or ", a request failed". Never for a design check (D19), never for a note. One pure helper, `sectionMark`, gives the icon and the words.
+- **Where you are.** `aria-current="location"` marks the button whose target was passed last. An IntersectionObserver on the scroller (its top margin the nav's height) sets it, paused while the Pumps tabpanel is hidden (ResultsPanel keeps visited views mounted). When it changes, only the toolbar row scrolls (`row.scrollTo({ left, behavior })`), keeping the current button and the next one in view. It never calls `scrollIntoView`, which scrolls every scrollable ancestor and would move the pane or cut off a scroll already running.
+- **Focus never hidden.** `--pumps-nav-h` comes from a ResizeObserver on the nav, never a px constant, so text zoom follows. While the nav is pinned, the scroller has `scroll-padding-top: var(--pumps-nav-h)`, so a focused control is never covered (WCAG 2.4.11); while it is static, none. Other views keep none.
+- **The way back.** Each card ends with "Back to the sections", a button visually hidden until focused (`sr-only focus:not-sr-only`), which focuses the nav's current button. From the foot of Running combinations the nav is then one Tab away, not dozens of Shift+Tab.
+- **One shared component.** The wheel that scrolls a row sideways, the edge shadows and the keep-in-view are the view row's (`ResultsPanel.svelte:458–483, 960–990`), made a shared row component in S2. It puts `py-1` on its scrolling element, since `overflow-x: auto` also clips vertically and the view row has no block padding: today a focused pill's ring is drawn only at its sides. The view row adopts it with `-my-1`, so its layout does not move, and its keep-in-view becomes the same row-only scroll.
 - **Considered and dropped:**
-  - Read blocks sticky to the pane's foot. With the nav they would cover about 130 px of a 620 px phone pane, over the canvas they read (WCAG 2.4.11). The readouts sit directly under their canvas instead.
+  - A nav pinned all the time. 53 px over a 666 px pane leaves 613 px, so the 624 px pump canvas could never be seen whole at the default split: F12 made worse.
+  - The nav in the pane's non-scrolling header row. That row is every view's; a Pumps-only row there is chrome every view pays for.
+  - A compact 36 px row for a mouse. Results holds 44 px targets (ui-guide), and the pinning rule already keeps the nav off the pump chart.
+  - Read blocks sticky to the pane's foot. They would cover about 130 px of a 620 px phone pane, over the canvas they read (WCAG 2.4.11). The readouts sit directly under their canvas instead.
   - Segmented sub-views of the card. They would hide Running combinations' flags behind a tab by default and break reading the chart against its tables.
+  - A plain `nav` of buttons with a roving stop: nothing would tell users that the arrows apply.
 
 ### 5.5 Phones
 
 Below 640 px (366 px at 390×844, 288 px at 320) the order and every control are the same; only the layout changes.
 
-- **The nav** is one sideways-scrolling row of 44 px pills with edge shadows, sticky at the pane's top. The current pill is scrolled into view.
-- **Grids and lists** follow their container, not the viewport. `@container` goes on the grids, the legend and the member grid only, never on an ancestor of a ResultsTable, a Dialog or a sheet, since layout containment would trap their fixed-position sheets. So the members, the case lists and the legend go one per row, and the curve tables one column.
+- **The nav** is one sideways-scrolling row of 44 px buttons with edge shadows, pinned by §5.4's rule: in portrait at 390×844 it pins; in landscape and under `short:` it stays static at the tab's top.
+- **Grids and lists** follow their container, not the viewport. These, and only these, are containers (`@container`):
+  - the pump chart's header-row wrapper (the select drops under the h3 below 21 rem);
+  - the two readout wrappers (pairs two-up from 26 rem);
+  - the pump chart's data-grid wrapper (two-up from 40 rem);
+  - the group legend (symbol entries two-up from 18 rem);
+  - the member grid and the two case grids;
+  - the group table's and Running combinations' scroll boxes, as size containers, so their flag lines and group lines can be `w-[100cqw]` as ResultsTable's box is (`ResultsTable.svelte:361–363`). Without that, `100cqw` would resolve against the small viewport (1,280 px on a desktop) and overflow the 452 px box. Neither holds a fixed-position descendant.
+  - Never a card, and never an ancestor of a ResultsTable, a Dialog or a sheet: layout containment would trap a fixed-position sheet (ResultsTable's Fields sheet is `max-sm:fixed`, `ResultsTable.svelte:304`, and S6 puts a ResultsTable in the card). An e2e guard asserts that no ancestor of a "Fields shown in …" group has a computed `container-type` other than `normal`.
+- So the members, the case lists and the legend's symbol entries go one or two per row as their container allows, and the curve tables one column.
 - **Chips** wrap to two rows, and "on" is a ✓ as well as a colour.
 - **Readouts** put one pair per line.
-- **The strip:** a status line's button wraps under its sentence, and stays next to it in the reading order.
+- **The strip:** a line's button wraps under its sentence, and stays next to it in the reading order.
 - **Actions:** Download image drops under Show data table at 270 px or less, with its visible reason under it.
 - **Tables read as lists:** "Operating points by case", "The pumps in the group" (flag line under the name) and "Other cases' station duties", as Running combinations and "Other cases' group curves" already do.
-- **Add cases:** the segments stay one row (D24's measured 169 px segments). Its fold puts the done state in about four lines.
-- **Help on focus** floats under its control (`.field .help`).
+- **Add cases:** the segments stay one row (D24's measured 169 px segments). Folded, the block is about six lines.
+- **Hints** stay visible text; nothing floats over a phone's narrow column.
 - **Sideways scroll:** none for the page or the pane's scroller at 390 and 320 px, asserted.
 
 ### 5.6 Wireframes
@@ -375,47 +411,57 @@ Below 640 px (366 px at 390×844, 288 px at 320) the order and every control are
 Desktop, 1280×800, Results pane about 480 px, lineups fixture after Solve all, the card open, station duties ticked, every other disclosure at its default.
 
 ```
-▓ = the sticky section nav   [ ] control   ▸ closed disclosure   ░ the action panel
+▓ = the section nav   [ ] control   ▸ closed disclosure   ░ the action panel   ┄ a live line (empty when idle)
+⚠ = the amber alert icon of a warning flag (an invalid one would be the red octagon)
 ┌────────────────────────────────────────────────────────────┐
-│▓ Per pump  Pump chart  Pumps together  Station  Group ch› ▓│ one row, sideways, 1 Tab stop
-│  (h3, sr-only) Results per pump  [ResultsTable, unchanged] │
+│ (Summary)(Nodes)(Links)(Pumps)… ← Results view: tablist    │ filled pills, unchanged
+│▓ Go to  Per pump  Pump chart  Pumps together  Station  G› ▓│ toolbar, 1 Tab stop; static
+│                                                            │ here, pinned once the pump
+│ Results per pump (h3)                                      │ canvas has scrolled out
+│  [ResultsTable, unchanged]                                 │
 │┌──────────────────────────────────────────────────────────┐│
 ││ Pump chart (h3)   [ Pump P1                           ▾ ]││ select named by the h3
+││ The pump and system curves of one pump at a time; each … ││ cost hint, visible
 ││ Pump and system curves: Pump P1, Base case               ││ figcaption = image title
 ││ ┌──────────────────────────────────────────────────────┐ ││
-││ │ head · η · P · NPSH panels  (Chart.js legend inside) │ ││ canvas, unchanged
+││ │ head · η · P · NPSH panels  (Chart.js legend inside) │ ││ canvas (aria-busy here)
 ││ └──────────────────────────────────────────────────────┘ ││
-││ Show (✓ Efficiency) (✓ Shaft power) (✓ NPSH)             ││ toggle chips
+││ Show [✓ Efficiency] [✓ Shaft power] [✓ NPSH]             ││ toggle chips, 44 px
 ││ Read at flow ━━━━━━━━━━━━━●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ││
-││ At the duty 21.58 L/s:  Pump head 40.33 m                ││ 14 px pairs
+││ At the duty 21.58 L/s:  Pump head 40.33 m                ││ 14 px pairs, one <p>
 ││   System head 40.34 m  Efficiency 69.41 %  Shaft po…     ││
-││ ◌ Computing the system curve for this solve…   [Cancel]  ││ strip: only while needed
-││ [Show data table]  [⤓ Download image]                    ││ ≈ +150 px (today +748)
-││ ⚠ NPSHa falls below NPSHr at about 39.41 L/s (read …     ││ notes, warnings first
-││ Best efficiency point (+): 74 % at 30 L/s and 35.5 m, …  ││
+││ ┄ ◌ Computing the system curve for this solve… [Cancel]  ││ strip: only while needed
+││ [Show data table]  [⤓ Download image]                    ││ ≈ +190 px idle (today +748)
+││ NPSHa falls below NPSHr at about 39.41 L/s (read …       ││ notes: facts first,
+││ Best efficiency point (+): 74 % at 30 L/s and 35.5 m, …  ││ unmarked
 ││ Shutoff head (–): 45 m.                                  ││
 ││ Shaft power ρgQH/η … the largest there is 15.1 kW at …   ││
 ││ System curve: the network of this solve, solved again …  ││ method stays visible,
 ││ … minus the EGL at the suction. Trace of Pump P1         ││ Trace an inline link
+││ (data region here when shown: after the notes)           ││
 ││ ── Other cases on the pump chart ─────────────── h4 ──── ││
-││ Cases on the chart   ( ● Base case (shown) )             ││
+││ Cases on the chart                                       ││ legend, the fieldset's
+││ Base case (shown)                                        ││ first child; a plain tag
 ││ [✓] △ 3 of 4 running (Pump   [✓] □ 2 of 4 running (Pump  ││ two columns
 ││       P4 off)                      P3, Pump P4 off)      ││
 ││ [✓] ✳ 1 of 4 running (…)     [✓] × Pump P2 off           ││
-││ [✓] ▽ Pump P3 off            [ ] Pump P1 at 90 % (grey)  ││
-││ [ ] Delivery tank 5 m higher (grey)                      ││
-││ Off in this case (nothing drawn): Pump P1 off            ││ S8: takes no slot
+││ [✓] ▽ Pump P3 off            [▒] Pump P1 at 90 %         ││ capped: the box greyed,
+││ [▒] Delivery tank 5 m higher                             ││ the name readable
+││ Off in this case (no operating point): Pump P1 off       ││ S8: takes no slot
 ││ At most 6 cases at once.                                 ││
 ││ [ ] Also show the other cases' system curves             ││
 ││     Each is computed on request, … about 41 solves …     ││ cost stays visible
+││ ┄                                                        ││ its live line
 │└──────────────────────────────────────────────────────────┘│
 │┌─ ▾ Pumps together ───────────────────────────── h3 ──────┐│
 ││ Pumps in the group                                       ││
 ││ [✓] ▲ Pump P1          [✓] ■ Pump P2                     ││ grid, symbol column kept
 ││ [✓] ★ Pump P3          [✓] × Pump P4                     ││
+││ The calculation server finds the part of the network …   ││ the fieldset's description
 ││ Suggested for Pump P1, the pump on the pump chart above… ││
 ││ ▸ Other groups found: 2                                  ││
 ││ ── Station ───────────────────────────────────── h4 ──── ││
+││ ┄ ◌ Computing the group curve…  [Cancel]                 ││ the group curve's line
 ││ Station flow, into the station at Tee TS1 (run inlet)    ││ the answer first, 14 px
 ││                                              85.23 L/s   ││
 ││ Rise from Tee TS1 (run inlet) to Tee TD1 (…)   38.41 m   ││
@@ -429,44 +475,55 @@ Desktop, 1280×800, Results pane about 480 px, lineups fixture after Solve all, 
 ││ └──────────────────────────────────────────────────────┘ ││
 ││ Read along the curves ━━━━━━━━━━━━━━━━━━━━━━━━━━━●━━━━━━ ││
 ││ At a rise of 38.41 m:  Pump P1 21.58 L/s  Pump P2 20.8 … ││
-││ ◌ Computing the group system curve for this solve…[Cancel]│ strip, while needed
-││ Legend, two columns                                      ││
-││ [Show data table]  [⤓ Download image]                    ││ ≈ +400 px (today +7,416)
-││ ✓ At the duty's rise the group curve gives the solve's … ││ checks first, marked
+││ Steps over the group curve's samples, each pump's flow … ││ reading hint, visible
+││ ┄ ◌ Computing the group system curve for this… [Cancel]  ││ strip, while needed
+││ ▲ Pump P1   ■ Pump P2      ── Group curve (station's …)  ││ legend: symbols two-up,
+││ ★ Pump P3   × Pump P4      ── Group system curve (…)     ││ lines one per row
+││ [Show data table]  [⤓ Download image]                    ││ ≈ +450 px (today +7,416)
+││ ✓ At the duty's rise the group curve gives the solve's … ││ checks first
 ││ ✓ At the duty's flow the group system curve gives …      ││
 ││ Pump curves and points are at each pump's flanges. …     ││
 ││ ▸ How to read this chart: the axes, the group system cu… ││ reference, one step away
 ││ ▸ How the group curve is computed                        ││
 ││ ▸ How the group system curve is computed                 ││
+││ (data region here when shown: after the reference)       ││
 ││ OTHER CASES ON THE GROUP CHART                      h5   ││
 ││ [✓] Also show the other cases' station duties            ││ the switch first …
 ││     Each case's station duty is computed on request, …   ││
-││ Cases on this chart   ( ● Base case (shown) )            ││ … the list under it
+││ Cases on this chart                                      ││ … the list under it
+││ Base case (shown)                                        ││
 ││ [✓] ○ 1 · 3 of 4 running …   [✓] ○ 2 · 2 of 4 running …  ││
+││ ┄                                                        ││ its live line
 ││ Each numbered slate ring is another case's station duty… ││ ring notes stay visible
 ││ Other cases on the chart (slate rings, numbered): 1 · …  ││
-││░ Add cases ────────────────── Changes the project ── h4 ░││ framed action panel
-││░ ✓ The 3 cases by number running exist: S1, S2 and S3.  ░││ folded once done
-││░ [▶ Solve all]  Every case's results are current.       ░││ reason visible
-││░ ▸ Cases to add: By number running, all 3 made          ░││
+││░ Add cases (h4)   Changes the project                   ░││ framed action panel
+││░ Cases to add  ( By number running | Each pump off )    ░││ segments, always first
+││░ ▸ The plan: 3 cases by number running: all 3 made      ░││ folded once every case exists
+││░ [Add cases]  [▶ Solve all]                             ░││ one row, one Solve all
+││░ Every case by number running already exists: «3 of 4  ░││ D24's refusal, visible,
+││░   running (Pump P4 off)», «2 of 4 running (…)» and …   ░││ names the cases
+││░ Every case's results are current.                      ░││ Solve all's reason
 ││░ [Pump lineups table…]                                  ░││
 ││ ── Running combinations ──────────────────────── h4 ──── ││
-││ ⚠ 9 cases, none physically invalid, 1 with warnings,     ││ the lead, first
-││   none out of date.                                      ││
+││ ⚠ 9 cases: 9 with current results (none physically       ││ the lead, first; its mark
+││   invalid, 1 with warnings), none out of date, none …    ││ is the worst severity
 ││ EXTREMES OVER THESE CASES (CURRENT RESULTS)         h5   ││
-││ Pump P1  largest flow         37.95 L/s in 1 of 4 runn…  ││ grouped by pump
-││          largest shaft power  15.05 kW in 1 of 4 runni…  ││
-││          smallest NPSH margin 1.065 m in 1 of 4 running… ││
+││ Pump P1                                                  ││ the name in the first dt
+││   largest flow: 37.95 L/s in 1 of 4 running (Pump P2, …  ││ 12 px
+││   largest shaft power: 15.05 kW in 1 of 4 running …      ││
 ││ ┌ Running combinations ──────────────────── scrolls → ┐  ││
 ││ │ Base case (shown)                                   │  ││ lines wrap in view
 ││ │ 4 of 4 carrying flow: Pump P1, Pump P2, Pump P3 …   │  ││
-││ │ ▲ Pump P1 → Running 100 21.58 40.34 12.28 3.327 Yes │  ││
-││ │ 3 of 4 running (Pump P4 off) · ring 1  …            │  ││ ring order
+││ │ ▲ Pump P1 → Running 100 21.58 40.34 12.28 3.327 Yes │  ││ names: trace buttons,
+││ │ 3 of 4 running (Pump P4 off) · ring 1  …            │  ││ shown case only
+││ │ ▲ Pump P1   Running 100 26.13 37.95 13.33 2.835 Yes │  ││ priority order
+││ │ … rings 2 to 6 …                                    │  ││
 ││ │ Pump P1 at 90 % speed                               │  ││
-││ │ ▲ Pump P1 → Running 90 5.471 36.09 3.866 5.045 Yes  │  ││
+││ │ ▲ Pump P1   Running 90 5.471 36.09 3.866 5.045 Yes  │  ││
 ││ │  [⚠ Warning] The operating flow (5.471 L/s) is out- │  ││ flag line at the
 ││ │   side its efficiency curve: the efficiency is held…│  ││ visible width
 ││ └─────────────────────────────────────────────────────┘  ││
+││ (Back to the sections: shown only when focused)          ││
 │└──────────────────────────────────────────────────────────┘│
 ```
 
@@ -474,28 +531,33 @@ Phone, 390×844: tab 366 px, scroll area 620 px; the same order.
 
 ```
 ┌──────────────────────────────────────┐
-│▓ Per pump  Pump chart  Pumps tog… › ▓│ sideways row
+│ (Summary)(Nodes)(Links)(Pumps)…      │ Results view
+│▓ Go to  Per pump  Pump chart  Pum… › ▓│ sideways toolbar
+│ Results per pump (h3)                │
 │┌─ Pump chart ──────────────── h3 ───┐│
 ││ [ Pump P1                       ▾ ]││ select under the h3
+││ The pump and system curves of one  ││ cost hint
+││ pump at a time; …                  ││
 ││ Pump and system curves: Pump P1,   ││
 ││ Base case                          ││
 ││ ┌── canvas 544 px, legend inside ─┐││
 ││ └─────────────────────────────────┘││
-││ Show (✓ Efficiency) (✓ Shaft power)││ chips wrap
-││      (✓ NPSH)                      ││
+││ Show [✓ Efficiency] [✓ Shaft power]││ chips wrap
+││      [✓ NPSH]                      ││
 ││ Read at flow ━━━━━━━●━━━━━━━━━━━━━ ││
 ││ At the duty 21.58 L/s:             ││ one pair per line
 ││ Pump head 40.33 m                  ││
 ││ System head 40.34 m                ││
 ││ Efficiency 69.41 % …               ││
-││ [Show data table]                  ││ ≈ +250 px
-││ [⤓ Download image]                 ││
-││ ⚠ NPSHa falls below NPSHr at …     ││
+││ [Show data table]                  ││ ≈ +300 px (+400 with
+││ [⤓ Download image]                 ││ the strip)
+││ NPSHa falls below NPSHr at …       ││
 ││ Best efficiency point (+): 74 % …  ││
 ││ System curve: the network … Trace  ││
 ││ of Pump P1                         ││
 ││ ── Other cases on the pump chart ─ ││ h4
-││ ( ● Base case (shown) )            ││
+││ Cases on the chart                 ││
+││ Base case (shown)                  ││
 ││ [✓] △ 3 of 4 running (Pump P4 off) ││ one per row
 ││ [✓] □ 2 of 4 running (Pump P3, …)  ││
 ││ [ ] Also show the other cases'     ││
@@ -505,6 +567,7 @@ Phone, 390×844: tab 366 px, scroll area 620 px; the same order.
 │┌─ ▾ Pumps together ────────── h3 ───┐│
 ││ [✓] ▲ Pump P1                      ││ one per row
 ││ [✓] ■ Pump P2   …                  ││
+││ The calculation server finds …     ││
 ││ ▸ Other groups found: 2            ││
 ││ ── Station ──────────────── h4 ─── ││
 ││ Station flow, into the station at  ││
@@ -521,8 +584,10 @@ Phone, 390×844: tab 366 px, scroll area 620 px; the same order.
 ││ At a rise of 38.41 m:              ││
 ││ Pump P1 21.58 L/s                  ││ one pair per line
 ││ Pump P2 20.8 L/s  …                ││
-││ Legend, one column                 ││
-││ [Show data table]                  ││ ≈ +700 px (today +9,658)
+││ Steps over the group curve's …     ││
+││ ▲ Pump P1        ■ Pump P2         ││ legend: symbols two-up,
+││ ── Group curve (station's flow)    ││ no taller than the canvas
+││ [Show data table]                  ││ ≈ +750 px (today +9,658)
 ││ [⤓ Download image]                 ││
 ││ ✓ ✓ the duty checks; notes         ││
 ││ ▸ How to read this chart: …        ││
@@ -533,20 +598,21 @@ Phone, 390×844: tab 366 px, scroll area 620 px; the same order.
 ││     station duties                 ││
 ││ [✓] ○ 1 · 3 of 4 running (Pump P4  ││
 ││       off)  …                      ││
-││░ Add cases   Changes the project  ░││
-││░ ✓ The 3 cases by number running  ░││
-││░   exist: S1, S2 and S3.          ░││
-││░ [▶ Solve all]                    ░││
-││░ Every case's results are current.░││
-││░ ▸ Cases to add: By number        ░││
-││░   running, all 3 made            ░││
+││░ Add cases                        ░││
+││░ Changes the project              ░││
+││░ (By number running|Each pump off)░││
+││░ ▸ The plan: 3 cases by number    ░││
+││░   running: all 3 made            ░││
+││░ [Add cases] [▶ Solve all]        ░││
+││░ Every case by number running …   ░││
 ││░ [Pump lineups table…]            ░││
 ││ ── Running combinations ─── h4 ─── ││
-││ ⚠ 9 cases, none physically invalid,││
-││   1 with warnings, none out of date││
+││ ⚠ 9 cases: 9 with current results  ││
+││   (none physically invalid, 1 with ││
+││   warnings), none out of date, …   ││
 ││ EXTREMES …                      h5 ││
 ││ Pump P1                            ││
-││  largest flow 37.95 L/s in 1 of 4  ││
+││  largest flow: 37.95 L/s in 1 of 4 ││
 ││  running (Pump P2, Pump P3, …)     ││
 ││ list: a block per case, per pump;  ││
 ││ no "Flags None" lines              ││
@@ -556,19 +622,23 @@ Phone, 390×844: tab 366 px, scroll area 620 px; the same order.
 
 ### 5.7 What it should measure (estimates; each budget set from the build, as build-density did)
 
+The estimates for "after" come from the static mock of §5.3, which draws the strips as if a request ran (about 94 px on a desktop, 110 to 118 on a phone); the budgets are measured idle, after the requests, at 1280×800 and 390×844. At 320×640 the budget test asserts no sideways scroll, the nav's rule and the outline only: each slice records its 320 numbers in its as-built record, and a 320 budget is added where one proves useful.
+
 | Measure | Before | After (estimate) | Budget, in `tests/pumps-layout.e2e.ts` |
 |---|---|---|---|
-| The pane's scroller scrolls sideways (condenser, 1280 and 390) | yes | no | none at 1280×800, 390×844, 320×640 (S0) |
-| Pump canvas to its Show data table | +716 to +952 px | about +150 (desktop), +250 (phone) | ≤ 300 px (S1) |
-| Group canvas to its Show data table | +6,481 to +11,729 px | about +400 (desktop), +700 (phone) | ≤ 600 / 900 px (S2) |
+| The pane's scroller scrolls sideways (condenser, 1280, 390 and 320) | yes | no | none at 1280×800, 390×844, 320×640 (S0) |
+| Pump canvas to its Show data table | +716 to +952 px | about +190 (desktop) and +320 (phone) idle; +280 and +430 with the strip | ≤ 300 px at 1280×800, ≤ 400 px at 390×844 (S1) |
+| Group canvas to its Show data table | +6,481 to +11,729 px | about +500 (desktop) and +600 (phone) idle | ≤ 600 / 900 px (S2) |
+| The group legend's height, lineups, 390×844 | 452 px under a 256 px canvas | about 330 px (its words are pinned, so with six rings it stays taller than its canvas) | measured in S3 + 10 %, and ≤ 452 px (S3) |
 | Card header to the station's first value (condenser) | 3,522 px | about +300 (desktop), +450 (phone) | ≤ 400 / 600 px (S3) |
-| Headings below the chart (with scenarios and a station) | 3 | 9 | the outline, in order (S2) |
+| Headings below the pump canvas (with scenarios and a station) | 3 | 8 (10 in the tab) | the outline, in order (S2) |
 | Longest run of notes without a heading or control | 13 paragraphs, 925 words | 6 paragraphs | ≤ 7 paragraphs (S3) |
 | Tab stops from the card header to the group's Show data table (condenser) | 35 | about 18 | ≤ 20 (S3) |
-| Open card, condenser after Add cases (desktop) | 7,503 px | about 5,800 px | measured + 10 % (S5) |
-| Scroll-region Tab stops, lineups, everything open | 13 | ≤ 3 | ≤ 3 (S7) |
+| Open card, condenser after Add cases (desktop) | 7,503 px | about 5,900 px (the extremes' six pump-name lines add about 100 px) | measured + 10 % (S5) |
+| Scroll-region Tab stops, lineups, everything open | 13 | the boxes that still overflow (at least 3 at 1280: the group table, Running combinations, the group curve's table) | each focusable box overflows, and the count is the one measured after S7 (S7) |
+| The nav | — | pinned at 1280×800 and 390×844 once the pump canvas has scrolled out, about 8 % of the pane | static, or ≤ 15 % of the scroller's height, at 844×390 and 320×256; the pump canvas fits whole under the tab's top at 1280×800; after Tab and Shift+Tab through the card no focused element's rect meets the nav's (S2) |
 
-The card gets about a quarter shorter. Running combinations stays open because it carries flags (GOALS §4.6), and it stays the card's longest block (about 2,100 px in the condenser). The headings and the nav carry most of the gain, and S6b (§12, question 2) carries the rest.
+The card gets about a fifth shorter. Running combinations stays open because it carries flags (GOALS §4.6), and it stays the card's longest block (about 2,100 px in the condenser). The headings and the nav carry most of the gain, and S6b (§12, question 2) carries the rest.
 
 ## 6. What moves, and what words change
 
@@ -576,76 +646,86 @@ The card gets about a quarter shorter. Running combinations stays open because i
 
 | Element | Today | Proposed | Why |
 |---|---|---|---|
-| Pump chart's system-curve state, Cancel, retry | among the notes, after the readout | the strip under the reading controls, one line each, one live region | F6, F17 |
+| Pump chart's system-curve state, Cancel, retry | among the notes, after the readout | the strip under the reading controls, one row per request, each with its own live line | F6, F17 |
 | Pump chart's method sentence and "Trace of {pump}" | among the first notes, a 44 px button splitting it | the last value note, visible; Trace an inline link | F36; D10 |
-| Pump chart's Show data table, Download image | after the notes and the case controls (+716 to +952) | under the strip (about +150) | F3, F7 |
+| Pump chart's Show data table, Download image | after the notes and the case controls (+716 to +952) | under the strip (about +190 idle) | F3, F7 |
+| Both charts' data regions | the pump chart's right under its toolbar; the group's at the card's foot | after their chart's notes (and the group's reference), so a shown table never pushes a note or a check away from its chart | F3, Aim 4 |
+| "Operating point…" sentence of the pump chart's data region | after "Operating points by case" and the other cases' system curves (`PumpChart.svelte:743–850`) | the region's first line | F33; `pump-chart.md` §4.4 |
 | "Operating points by case" and the case shown's curve tables | other cases' system curves first | the case shown first, other cases last | F33 |
 | "Cases on the chart" and its overlay checkbox | after the notes, beside nothing | under the h4 "Other cases on the pump chart", at the figure's end | F1, F8 |
 | Members, "Also found" | 6 rows and 4 unwrapped buttons | a two-column grid; "Other groups found: n" with two or more; wrapping | F10, F15 |
 | The station (dl), the group table | after the figure and its notes (3,522 px in) | the first section, "Station" | F15 |
-| The group's Show data table, Download image, data tables | the card's foot (+6,481 to +11,729) | under the group chart's legend (about +400) | F3 |
-| The duty checks | in the run of notes | the first notes of the group chart, ✓ or ⚠ | F6 |
+| The group curve's state, Cancel, retry | the card's one live region, inside the figure | the head of Station, which waits for it as the chart does | F17 |
+| The group legend | right under the canvas (`PumpGroupChart.svelte:670–692`) | after the reading controls and the strip (`:698` onwards today), so the readout sits under its canvas | F12, F27 |
+| The group's Show data table, Download image | the card's foot (+6,481 to +11,729) | under the group chart's legend (about +500 idle) | F3 |
+| The group's "Other cases' station duties" and "Other cases' group curves" tables | before the group-curve tables (`PumpGroupChart.svelte:1424–1572` before `:1573–1674`) | after them, the shown case's tables first | F33 |
+| The duty checks | in the run of notes | the first notes of the group chart, ✓ when they agree | F6 |
 | The axes, system and own-system-curves notes | in the run of notes | "How to read this chart: …" | F7, F14 |
 | "Also show the other cases' station duties" | under the list it reveals | above it, first under the h5 | F9 |
 | Other cases' progress, Cancel, retry | three blocks inside the figure | beside their checkbox, under the h5 | F17 |
-| Add cases | between the group table and Running combinations | after the group chart, framed, folded when done | F16 |
+| Add cases | between the group table and Running combinations | after the group chart, framed; its details in one disclosure, folded once every case exists | F16 |
 | Extremes | an h5 after Running combinations, filed under Add cases | the h5 under h4 "Running combinations", before its table | F5, F13 |
 | Flags (group table, Running combinations) | the last column, off-screen | a flag line under each flagged row, at the visible width | F4 |
-| Running combinations' cases | the shown, then scenario order | the shown, then ring order, then the rest | F24 |
+| Running combinations' cases | the shown, then scenario order | the shown, then the cases with values in `lineupChartPriority` order, then the rest, ticked or not | F24 |
+
+Tests that read a data region by order are listed with their slice in §10 (S1 and S3).
 
 ### 6.2 New words
 
-Every new word below is screen-only, except the S8 items at the end, which the image footer carries too. The export carries none.
+Every new word below is screen-only, except the S0 fix and the S8 items at the end, which the image footer carries too. The export carries none.
 
 - **Headings.**
-  - h3 "Pump chart" and the visually hidden h3 "Results per pump".
+  - h3 "Results per pump" (visible) and h3 "Pump chart".
   - h4 "Other cases on the pump chart", "Station", "Group chart" and "Running combinations".
   - h5 "Other cases on the group chart".
   - "Add cases" and "Extremes over these cases (current results)" are unchanged.
   - The fieldset legends "Cases on the chart" and "Cases on this chart" stay (`scenario-manager.md` §6.13, D24 §7.9; pinned by tests). The headings over them now say which chart each list changes.
 - **The nav.**
-  - Its name: "Pumps view sections".
-  - Its pills: "Per pump", "Pump chart", "Pumps together", "Station", "Group chart", "Add cases" and "Running combinations".
-  - "has warnings", sr-only, on a marked pill.
+  - Its name, "Pumps view sections", and its toolbar's visible label, "Go to".
+  - Its buttons: "Per pump", "Pump chart", "Pumps together", "Station", "Group chart", "Add cases" and "Running combinations".
+  - Visually hidden, after a marked button's label: ", has physically invalid values", ", has warnings", ", has a refusal" or ", a request failed".
+  - "Back to the sections", the visually hidden button at each card's end.
 - **The card.**
   - The closed card's line: "The station's duty, the group curve, each pump's share and cases with fewer pumps running[; Running combinations]".
   - "Suggested for {pump}, the pump on the pump chart above; tick pumps to choose your own."
   - "Other groups found: {n}"
   - "Showing a group found replaces the pumps ticked."
+  - Visually hidden, at the start of a flag line: "{pump}, flags:".
 - **The group chart's reference:** "How to read this chart: the axes, the group system curve, each pump's own system curve".
 - **Add cases.**
   - "Changes the project"
-  - "The {n} cases {by number running | with each pump off} exist: {ids}."
-  - "Cases to add: {By number running | Each pump off}, all {n} made"
+  - The plan's summary: "The plan: {n} cases {by number running | with each pump off}: {k} to add", ": all {n} made", or ": {e} made, {b} not made (the base case's state)".
   - "In the names, {id} is {name}, …"
-  - "Now ticked: “Also show the other cases' station duties” (Group chart)."
-- **Running combinations:** the lead "{n} cases, {k | none} physically invalid[, {w} with warnings], {m | none} out of date."
+  - "Now ticked: “Also show the other cases' station duties” (Group chart)." (also written to `data-stop-status`).
+- **Running combinations:** the lead "{n} cases: {v} with current results ({k | none} physically invalid, {w | none} with warnings), {m | none} out of date, {f | none} without results."
 - **The pump chart.**
   - "Design-check limits drawn"
-  - "(off in this case: no point drawn)"
+  - "(off in this case: no operating point)"
   - "Speed (%)" in place of "Speed", with bare numbers in "Operating points by case".
+- **Names, visually hidden suffixes:** "Show data table" and "Hide data table" gain " of the pump chart" or " of the group chart"; each Details on the Pumps tab gains " of {what it details}" ("of the duty check", "of the system duty check", "of the point at {flow}", "of {reason}").
 - **Buttons:** "Go to Checks", "Go to the pump chart" and "Go to Running combinations". They are buttons that focus a heading or switch the Results view, never touching the fragment.
 - **S7:** "{table caption} ({n} points)".
-- **Made visible, same words:** the unavailable reasons of Solve all, both Download image buttons and Compute them again, and the flag text after each badge.
-- **Moved to help on focus, same words:** the select's sentence, "The calculation server finds …" and "Steps over the group curve's samples, …".
+- **Made visible, same words:** the lasting unavailable reasons of Solve all, both Download image buttons and Compute them again (the passing ones stay visually hidden and in `title`, §5.3), and the flag text after each badge.
+- **Kept visible, same words** (no help on focus on this tab): the select's sentence, "The calculation server finds …" (now also the fieldset's description) and "Steps over the group curve's samples, …".
+- **S0, a bug fix:** "Not on the chart: X (not on the chart (unticked under Cases on this chart))" becomes "Not on the chart: X (unticked under Cases on this chart)". It is fixed in `otherNotes` (`utils/pump-group-chart.ts:1406–1413`) for the unticked state only; `o.words` (`utils/pump-group-one-off.ts:492`) keeps "not on the chart (unticked under Cases on this chart)", which Running combinations' station line (`PumpsView.svelte:816`) and a cell of "Other cases' station duties" (`PumpGroupChart.svelte:1480–1482`) show and where it reads right. The image footer follows the fix through the same helper.
 - **S8 only** (the image footer changes with them through the same helpers; the workbook carries none, since `utils/export/tables.ts` imports only the table helpers from `pump-group-chart.ts`):
-  - "Not on the chart: X (not on the chart (unticked under Cases on this chart))" becomes "Not on the chart: X (unticked under Cases on this chart)". This one is in S0, as a bug fix.
   - The ☆ text glyph becomes ✳ (what Chart.js's `star` draws), and `rectRounded` (▢) gives way to ▽.
-  - "Off in this case (nothing drawn): {names}", one line under the pump chart's case list, replaces S1's "(off in this case: no point drawn)" once such a case takes no slot.
+  - "Off in this case (no operating point): {names}", one line under the pump chart's case list while the other cases' system curves are off, for the cases that then take no slot.
   - "(D13)" becomes plain words, if the owner agrees (§12, question 3).
 
 ### 6.3 Words kept exactly
 
-- **The words functions:** every `chartNotes`, `groupNotes` and `groupNoteLines` line, except the S0 fix.
+- **The words functions:** every `chartNotes`, `groupNotes` and `groupNoteLines` line, except the S0 fix; `o.words` entirely.
 - **Captions and titles:** both figcaptions (the image titles).
 - **Buttons.**
-  - "Show data table" and "Hide data table".
+  - The visible words "Show data table" and "Hide data table" (their names gain the suffix above).
   - "Download image" and its accessible names.
   - Every Cancel, Try again and Compute name, "Try the group system curve again" and "Compute them again".
   - "Trace of {pump}", "Back to the duty" and "Pump lineups table…".
 - **Checkboxes:** "Also show the other cases' system curves" and "… station duties", with their cost sentences.
-- **Sliders:** "Read at flow" and "Read along the curves".
-- **D24's block:** every string (`LINEUP_BLOCK_WORDS`, `STOP_ORDER_WORDS`, `LINEUP_TABLE_WORDS`).
+- **Sliders:** "Read at flow" and "Read along the curves", and both readouts' text.
+- **D24's block:** every string (`LINEUP_BLOCK_WORDS`, `STOP_ORDER_WORDS`, `LINEUP_TABLE_WORDS`), the refusals included.
+- **The legend's entries.**
 - **Server and claim words:** the refusals, the methods, the server's sentences under Details, and Running combinations' lineup and station lines.
 
 ### 6.4 Recorded designers' defaults this changes
@@ -653,26 +733,28 @@ Every new word below is screen-only, except the S8 items at the end, which the i
 Each change is recorded with its reason in the named record, in the same change as its slice:
 
 1. **The card's order:** members, Station, Group chart, Add cases, Running combinations. This changes D21's paragraph, and D24 §7.1, which puts Add cases "under the group table and its footer". It now sits after the group chart, still above Running combinations.
-2. **The group chart's data table and image** sit under its legend (D21; `pump-groups.md` §6.5–§6.6).
-3. **The notes are regrouped on screen:** curve warnings in the strip, the duty checks first, reference in disclosures, the ring notes under their h5. The image footer keeps `groupNoteLines`' and `chartNotes`' order (`pump-groups.md` §6.4; `export.md` §3.4). A new test (§10) proves every footer line is still on screen.
-4. **Flags as a flag line,** not a last column, on screen (`pump-groups.md` §6.5; D24 §7.10). The image and the export have no flags column.
-5. **Running combinations in ring order** after the case shown (D21 4d keeps "the shown first"; D24 §7.10).
-6. **The extremes grouped by pump,** before the table (D21 4d).
-7. **Add cases** framed, folded when done, with the "Now ticked" and id lines (D24 §7.11–§7.12; D24's measured block of 440 and 504 px is re-measured).
-8. **Help on focus** for three hints (D21 4a and 4b; the select).
+2. **The group chart's data table and image:** the actions under its legend, the tables after its notes and reference (D21; `pump-groups.md` §6.5–§6.6). The pump chart's tables move after its notes the same way (`pump-chart.md` §4.4).
+3. **The notes are regrouped on screen:** the coverage lines in the strip, the duty checks first, reference in disclosures, the ring notes under their h5. The image footer keeps `groupNoteLines`' and `chartNotes`' order (`pump-groups.md` §6.4; `export.md` §3.4). A new test (§10) proves every footer line is still on screen.
+4. **Flags as a flag line,** not a last column, on screen, its text visible and read once (`pump-groups.md` §6.5; D24 §7.10). The image and the export have no flags column.
+5. **Running combinations in `lineupChartPriority` order** after the case shown, whether a case is ticked or not (D21 4d keeps "the shown first"; D24 §7.10). Ring numbers stay labels.
+6. **The extremes grouped by pump inside their terms,** before the table (D21 4d).
+7. **Add cases** framed, its details in one disclosure that folds once every case exists, with the "Now ticked" and id lines (D24 §7.11–§7.12; D24's measured block of 440 and 504 px is re-measured).
+8. **No help on focus on this tab.** The three hints the first draft moved there stay visible: the select's and the two checkboxes' are cost hints, the slider's would float over its own readout where Escape is taken, and Safari does not focus a checkbox or a range input on a tap or click, so their help would never show there (`ui-guide.md` gains the rule: help on focus only for text fields and selects, never over a control's own output, never where Escape is taken, never for a cost). This is a departure from the ui-guide's "static help shows on focus" (F19), recorded with that reason.
 9. **"Also found"** behind "Other groups found: n" with two suggestions or more (D21).
 10. **"Also show … station duties"** before "Cases on this chart" (D21 4d).
-11. **Two live regions on the card,** one for the curves and one for the other cases, where 4d has one.
-12. **The section nav,** a new pattern for `ui-guide.md`.
+11. **Three live lines on the card** (the group curve in Station, the group system curve in the strip, the other cases under the h5), where 4d has one region, and two on the pump chart; each `aria-live`, none a `role="status"`.
+12. **The section nav,** a new pattern for `ui-guide.md`: a toolbar in a `nav`, pinned only when it covers nothing being read, built from what is drawn, never touching the fragment.
 13. **The card header stays an h3 holding a button.** This departs from the ui-guide's "disclosures are native `<summary>`": a heading inside `<summary>` is flattened by some screen readers, the body is rendered only when open, and about 35 test drives use the button.
 14. **The pump chart's Trace link inline** in its sentence (WCAG 2.5.8's inline exception), and "Speed (%)".
+15. **Marks only for the app's own severities** (§5.2): no ⚠ on a fact or a check, the invalid red octagon never shown as ⚠.
+16. **Names told apart by visually hidden suffixes** ("Show data table of the pump chart", "Details of the duty check"), the visible words unchanged.
 
 ## 7. Keyboard and accessibility
 
 **Heading outline**, with scenarios and a station shown:
 
 - h2 Results
-  - h3 Results per pump (visually hidden)
+  - h3 Results per pump
   - h3 Pump chart
     - h4 Other cases on the pump chart
   - h3 Pumps together
@@ -683,37 +765,42 @@ Each change is recorded with its reason in the named record, in the same change 
     - h4 Running combinations
       - h5 Extremes over these cases (current results)
 
-That is 9 heading stops below the chart, against 3 today. The extremes now nest under the table they summarise. The new sections are plain `div`s with headings, not landmarks. The regions that stay are the ones tests pin: "Pumps together", "Add cases" and the named scroll boxes (fewer after S7).
+That is 10 headings in the tab, 8 of them below the pump canvas, against 3 today. The extremes now nest under the section they summarise. The new sections are plain `div`s with headings, not landmarks. The regions that stay are the ones tests pin: "Pumps together", "Add cases" and the named scroll boxes (fewer after S7). The nav is the tab's one new landmark.
 
 **Tab order** follows the visual order:
 
-1. the nav (one stop);
+1. the nav's toolbar (one stop);
 2. Results per pump;
 3. the select;
 4. the chips;
 5. Read at flow and Back to the duty;
 6. the strip's button;
-7. Show data table and Download image (the data boxes when open);
+7. Show data table and Download image;
 8. the Trace link;
 9. Go to Checks;
-10. the case boxes and the overlay box;
-11. the card's toggle;
-12. the members and "Other groups found";
-13. the group table's names;
-14. Read along the curves;
-15. the strip's buttons;
-16. the group's Show data table and Download image;
-17. the notes' Details;
-18. the reference summaries;
-19. the station-duties box and its list;
-20. Add cases;
-21. Running combinations' box and its names.
+10. the pump chart's data boxes, when open and overflowing;
+11. the case boxes, the overlay box and its Cancel;
+12. "Back to the sections" (shown when focused);
+13. the card's toggle;
+14. the members and "Other groups found";
+15. the group curve's button, at the head of Station;
+16. the group table's names;
+17. Read along the curves;
+18. the strip's button;
+19. the group's Show data table and Download image;
+20. the notes' Details;
+21. the reference summaries;
+22. the group's data boxes, when open and overflowing;
+23. the station-duties box, its list and its Cancel;
+24. Add cases: the segments, the plan's summary (and the stop order inside it), Add, Solve all, the table button;
+25. Running combinations' box and the shown case's names;
+26. "Back to the sections".
 
-The group's Show data table is about 18 stops from the card's header, against 35 today (condenser). From the nav, Add cases is the arrows and Enter, and its first control is the next Tab.
+The group's Show data table is about 18 stops from the card's header, against 35 today (condenser). From the nav, Add cases is the arrows and Enter, and its first control is the next Tab; from the card's foot the nav is one Tab, through "Back to the sections".
 
 **Keys.**
 
-- The nav: ←, →, Home and End; Enter or Space jumps and focuses the heading.
+- The nav's toolbar: ←, →, Home and End; Enter or Space jumps and focuses the target.
 - The sliders keep Escape (back to the duty) and their `aria-valuetext`.
 - Disclosures open with Enter and Space (native `<summary>`).
 - The stop order keeps its focus restoration after each move and after Default order.
@@ -721,43 +808,57 @@ The group's Show data table is about 18 stops from the card's header, against 35
 
 **Live regions.**
 
-- **Pump chart:** two always-present polite regions, one for its system curve in the strip and one for the other cases' curves beside their checkbox. The first progress message is now announced (F17).
-- **Card:** two, one for its curves in the strip and one for the other cases' duties under the h5.
-- Each region's visible text is the region itself, so nothing is read twice.
+- **Pump chart:** two always-present polite lines, one for its system curve in the strip and one for the other cases' system curves beside their checkbox. The first progress message is now announced (F17).
+- **Card:** three, one for the group curve at the head of Station, one for the group system curve in the strip, and one for the other cases' duties under the h5.
+- Each is an `aria-live="polite" aria-atomic="true"` span, the first child of its row, holding no button; its button follows it, described by it. None is `role="status"`, so a pane-wide `getByRole('status')` still finds the Results header's alone (§5.3).
+- No live line has a busy ancestor: `aria-busy` moves from both figures to their canvas wrappers, the part that is redrawn (ARIA 1.2 lets assistive technology hold back changes inside a busy element).
+- Coverage lines and warnings are plain paragraphs, outside any live line.
 - The readouts stay not live.
-- `data-stop-status` stays polite.
+- `data-stop-status` stays polite, and also carries "Now ticked: …" after an Add.
 
 **Focus.**
 
 - The Cancel and retry handovers are unchanged, with each figure as the fallback.
-- The nav's targets are headings with tabindex −1 and `scroll-margin-top`.
-- `scroll-padding-top` keeps a focused control clear of the nav (WCAG 2.4.11).
+- **"Back to the duty" on the pump chart:** the focus returns to the slider as the button goes (F40), as on the group chart.
+- The nav's targets are headings with tabindex −1 and `scroll-margin-top`, except "Pumps together", which focuses the card's toggle; a press scrolls first and then focuses with `preventScroll`.
+- The nav's Tab stop is clamped when its buttons change, so it never points at a button that is gone.
+- `scroll-padding-top` keeps a focused control clear of the pinned nav (WCAG 2.4.11).
+- "Back to the sections" focuses the nav's current button.
 - The "Go to" buttons move the focus the same way.
+- Add cases keeps one structure in every state, so no control in use is destroyed and drawn again elsewhere.
 - Nothing touches `location.hash` (D3).
 
 **Disclosures.**
 
-- New and existing ones are native `<details>` with `.more-summary`, and each summary says what it holds.
-- None closes itself. The Add cases fold is a state the block reaches after its own Add, with the focus on Solve all, which stays visible.
-- A data region is forced open when its chart cannot be drawn.
-- The card header and the two data-table toggles stay buttons with `aria-expanded` and `aria-controls` (§6.4 item 13), and each toggle is now described by its chart's caption.
+- New and existing ones are native `<details>` with `.more-summary`, and each summary says what it holds; their chevrons are `aria-hidden` elements with `motion-reduce:transition-none`.
+- None closes itself. Add cases' plan opens itself while cases remain to add and is drawn closed only when the block is drawn with every case made; after the user's own Add it stays as left.
+- A data region is forced open when its chart cannot be drawn; from S7 a curve table whose Why no head column has entries is open by default.
+- The card header and the two data-table toggles stay buttons with `aria-expanded` and `aria-controls` (§6.4 item 13).
 
 **Names and marks.**
 
-- Visible words stay part of every name (WCAG 2.5.3); the nav's pills are named by their words.
-- Toggle chips keep `aria-pressed`, with the ✓ `aria-hidden`.
-- Capped boxes stay focusable and `aria-disabled`, now look unavailable, and are described by their cap.
-- Disabled reasons are visible text, still in `aria-describedby`.
-- Colour never carries meaning alone: FlagBadge pairs its icon with the severity word, and the flag text is now visible.
+- Visible words stay part of every name (WCAG 2.5.3); the nav's buttons are named by their words, then their mark's visually hidden words after a comma.
+- Toggle chips keep `aria-pressed`; their ✓ is an `aria-hidden` svg, so their text and names are unchanged.
+- Capped boxes stay focusable and `aria-disabled`, look unavailable by their box only, keep their names at 4.5:1 or more, and are described by their cap.
+- An off case's note is in its box's description.
+- Disabled reasons that last are visible text, still in `aria-describedby`.
+- Colour never carries meaning alone: a flag line shows the icon, the severity word and the flag's text once; a lead or button mark is named by its severity.
+- The two "Show data table" buttons and the tab's "Details" are told apart by visually hidden suffixes (F18).
 - "physically invalid:" stays sr-only beside the red icon.
 
 **Targets.**
 
-- At least 44 px for the pills, chips, case and member rows, summaries, the stop-order buttons and the toolbar.
+- At least 44 px for the nav's buttons, the chips, the strip's buttons, case and member rows, summaries, the stop-order buttons and the toolbar.
 - The Trace link and the refusals' element names are inline links (WCAG 2.5.8's exception).
 - No page or pane sideways scroll at 1280, 390 or 320 px; text reflows at 320 px.
 
-**Proof.** axe-core (WCAG 2.0, 2.1 and 2.2 A and AA) runs clean on `[data-pumps-together]` and on the pump chart's section, at both sizes, with every disclosure open. The scans open only closed summaries (`details:not([open]) > summary`), so they never close one.
+**Motion.** Every scroll the app starts reads `prefers-reduced-motion`: `behavior: 'auto'` when it is set, `'smooth'` otherwise. Spinners are `motion-safe:animate-spin`; chevrons have `motion-reduce:transition-none`. `ui-guide.md` gains the rule.
+
+**Proof.**
+
+- axe-core (WCAG 2.0, 2.1 and 2.2 A and AA) runs clean on the whole Pumps tabpanel (`[role=tabpanel][id$="-panel-pumps"]`, the nav included) at 1280×800, 390×844 and 320×640, with every disclosure open. The scans open only closed summaries (`details:not([open]) > summary`), so they never close one.
+- A second scan of the same scope runs `.withRules(['heading-order', 'landmark-unique'])`, which the suite's tags leave out.
+- The outline test of §5.7 holds the order above.
 
 ## 8. What stays exactly as decided
 
@@ -772,9 +873,9 @@ The group's Show data table is about 18 stops from the card's header, against 35
 - **D15:** the case is named on every result. The pump chart shows other cases' points and curves, their system curves only on request. The case shown, the members, the preset, the stop order, "Also show" and the unticked cases are page state.
 - **D17:**
   - Download image stays under each pump chart and on the card, unavailable with its reasons by one rule. The PNG is drawn from the screen's configuration.
-  - Its footer words come from the same functions, and S1 to S7 change none of them.
+  - Its footer words come from the same functions. S1 to S7 change none of them; S0's fix and S8 change the ones §6.2 names.
   - Running combinations, the extremes, the stop order and the preset stay on screen only.
-  - The export's 38 word-for-word tests and the committed workbook are untouched.
+  - The export's 38 word-for-word tests and the committed workbook are untouched by S0 to S8. Only a yes to §12's question 3 changes them: the server's methods words reach the workbook's Methods sheet, so the fixtures are regenerated by their script and `export-pump-groups.xlsx` is committed again on that API branch.
 - **D21, the owner's answers** (2026-10-28, `pump-groups.md` §13):
   - The station's curves are defined between S and D.
   - No composite curve.
@@ -816,138 +917,159 @@ One PR per slice, or a stacked series as build-density did.
 - **S0. No sideways scroll, measured.**
   - **The fixes:**
     - The "Also found" buttons wrap (`whitespace-normal`, `text-left`, auto height) and carry "Showing a group found replaces the pumps ticked.".
-    - The "not on the chart (not on the chart (…))" wording is fixed.
+    - The "not on the chart (not on the chart (…))" wording is fixed in `otherNotes` only (§6.2).
   - **The tests:**
-    - `noSidewaysScroll` also asserts the Results pane's scroller. It fails today in the condenser, so it is strengthened with the fix.
-    - New `tests/pumps-layout.e2e.ts` holds the probe, adapted from the audit's `measure.mjs`, and records the before numbers.
+    - New `tests/pumps-layout.e2e.ts` holds the probe, adapted from the audit's `measure.mjs`, records the before numbers on the e2e build, and holds the **failing-first test**: the condenser example, its card open, its Results pane's scroller asserted not to scroll sideways at 1280×800, 390×844 and 320×640. It fails on main (the audit measured the scroller scrolling sideways at both sizes), and the slice record shows that failure.
+    - `noSidewaysScroll` (`pump-groups.e2e.ts:133`) also asserts the pane's scroller. Its callers load fixtures whose scroller does not scroll sideways today, so it passes before and after; it is a stronger guard, not the failing-first test.
   - **The record:** the before screenshots go to `docs/proposals/pumps-results-layout/`.
-  - **Proof:** `utils/pump-group-others.test.ts`'s two exact sentences updated to the fixed sentence; the chart-image footer tests; the whole e2e suite.
+  - **Proof:** `utils/pump-group-others.test.ts:304, 1287`'s two exact sentences updated to the fixed sentence; `o.words`' tests unchanged (`pump-group-one-off.test.ts:399`, `PumpGroupChart.svelte.test.ts:1172`); the chart-image footer tests; the whole e2e suite.
 - **S1. Pump chart** (`PumpsView`, `PumpChart`; markup and CSS; `chartNotes` untouched).
-  - **Headings:** the h3 and the select named by it with its help; the visually hidden h3 "Results per pump".
-  - **Reading:** toggle chips; the readout as pairs.
-  - **The strip:** its always-present status, Cancel and retry on one line.
-  - **Actions:** visible image reasons, and the caption as the toggles' description.
-  - **The data region:** the case shown first, the 40 rem container grid, scroll shadows, "Speed (%)" and a list on phones.
-  - **The notes:**
-    - warnings first and marked, from a small pure helper over the same data, so no word and no footer changes;
-    - the method sentence with its inline Trace;
-    - "Design-check limits drawn" with Go to Checks.
-  - **Other cases:** the h4 with the tag, the grid, the capped look, "(off in this case: no point drawn)", and the overlay status always present.
-  - **Budget:** Show data table ≤ 300 px below the canvas.
-  - **Tests:** the words-on-screen guard (§10) for `chartNotes`.
+  - **Headings:** the visible h3 "Results per pump"; the h3 "Pump chart" and the select named by it, its sentence kept visible.
+  - **Reading:** toggle chips with an `Icon` check; "Back to the duty" handing the focus to the slider (F40); the readout as pairs in one `<p data-pump-readout>`.
+  - **The strip:** its always-present `aria-live` line with its button after it; `aria-busy` moved to the canvas wrapper.
+  - **Actions:** lasting image reasons visible, passing ones hidden; the names' visually hidden suffix.
+  - **The notes:** facts first, unmarked, from a small pure helper over the same data, so no word and no footer changes; the method sentence with its inline Trace; "Design-check limits drawn" with Go to Checks.
+  - **The data region:** after the notes; "Operating point…" first; the case shown first; the 40 rem container grid; scroll shadows; "Speed (%)"; a list on phones; the Details' suffixes.
+  - **Other cases:** the h4; the legend first; the tag; the grid; the capped look; "(off in this case: no operating point)" for `status === 'off'`, in the box's description; the overlay line always present.
+  - **Motion:** the chevrons and the spinner.
+  - **Budget:** Show data table ≤ 300 px below the canvas at 1280×800, ≤ 400 px at 390×844.
+  - **Tests:** the words-on-screen guard (§10) for `chartNotes`; §10's S1 list.
   - **Proof:** PumpChart, PumpChartChunk and PumpsView tests; design-checks, pump-chart, pump-chart-facts, pump-system, pump-control, scenarios, cancel and export e2e; chart-image tests unchanged.
 - **S2. The card's shell, order and nav.** `PumpGroupChart` is split into section components (station, group chart, other cases, comparison), presentation only, with the same props, so its tests mount it unchanged. PumpsView's request effects are untouched.
-  - **The card:** the closed card's line; the type scale; the h4 wrappers in the new order.
-  - **The group chart:** its toolbar and `#data` moved under it.
-  - **The nav:** the shared pill row, `aria-current`, the ⚠ marks and `scroll-padding-top`.
-  - **The axe loop** fixed to open only closed summaries.
-  - **Budgets:** the group canvas to its Show data table; the outline; one Tab stop; `location.hash` unchanged.
+  - **The card:** the closed card's line; the type scale; the h4 wrappers in the new order; the toggle's chevron.
+  - **The group chart:** its toolbar under its legend and `#data` after its reference.
+  - **The nav:** §5.4 whole: the toolbar and its lead word; its look; buttons from registered targets; the clamped Tab stop; the press with `preventScroll`; `aria-current` and the row-only scroll; the pinning rule (`sticky -top-4 z-[35]`, the canvas observer, the 15 % test, `short:`); `--pumps-nav-h` and `scroll-padding-top`; the marks from `sectionMark`; "Back to the sections".
+  - **The shared row component,** with `py-1` on its scrolling element; the view row adopts it with `-my-1`.
+  - **The axe loop** fixed to open only closed summaries, its scope the whole tabpanel, and the second scan.
+  - **Budgets:** the group canvas to its Show data table; the nav's; the outline; one Tab stop; `location.hash` unchanged.
+  - **Proof:** PumpGroupChart, PumpGroupView and PumpsView tests; `ResultsPanel.svelte.test.ts` and `ResultsViews.svelte.test.ts`, since the view row becomes the shared component, and every e2e test that changes the view through `resultsView` (`tests/support.ts`); pump-groups e2e.
 - **S3. Station and Group chart.**
-  - **Members:** the grid, the suggestion line and "Other groups found".
-  - **The station:** the answer before the group table; the group table's flag lines (with `flagTone`) and its list on phones.
+  - **Members:** the grid, the hint as the fieldset's description, the suggestion line and "Other groups found".
+  - **The station:** the group curve's line at its head; the answer before the group table; the group table's flag lines (with `flagTone`, read once, named by their pump) and its list on phones; the box a size container.
   - **The group chart:**
-    - the strip with Cancel beside its sentence (focus refs and `$effect.pre` kept);
-    - the readout as pairs;
-    - the legend two-up;
-    - the duty checks marked and first;
-    - "How to read this chart"; the methods' `.more-summary`.
-  - **Other cases:** the h5, the switch first, its own status, the visible retry reason, Go to Running combinations, and the ring notes visible.
-  - **The data region:** the duty sentence split.
-  - **Budgets:** the station within 400 / 600 px; the longest run of notes; Tab stops to the group's data table.
-  - **Tests:** the words-on-screen guard for `groupNoteLines`.
+    - the strip with the group system curve's line and its button (focus refs and `$effect.pre` kept); `aria-busy` moved to the canvas wrapper;
+    - the readout as pairs from `parts`, its hint visible after it;
+    - the legend's layout;
+    - the duty checks first, ✓ when they agree; "How to read this chart"; the methods' `.more-summary`; the Details' suffixes.
+  - **Other cases:** the h5, the switch first, its own line, the visible lasting retry reason, Go to Running combinations, and the ring notes visible.
+  - **The data region:** after the reference; the duty sentence split; the other cases' tables after the group-curve tables.
+  - **Budgets:** the station within 400 / 600 px; the longest run of notes; Tab stops to the group's data table; the legend's height.
+  - **Tests:** the words-on-screen guard for `groupNoteLines`; §10's S3 list.
   - **Proof:** PumpGroupChart, PumpGroupView and PumpGroupOneOff tests; pump-groups e2e; the export's word-for-word tests unchanged.
 - **S4. Add cases** (`PumpLineupsBlock`).
-  - **The block:** the panel with its tag; the h4 at 14 px and its label at 12; the folded done state; Solve all's visible reason.
-  - **New lines:** the id mapping and "Now ticked".
-  - **D24 §7.11's order** is kept in the full form.
-  - **Proof:** PumpLineupsBlock tests; pump-lineups and pump-groups e2e (the focus still on the block's Solve all after Add); axe with the stop order and the fold open.
+  - **The block:** the panel with its tag beside the h4; the h4 at 14 px and its label at 12; one structure in every state (§5.3): the segments, the plan disclosure, the one row with the one Solve all, the refusal, Solve all's lasting reason, the table button; the fold rule.
+  - **New lines:** the plan's summary, the id mapping and "Now ticked" (visible and in `data-stop-status`).
+  - **D24 §7.11's order** is kept.
+  - **Proof:** PumpLineupsBlock tests; pump-lineups and pump-groups e2e (the focus still on the block's Solve all after Add); axe with the stop order and the plan open.
 - **S5. Running combinations.**
-  - **New:** the lead, from a pure helper over `runningCombinations`.
-  - **The extremes** grouped by pump (still the dl, same text).
-  - **Order:** the shown case, then ring order.
-  - **Lines and names:** sticky group lines; flag lines; names as trace buttons; no "Flags None" lines on phones; "Other cases' station duties" a list on phones.
+  - **New:** the lead, from a pure helper over `runningCombinations`, its mark by the worst severity.
+  - **The extremes** grouped by pump inside their terms (still the dl and its div groups, same text).
+  - **Order:** the shown case, then `lineupChartPriority` order, then the cases without values.
+  - **Lines and names:** the box a size container; sticky group lines; flag lines; names as trace buttons in the shown case's group only; no "Flags None" lines on phones; "Other cases' station duties" a list on phones.
   - **Budget:** the open card's height.
   - **Proof:** PumpGroupOneOff and PumpGroupChart tests; pump-groups e2e at both sizes.
 - **S6. The owner's table rules.**
-  - **S6a:** "The pumps in the group" becomes a ResultsTable (sort, Fields, Flagged only, a list below 640 px, its flag lines).
+  - **S6a:** "The pumps in the group" becomes a ResultsTable (sort, Fields, Flagged only, a list below 640 px). ResultsTable gains an optional flag-line snippet prop, which S6a fills with the `flagTone` pills and their visible text, so the visible flag text of S3 wins over ResultsTable's FlagBadge in the card, and the card's unit tests still mount no workspace. Every other ResultsTable keeps its FlagBadges.
   - **S6b:** only on the owner's yes (§12, question 2).
 - **S7. Data without scroll traps.**
-  - In both data regions, each curve table becomes a disclosure "{caption} ({n} points)", full height when open, opened by default when the chart cannot be drawn.
+  - In both data regions, each curve table becomes a disclosure "{caption} ({n} points)", full height when open; opened by default when the chart cannot be drawn, and when its reason column has entries (the system curve's `systemMissing` over 0, or group-system-curve rows without a rise).
+  - A scroll box is a Tab stop (`tabindex="0"`, a named region) only while it overflows, measured on both axes by a ResizeObserver, as `utils/scroll-focus.ts` does for height; today `PumpChart.svelte:749, 809, 858, 893, 945` and `PumpGroupChart.svelte:1033, 1149, 1359, 1432, 1498, 1579, 1639` set it whatever their width.
   - Whether each chart's data table is shown is remembered per browser (try/catch).
-  - **Budget:** scroll-region Tab stops ≤ 3.
+  - **Budget:** every focusable box overflows; the count is the one measured after S7.
 - **S8. Cases and words** (touches the PNG footer).
   - **Markers:** the glyphs match the chart (✳, ▽), fixed by case while five other cases or fewer are drawn.
-  - **Slots:** a case in which the viewed pump is off takes no slot ("Off in this case (nothing drawn): …").
-  - **On the owner's yes:** the "(D13)" words (question 3) and the shared unticked cases (question 1).
+  - **Slots:** a case in which the viewed pump is off takes no slot while "Also show the other cases' system curves" is off, when it would draw nothing; the line "Off in this case (no operating point): …" names it. While the system curves are on it keeps its slot, since its system curve is drawn. Requests are made only while they are on, so no request changes. Switching them on can put a drawn case past the cap; its box then shows the cap, as any capped case does, and a test pins it.
+  - **On the owner's yes:** the "(D13)" words (question 3) and the shared unticks (question 1), with its test.
   - **Proof:** chart-image tests; the export's word-for-word tests; `fixture.test.ts`; the API's `test_web_export_groups_fixture.py` run as a check.
 - **Records, with each slice:**
   - the D17, D19, D21 and D24 "Designers' web defaults" paragraphs and the specs named in §6.4;
-  - `ui-guide.md`: the section anatomy, the section nav that never touches the fragment, one strip per chart, and cost hints kept visible;
+  - `ui-guide.md`: the section anatomy, the section nav (a toolbar, pinned only when it covers nothing being read, never touching the fragment), one strip per chart with its live lines, cost hints kept visible and where help on focus fits, tags drawn unlike controls, and reduced motion;
   - a `history.md` line naming `web/pumps-layout` or the PR;
   - `verified-state.md` by `scripts/record_history.py`;
   - `roadmap.md` trimmed.
 
 ## 10. Test impact
 
-**No test is weakened.** Every pinned name, role, hook and word stays satisfiable, or moves with the same assertion. Scopes move only from a figure to the section that now holds the control, never wider. Where an element moves into a closed disclosure, the test gains an "open it" step first.
+**No test is weakened.** Every pinned name, role, hook and word stays satisfiable, or moves with the same assertion. Scopes move only from a figure to the section that now holds the control, never wider. Where an element moves into a closed disclosure, the test gains an "open it" step first. Where a name gains a visually hidden suffix, the test takes the new exact name, which is the same strength.
 
-- **jsdom and Playwright on closed disclosures.** jest-dom's `toBeVisible` and Playwright both treat content inside a closed `<details>` as hidden, while `getByRole` may still find it. So each moved element gets the open step in both suites, and a help-on-focus hint gets an e2e step that it is hidden, then shown on focus. That is stronger than today, since jsdom has no CSS.
-- **Estimate:** about 50 assertions in about 15 files follow a moved element, and about 30 tests are new. Each slice's PR lists every old assertion beside its new one, as `build-density.md` §11 item 22 did.
+- **jsdom and Playwright on closed disclosures.** jest-dom's `toBeVisible` and Playwright both treat content inside a closed `<details>` as hidden, while `getByRole` may still find it. So each moved element gets the open step in both suites.
+- **Estimate:** about 70 assertions in about 18 files follow a moved element or a new name, and about 45 tests are new. Each slice's PR lists every old assertion beside its new one, as `build-density.md` §11 item 22 did.
 
 **Kept as they are** (the grafts in §11 were chosen partly for this):
 
 - **Methods and Trace.** `figure.getByText(/System curve: the network/)` stays visible in design-checks, pump-chart, pump-chart-facts and export e2e, since the method sentence stays visible. "Trace of {pump}" keeps its role and name.
-- **Pump chart.** Both charts' "Show data table" keep their name (34 uses across e2e and unit tests), "Cases on the chart" stays inside the figure, and "Operating points by case" keeps its name (`scenarios.e2e.ts:220–226`).
-- **The extremes** stay a `<dl>` with the same text (`PumpGroupChart.svelte.test.ts:1369–1376`, `pump-groups.e2e.ts:632`, `PumpGroupOneOff.svelte.test.ts:906`).
-- **Single elements and levels.** `card.locator('dl')` still finds one `<dl>` without scenarios (`pump-groups.e2e.ts:175, 226`), `card.getByRole('figure')` still finds one figure, and the heading "Add cases" stays at level 4.
-- **Rings.** The ring list and the claim rules stay visible, so their tests are unchanged.
+- **Pump chart.** "Cases on the chart" stays inside the figure and keeps its name (the legend the fieldset's first child), and "Operating points by case" keeps its name (`scenarios.e2e.ts:220–226`). The chips' text (`PumpChart.svelte.test.ts:716–720`) and the readout's text and element (`pump-chart.e2e.ts:30–44`) are unchanged.
+- **The extremes** stay a `<dl>` of `<div><dt/><dd/></div>` groups with the same text, colons included (`PumpGroupChart.svelte.test.ts:1369–1376`, `pump-groups.e2e.ts:632`, `PumpGroupOneOff.svelte.test.ts:906–913`).
+- **Single elements and levels.** `card.locator('dl')` still finds one `<dl>` without scenarios (`pump-groups.e2e.ts:175, 226`), `card.getByRole('figure')` still finds one figure, and the heading "Add cases" stays at level 4 and names its region alone (`PumpLineupsBlock.svelte.test.ts:111`).
+- **Rings and the legend.** The ring list, the claim rules and the legend's entries stay visible with the same words, so their tests are unchanged.
+- **The Results header's status.** No live line on the tab is `role="status"`, so `resultsPane(page).getByRole('status')` (`cancel.e2e.ts:55, 250`; `solveConverged` at `support.ts:119`, called with the Pumps tab shown by `pump-chart.e2e.ts:61`) still finds one element.
+- **The hints' descriptions** (`PumpGroupChart.svelte.test.ts:929, 1191`) are unchanged: the hints stay where they are described from.
 
-**Assertions that follow a moved element, by slice:**
+**Assertions that follow a moved element or a new name, by slice:**
 
 - **S0.**
   - `noSidewaysScroll` (`pump-groups.e2e.ts:133`) also asserts the pane's scroller: stronger.
-  - `pump-group-others.test.ts:304, 1287` expect the fixed sentence, exactly.
+  - `pump-group-others.test.ts:304, 1287` expect the fixed sentence, exactly. `pump-group-one-off.test.ts:399` and `PumpGroupChart.svelte.test.ts:1172` keep `o.words` as they are.
 - **S1.**
   - `PumpChart.svelte.test.ts:677` finds the method paragraph by a class (`p.text-slate-600`) the tone change removes. It reads the same paragraph by a data hook, with the same equality to `request.notes.method`.
-  - `:742` finds the readout by `div.space-y-1`; it moves to `data-pump-readout`, with the same texts.
+  - `:742` finds the readout by `div.space-y-1`; it reads `[data-pump-readout]`, with the same texts.
+  - `aria-busy` moves from the figure to its canvas wrapper (`getByRole('img')`), the same assertion: `cancel.e2e.ts:235, 250, 279`; `PumpChart.svelte.test.ts:168, 178, 272`.
+  - The overlay progress, `scenarios.e2e.ts:239` (`figure.getByRole('status').filter({ hasText: 'Computing system curves' })`), reads the line by its hook with `toHaveAttribute('aria-live', 'polite')` and the same text.
+  - The pump chart's "Show data table" name queries take "Show data table of the pump chart": `PumpChart.svelte.test.ts` (8 queries; `:121`'s `toHaveTextContent('Hide data table')` still holds), and, given the full name so they stay as specific, `pump-chart-facts.e2e.ts:38`, `scenarios.e2e.ts:221`, `pump-system.e2e.ts:220, 234` (Hide), `:339`, `pump-chart.e2e.ts:51` and `pump-control.e2e.ts:177`.
+  - The Why no head "Details": `PumpChart.svelte.test.ts:428` and `pump-system.e2e.ts:360` (`getByText('Details', { exact: true })`) read the summary by its new text. `topology-error.e2e.ts:113` and `home.e2e.ts:94` are other screens' Details, unchanged.
   - Tests reading the data region's tables by position read them by their names.
+  - New: "Back to the duty" moves the focus to the slider, the same test as `PumpGroupChart.svelte.test.ts:917–923`.
 - **S2.**
-  - `pump-groups.e2e.ts:731` clicks every summary, which would close the self-opened ones. It opens only closed ones, as `:897` and `:1021` already do: stronger.
+  - `pump-groups.e2e.ts:731` clicks every summary, which would close the self-opened ones. It opens only closed ones, as `:897` and `:1021` already do, and scans the whole tabpanel: stronger.
+  - `ResultsPanel.svelte.test.ts` and `ResultsViews.svelte.test.ts` keep their view-row assertions on the shared component.
 - **S3.**
   - The "Also found" clicks (7 uses) open "Other groups found" first when there are two.
   - The group table's Flags reads (the `rowOf` helper at `pump-groups.e2e.ts:66–75`; `PumpGroupChart.svelte.test.ts:422–437`) read the flag line under the pump's row: the same text, and "None" becomes the absence of a flag line.
-  - `getByRole('status')` on the card (5 uses) is scoped to its section, since the card now has two regions; the texts are the same.
-  - The tests of the axes, system and own-system-curve notes (about 7) open "How to read this chart" first.
+  - `getByRole('status')` on the card (`PumpGroupChart.svelte.test.ts:242, 745, 1208`; `PumpGroupOneOff.svelte.test.ts:326, 426`) reads each request's line by its hook, with `toHaveAttribute('aria-live', 'polite')` and the same texts. `PumpGroupOneOff.svelte.test.ts:334`'s `toBe('')` ("nothing is computed for the other cases … and nothing says so") reads the other cases' line, where it still holds while the group system curve's line says it was cancelled.
+  - `aria-busy` moves to the canvas wrapper: `PumpGroupChart.svelte.test.ts:241, 259, 750, 759, 1211, 1471`.
+  - The axes, system and own-system-curve notes, read by exactly three tests (`pump-groups.e2e.ts:311–314`, `PumpGroupChart.svelte.test.ts:730–734` and `:955`), open "How to read this chart" first.
   - Tests expecting the duty sentence as one paragraph expect the same two texts in two.
-  - The hints' `toHaveAccessibleDescription` checks (`:929`, `:1191`) are unchanged.
+  - The group chart's "Show data table" name queries take "Show data table of the group chart": `PumpGroupChart.svelte.test.ts` (8), `PumpGroupOneOff.svelte.test.ts` (2) and `pump-groups.e2e.ts:182, 322, 391, 435, 659, 730, 965`. With the 8 of S1 that is the 32 "Show data table" uses and the 2 "Hide data table" uses there are.
+  - `pump-groups.e2e.ts:362` (the readout's exact text) is unchanged; new: `parts` joined equal `text`.
+  - New: the members' fieldset has the server-finder hint as its accessible description.
 - **S4.**
-  - Tests that read the refused "Add cases" or the refusal after every case exists (`PumpLineupsBlock.svelte.test.ts:444, 645`; `PumpGroupChart.svelte.test.ts:1099`; the done states in pump-lineups and pump-groups e2e) open "Cases to add: …" first.
+  - `PumpLineupsBlock.svelte.test.ts`'s `details()` helper (`:126`, `block().querySelector('details')`, 10 uses) would now find the plan's disclosure first. It reads `[data-stop-order]`, the stop order's own disclosure, with the same assertions; `:638`'s `document.querySelector('details > summary')` reads the stop order's summary the same way.
+  - `:207` asserts no `<details>` under Each pump off; it asserts no stop order (`[data-stop-order]`) there, which is what it tests. `:673` (a gate) is unchanged: under a gate the block has no plan.
+  - Tests that draw the block with every case made (`PumpGroupChart.svelte.test.ts:1099`; the done states that pump-lineups and pump-groups e2e load) open "The plan: …" before reading the preview. A test after the user's own Add (`PumpLineupsBlock.svelte.test.ts:444`, `PumpGroupOneOff.svelte.test.ts:900–902`) needs no open step: the plan stays as it was.
   - Solve all and the focus on it after Add are unchanged.
-  - The two tests that assert no `<details>` under Each pump off (`:207`, `:673`) run with cases left to add, where the block has no fold; this is checked when S4 is built.
+  - New: exactly one button named `/^Solve all/` in each state (`getAllByRole`); after a preset change with the plan open, the focus is still on the chosen segment; after Add, `data-stop-status` holds "Now ticked: …".
 - **S5.**
-  - Running combinations' group order (`PumpGroupChart.svelte.test.ts:1336`; `PumpGroupOneOff.svelte.test.ts`'s `groups[1]` and `groups[4]`) is re-indexed to ring order, with the same exact strings.
-  - The Flags cell reads (`pump-groups.e2e.ts:630`; `PumpGroupChart.svelte.test.ts:1349, 1363`, `cells.at(-1)`) read the flag line following the pump's row, keeping `data-label="Flags"` and `toContainText('Warning')`.
-- **S6.** About 10 to 16 group-table reads follow the ResultsTable's headings (sort buttons inside them, the same names) and its flag lines.
-- **S7.** About 20 curve-table assertions open their table's disclosure first.
+  - Running combinations' group order (`PumpGroupChart.svelte.test.ts:1336–1343`; `PumpGroupOneOff.svelte.test.ts:757–764` and `:820–828`) is re-indexed to `lineupChartPriority` order, with the same exact strings. `PumpGroupChart.svelte.test.ts:1347–1350` (`rows` of the held group has length 3, `rows[2]` is PB, which carries an Invalid flag) gains a flag line after each flagged pump's row: the count becomes 3 plus the flagged rows (PB's Invalid flag at least), and PB's row is found by its row header rather than by index. `groups[1]` and `groups[4]` at `:1367` and `:1371` follow the new order.
+  - The Flags cell reads (`pump-groups.e2e.ts:630`; `PumpGroupChart.svelte.test.ts:1349, 1363`, `cells.at(-1)`) read the flag line following the pump's row, keeping `data-label="Flags"` and `toContainText('Warning')` / `'Invalid'`.
+  - Tests that press a pump's name in Running combinations do so in the shown case's group; new: another case's group has no trace button.
+- **S6.** About 10 to 16 group-table reads follow the ResultsTable's headings (sort buttons inside them, the same names) and its flag lines. The card's tests keep mounting no workspace, since its flag lines come through the snippet prop.
+- **S7.** About 20 curve-table assertions open their table's disclosure first, except where the table is open by default.
 - **S8.** The chart-image tests on the marker set and the footer move to the new glyphs; the other words follow question 3 only.
 
 **New tests:**
 
-- **Budgets** (`tests/pumps-layout.e2e.ts`, at 1280×800, 390×844 and 320×640, on one-off, lineups with everything open and condenser after Add cases): every budget in §5.7.
+- **Budgets** (`tests/pumps-layout.e2e.ts`, at 1280×800 and 390×844, and the sideways, nav and outline checks at 320×640, 844×390 and 320×256, on one-off, lineups with everything open and condenser after Add cases): every budget in §5.7.
 - **The nav:**
-  - one Tab stop, the arrows, Home and End;
+  - one Tab stop, the arrows, Home and End; the toolbar role, unlike the view row's tablist;
+  - with the stop on "Group chart", close the card, untick every member and Tab into the nav: the focus lands on a button that exists;
+  - with the card's unavailable sentence shown, no "Station" or "Group chart" button exists;
   - `aria-current` follows the scroll;
-  - a press focuses its heading under the nav, not covered;
-  - the ⚠ marks;
+  - a press, with the keyboard, focuses its target under the nav, not covered: `document.activeElement` has a non-zero box inside the scroller's visible area, and "Pumps together" lands on the toggle;
+  - with `page.emulateMedia({ reducedMotion: 'reduce' })`, after a press `document.getAnimations()` is empty and the target's top is the nav's bottom plus its margin;
+  - a focused button's ring (its rect grown by 4 px) lies inside the row's `clientHeight`;
+  - "Back to the sections" focuses the current button;
+  - the marks, from `sectionMark` (a unit test with the four inputs), and the condenser's Running combinations lead named "Physically invalid";
   - `location.hash` unchanged.
+- **Containers:** no ancestor of a "Fields shown in …" group has a `container-type` other than `normal`.
 - **Words on screen:** every `chartNotes` and `groupNoteLines` line appears on screen word for word, visible or inside a named disclosure. `DUTY_CLAIM_RULE`, `OTHER_CURVES_FRAME`, a duty check that disagrees or is not known, and the no-head and no-rise lines are visible by default.
 - **Order:** "Cases on this chart" comes after its checkbox, in the DOM and on screen.
-- **Pump chart:** the strip's status is present while idle and speaks on loading; the off-in-this-case note.
-- **The card:** the capped look; the visible disabled reasons; the suggestion line; "Other groups found".
-- **Add cases:** the fold and "Now ticked".
-- **Running combinations:** the lead's counts.
-- **Flags:** the flag text visible in both card tables, inside the box's visible rectangle at both sizes.
-- **axe:** clean with every new disclosure open.
+- **Live lines:** each exists while idle, has no `[aria-busy="true"]` ancestor and holds no button; it speaks on loading.
+- **Pump chart:** the off-in-this-case note, as the box's description (`toHaveAccessibleDescription` contains "off in this case: no operating point"), only for an off pump.
+- **The card:** the capped look; the visible lasting reasons; the suggestion line; "Other groups found".
+- **Add cases:** the fold rule (closed only with `add` empty and `existing` not), one Solve all, the focus kept, "Now ticked" in the live line.
+- **Running combinations:** the lead's counts, each one tested, a failed case among them; the order, unchanged by an untick and by the switch; trace buttons in the shown case's group only.
+- **Flags:** the flag text visible in both card tables, inside the box's visible rectangle at both sizes; the flag line's text holds the flag sentence exactly once and starts with its pump.
+- **axe:** clean with every new disclosure open, over the whole tabpanel, and the heading-order and landmark-unique scan.
 
 ## 11. The three designs, and why this one
 
@@ -983,13 +1105,13 @@ Three designers each drew a whole restructure from the measurements. Three judge
 
 **Grafted from the section-nav design** (all three judges asked for parts of it):
 
-- the nav as one Tab stop with roving focus, `aria-current`, ⚠ marks and `scroll-padding-top`, and as the only sticky element;
+- the nav as one Tab stop with roving focus, `aria-current`, marks and `scroll-padding-top`, and as the only sticky element (since the review a toolbar, pinned only once the pump canvas has scrolled out, its marks by severity; §14);
 - the plain section names that match the captions ("Pump chart", "Station", "Group chart", "Running combinations");
 - the visible flag text after each badge;
 - every card table as a list on phones without waiting for ResultsTable;
 - "Now ticked: …" after an Add;
 - Add cases as a framed panel tagged "Changes the project";
-- the ring order in S5;
+- one stable order for Running combinations in S5 (since the review `lineupChartPriority` order rather than ring numbers, which change on an untick; §14);
 - "Speed (%)";
 - the words-on-screen guard test.
 
@@ -998,7 +1120,7 @@ Three designers each drew a whole restructure from the measurements. Three judge
 - the flag line held to the visible width, ResultsTable's own pattern, with `flagTone`, in S3 and S5 rather than after S6;
 - the method sentence and its Trace link kept visible;
 - the ring list kept visible;
-- "(off in this case: no point drawn)" as an early, image-neutral step;
+- the off-in-this-case note as an early, image-neutral step (since the review "(off in this case: no operating point)", for an off pump only);
 - the before numbers and the budget test first.
 
 **Not taken from the winner:**
@@ -1010,7 +1132,7 @@ Three designers each drew a whole restructure from the measurements. Three judge
 
 **Not taken from the section-nav design:**
 
-- **Renaming the pinned legends** "Cases on the chart" and "Cases on this chart" (`scenario-manager.md` §6.13, D24 §7.9) and "Show data table" to "Show data table (n tables)". That is 34 exact uses, and the count changes while overlays arrive.
+- **Renaming the pinned legends** "Cases on the chart" and "Cases on this chart" (`scenario-manager.md` §6.13, D24 §7.9) and "Show data table" to "Show data table (n tables)". That is 32 "Show data table" and 2 "Hide data table" uses, and the count changes while overlays arrive; the names are told apart by a visually hidden suffix instead, the visible words unchanged.
 - **The chips above the chart,** a departure from `pump-chart.md` §4.1.
 - **Add cases moved to the card's end,** away from D24 §7.1's place above Running combinations.
 - **The method sentence, the Trace link and the case lists behind closed disclosures.**
@@ -1019,15 +1141,16 @@ Three designers each drew a whole restructure from the measurements. Three judge
 ## 12. Questions for the owner
 
 1. **One choice of cases for both charts?**
-   - **Today.** "Cases on the chart" (the pump chart) and "Cases on this chart" (the card) hold the same cases with different rules. The first is reset on a pump change and capped at 5 others; the second is page state, capped at 6.
-   - **The proposal.** One set of unticked cases for the tab, as page state: unticking a case under either list unticks it under both. Each chart keeps its own cap, order and markers. The pump chart's list no longer resets when the pump changes.
-   - **Recommended: yes.** A user who hides a case on one chart expects it hidden on the other (F8). It changes how D15's and D21's case choices persist, so it is yours to decide. It would land in S8.
+   - **Today.** "Cases on the chart" (the pump chart) and "Cases on this chart" (the card) hold the same cases with different rules. The first is reset on a pump change and capped at 5 others, in scenario order; the second is page state, capped at 6, in `lineupChartPriority` order. On this branch an untick on either list also stores every case then past that list's cap (`untickedAfter`, `utils/pump-chart.ts:724–742`), so the place it leaves stays free.
+   - **The proposal.** One shared set of the cases the user unticked, as page state: unticking a case under either list unticks that case under both. What `untickedAfter` adds, the cases past a list's cap at that moment, stays each chart's own, page state per chart, never shared: the two lists have different caps and orders, so sharing it would untick on the group chart rings the user never touched. Each chart keeps its own cap, order and markers. The pump chart's list no longer resets when the pump changes.
+   - **Recommended: yes.** A user who hides a case on one chart expects it hidden on the other (F8), and only that case. It changes how D15's and D21's case choices persist, so it is yours to decide. It would land in S8, with a test that an untick on the pump chart leaves every other ring on the group chart.
 2. **Running combinations as a sortable table (S6b)?**
    - **The proposal.** It becomes a ResultsTable: Flagged only and Fields in its grouped form. A sort turns it into one flat table with a Case column, and clearing the sort brings the case groups back.
    - **Recommended: yes.** It meets your 2026-10-31 rules (sort by any field, a Fields menu, a list on phones). It finds the worst case in one press (sort by NPSH margin), and it stays the card's longest block without it.
 3. **May "(D13)" become plain words?**
-   - **Where it appears.** "(D13)" is in the web's notes and Running combinations' station lines (six times in the condenser example). "(CLAUDE.md D13)" is in the server's methods text. Users cannot open either.
+   - **Where it appears.** "(D13)" is in the web's notes and Running combinations' station lines (six times in the condenser example). "(CLAUDE.md D13)" is in the server's methods text (`services/pump_groups.py:1454, 1494, 1500, 2039`). Users cannot open either.
    - **Recommended: yes.** Use the words it stands for ("several steady states can exist; this is the one the solve found"). The web words change in S8, with the image footer through the same helpers. The server's methods words change on their own branch: an API change with no solved value and no `METHOD_VERSION` affected.
+   - **What a yes costs, beyond the words.** The server's methods text is also the workbook's: the export writes it to the Methods sheet (`utils/export/about.ts:593`, `groupMethodsLines`), and the committed fixtures hold it (`utils/__fixtures__/export-input.json`, `export-pump-groups.expected.json`, `pump-groups-input.json`). So that API branch regenerates the fixtures (`uv run python -m tests.fixtures.export_input`, `pnpm gen:types`), commits `export-pump-groups.xlsx` again from `utils/export/fixture.test.ts`, and runs `test_web_export_groups_fixture.py` and the export's 38 word-for-word tests as its proof (§8, D17).
 4. **Add the pump chart's labels to item 107?**
    - **What overlaps.** The pump chart's direct labels overlap near the duty: "Pump PB off" over "Delivery tank 5 m higher", "3 of 4 running" over "BEP", and a label cut at the right edge. Items 107 and 108 cover only the group chart's.
    - **Recommended: yes.** Add them to item 107, and settle every collision rule for both charts together. This proposal moves no label and settles neither item.
@@ -1040,4 +1163,67 @@ Three designers each drew a whole restructure from the measurements. Three judge
 - Curve tables on one flow grid, so pump and system heads read on one row.
 - The terms introduced once: operating point and station duty, head and rise, carrying flow and running.
 - Collapsible h4 sections remembered per browser, if the structured card still reads long.
+- A trace that opens for any case, so Running combinations' names can be trace buttons in every case's group, not only the shown case's (§5.3).
+- A shorter group legend on a phone: with six rings and the curve family it stays taller than its 16 rem canvas while its words are pinned (§5.7).
+- Help on focus for checkboxes and sliders, if a pattern is found that shows it on a tap in Safari and never covers the control's own output.
 - The card remembered open per browser. It stays closed on each load (D21), since opening asks for the group curve and the group system curve, about 82 solves of the station.
+
+## 14. Review record (2026-11-05)
+
+An accessibility review (A11Y-01 to A11Y-22) and a design review (R1 to R32) read the first draft against the code. Each finding was checked against main's content and the branch; every one held, in whole or in part. Where a finding offered two fixes, the one taken is named.
+
+| Finding | Held | Where it landed |
+|---|---|---|
+| A11Y-01 nav targets that may not exist | yes | §5.4: buttons from registered targets, the clamped stop, the observer never moves `tabindex`, "Pumps together" focuses the toggle; §10 tests |
+| A11Y-02 a hidden heading as a focus target | yes | the visible h3 "Results per pump" (§5.3 item 1) |
+| A11Y-03 "Back to the duty" drops the focus | yes | F40; S1; §7 Focus; a unit test |
+| A11Y-04 the fold re-parents controls; two Solve all | yes | §5.3 Add cases: one structure, one plan disclosure, one Solve all, the fold rule; S4 tests |
+| A11Y-05 help on focus where it does not fit | yes; the select's sentence also stays visible, since it is a cost hint and its help would cover the figcaption the review names | §5.3, §6.2, §6.4 item 8; no help on focus on this tab |
+| A11Y-06 the live regions cannot be built as written | yes | one live line per request, its button outside, `aria-busy` on the canvas wrapper (§5.3 markup rules, §7), as `aria-live` lines per R5 |
+| A11Y-07 invalid values marked and named as warnings | yes | §5.2 marks by the app's severities; the lead and `sectionMark` |
+| A11Y-08 the mock's names and targets | yes | the mock corrected and re-rendered; §5.3 markup rules |
+| A11Y-09, R28 the extremes' markup | yes | §5.3: the name inside the dts, no new child in the dl |
+| A11Y-10 the nav's size, offset, stacking and short screens | yes | §5.4 Place and Focus never hidden; §5.7 nav budget |
+| A11Y-11 the shared row clips the ring | yes | §5.4 One shared component (`py-1`, `-my-1`); a test |
+| A11Y-12 reduced motion | yes | §5.4 A press, Where you are; §7 Motion; markup rules |
+| A11Y-13 flags read twice | yes | §5.3 flag line: read once, named by its pump |
+| A11Y-14 the off note not tied to its box | yes | §5.3, in the box's description |
+| A11Y-15 capped names at 2.9:1 | yes | §5.3: only the box greyed, the name at slate-600 |
+| A11Y-16 duplicate names | yes; the visually hidden suffix, not a description | §5.3 Actions and notes; §6.2; §10 lists the 32 "Show data table", 2 "Hide data table" and 2 "Details" uses that follow |
+| A11Y-17 the axe scope and rules | yes | §7 Proof |
+| A11Y-18, R19 no cue for the arrows; no way back | yes; R19's names (a toolbar labelled "Go to" in the `nav`) | §5.4 Markup, Look, The way back |
+| A11Y-19 "Now ticked" not announced | yes | `data-stop-status` carries it (§5.3, §7) |
+| A11Y-20 the phone legend taller than its canvas | in part: with its words pinned and six rings it stays taller (the corrected mock: about 330 px under a 256 px canvas) | §5.3 legend layout; §5.7 budget measured + 10 % and ≤ 452 px; §13 Later |
+| A11Y-21 tags shaped like controls | yes | §5.2 Tags |
+| A11Y-22, R12 containers | yes | §5.5, the list of containers; an e2e guard |
+| R1 trace buttons in other cases' groups | yes | §5.3: the shown case's group only; §13 |
+| R2 "no point drawn" false; S8's slot change | yes; the slot kept while the system curves are on | §5.3, §6.2, S8, F25 corrected |
+| R3 facts turned into warnings | yes, and extended to the coverage lines and to checks that disagree | §5.2 No mark on a fact |
+| R4 the nav hides part of the pump canvas | yes; pinned only once the canvas has scrolled out | §5.4 Place; §5.7 |
+| R5 an always-present status breaks pane-wide queries | yes; `aria-live` lines | §5.3 markup rules; §10 Kept |
+| R6 a shared untick set against `untickedAfter` | yes | §12 question 1 |
+| R7 the lead's counts | yes | §5.3 the lead, its definitions |
+| R8 ResultsTable's badge against visible flag text | yes; a snippet prop | S6a; §10 S6 |
+| R9 S1 assertions on the chips and readout | yes | §5.3 Reading; §10 Kept |
+| R10 the group readout, a row count, two citations | yes | `parts`; §10 S3 and S5 |
+| R11 ring order reorders the table | yes | `lineupChartPriority` order (§5.3, §6.4 item 5) |
+| R13 one budget for every size | yes | §5.7 per size; 320 for the sideways, nav and outline checks |
+| R14 scroll-region Tab stops | yes | S7: a Tab stop only while overflowing |
+| R15 the data region above the notes | yes; the region after the notes | §5.1, §5.3, §6.1 |
+| R16 the fold undefined for mixed plans | yes; the ✓ line dropped, since D24's refusal already names the cases | §5.3 The fold; §10 S4 |
+| R17 the doubled words' source | yes; fixed in `otherNotes` only | §6.2 S0 |
+| R18 the server-finder hint is no description today | yes | the fieldset's `aria-describedby` (§5.3) |
+| R20 a passing reason would flash | yes | §5.3 Actions |
+| R21 the KLM rows | yes | §2.2; the next button kept in view |
+| R22 the heading count | yes | §5.7, §7 |
+| R23 the dev server | yes | §2 |
+| R24 the test counts | yes | §10 |
+| R25 the extremes grow | yes; kept at 12 px | §5.2, §5.7 |
+| R26 question 3's cost | yes | §12 question 3; §8 D17 |
+| R27 three moves not listed | yes | §6.1 |
+| R29 why-no-head reasons two presses away | yes | S7: such a table open by default |
+| R30 S2's proof | yes | S2 Proof |
+| R31 not a failing-first test | yes | S0: the condenser test in `tests/pumps-layout.e2e.ts` |
+| R32 the group curve's state far from what waits for it | yes | §5.3 Station; §7 Live regions |
+
+The `ui-guide.md` rules these call for (help on focus, tags, the nav, reduced motion) are written when the slices that build them land (§9, Records), since the guide records built patterns.

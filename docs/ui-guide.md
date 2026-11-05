@@ -33,6 +33,7 @@ What the web app's layout is converging on, distilled from the owner's direction
 ### Phones
 - **Tables read as lists** below 640 px: a block per element headed by its name, values as label and value pairs that wrap, "—" out of sight. The table keeps explicit ARIA roles and its headings for screen readers, so CSS never unmakes its semantics.
 - **What a heading did on desktop, a control does on a phone**: "Sort" (field + direction), sharing **one line** with Fields; labels shorten ("Sort", named "Sort by"; Fields to icon and count below 360 px) rather than wrap.
+- **A button whose label holds a name wraps, at every width**: a pump's or a pipe's name cannot be shortened, and `.btn`'s `whitespace-nowrap` let one push the Results pane sideways (`proposals/pumps-results-layout.md` F10, §15 item 1). It takes `whitespace-normal`, `text-left` and `py-1.5`, with `wrap-anywhere` where a name may have no spaces, and keeps `.btn`'s `min-h-ctl`, so it is never shorter than the control height (44 px in Results): "Also found: …" on the Pumps together card, "Save and use for …" in the project library, a reservoir's entrance and exit under Fittings.
 - **Pickers open as sheets** from the screen's foot at full width over a dimmed page (Fields), as native selects do; Done, a press outside or Escape closes them.
 - **Two-value choices are segments** (one tap); three or more stay selects. Previous and Next stay at the bottom, under the thumb.
 

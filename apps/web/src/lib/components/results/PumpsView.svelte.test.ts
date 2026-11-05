@@ -103,6 +103,60 @@ describe('other cases on the pump chart (Compare’s rule)', () => {
 	});
 });
 
+describe('"Cases on the chart" past its cap of five other cases', () => {
+	it('keeps the place a case leaves free: the case unticked can be ticked again, or another into its place', async () => {
+		const ws = setup(
+			withScenarios(
+				pumpTransferExample(),
+				['S1', 'S2', 'S3', 'S4', 'S5', 'S6'].map((id) => ({
+					id,
+					name: `Case ${id}`,
+					overrides: []
+				}))
+			),
+			{ solve: async () => response(pumpTransferSolved()) }
+		);
+		await ws.solveAll();
+		await showPumps();
+		const group = await results().findByRole('group', { name: 'Cases on the chart' });
+		const box = (name: string) =>
+			within(group).getByRole('checkbox', { name: new RegExp(`${name}$`) }) as HTMLInputElement;
+		const capped = (name: string) => box(name).getAttribute('aria-disabled') === 'true';
+		const ticked = () =>
+			within(group)
+				.getAllByRole('checkbox')
+				.filter((b) => (b as HTMLInputElement).checked)
+				.map((b) =>
+					b
+						.closest('label')!
+						.textContent!.replace(/^[^A-Z]*/, '')
+						.trim()
+				);
+		const five = ['Case S1', 'Case S2', 'Case S3', 'Case S4', 'Case S5'];
+		expect(ticked()).toEqual(five);
+		expect(capped('Case S6')).toBe(true);
+
+		// Unticked, Case S1 leaves its place free: no case comes in by itself.
+		await fireEvent.click(box('Case S1'));
+		expect(ticked()).toEqual(five.slice(1));
+		expect(capped('Case S1')).toBe(false);
+		expect(capped('Case S6')).toBe(false);
+
+		// Ticked again, it takes its place back, and the box past the cap is capped again.
+		await fireEvent.click(box('Case S1'));
+		expect(ticked()).toEqual(five);
+		expect(capped('Case S6')).toBe(true);
+
+		// Or another case is ticked into the place: then the case unticked is the one capped.
+		await fireEvent.click(box('Case S1'));
+		await fireEvent.click(box('Case S6'));
+		expect(ticked()).toEqual([...five.slice(1), 'Case S6']);
+		expect(capped('Case S1')).toBe(true);
+		await fireEvent.click(box('Case S1'));
+		expect(box('Case S1').checked).toBe(false);
+	});
+});
+
 describe('Download image under the chart', () => {
 	it('is available for a converged solve once the chart is drawn', async () => {
 		setup(pumpTransferExample(), { solve: async () => response(pumpTransferSolved()) });

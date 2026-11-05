@@ -998,3 +998,70 @@ describe('one pump off on the Pumps together card', () => {
 		// Six states, each awaited: the budget of the card's other long tests.
 	}, 20_000);
 });
+
+describe('"Cases on this chart" past its cap of six', () => {
+	it('keeps the place a case leaves free: the case unticked can be ticked again, or another into its place', async () => {
+		// Seven other cases: the one-off project's four and three copies of the base (no changes),
+		// so the seventh in the chart's order (Copy S7) is past the cap and reads as unticked.
+		const project = structuredClone(oneOff.project);
+		const copies = ['S5', 'S6', 'S7'].map((id) => ({ id, name: `Copy ${id}`, overrides: [] }));
+		const { ws } = setup(withScenarios(project, [...scenariosOf(project), ...copies]));
+		await ws.store.solveAll();
+		ws.pumpGroupOthers = true;
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		const group = () => within(card()).getByRole('group', { name: 'Cases on this chart' });
+		const box = (name: RegExp) =>
+			within(group()).getByRole('checkbox', { name }) as HTMLInputElement;
+		const capped = (name: RegExp) => box(name).getAttribute('aria-disabled') === 'true';
+		const ticked = () =>
+			within(group())
+				.getAllByRole('checkbox')
+				.filter((b) => (b as HTMLInputElement).checked)
+				.map((b) =>
+					b
+						.closest('label')!
+						.textContent!.replace(/^[^A-Z]*/, '')
+						.trim()
+				);
+		const hint = 'At most 6 other cases at once.';
+		await waitFor(() => expect(within(group()).getAllByRole('checkbox')).toHaveLength(7));
+		const six = [
+			'Pump PA off',
+			'Both pumps off',
+			'Pump PB off',
+			'Delivery tank 5 m higher',
+			'Copy S5',
+			'Copy S6'
+		];
+		expect(ticked()).toEqual(six);
+		expect(capped(/Copy S7/)).toBe(true);
+		expect(group()).toHaveTextContent(hint);
+
+		// Unticked, Pump PA off leaves its place free: no case comes in by itself.
+		await fireEvent.click(box(/Pump PA off/));
+		expect(ticked()).toEqual(six.slice(1));
+		expect(capped(/Pump PA off/)).toBe(false);
+		expect(capped(/Copy S7/)).toBe(false);
+		expect(group()).not.toHaveTextContent(hint);
+		expect(ws.pumpGroupUnticked).toEqual(['S1', 'S7']);
+
+		// Ticked again, it takes its place back, and the box past the cap is capped again.
+		await fireEvent.click(box(/Pump PA off/));
+		expect(ticked()).toEqual(six);
+		expect(box(/Pump PA off/).checked).toBe(true);
+		expect(capped(/Copy S7/)).toBe(true);
+		expect(ws.pumpGroupUnticked).toEqual(['S7']);
+
+		// Or another case is ticked into the place: then the case unticked is the one capped.
+		await fireEvent.click(box(/Pump PA off/));
+		await fireEvent.click(box(/Copy S7/));
+		expect(ticked()).toEqual([...six.slice(1), 'Copy S7']);
+		expect(capped(/Pump PA off/)).toBe(true);
+		expect(ws.pumpGroupUnticked).toEqual(['S1']);
+		// A click on the capped box ticks nothing.
+		await fireEvent.click(box(/Pump PA off/));
+		expect(box(/Pump PA off/).checked).toBe(false);
+		expect(ticked()).toEqual([...six.slice(1), 'Copy S7']);
+	}, 20_000);
+});

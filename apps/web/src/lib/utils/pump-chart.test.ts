@@ -5,7 +5,13 @@
 import { describe, expect, it } from 'vitest';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '../testing/results';
 import { pumpTransferExample } from './examples';
-import { chartNotes, otherCasesData, pumpChartData, ratedCurveRange } from './pump-chart';
+import {
+	chartNotes,
+	otherCasesData,
+	pumpChartData,
+	ratedCurveRange,
+	untickedAfter
+} from './pump-chart';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
 const GPM = (231 * 0.0254 ** 3) / 60; // m³/s, US gallon = 231 in³
@@ -315,5 +321,28 @@ describe('chart notes', () => {
 		).toBe(
 			'This pump is held at zero flow by its check (see its flag). The diamond marks zero flow at the head across the pump.'
 		);
+	});
+});
+
+describe('untickedAfter: unticking a case in a capped list', () => {
+	const listed = ['', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
+	it('unticks the case and every case not shown now, so the place it leaves stays free', () => {
+		// Five shown ('' to S4), S5 and S6 past the cap: both read as unticked and stay so.
+		expect(untickedAfter([], 'S2', listed, ['', 'S1', 'S2', 'S3', 'S4'])).toEqual([
+			'S2',
+			'S5',
+			'S6'
+		]);
+	});
+	it('keeps the cases unticked before, first and once each', () => {
+		expect(untickedAfter(['S1'], 'S3', listed, ['', 'S2', 'S3', 'S4', 'S5'])).toEqual([
+			'S1',
+			'S3',
+			'S6'
+		]);
+		expect(untickedAfter(['S6'], 'S6', listed, ['', 'S1', 'S2', 'S3', 'S4'])).toEqual(['S6', 'S5']);
+	});
+	it('adds only the case when every case is shown', () => {
+		expect(untickedAfter([], '', ['', 'S1'], ['', 'S1'])).toEqual(['']);
 	});
 });

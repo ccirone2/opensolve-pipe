@@ -187,9 +187,25 @@
 
 /*
  * "Back to the sections" (pumps-results-layout.md §5.4 The way back) ends a card, visually hidden
- * until focused, so it takes no room: the block before it keeps no `space-y` gap after it until
- * it shows. Unlayered, so it outranks the gap's zero-specificity rule.
+ * until focused, and takes no room either way: the block before it keeps no `space-y` gap after
+ * it, and shown it is laid over the card's foot (absolutely placed in its positioned wrapper,
+ * which holds nothing in flow), so showing or hiding it moves nothing under the pointer.
+ * Unlayered, so it outranks the gap's zero-specificity rule and `focus:not-sr-only`'s position.
  */
-:where(*):has(+ [data-back-to-sections]:not(:focus-within)) {
+:where(*):has(+ [data-back-to-sections]) {
 	margin-block-end: 0;
+}
+
+/*
+ * 0.25 rem down, so its ring (2 px at a 2 px offset) clears the card's last line. 44 px tall, it
+ * reaches over the gap onto the next card's top (its toggle's top edge after the pump chart), so a
+ * press there goes to what lies under it: Back is the keyboard's, shown only while focused, and
+ * Enter or Space presses it (S2 check BACK-OVERLAY).
+ */
+[data-back-to-sections] > :focus {
+	position: absolute;
+	top: 0.25rem;
+	left: 0;
+	z-index: 1;
+	pointer-events: none;
 }

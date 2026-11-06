@@ -458,13 +458,17 @@
 	/**
 	 * The views' row, the shared sideways row (ScrollRow; proposal pumps-results-layout.md §5.4 One
 	 * shared component): its wheel and its edge shadows. The chosen view is kept in view (a link
-	 * from the Summary, the keyboard) by scrolling the row alone, never the pane.
+	 * from the Summary, the keyboard) by scrolling the row alone, never the pane, and when the row
+	 * is drawn again (Compare cases and back): the row is tracked, only its scroll is not.
 	 */
 	let viewRow: HTMLElement | undefined = $state();
 	let viewRowComponent: ScrollRow | undefined = $state();
 	$effect(() => {
 		void view;
-		untrack(() => viewRowComponent?.keepInView(viewRow?.querySelector('[aria-selected="true"]')));
+		const row = viewRow;
+		const component = viewRowComponent;
+		if (!row || !component) return;
+		untrack(() => component.keepInView(row.querySelector('[aria-selected="true"]')));
 	});
 
 	/** The pane's scroller: the Pumps tab's section nav pins in it (§5.4 Place). */
@@ -674,10 +678,17 @@
 		</div>
 	{/if}
 
-	<!-- A column, so the footer sits at the bottom of the pane when the results are short. -->
+	<!--
+		A column, so the footer sits at the bottom of the pane when the results are short.
+		Positioned, so whatever is absolutely placed inside it (a visually hidden word, "Back to the
+		sections" shown) has it, or an element inside it, for its containing block: it stays inside
+		the pane's clip and scroll, and the page itself never grows taller than the window, so a
+		section nav's press (scrollIntoView) or a wheel scrolls the pane alone (pumps-results-layout.md
+		§5.4 Place: only under short: does the workspace scroll as one page).
+	-->
 	<div
 		bind:this={paneScroller}
-		class="flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto px-3 py-4 sm:px-4"
+		class="relative flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto px-3 py-4 sm:px-4"
 		style:scroll-padding-top={view === 'pumps' && pumpsNavPinned !== null
 			? `calc(${pumpsNavPinned}px + 0.5rem)`
 			: undefined}

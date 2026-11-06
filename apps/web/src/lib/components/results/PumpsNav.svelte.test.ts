@@ -18,6 +18,7 @@ import { NotAStationError } from '$lib/api/client';
 import type { Project, PumpGroupCurveResponse, SolveResponse, TopologyIssue } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
+import { outOfSight } from '$lib/testing/helpers';
 import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
@@ -97,6 +98,12 @@ function media(matches: (query: string) => boolean) {
 	})) as unknown as typeof window.matchMedia;
 }
 
+/** `n` animation frames (jsdom pretends to be visual: requestAnimationFrame runs). */
+async function frames(n: number) {
+	for (let i = 0; i < n; i++)
+		await new Promise<void>((done) => requestAnimationFrame(() => done()));
+}
+
 /** jsdom has no scrollIntoView: a recording one, for the test. */
 function stubScroll() {
 	const scrolled = vi.fn();
@@ -161,7 +168,10 @@ describe('the section nav', () => {
 		render(PumpsNav, { props: { sections: sectionsOf(ALL) } });
 		expect(nav().tagName).toBe('NAV');
 		expect(toolbar()).toHaveAttribute('aria-orientation', 'horizontal');
-		expect(within(nav()).getByText('Go to', { exact: true })).toBeVisible();
+		const lead = within(nav()).getByText('Go to', { exact: true });
+		expect(lead).toBeVisible();
+		// Seen at every width: toBeVisible reads no class, so an sr-only lead would pass it.
+		expect(outOfSight(lead)).toBe(false);
 		expect(buttons().map(nameOf)).toEqual([
 			'Per pump',
 			'Pump chart',
@@ -181,17 +191,21 @@ describe('the section nav', () => {
 		render(PumpsNav, { props: { sections: sectionsOf(ALL) } });
 		expect(stops()).toEqual([button('Per pump')]);
 		button('Per pump').focus();
-		await fireEvent.keyDown(button('Per pump'), { key: 'ArrowRight' });
+		// Each key it handles is taken from the browser (fireEvent gives false once the default
+		// is prevented): the browser's own End and Home would scroll the pane to its ends.
+		expect(await fireEvent.keyDown(button('Per pump'), { key: 'ArrowRight' })).toBe(false);
 		expect(document.activeElement).toBe(button('Pump chart'));
 		expect(stops()).toEqual([button('Pump chart')]);
-		await fireEvent.keyDown(button('Pump chart'), { key: 'End' });
+		expect(await fireEvent.keyDown(button('Pump chart'), { key: 'End' })).toBe(false);
 		expect(document.activeElement).toBe(button('Running combinations'));
 		expect(stops()).toEqual([button('Running combinations')]);
-		await fireEvent.keyDown(button('Running combinations'), { key: 'ArrowRight' });
+		expect(await fireEvent.keyDown(button('Running combinations'), { key: 'ArrowRight' })).toBe(
+			false
+		);
 		expect(document.activeElement).toBe(button('Per pump'));
-		await fireEvent.keyDown(button('Per pump'), { key: 'ArrowLeft' });
+		expect(await fireEvent.keyDown(button('Per pump'), { key: 'ArrowLeft' })).toBe(false);
 		expect(document.activeElement).toBe(button('Running combinations'));
-		await fireEvent.keyDown(button('Running combinations'), { key: 'Home' });
+		expect(await fireEvent.keyDown(button('Running combinations'), { key: 'Home' })).toBe(false);
 		expect(document.activeElement).toBe(button('Per pump'));
 		expect(stops()).toEqual([button('Per pump')]);
 		// Another key is the browser's: not taken.
@@ -203,6 +217,33 @@ describe('the section nav', () => {
 		button('Per pump').dispatchEvent(other);
 		expect(other.defaultPrevented).toBe(false);
 		expect(document.activeElement).toBe(button('Per pump'));
+	});
+
+	it('brings the button an arrow key focuses into the row’s view, scrolling the row alone (§5.4 One shared component)', async () => {
+		const scrolled = stubScroll();
+		render(PumpsNav, { props: { sections: sectionsOf(ALL) } });
+		// Boxes, as a 200 px row holding buttons 100 px wide side by side.
+		const row = toolbar();
+		const all = buttons();
+		Object.defineProperty(row, 'clientWidth', { configurable: true, value: 200 });
+		Object.defineProperty(row, 'scrollWidth', { configurable: true, value: 100 * all.length });
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: Element
+		) {
+			const i = all.indexOf(this as HTMLElement);
+			const left = this === row ? row.scrollLeft : i >= 0 ? 100 * i : 0;
+			const width = this === row ? 200 : i >= 0 ? 100 : 0;
+			return { left, right: left + width, width, top: 0, bottom: 44, height: 44 } as DOMRect;
+		});
+		const scrollTo = vi.fn();
+		row.scrollTo = scrollTo as unknown as typeof row.scrollTo;
+		button('Per pump').focus();
+		await fireEvent.keyDown(button('Per pump'), { key: 'End' });
+		expect(document.activeElement).toBe(button('Running combinations'));
+		// The row brings the last button in, at 700 − 200 = 500, never by scrollIntoView.
+		expect(scrollTo).toHaveBeenLastCalledWith({ left: 500, behavior: 'smooth' });
+		expect(scrollTo.mock.contexts.at(-1)).toBe(row);
+		expect(scrolled).not.toHaveBeenCalled();
 	});
 
 	it('keeps the stop on the button last focused while the focus is in it, else on the current one', async () => {
@@ -351,10 +392,12 @@ describe('the section nav in its pane', () => {
 		place(sections, [-3000, -2300, -1600, -1000, 155, 1000, 1500]);
 		await observe();
 		expect(currentNames()).toEqual(['Group chart']);
-		// Its root reaches below the pane, so a jump past it is seen; its top margin is the nav's.
+		// Its root reaches below the pane, so a jump past it is seen; its top margin is the nav's,
+		// the targets' 0.5 rem and 1 px, so a target at rest 0.5 rem under the nav (161) lies across
+		// the root's top edge (162): seen to arrive there and to leave (S2 check NAV2-LEAVE).
 		const observer = FakeObserver.all.find((o) => o.targets.has(sections[0]!.target))!;
 		expect(observer.root).toBe(scroller);
-		expect(observer.rootMargin).toBe('-61px 0px 100000px 0px');
+		expect(observer.rootMargin).toBe('-62px 0px 100000px 0px');
 	});
 
 	it('moves aria-current only, never the stop, while the focus is in the toolbar', async () => {
@@ -387,6 +430,142 @@ describe('the section nav in its pane', () => {
 		place(sections, [-4000, -3300, -2600, -2000, 150, 1200, 1450]);
 		await observe();
 		expect(currentNames()).toEqual(['Group chart']);
+	});
+
+	it('reads the pane again when a press’s scroll ends: the section pressed is current where it stops (§5.4 Where you are)', async () => {
+		stubScroll();
+		const { scroller, canvas } = pane();
+		const sections = sectionsOf(ALL);
+		place(sections, [180, 900, 2000, 2400, 2700, 4000, 4500]);
+		render(PumpsNav, { props: { sections, scroller, canvas } });
+		await observe();
+		expect(currentNames()).toEqual(['Per pump']);
+		// A smooth scroll to Add cases. A scroll that ended just before it (the focus bringing the
+		// nav into view) ends now, Add cases still below the pane (100 to 700): it is read, and
+		// the press's scroll still watched.
+		await fireEvent.click(button('Add cases'));
+		scroller.dispatchEvent(new Event('scrollend'));
+		await tick();
+		// On the way Group chart crosses the line while Add cases is still below the pane.
+		place(sections, [-2000, -1300, -200, 100, 150, 900, 1400]);
+		await observe();
+		// It stops with Add cases at rest, 0.5 rem under the nav (100 + 53 + 8): here no observer
+		// callback runs, so the read is the scroll's end's.
+		place(sections, [-2800, -2100, -1000, -700, -650, 161, 600]);
+		scroller.dispatchEvent(new Event('scrollend'));
+		await tick();
+		expect(currentNames()).toEqual(['Add cases']);
+		// From the top again, Running combinations, which the pane cannot bring to the line (at
+		// its end): pressed while still below the pane, it stays current where the scroll stops.
+		place(sections, [180, 900, 2000, 2400, 2700, 4000, 4500]);
+		await observe();
+		expect(currentNames()).toEqual(['Per pump']);
+		await fireEvent.click(button('Running combinations'));
+		scroller.dispatchEvent(new Event('scrollend'));
+		place(sections, [-2400, -1700, -600, -300, -250, 150, 1000]);
+		await observe();
+		place(sections, [-2600, -1900, -800, -500, -450, -50, 450]);
+		scroller.dispatchEvent(new Event('scrollend'));
+		await tick();
+		expect(currentNames()).toEqual(['Running combinations']);
+		// The scroll over, the pane says where you are again.
+		place(sections, [-1500, -800, 300, 600, 900, 2200, 2700]);
+		await observe();
+		expect(currentNames()).toEqual(['Pump chart']);
+	});
+
+	/** A pane whose scroll the test moves: its scrollTop, and each target's top that much higher. */
+	function scrolling(scroller: HTMLElement, sections: SectionTarget[], start: number[]) {
+		let at = 0;
+		Object.defineProperty(scroller, 'scrollTop', {
+			configurable: true,
+			get: () => at,
+			set: (v: number) => (at = v)
+		});
+		place(sections, start);
+		return async (to: number) => {
+			at = to;
+			place(
+				sections,
+				start.map((t) => t - to)
+			);
+			await observe();
+		};
+	}
+
+	it('ends a press its scroll stops short of: the user’s own scroll then brings the target in from below unmarked (§5.4 Where you are; S2 check NAV2-STUCK)', async () => {
+		stubScroll();
+		const { scroller, canvas } = pane();
+		const sections = sectionsOf(ALL);
+		const scrollTo = scrolling(scroller, sections, [180, 900, 2000, 2400, 2700, 4000, 4500]);
+		render(PumpsNav, { props: { sections, scroller, canvas } });
+		await observe();
+		for (const cut of ['Home', 'a scrollbar dragged back'] as const) {
+			await scrollTo(0);
+			await fireEvent.click(button('Running combinations'));
+			await frames(2);
+			// The press's smooth scroll on its way, 1500 px down; then cut short, the pane back at its
+			// top (Home) or at 600 px (the drag), where it stops, Running combinations still below
+			// the pane (100 to 700).
+			await scrollTo(1500);
+			await scrollTo(cut === 'Home' ? 0 : 600);
+			scroller.dispatchEvent(new Event('scrollend'));
+			await frames(4);
+			expect(currentNames(), cut).toEqual(['Per pump']);
+			// Later the user's own scroll brings it in from below, Add cases passed: Add cases is
+			// current, never the target before it is passed.
+			await scrollTo(3850);
+			expect(currentNames(), cut).toEqual(['Add cases']);
+			await scrollTo(3950);
+			expect(currentNames(), cut).toEqual(['Add cases']);
+		}
+	});
+
+	it('keeps a press whose scroll goes on: a stop before its first frame, or one after which the pane goes on toward the target (§5.4 Where you are; S2 check NAV2-STUCK)', async () => {
+		stubScroll();
+		const { scroller, canvas } = pane();
+		const sections = sectionsOf(ALL);
+		const scrollTo = scrolling(scroller, sections, [180, 900, 2000, 2400, 2700, 4000, 4500]);
+		render(PumpsNav, { props: { sections, scroller, canvas } });
+		await observe();
+		await fireEvent.click(button('Running combinations'));
+		// A stop before the first frame after the press ends a scroll begun before it (the focus
+		// bringing the nav into view, at 320×640): the press holds, though the pane has not moved.
+		scroller.dispatchEvent(new Event('scrollend'));
+		await frames(4);
+		// A stop on the way (a scroll it took over ended), after which the pane goes on toward the
+		// target: the press holds.
+		await scrollTo(1500);
+		scroller.dispatchEvent(new Event('scrollend'));
+		await scrollTo(1600);
+		await frames(4);
+		// It stops at the pane's end, Running combinations on screen under the line: current.
+		await scrollTo(3950);
+		scroller.dispatchEvent(new Event('scrollend'));
+		await tick();
+		expect(currentNames()).toEqual(['Running combinations']);
+	});
+
+	it('brings a static nav back into view with the focus an arrow key moves; pinned, the focus scrolls nothing (§5.4 Focus never hidden)', async () => {
+		const { scroller, canvas } = pane();
+		render(PumpsNav, { props: { sections: sectionsOf(ALL), scroller, canvas } });
+		await observe();
+		expect(nav()).not.toHaveAttribute('data-pinned');
+		// Static, the nav scrolls out above the pane while the pump canvas is still in view: the
+		// focus brings it back.
+		const chart = vi.spyOn(button('Pump chart'), 'focus');
+		button('Per pump').focus();
+		await fireEvent.keyDown(button('Per pump'), { key: 'ArrowRight' });
+		expect(document.activeElement).toBe(button('Pump chart'));
+		expect(chart).toHaveBeenCalledWith({ preventScroll: false });
+		// Pinned, it is in sight: the focus scrolls nothing, the row alone brings the button in.
+		boxes.set(canvas, { top: -524, bottom: 100 });
+		await observe();
+		expect(nav()).toHaveAttribute('data-pinned');
+		const together = vi.spyOn(button('Pumps together'), 'focus');
+		await fireEvent.keyDown(button('Pump chart'), { key: 'ArrowRight' });
+		expect(document.activeElement).toBe(button('Pumps together'));
+		expect(together).toHaveBeenCalledWith({ preventScroll: true });
 	});
 
 	it('pins only once the pump canvas has scrolled out above the pane’s top', async () => {

@@ -375,7 +375,7 @@
 			<button
 				bind:this={toggle}
 				type="button"
-				class="flex min-h-11 w-full scroll-mt-[calc(var(--pumps-nav-h,0px)-var(--pumps-nav-pad,0px)+0.5rem)] items-center gap-2 text-left"
+				class="flex min-h-11 w-full scroll-mt-[calc(var(--pumps-nav-h,0px)-var(--pumps-nav-pad,0px)+0.5rem)] items-start gap-2 py-2.5 text-left"
 				aria-expanded={open}
 				aria-controls="{id}-body"
 				aria-describedby={open ? undefined : `${id}-about`}
@@ -385,14 +385,19 @@
 				<Icon
 					name="right"
 					class={[
-						'size-4 shrink-0 transition-transform motion-reduce:transition-none',
+						'mt-1 size-4 shrink-0 transition-transform motion-reduce:transition-none',
 						open && 'rotate-90'
 					]}
 				/>
-				Pumps together
-				{#if !open && memberNames.length}<span class="text-xs font-normal text-slate-600"
-						>({memberNames.join(', ')})</span
-					>{/if}
+				<!-- The heading's words whole on one line, the chevron beside its first; the members
+					beside them where they fit, else on lines of their own under them (§5.3 item 3,
+					§5.6). -->
+				<span class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+					<span class="whitespace-nowrap">Pumps together</span>
+					{#if !open && memberNames.length}<span class="text-xs font-normal text-slate-600"
+							>({memberNames.join(', ')})</span
+						>{/if}
+				</span>
 			</button>
 		</h3>
 		{#if !open}

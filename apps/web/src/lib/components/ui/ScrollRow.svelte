@@ -10,7 +10,7 @@
 	whose layout must not move takes `-my-1` (the view row).
 
 	It is positioned, so the visually hidden words of an item scrolled out of sight (a mark's
-	", has warnings", absolutely placed) stay inside its clip rather than widening the page.
+	", has warnings", absolutely placed) stay inside its clip rather than widening the pane.
 
 	`keepInView` scrolls the row alone, never an ancestor (which `scrollIntoView` would: the pane, or
 	a scroll already running), so that an item and the one after it are in view, smoothly unless

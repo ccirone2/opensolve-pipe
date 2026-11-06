@@ -4,9 +4,10 @@
 	is. It focuses the nav's current button, so from a card's foot the nav is one Tab and a press
 	away rather than dozens of Shift+Tab. Drawn without PumpsView (no nav), nothing.
 
-	Its wrapper is positioned: a visually hidden element is absolutely placed, and with no
-	positioned ancestor inside the pane's scroller it would escape the scroller's clip and make the
-	page itself scroll (as ResultsTable's boxes are `relative` for their flags' hidden words).
+	Shown, it takes no room: its wrapper is positioned and holds nothing in flow, and the focused
+	button is laid over the card's foot from there (layout.css), white, over what follows. Showing
+	or hiding it never changes the pane's height, so a press elsewhere that hides it lands where it
+	was aimed, even with the pane at its end (the ui-guide's "so nothing moves").
 -->
 <script lang="ts">
 	import { useSectionNav } from './section-nav.svelte';
@@ -18,7 +19,7 @@
 	<div class="relative" data-back-to-sections>
 		<button
 			type="button"
-			class="btn btn-quiet sr-only text-blue-800 focus:not-sr-only focus:px-2"
+			class="btn btn-quiet sr-only text-blue-800 focus:not-sr-only focus:border-slate-300 focus:bg-white focus:px-2 focus:shadow-sm"
 			onclick={() => nav.back()}>Back to the sections</button
 		>
 	</div>

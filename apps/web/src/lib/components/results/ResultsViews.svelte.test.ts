@@ -30,6 +30,7 @@ import { testWorkspace, type TestWorkspaceOptions } from '$lib/testing/workspace
 import { insertComponentInConnection } from '$lib/utils/edit';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { createComponent } from '$lib/utils/factory';
+import { withScenarios } from '$lib/utils/scenarios';
 import { methodsText } from '$lib/utils/trace';
 import { IMPERIAL_UNITS } from '$lib/utils/units';
 
@@ -301,6 +302,69 @@ describe('tables', () => {
 		} finally {
 			delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
 			boxes.mockRestore();
+		}
+	});
+
+	it('keeps the chosen view in view when the row is drawn again: Compare cases and back (pumps-results-layout.md §5.4 One shared component)', async () => {
+		const project = withScenarios(pumpTransferExample(), [
+			{ id: 'S1', name: 'Winter', overrides: [] }
+		]);
+		const ws = testWorkspace(project, {
+			solver: { solve: () => Promise.resolve(response(pumpTransferSolved())) }
+		});
+		render(WorkspaceView, { workspace: ws });
+		await ws.solve();
+		await results().findByRole('heading', { name: 'Converged' });
+		const isRow = (e: Element) => e.matches('[role="tablist"][aria-label="Results view"]');
+		const pillsOf = (e: Element) => [...(e.parentElement?.children ?? [])].indexOf(e);
+		// Boxes for whichever row is drawn: 300 px wide, holding pills 100 px wide, 106 px apart
+		// from 12 px (jsdom's row has no padding of its own).
+		const count = within(results().getByRole('tablist', { name: 'Results view' })).getAllByRole(
+			'tab'
+		).length;
+		expect(count).toBeGreaterThan(4);
+		const spies = [
+			vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (
+				this: Element
+			) {
+				return isRow(this) ? 300 : 0;
+			}),
+			vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(function (
+				this: Element
+			) {
+				return isRow(this) ? 12 + 106 * count : 0;
+			}),
+			vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+				this: Element
+			) {
+				const inRow = this.parentElement && isRow(this.parentElement);
+				const left = isRow(this) ? this.scrollLeft : inRow ? 12 + 106 * pillsOf(this) : 0;
+				const width = isRow(this) ? 300 : inRow ? 100 : 0;
+				return { left, right: left + width, width, top: 0, bottom: 44, height: 44 } as DOMRect;
+			})
+		];
+		const scrollTo = vi.fn();
+		(Element.prototype as { scrollTo?: unknown }).scrollTo = scrollTo;
+		try {
+			const first = results().getByRole('tablist', { name: 'Results view' });
+			await fireEvent.click(within(first).getAllByRole('tab')[3]!);
+			// The fourth and fifth pills in view: 12 + 106 × 4 + 100 = 536, less the 300 px seen.
+			expect(scrollTo).toHaveBeenLastCalledWith({ left: 236, behavior: 'smooth' });
+			expect(scrollTo.mock.contexts.at(-1)).toBe(first);
+			// Compare cases draws no view row; back on the case, the row drawn again keeps the
+			// chosen view in view, as the row it replaced did.
+			await fireEvent.click(results().getByRole('tab', { name: 'Compare cases' }));
+			expect(results().queryByRole('tablist', { name: 'Results view' })).toBeNull();
+			await fireEvent.click(results().getByRole('tab', { name: 'Base case' }));
+			await tick();
+			const again = results().getByRole('tablist', { name: 'Results view' });
+			expect(again).not.toBe(first);
+			expect(within(again).getAllByRole('tab')[3]).toHaveAttribute('aria-selected', 'true');
+			expect(scrollTo.mock.contexts.at(-1)).toBe(again);
+			expect(scrollTo).toHaveBeenLastCalledWith({ left: 236, behavior: 'smooth' });
+		} finally {
+			delete (Element.prototype as { scrollTo?: unknown }).scrollTo;
+			for (const spy of spies) spy.mockRestore();
 		}
 	});
 

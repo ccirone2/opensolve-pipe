@@ -12,13 +12,18 @@
 	  the buttons drawn (the same section, else the nearest earlier one).
 	- A press scrolls the target to the top (smoothly unless the user asks for reduced motion) and
 	  then focuses it without a second scroll. Buttons, never links: the URL fragment is the project
-	  (D3), so nothing here touches `location.hash`.
+	  (D3), so nothing here touches `location.hash`. The pane's scroller is positioned, so the page
+	  itself has nothing to scroll and only the pane moves (ResultsPanel).
+	- An arrow key's focus, like "Back to the sections", brings a static nav into view (it may have
+	  scrolled out above the pane); pinned, it is in sight and the focus scrolls nothing.
 	- Where you are: `aria-current="location"` on the button whose target was passed last, set from
 	  an IntersectionObserver on the pane's scroller (its top margin the nav's height and the
 	  targets' 0.5 rem, its root reaching far below the pane so a jump past it is seen), paused
 	  while the Pumps view is hidden. A target just pressed that the pane cannot bring to the top (at its
-	  end) stays current while it is on screen. When it changes only the row scrolls, keeping the
-	  current button and the next in view (ScrollRow), never the pane.
+	  end) stays current while it is on screen, and while the press's own scroll brings it up from
+	  below the pane; when that scroll stops the pane is read again, since a target that comes to
+	  rest exactly on the line crosses no threshold. When it changes only the row scrolls, keeping
+	  the current button and the next in view (ScrollRow), never the pane.
 	- Pinned (`sticky -top-4 z-[35]`, white) only while the pump chart's canvas, or what stands in
 	  its place, has scrolled out above the scroller's top, and while the nav takes at most 15 % of
 	  the scroller's height (the ui-guide's chrome rule), never under `short:` (the workspace then
@@ -84,6 +89,10 @@
 	let focused = $state<SectionKey | null>(null);
 	/** A target just pressed: current while it is on screen, though the pane cannot bring it up. */
 	let pressed: SectionKey | null = null;
+	/** The press's own scroll is running: a target pressed still below the pane stays pressed. */
+	let pressing = false;
+	/** Stop watching the press's scroll (another press, or the nav gone). */
+	let unwatch: (() => void) | null = null;
 	const shownCurrent = $derived(clampSection(current, keys));
 	const stop = $derived(clampSection(focused ?? current, keys));
 
@@ -160,7 +169,10 @@
 	$effect(() => {
 		onpinned?.(pinned ? height : null);
 	});
-	onDestroy(() => onpinned?.(null));
+	onDestroy(() => {
+		unwatch?.();
+		onpinned?.(null);
+	});
 
 	/**
 	 * The section passed last: the last target whose top is at or above the line under the nav
@@ -185,7 +197,8 @@
 				current = pressed;
 				return;
 			}
-			pressed = null;
+			// Still on its way up from below the pane, the press's scroll running: kept.
+			if (!(pressing && i > found && r && r.top >= bottom)) pressed = null;
 		}
 		current = sections[Math.max(found, 0)]?.key ?? null;
 	}
@@ -215,12 +228,48 @@
 		untrack(() => rowComponent?.keepInView(buttonOf(key)));
 	});
 
+	/**
+	 * Watch the press's own scroll until the pane stops with the target pressed in sight: its
+	 * `scrollend`, or where a browser has none, 150 ms without a `scroll` event (never where it has
+	 * one: a busy page can go longer than that between two frames of a smooth scroll); then read the
+	 * pane again (§5.4 Where you are). A `scrollend` while the target is still below the pane (one
+	 * that ends a scroll before the press's own, measured at 320×640) reads it and keeps watching.
+	 * A press that scrolls nothing ends with the next scroll.
+	 */
+	function watchPress(root: HTMLElement) {
+		unwatch?.();
+		let quiet: ReturnType<typeof setTimeout> | undefined;
+		const stop = () => {
+			clearTimeout(quiet);
+			root.removeEventListener('scroll', moved);
+			root.removeEventListener('scrollend', ended);
+			unwatch = null;
+			pressing = false;
+		};
+		const ended = () => {
+			const target = sections.find((s) => s.key === pressed)?.target;
+			const box = root.getBoundingClientRect();
+			const bottom = Math.min(box.top + root.clientTop + root.clientHeight, window.innerHeight);
+			if (!target || target.getBoundingClientRect().top < bottom) stop();
+			locate();
+		};
+		const moved = () => {
+			clearTimeout(quiet);
+			quiet = setTimeout(ended, 150);
+		};
+		if (!('onscrollend' in window)) root.addEventListener('scroll', moved, { passive: true });
+		root.addEventListener('scrollend', ended);
+		pressing = true;
+		unwatch = stop;
+	}
+
 	/** Scroll a section's target to the top, then focus it without a second scroll (§5.4). */
 	function go(key: SectionKey) {
 		const section = sections.find((s) => s.key === key);
 		if (!section) return;
 		pressed = key;
 		current = key;
+		if (scroller) watchPress(scroller);
 		section.target.scrollIntoView?.({
 			block: 'start',
 			behavior: reduced.current ? 'auto' : 'smooth'
@@ -244,7 +293,10 @@
 		focusButton(clampSection(current, keys), pinned);
 	}
 
-	/** ←, →, Home and End move between the buttons (the APG toolbar), wrapping at the ends. */
+	/**
+	 * ←, →, Home and End move between the buttons (the APG toolbar), wrapping at the ends; static,
+	 * the focus brings the nav into view, as "Back to the sections" does (§5.4 Focus never hidden).
+	 */
 	function keydown(event: KeyboardEvent) {
 		const from = (event.target as HTMLElement).closest?.('[data-section]');
 		const at = keys.indexOf(from?.getAttribute('data-section') as SectionKey);
@@ -266,7 +318,7 @@
 							: -1;
 		if (next < 0) return;
 		event.preventDefault();
-		focusButton(keys[next]!, true);
+		focusButton(keys[next]!, pinned);
 	}
 </script>
 

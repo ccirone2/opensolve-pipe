@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project, PumpGroupCurveResponse, SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
+import { outOfSight } from '$lib/testing/helpers';
 import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
@@ -160,7 +161,10 @@ describe('the section nav', () => {
 		render(PumpsNav, { props: { sections: sectionsOf(ALL) } });
 		expect(nav().tagName).toBe('NAV');
 		expect(toolbar()).toHaveAttribute('aria-orientation', 'horizontal');
-		expect(within(nav()).getByText('Go to', { exact: true })).toBeVisible();
+		const lead = within(nav()).getByText('Go to', { exact: true });
+		expect(lead).toBeVisible();
+		// Seen at every width: toBeVisible reads no class, so an sr-only lead would pass it.
+		expect(outOfSight(lead)).toBe(false);
 		expect(buttons().map(nameOf)).toEqual([
 			'Per pump',
 			'Pump chart',
@@ -180,17 +184,21 @@ describe('the section nav', () => {
 		render(PumpsNav, { props: { sections: sectionsOf(ALL) } });
 		expect(stops()).toEqual([button('Per pump')]);
 		button('Per pump').focus();
-		await fireEvent.keyDown(button('Per pump'), { key: 'ArrowRight' });
+		// Each key it handles is taken from the browser (fireEvent gives false once the default
+		// is prevented): the browser's own End and Home would scroll the pane to its ends.
+		expect(await fireEvent.keyDown(button('Per pump'), { key: 'ArrowRight' })).toBe(false);
 		expect(document.activeElement).toBe(button('Pump chart'));
 		expect(stops()).toEqual([button('Pump chart')]);
-		await fireEvent.keyDown(button('Pump chart'), { key: 'End' });
+		expect(await fireEvent.keyDown(button('Pump chart'), { key: 'End' })).toBe(false);
 		expect(document.activeElement).toBe(button('Running combinations'));
 		expect(stops()).toEqual([button('Running combinations')]);
-		await fireEvent.keyDown(button('Running combinations'), { key: 'ArrowRight' });
+		expect(await fireEvent.keyDown(button('Running combinations'), { key: 'ArrowRight' })).toBe(
+			false
+		);
 		expect(document.activeElement).toBe(button('Per pump'));
-		await fireEvent.keyDown(button('Per pump'), { key: 'ArrowLeft' });
+		expect(await fireEvent.keyDown(button('Per pump'), { key: 'ArrowLeft' })).toBe(false);
 		expect(document.activeElement).toBe(button('Running combinations'));
-		await fireEvent.keyDown(button('Running combinations'), { key: 'Home' });
+		expect(await fireEvent.keyDown(button('Running combinations'), { key: 'Home' })).toBe(false);
 		expect(document.activeElement).toBe(button('Per pump'));
 		expect(stops()).toEqual([button('Per pump')]);
 		// Another key is the browser's: not taken.
@@ -202,6 +210,33 @@ describe('the section nav', () => {
 		button('Per pump').dispatchEvent(other);
 		expect(other.defaultPrevented).toBe(false);
 		expect(document.activeElement).toBe(button('Per pump'));
+	});
+
+	it('brings the button an arrow key focuses into the row’s view, scrolling the row alone (§5.4 One shared component)', async () => {
+		const scrolled = stubScroll();
+		render(PumpsNav, { props: { sections: sectionsOf(ALL) } });
+		// Boxes, as a 200 px row holding buttons 100 px wide side by side.
+		const row = toolbar();
+		const all = buttons();
+		Object.defineProperty(row, 'clientWidth', { configurable: true, value: 200 });
+		Object.defineProperty(row, 'scrollWidth', { configurable: true, value: 100 * all.length });
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: Element
+		) {
+			const i = all.indexOf(this as HTMLElement);
+			const left = this === row ? row.scrollLeft : i >= 0 ? 100 * i : 0;
+			const width = this === row ? 200 : i >= 0 ? 100 : 0;
+			return { left, right: left + width, width, top: 0, bottom: 44, height: 44 } as DOMRect;
+		});
+		const scrollTo = vi.fn();
+		row.scrollTo = scrollTo as unknown as typeof row.scrollTo;
+		button('Per pump').focus();
+		await fireEvent.keyDown(button('Per pump'), { key: 'End' });
+		expect(document.activeElement).toBe(button('Running combinations'));
+		// The row brings the last button in, at 700 − 200 = 500, never by scrollIntoView.
+		expect(scrollTo).toHaveBeenLastCalledWith({ left: 500, behavior: 'smooth' });
+		expect(scrollTo.mock.contexts.at(-1)).toBe(row);
+		expect(scrolled).not.toHaveBeenCalled();
 	});
 
 	it('keeps the stop on the button last focused while the focus is in it, else on the current one', async () => {
@@ -386,6 +421,70 @@ describe('the section nav in its pane', () => {
 		place(sections, [-4000, -3300, -2600, -2000, 150, 1200, 1450]);
 		await observe();
 		expect(currentNames()).toEqual(['Group chart']);
+	});
+
+	it('reads the pane again when a press’s scroll ends: the section pressed is current where it stops (§5.4 Where you are)', async () => {
+		stubScroll();
+		const { scroller, canvas } = pane();
+		const sections = sectionsOf(ALL);
+		place(sections, [180, 900, 2000, 2400, 2700, 4000, 4500]);
+		render(PumpsNav, { props: { sections, scroller, canvas } });
+		await observe();
+		expect(currentNames()).toEqual(['Per pump']);
+		// A smooth scroll to Add cases. A scroll that ended just before it (the focus bringing the
+		// nav into view) ends now, Add cases still below the pane (100 to 700): it is read, and
+		// the press's scroll still watched.
+		await fireEvent.click(button('Add cases'));
+		scroller.dispatchEvent(new Event('scrollend'));
+		await tick();
+		// On the way Group chart crosses the line while Add cases is still below the pane.
+		place(sections, [-2000, -1300, -200, 100, 150, 900, 1400]);
+		await observe();
+		// It stops with Add cases on the observer's top margin (100 + 53 + 8): no threshold is
+		// crossed, so no callback; the scroll's end reads the pane.
+		place(sections, [-2800, -2100, -1000, -700, -650, 161, 600]);
+		scroller.dispatchEvent(new Event('scrollend'));
+		await tick();
+		expect(currentNames()).toEqual(['Add cases']);
+		// From the top again, Running combinations, which the pane cannot bring to the line (at
+		// its end): pressed while still below the pane, it stays current where the scroll stops.
+		place(sections, [180, 900, 2000, 2400, 2700, 4000, 4500]);
+		await observe();
+		expect(currentNames()).toEqual(['Per pump']);
+		await fireEvent.click(button('Running combinations'));
+		scroller.dispatchEvent(new Event('scrollend'));
+		place(sections, [-2400, -1700, -600, -300, -250, 150, 1000]);
+		await observe();
+		place(sections, [-2600, -1900, -800, -500, -450, -50, 450]);
+		scroller.dispatchEvent(new Event('scrollend'));
+		await tick();
+		expect(currentNames()).toEqual(['Running combinations']);
+		// The scroll over, the pane says where you are again.
+		place(sections, [-1500, -800, 300, 600, 900, 2200, 2700]);
+		await observe();
+		expect(currentNames()).toEqual(['Pump chart']);
+	});
+
+	it('brings a static nav back into view with the focus an arrow key moves; pinned, the focus scrolls nothing (§5.4 Focus never hidden)', async () => {
+		const { scroller, canvas } = pane();
+		render(PumpsNav, { props: { sections: sectionsOf(ALL), scroller, canvas } });
+		await observe();
+		expect(nav()).not.toHaveAttribute('data-pinned');
+		// Static, the nav scrolls out above the pane while the pump canvas is still in view: the
+		// focus brings it back.
+		const chart = vi.spyOn(button('Pump chart'), 'focus');
+		button('Per pump').focus();
+		await fireEvent.keyDown(button('Per pump'), { key: 'ArrowRight' });
+		expect(document.activeElement).toBe(button('Pump chart'));
+		expect(chart).toHaveBeenCalledWith({ preventScroll: false });
+		// Pinned, it is in sight: the focus scrolls nothing, the row alone brings the button in.
+		boxes.set(canvas, { top: -524, bottom: 100 });
+		await observe();
+		expect(nav()).toHaveAttribute('data-pinned');
+		const together = vi.spyOn(button('Pumps together'), 'focus');
+		await fireEvent.keyDown(button('Pump chart'), { key: 'ArrowRight' });
+		expect(document.activeElement).toBe(button('Pumps together'));
+		expect(together).toHaveBeenCalledWith({ preventScroll: true });
 	});
 
 	it('pins only once the pump canvas has scrolled out above the pane’s top', async () => {

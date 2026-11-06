@@ -37,6 +37,7 @@ import {
 	readyState,
 	type LineupViewOptions
 } from '$lib/testing/curve-family';
+import { outOfSight } from '$lib/testing/helpers';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
 import type { CurveLabelsDrawn, PumpChartConfig } from '$lib/utils/pump-chart-config';
 import { ratedCurveRange } from '$lib/utils/pump-chart';
@@ -179,6 +180,91 @@ describe('the card', () => {
 			['■ Pump PB', true]
 		]);
 		await drawn();
+	});
+
+	it('says, closed, what opening it shows: a second line under its heading that describes its toggle (pumps-results-layout.md §5.3)', async () => {
+		const c = named('parallel-ideal');
+		const ABOUT =
+			"The station's duty, the group curve, each pump's share and cases with fewer pumps running";
+		const view = render(PumpGroupChart, props(c, { open: false }));
+		const toggle = screen.getByRole('button', { name: /^Pumps together/ });
+		// Its name still starts "Pumps together" and names the pumps (the section nav's target).
+		expect(toggle).toHaveAccessibleName('Pumps together (Pump PA, Pump PB)');
+		expect(toggle).toHaveAccessibleDescription(ABOUT);
+		const line = screen.getByText(ABOUT);
+		// A line of its own under the heading, on screen: not inside the h3 or its button.
+		expect(line.tagName).toBe('P');
+		expect(line.closest('h3')).toBeNull();
+		expect(line).toBeVisible();
+		expect(outOfSight(line)).toBe(false);
+		expect(
+			screen.getByRole('heading', { level: 3 }).compareDocumentPosition(line) &
+				Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+		// The chevron turns as the card opens, and never with reduced motion (§5.3 markup rules).
+		const chevron = toggle.querySelector('svg')!;
+		expect(chevron).toHaveAttribute('aria-hidden', 'true');
+		expect(chevron).toHaveClass('transition-transform', 'motion-reduce:transition-none');
+		expect(chevron).not.toHaveClass('rotate-90');
+		// Opened: the line goes, and so does the description.
+		await fireEvent.click(toggle);
+		expect(screen.queryByText(ABOUT)).toBeNull();
+		expect(toggle).not.toHaveAttribute('aria-describedby');
+		expect(toggle).toHaveAccessibleDescription('');
+		expect(chevron).toHaveClass('rotate-90');
+		await drawn();
+		// With scenarios (the box "Also show …" given only then), Running combinations too.
+		view.unmount();
+		render(PumpGroupChart, props(c, { open: false, onothers: () => {} }));
+		expect(screen.getByRole('button', { name: /^Pumps together/ })).toHaveAccessibleDescription(
+			`${ABOUT}; Running combinations`
+		);
+	});
+
+	it('draws its actions under its legend and opens its data after its reference (pumps-results-layout.md §5.1, §9 S2)', async () => {
+		const c = named('parallel-ideal');
+		render(PumpGroupChart, props(c, { system: systemReady(c), image: image() }));
+		await drawn();
+		const figure = screen.getByRole('figure', { name: 'Pump PA and Pump PB in parallel' });
+		const legend = within(figure).getByRole('list', { name: 'Legend' });
+		const show = within(figure).getByRole('button', { name: 'Show data table' });
+		const download = within(figure).getByRole('button', {
+			name: /^Download image of the pumps together/
+		});
+		// One row, right under the legend, before the reading controls (F3: it sat at the card's
+		// foot, after Running combinations).
+		expect(legend.nextElementSibling).toBe(show.parentElement);
+		expect(download.parentElement).toBe(show.parentElement);
+		const follows = (a: Node, b: Node) =>
+			!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+		expect(
+			follows(show, within(figure).getByRole('slider', { name: 'Read along the curves' }))
+		).toBe(true);
+		// No data region until asked for; then the one its toggle controls, in the figure, right
+		// after the reference (how each curve is computed), its last part: after every note.
+		expect(show).toHaveAttribute('aria-expanded', 'false');
+		const controls = show.getAttribute('aria-controls')!;
+		expect(document.getElementById(controls)).toBeNull();
+		await fireEvent.click(show);
+		expect(show).toHaveAttribute('aria-expanded', 'true');
+		const data = document.getElementById(controls)!;
+		expect(figure.lastElementChild).toBe(data);
+		const reference = [...figure.querySelectorAll(':scope > details')];
+		expect(reference.map((d) => d.querySelector('summary')!.textContent!.trim())).toEqual([
+			'How the group curve is computed',
+			'How the group system curve is computed'
+		]);
+		expect(data.previousElementSibling).toBe(reference.at(-1));
+		for (const note of figure.querySelectorAll(':scope > p'))
+			expect(follows(note, data)).toBe(true);
+		expect(
+			within(data).getByRole('table', { name: "Each pump's point (flow through it)" })
+		).toBeVisible();
+		expect(
+			within(data).getByRole('table', {
+				name: "Group system curve (rise the rest of the network needs at each station's flow)"
+			})
+		).toBeVisible();
 	});
 
 	it('draws the members, the group curve and the Group point, with the figure named', async () => {
@@ -1298,6 +1384,135 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			screen.queryByRole('button', { name: "Cancel the other cases' station duties" })
 		).toBeNull();
 		expect(screen.getByRole('figure')).toHaveFocus();
+	});
+
+	it('its sections, in reading order under h4s: Station, Group chart, Add cases, Running combinations (pumps-results-layout.md §5.3, §9 S2)', async () => {
+		const input: CombinationsInput = {
+			members: [
+				{ id: 'PA', name: 'Pump PA', slot: 0 },
+				{ id: 'PB', name: 'Pump PB', slot: 1 }
+			],
+			cases: [
+				{
+					key: '',
+					name: 'Base case',
+					shown: true,
+					status: 'solved',
+					response: c.solve,
+					stale: false,
+					station: 'Station 55.15 L/s at a rise of 27.38 m'
+				},
+				{
+					key: 'S2',
+					name: 'Pump PB off',
+					shown: false,
+					status: 'solved',
+					response: c.scenarioCases.S2!.solve,
+					stale: false,
+					station: null,
+					ring: 2
+				}
+			],
+			prefs: c.project.settings.units,
+			project: c.project
+		};
+		const extremes = combinationExtremes(input);
+		expect(extremes.lines.length).toBeGreaterThan(0);
+		render(
+			PumpGroupChart,
+			base({
+				lineups: plan(),
+				otherCases: others(),
+				othersOn: true,
+				onothers: () => {},
+				image: image(),
+				combinations: runningCombinations(input),
+				extremes
+			})
+		);
+		await drawn();
+		const card = screen.getByRole('region', { name: /^Pumps together/ });
+		// The outline of the card (§7): the h3, an h4 per section, the extremes' h5 under the h4 of
+		// the section it summarises (F13: before, it followed Add cases).
+		expect(
+			within(card)
+				.getAllByRole('heading')
+				.map((h) => [h.tagName, h.textContent!.replace(/\s+/g, ' ').trim()])
+		).toEqual([
+			['H3', 'Pumps together'],
+			['H4', 'Station'],
+			['H4', 'Group chart'],
+			['H4', 'Add cases'],
+			['H4', 'Running combinations'],
+			['H5', 'Extremes over these cases (current results)']
+		]);
+		const heading = (name: string) => within(card).getByRole('heading', { name, level: 4 });
+		/** A section: its h4's wrapper (the block's own section for Add cases). */
+		const section = (name: string) =>
+			name === 'Add cases' ? block().parentElement! : heading(name).parentElement!;
+		const follows = (a: Node, b: Node) =>
+			!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+		const order = ['Station', 'Group chart', 'Add cases', 'Running combinations'];
+		for (const [i, name] of order.entries()) {
+			// After the members, each section after the one before, and its heading first in it.
+			const s = section(name);
+			expect(follows(within(card).getByRole('group', { name: 'Pumps in the group' }), s)).toBe(
+				true
+			);
+			if (i > 0) expect(follows(section(order[i - 1]!), s)).toBe(true);
+			expect(s.contains(heading(name))).toBe(true);
+			expect(s.querySelector('h4')).toBe(heading(name));
+			// The type scale (§5.2): a rule above each section.
+			expect(s).toHaveClass('border-t', 'pt-3');
+		}
+		// Each part in its section, after its heading.
+		const inSection = (name: string, el: Element) => {
+			expect(section(name).contains(el)).toBe(true);
+			expect(follows(heading(name), el)).toBe(true);
+		};
+		inSection(
+			'Station',
+			within(card).getByRole('region', { name: 'The pumps in the group, Base case' })
+		);
+		inSection('Station', within(card).getByLabelText('The station'));
+		inSection('Group chart', within(card).getByRole('figure'));
+		// The block (its own region, its h4 first in it) is the whole of its section.
+		expect([...section('Add cases').children]).toEqual([block()]);
+		expect(block().firstElementChild).toBe(heading('Add cases'));
+		inSection(
+			'Running combinations',
+			within(card).getByRole('table', { name: 'Running combinations' })
+		);
+		inSection(
+			'Running combinations',
+			within(card).getByRole('heading', { name: 'Extremes over these cases (current results)' })
+		);
+		inSection('Running combinations', within(card).getByLabelText('Extremes over these cases'));
+		// The type scale (§5.2): the h3 16 px, each h4 14 px, both semibold; the h5 a section title.
+		expect(within(card).getByRole('heading', { level: 3 })).toHaveClass(
+			'text-base',
+			'font-semibold'
+		);
+		for (const name of ['Station', 'Group chart', 'Running combinations']) {
+			expect(heading(name)).toHaveClass('text-sm', 'font-semibold');
+			// The section nav's targets (§5.4): headings that take the focus, never a Tab stop.
+			expect(heading(name)).toHaveAttribute('tabindex', '-1');
+		}
+		expect(
+			within(card).getByRole('heading', { name: 'Extremes over these cases (current results)' })
+		).toHaveClass('section-title');
+		// Plain divs with headings, not landmarks (§7): the regions are the ones tests pin.
+		expect(within(card).queryByRole('region', { name: 'Station' })).toBeNull();
+		expect(within(card).queryByRole('region', { name: 'Group chart' })).toBeNull();
+		expect(within(card).getByRole('region', { name: 'Running combinations' })).toHaveAttribute(
+			'data-running-combinations'
+		);
+		// Running combinations' caption is visually hidden beside its h4, and still its name.
+		const caption = within(card)
+			.getByRole('table', { name: 'Running combinations' })
+			.querySelector('caption')!;
+		expect(caption).toHaveTextContent('Running combinations');
+		expect(caption).toHaveClass('sr-only');
 	});
 
 	it('Running combinations: a row group per case, its members’ rows, invalid values marked; the extremes', () => {

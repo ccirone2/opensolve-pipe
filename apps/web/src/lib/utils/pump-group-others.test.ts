@@ -301,7 +301,7 @@ describe('the notes', () => {
 			frame('Tee T1 (run inlet)', 'Tee T2 (run outlet)', PARALLEL),
 			DUTY_CLAIM_RULE,
 			`Other cases on the chart (slate rings, numbered): 1 · Pump PA off, ${f4(duty('S1').flow * 1000)} L/s at a rise of ${f4(duty('S1').head)} m: Yes: the same rest of the network; 2 · Pump PB off, ${f4(duty('S2').flow * 1000)} L/s at a rise of ${f4(duty('S2').head)} m: Yes: the same rest of the network; 3 · Delivery tank 5 m higher, ${f4(duty('S3').flow * 1000)} L/s at a rise of ${f4(duty('S3').head)} m: No: the rest of the network differs from this case's; its own group system curve is not drawn.`,
-			'Not on the chart: Both pumps off (not on the chart (unticked under Cases on this chart)).'
+			'Not on the chart: Both pumps off (unticked under Cases on this chart).'
 		]);
 		// The image's footer: after the system duty notes, before the members'.
 		const lines = groupNoteLines(notes);
@@ -1284,7 +1284,7 @@ describe('the curve family: the legend, the notes, the accessible name and the t
 				entry(5, 'S5', ON, CROSSING('3 running')),
 				entry(6, 'S6', ON, CROSSING('3 running'))
 			].join('; ')}.`,
-			`Not on the chart: ${NAMES.S7} (not on the chart (unticked under Cases on this chart)); ${NAMES.S8} (not on the chart (unticked under Cases on this chart)).`
+			`Not on the chart: ${NAMES.S7} (unticked under Cases on this chart); ${NAMES.S8} (unticked under Cases on this chart).`
 		]);
 		// "1 of 4 running" shown: the other curves cut at the right edge; its system curve whole.
 		const low = notesFor(lineupView('S3')).others;

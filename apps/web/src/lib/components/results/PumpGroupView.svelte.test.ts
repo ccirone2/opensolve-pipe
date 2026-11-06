@@ -156,6 +156,24 @@ describe('the Pumps together card in the Pumps view', () => {
 		await waitFor(() => expect(line()).toBeNull());
 	});
 
+	it('says nothing of a suggestion when no group found holds the pump on the pump chart (pumps-results-layout.md §5.3 Members, F29; S3 review MUT-05)', async () => {
+		const c = named('refused');
+		setup(structuredClone(c.project), c);
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		// Nothing is suggested here, so nothing is ticked: the user ticks the pumps.
+		await within(card()).findByText('Tick the pumps to see together.');
+		const boxes = within(
+			within(card()).getByRole('group', { name: 'Pumps in the group' })
+		).getAllByRole('checkbox') as HTMLInputElement[];
+		expect(boxes.length).toBeGreaterThanOrEqual(2);
+		expect(boxes.some((b) => b.checked)).toBe(false);
+		expect(within(card()).queryByText(/^Suggested for /)).toBeNull();
+		expect(card().querySelector('[data-group-suggested]')).toBeNull();
+	});
+
 	it('keeps the members when the case shown changes, and asks for that case', async () => {
 		const c = named('ladder');
 		const project = withScenarios(structuredClone(c.project), [

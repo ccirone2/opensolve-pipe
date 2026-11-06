@@ -148,11 +148,12 @@ async function oneOff(page: Page) {
 /**
  * 2. lineups (the same fixture): 4 pumps on Crane tees and 8 scenarios after Solve all (9 solves);
  * the card open, "Also show the other cases' station duties" ticked (the rings and the curve
- * family drawn), both data tables shown and every disclosure at or below the chart opened.
+ * family drawn), both data tables shown and every disclosure at or below the chart opened. The
+ * project can be given, with names of its own (the long-name test).
  */
-async function lineups(page: Page) {
+async function lineups(page: Page, project: Project = projectOf('lineups')) {
 	const counter = solveCounter(page);
-	await open(page, projectOf('lineups'));
+	await open(page, project);
 	await solveAll(page, counter, 9);
 	const tab = await pumpsTab(page);
 	const card = await openCard(page, tab);
@@ -1892,6 +1893,42 @@ const TABS_TO_GROUP_TABLE = 20;
 const LEGEND_390 = 365;
 
 /**
+ * No name in the card cut short: no button, summary, label, list item, legend or heading, and
+ * nothing inside one, whose words run past its own box, so each shows its end (a name's end can be
+ * what tells two apart, §15 item 17). Inside one too, since a child that clips its own words (an
+ * ellipsis, `overflow: hidden`) leaves its parent's box whole (S3 review MUT-08). Each one cut,
+ * by its tag, its first words and its widths.
+ */
+async function cutInCard(page: Page): Promise<string[]> {
+	return page.evaluate(() => {
+		const c = document.querySelector('[data-pumps-together]')!;
+		const roots = 'button, summary, label, li, legend, h4, h5';
+		return [...c.querySelectorAll(`${roots}, :is(${roots}) *`)]
+			.filter((el): el is HTMLElement => el instanceof HTMLElement)
+			.filter((el) => {
+				const r = el.getBoundingClientRect();
+				return el.checkVisibility() && r.width > 1 && el.scrollWidth > el.clientWidth + 1;
+			})
+			.map(
+				(el) =>
+					`${el.tagName.toLowerCase()} "${(el.textContent ?? '').trim().slice(0, 50)}" ${el.scrollWidth} in ${el.clientWidth}`
+			);
+	});
+}
+
+/**
+ * Below 640 px the group table reads as a list (§5.3 Station, §5.5), so its box never scrolls
+ * sideways, a long name wrapping inside its line (S3 review LAYOUT-2); at 640 px and over it is a
+ * table, whose box may (false then).
+ */
+async function groupTableSideways(page: Page): Promise<boolean> {
+	return page.evaluate(() => {
+		const box = document.querySelector<HTMLElement>('[data-pumps-together] [data-group-table]');
+		return !!box && window.innerWidth < 640 && box.scrollWidth > box.clientWidth + 1;
+	});
+}
+
+/**
  * The card's part of S3 at the size shown, with the card open (soft, so a run reports every
  * check): its budgets (§5.7 rows 4, 5, 7, 8, 10); the other cases under their h5, the switch
  * before the list it reveals, in the DOM and on screen (§10 Order), their own live line at rest
@@ -1928,12 +1965,22 @@ async function cardPart(
 		const header = c.querySelector('h3 button');
 		const dl = c.querySelector('dl[aria-label="The station"]');
 		const value = dl?.querySelector('dd');
+		// In sight at a size of its own, not sr-only's 1 px box (S3 review MUT-09).
+		const seen = (el: Element) => {
+			const r = el.getBoundingClientRect();
+			return (
+				el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+				r.width > 1 &&
+				r.height > 1
+			);
+		};
 		return header && dl && value
 			? {
 					fromHeader: Math.round(
 						value.getBoundingClientRect().top - header.getBoundingClientRect().bottom
 					),
-					fromCardTop: Math.round(dl.getBoundingClientRect().top - c.getBoundingClientRect().top)
+					fromCardTop: Math.round(dl.getBoundingClientRect().top - c.getBoundingClientRect().top),
+					seen: [dl, ...dl.querySelectorAll('dt, dd')].every(seen)
 				}
 			: null;
 	});
@@ -1944,6 +1991,7 @@ async function cardPart(
 		`${where}: the station's first value ${station} px under the card's header (its dl ${stationAt?.fromCardTop} px under the card's top)`
 	);
 	soft(station, `the station's dl drawn, ${where}`).not.toBeNull();
+	soft(stationAt?.seen, `the station's dl and its values in sight, ${where}`).toBe(true);
 	if (stationBudget !== undefined && station !== null) {
 		soft(
 			station,
@@ -1995,6 +2043,13 @@ async function cardPart(
 		const notes = row
 			? [...section.children].slice([...section.children].indexOf(row) + 1).filter(seen)
 			: [];
+		// Every ring note after the live line's row (§5.3 top to bottom, §7 Tab order), so the
+		// height above is theirs (S3 review MUT-07).
+		const ringNotes = [
+			...section.querySelectorAll(
+				':scope > p:not([data-group-others-off]), :scope > [data-group-rings-how], :scope > [data-group-rings]'
+			)
+		];
 		const height = notes.length
 			? Math.round(
 					notes.at(-1)!.getBoundingClientRect().bottom - notes[0]!.getBoundingClientRect().top
@@ -2030,6 +2085,11 @@ async function cardPart(
 				!how ||
 				(!!list && !!(how.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING)),
 			howOpen: wasOpen,
+			notesAfterRow:
+				!!row &&
+				ringNotes.every(
+					(n) => !!(row.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)
+				),
 			rings: list ? list.querySelectorAll('li').length : 0,
 			unseen: inSight.filter((el) => !seen(el)).map((el) => squash(el.textContent).slice(0, 60)),
 			height,
@@ -2066,6 +2126,10 @@ async function cardPart(
 			soft(others.howOpen, `"How to read the rings" at its default, ${where}`).toBe(false);
 		}
 		soft(others.rings, `the ring list's lines, ${where}`).toBeGreaterThan(0);
+		soft(others.notesAfterRow, `the ring notes after the live line's row, ${where}`).toBe(true);
+		if (others.rings > 0) {
+			soft(others.height, `the ring notes measured, ${where}`).toBeGreaterThan(0);
+		}
 		soft(others.unseen, `the ring notes out of sight, ${where}`).toEqual([]);
 		const ringBudget = size === '1280x800' ? RING_NOTES_1280[view] : undefined;
 		if (ringBudget) {
@@ -2082,21 +2146,10 @@ async function cardPart(
 		soft(legendHeight, `the group legend's height, ${where}`).toBeLessThanOrEqual(452);
 	}
 
-	// No name in the card cut short: no button, summary, label or list item whose words run past
-	// its own box, so each shows its end (a name's end can be what tells two apart, §15 item 17).
-	const cut = await page.evaluate(() => {
-		const c = document.querySelector('[data-pumps-together]')!;
-		return [...c.querySelectorAll<HTMLElement>('button, summary, label, li, legend, h4, h5')]
-			.filter((el) => {
-				const r = el.getBoundingClientRect();
-				return el.checkVisibility() && r.width > 1 && el.scrollWidth > el.clientWidth + 1;
-			})
-			.map(
-				(el) =>
-					`${el.tagName.toLowerCase()} "${(el.textContent ?? '').trim().slice(0, 50)}" ${el.scrollWidth} in ${el.clientWidth}`
-			);
-	});
-	soft(cut, `names cut short in the card, ${where}`).toEqual([]);
+	soft(await cutInCard(page), `names cut short in the card, ${where}`).toEqual([]);
+	soft(await groupTableSideways(page), `the group table's box scrolls sideways, ${where}`).toBe(
+		false
+	);
 
 	// §5.7 row 10: Tab stops from the card's header to the group chart's Show data table.
 	await toggle.focus();
@@ -2370,6 +2423,7 @@ test('the card’s live lines are drawn empty before they speak: the group curve
 		const line = card.locator(hook);
 		// Polite and atomic, never role=status, with no busy ancestor, holding no button.
 		await expect(line).toHaveAttribute('aria-live', 'polite');
+		await expect(line).toHaveAttribute('aria-atomic', 'true');
 		await expect(line).not.toHaveAttribute('role', /./);
 		expect(
 			await line.evaluate((el) => !!el.parentElement?.closest('[aria-busy="true"]')),
@@ -2793,6 +2847,81 @@ test('the closed card’s heading keeps “Pumps together” on one line beside 
 		);
 		expect.soft(read.lines, `"Pumps together" on one line at ${sizeOf(page)}`).toBe(1);
 		expect.soft(read.clipped, `the toggle's words cut off at ${sizeOf(page)}`).toBe(false);
+	}
+	await page.setViewportSize(viewport);
+});
+
+// ---- S3 review: a 40-character unbroken name in the card (LAYOUT-1, LAYOUT-2) ------------------
+
+/** §9 S5's unbroken-name case, 40 characters and no space: a pump's name and a case's. */
+const LONG_PUMP = 'CondenserWaterPrimaryLoopPumpNorthSide01';
+const LONG_CASE = 'PumpP1OffForMaintenanceNorthSideWinter01';
+
+test('a 40-character unbroken pump name and case name show their ends in the card at each size: the legend, the members, the cases, the group table a list on phones (§5.3, §5.5; S3 review LAYOUT-1, LAYOUT-2)', async ({
+	page
+}, info) => {
+	test.setTimeout(420_000);
+	const project = projectOf('lineups');
+	project.components.find((c) => c.id === 'P1')!.name = LONG_PUMP;
+	project.scenarios!.find((s) => s.id === 'S4')!.name = LONG_CASE;
+	await lineups(page, project);
+	const tab = resultsPane(page).getByRole('tabpanel', { name: 'Pumps', exact: true });
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	// The names are drawn where the review found them cut: the legend, the members, the cases on
+	// the chart and the group table.
+	await expect(card.getByRole('list', { name: 'Legend' })).toContainText(LONG_PUMP);
+	await expect(card.getByRole('group', { name: 'Pumps in the group' })).toContainText(LONG_PUMP);
+	await expect(card.getByRole('group', { name: 'Cases on this chart' })).toContainText(LONG_CASE);
+	await expect(
+		card.getByRole('region', { name: 'The pumps in the group' }).getByRole('rowheader').first()
+	).toContainText(LONG_PUMP);
+	const viewport = page.viewportSize()!;
+	const sizes =
+		info.project.name === 'mobile' ? [viewport, { width: 320, height: 640 }] : [viewport];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `the long names at ${sizeOf(page)}`;
+		// The card's own checks: Results per pump's table above it is the shared ResultsTable's,
+		// outside this slice, and draws a long name of its own.
+		const cut = await cutInCard(page);
+		console.log(`${where}: cut ${JSON.stringify(cut)}`);
+		expect.soft(cut, `names cut short in the card, ${where}`).toEqual([]);
+		expect
+			.soft(await groupTableSideways(page), `the group table's box scrolls sideways, ${where}`)
+			.toBe(false);
+		// Each line of a long name ends inside the card, outside a box that scrolls (the data
+		// tables, and the group table at 640 px and over, whose name column wraps at 12 rem).
+		const past = await card.evaluate(
+			(c, names) => {
+				const edge = c.getBoundingClientRect().right;
+				const walker = document.createTreeWalker(c, NodeFilter.SHOW_TEXT);
+				const found: string[] = [];
+				for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+					const el = n.parentElement!;
+					if (!names.some((name) => n!.data.includes(name))) continue;
+					const r = el.getBoundingClientRect();
+					if (!el.checkVisibility() || r.width <= 1 || r.height <= 1) continue;
+					let scrolls = false;
+					for (let a: Element | null = el; a && a !== c; a = a.parentElement) {
+						if (/(auto|scroll)/.test(getComputedStyle(a).overflowX)) scrolls = true;
+					}
+					if (scrolls) continue;
+					const range = document.createRange();
+					range.selectNodeContents(n);
+					const right = Math.max(...[...range.getClientRects()].map((b) => b.right));
+					if (right > edge + 0.5) {
+						found.push(
+							`${el.tagName.toLowerCase()} "${n.data.trim().slice(0, 50)}" to ${Math.round(right)} past ${Math.round(edge)}`
+						);
+					}
+				}
+				return found;
+			},
+			[LONG_PUMP, LONG_CASE]
+		);
+		console.log(`${where}: past the card ${JSON.stringify(past)}`);
+		expect.soft(past, `a long name's line past the card's edge, ${where}`).toEqual([]);
 	}
 	await page.setViewportSize(viewport);
 });

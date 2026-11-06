@@ -263,6 +263,11 @@ test('the station: its answer before the group table, each flagged pump’s flag
 	const region = station.getByRole('region', { name: 'The pumps in the group' });
 	const [a, r] = [(await answer.boundingBox())!, (await region.boundingBox())!];
 	expect(a.y + a.height).toBeLessThanOrEqual(r.y);
+	// In sight at a size of its own, on a phone too: not sr-only's 1 px box, which toBeVisible
+	// accepts (S3 review MUT-09).
+	await expect(answer).toBeVisible();
+	expect(a.width, "the station's answer's width").toBeGreaterThan(1);
+	expect(a.height, "the station's answer's height").toBeGreaterThan(1);
 	await expect(region.getByRole('columnheader', { name: 'Flags' })).toHaveCount(0);
 	// Both pumps' NPSH is not checked here: a warning flag each, in the solve.
 	const flagged = ['PA', 'PB'].filter((id) => solved.flags.some((f) => f.componentId === id));

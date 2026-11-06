@@ -307,7 +307,9 @@
 					>
 						<!-- The sticky name wraps at 12 rem (§5.3): its own width is its one line, up to
 							12 rem, so the column is that wide and a long name wraps inside it (the table's
-							overflow would otherwise give it its longest word). -->
+							overflow would otherwise give it its longest word). Below 640 px, a list (§5.5),
+							it takes the line's width and wraps anywhere, a name with no space too (ui-guide:
+							a button holding a name wraps at every width); the table's column never sees it. -->
 						<th
 							role="rowheader"
 							scope="row"
@@ -319,7 +321,7 @@
 							{#if oninspect}
 								<button
 									type="button"
-									class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 text-left font-medium wrap-break-word text-blue-800 underline underline-offset-2 max-sm:w-auto max-sm:max-w-none"
+									class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 text-left font-medium wrap-break-word text-blue-800 underline underline-offset-2 max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
 									onclick={() => oninspect(row.id)}
 								>
 									<span aria-hidden="true" class="no-underline" style:color={row.style.color}
@@ -328,7 +330,7 @@
 								</button>
 							{:else}
 								<span
-									class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 font-medium wrap-break-word max-sm:w-auto max-sm:max-w-none"
+									class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 font-medium wrap-break-word max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
 									><span aria-hidden="true" style:color={row.style.color}>{row.style.symbol}</span
 									><span class="min-w-0">{row.name}</span></span
 								>

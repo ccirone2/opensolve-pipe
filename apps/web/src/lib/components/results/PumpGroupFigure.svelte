@@ -476,7 +476,8 @@
 		ancestor (§5.3 markup rules, §7).
 	-->
 	<figure bind:this={figure} class="space-y-2" aria-labelledby="{id}-caption" tabindex="-1">
-		<figcaption id="{id}-caption" class="text-sm font-medium">{caption}</figcaption>
+		<!-- Its names wrap, one with no space too (§5.3): the caption is the chart's title. -->
+		<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">{caption}</figcaption>
 		{#if loadFailed}
 			<p class="text-sm text-slate-700" role="alert">
 				{STALE_CHUNK_MESSAGE} The tables below list its points.
@@ -536,13 +537,15 @@
 					{/if}
 				</div>
 				<!-- One paragraph, not live: each pump and value a pair, from the sample's parts, the
-					separators visually hidden, so its text is the slider's value text (§5.3 Reading). -->
+					separators visually hidden, so its text is the slider's value text (§5.3 Reading),
+					" (the duty's rise)" with it at the duty's sample, with a flow or without one. -->
 				<p
 					class="grid grid-cols-1 gap-x-4 text-sm tabular-nums @min-[26rem]:grid-cols-2"
 					data-group-readout
 				>
 					<span class="col-span-full font-medium">{readSample.parts.at}:</span>
-					{#if readSample.parts.none}<span class="col-span-full">{readSample.parts.none}</span
+					{#if readSample.parts.none}<span class="col-span-full"
+							>{readSample.parts.none}{readSample.duty ? DUTY_RISE : ''}</span
 						>{:else}{#each readSample.parts.pairs as pair, i (i)}<span class="min-w-0"
 								>{#if i}<span class="sr-only">,&nbsp;</span>{/if}<span
 									class="wrap-break-word text-slate-600">{pair.name}</span
@@ -658,7 +661,8 @@
 			</div>
 			<!-- The legend after the reading, the strip and the actions, so the readout sits under its
 				canvas (§6.1, F12, F27): a container, its marker entries two-up where they fit (the
-				members' from 18 rem, every one's from 26 rem), its lines one per row. -->
+				members' from 18 rem, every one's from 26 rem), its lines one per row; each entry's
+				words wrap in their cell, a name with no space too, never over the next (§5.3). -->
 			<div class="@container">
 				<ul
 					class="grid grid-cols-1 gap-x-3.5 gap-y-1 text-xs text-slate-800 @min-[18rem]:grid-cols-2"
@@ -688,7 +692,7 @@
 							{:else}
 								<span aria-hidden="true" style:color={item.color}>{item.symbol}</span>
 							{/if}
-							{item.label}
+							<span class="min-w-0 wrap-break-word">{item.label}</span>
 						</li>
 					{/each}
 				</ul>

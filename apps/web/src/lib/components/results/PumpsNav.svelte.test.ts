@@ -14,7 +14,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NotAStationError } from '$lib/api/client';
+import { NetworkError, NotAStationError } from '$lib/api/client';
 import type { Project, PumpGroupCurveResponse, SolveResponse, TopologyIssue } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
@@ -861,6 +861,31 @@ describe('the section nav in the Pumps view', () => {
 		expect(document.activeElement).toBe(heading);
 		expect(scrolled.mock.contexts.at(-1)).toBe(heading);
 		expect(location.hash).toBe(hash);
+	});
+
+	it('marks Station, not Group chart, when the group curve’s request fails: its line heads Station since S3 (pumps-results-layout.md §5.3, §5.4 Marks; S3 review MUT-01)', async () => {
+		const c = named('parallel-ideal');
+		const solver: Solver = {
+			// No flags, so the failure is Station's worst mark (a warning would outrank it, §5.4).
+			solve: async () => {
+				const solved = structuredClone(c.solve);
+				solved.solvedState.flags = [];
+				return solved;
+			},
+			groupCurve: async () => {
+				throw new NetworkError('The server is busy.', 503, 'SERVER_BUSY');
+			}
+		};
+		const ws = testWorkspace(structuredClone(c.project), { solver });
+		render(WorkspaceView, { workspace: ws });
+		await ws.solve();
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(toggle());
+		await within(card()).findByText('The group curve could not be computed: The server is busy.');
+		await waitFor(() => expect(names()).toContain('Station, a request failed'));
+		// The group chart's own requests did not fail (its group system curve is asked for only
+		// after the group curve's answer): no mark there.
+		expect(names().filter((n) => n.startsWith('Group chart'))).toEqual(['Group chart']);
 	});
 
 	it('ends each card with "Back to the sections", visually hidden until focused, which focuses the nav’s current button', async () => {

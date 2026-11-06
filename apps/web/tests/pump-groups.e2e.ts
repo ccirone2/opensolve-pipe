@@ -17,6 +17,7 @@ import {
 	halfUlp,
 	readWorkbook,
 	resultsPane,
+	resultsScroller,
 	resultsView,
 	solveConverged
 } from './support';
@@ -134,6 +135,11 @@ async function noSidewaysScroll(page: Page) {
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
 		true
 	);
+	// The Results pane's own scroller too, which can scroll while the page keeps still (proposal
+	// pumps-results-layout.md §9 S0).
+	const scroller = await resultsScroller(page);
+	expect(scroller).not.toBeNull();
+	expect(scroller!.scrollWidth).toBeLessThanOrEqual(scroller!.clientWidth);
 }
 
 test('two pumps in parallel: the station, each share and loss on its way, the PNG', async ({

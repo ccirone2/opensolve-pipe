@@ -1409,9 +1409,14 @@ function otherNotes(
 	}
 	const without = others.filter((o) => o.state !== 'ready');
 	if (without.length) {
+		// pumps-results-layout.md §6.2 (S0): an unticked case's words begin "not on the chart", which
+		// this line says already, so it gives only why. `o.words` keep them, for Running
+		// combinations' station line and the "Other cases' station duties" cell, where they read right.
+		const why = (o: OtherGroupCase) =>
+			o.state === 'unticked' ? 'unticked under Cases on this chart' : o.words;
 		lines.push(
 			`Not on the chart: ${without
-				.map((o) => `${o.name}${o.stale ? ' (out of date)' : ''} (${o.words})`)
+				.map((o) => `${o.name}${o.stale ? ' (out of date)' : ''} (${why(o)})`)
 				.join('; ')}.`
 		);
 	}

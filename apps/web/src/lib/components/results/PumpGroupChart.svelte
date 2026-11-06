@@ -631,15 +631,21 @@
 				</p>
 			</fieldset>
 			{#if otherGroups.length}
-				<div bind:this={alsoFound} class="flex flex-wrap items-center gap-x-2">
-					{#each otherGroups as other (other.pumpIds.join('\u0000'))}
-						<button
-							type="button"
-							class="btn btn-quiet px-2 text-blue-800"
-							onclick={() => showSuggestion(other.pumpIds)}
-							>Also found: {andList(other.pumpIds.map(nameOf))}</button
-						>
-					{/each}
+				<!-- pumps-results-layout.md §9 S0 (F10): the buttons wrap (`.btn` does not), so the pane
+					never scrolls sideways, and the one sentence below says what each does. -->
+				<div>
+					<div bind:this={alsoFound} class="flex flex-wrap items-center gap-x-2">
+						{#each otherGroups as other (other.pumpIds.join('\u0000'))}
+							<button
+								type="button"
+								class="btn btn-quiet px-2 py-1.5 text-left wrap-anywhere whitespace-normal text-blue-800"
+								aria-describedby="{id}-also-found"
+								onclick={() => showSuggestion(other.pumpIds)}
+								>Also found: {andList(other.pumpIds.map(nameOf))}</button
+							>
+						{/each}
+					</div>
+					<p id="{id}-also-found" class="hint">Showing a group found replaces the pumps ticked.</p>
 				</div>
 			{/if}
 

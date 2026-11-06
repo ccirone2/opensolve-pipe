@@ -122,6 +122,29 @@ export async function solveConverged(page: Page): Promise<SolvedState> {
 	return body.solvedState!;
 }
 
+/**
+ * The Results pane's own scroller, the column that scrolls the view shown (ResultsPanel.svelte's
+ * `overflow-y-auto`, the first ancestor of the "Results view" row that scrolls): its visible width
+ * and the width of what it holds, in px. The page can keep still while this scrolls sideways
+ * (proposal pumps-results-layout.md §2.1 and F10: the "Also found" buttons), so a check of
+ * `document.documentElement` alone misses it. Null while the pane shows no results view.
+ */
+export async function resultsScroller(
+	page: Page
+): Promise<{ clientWidth: number; scrollWidth: number } | null> {
+	return page.evaluate(() => {
+		const pane = document.querySelector('section[aria-label="Results"]');
+		const row = pane?.querySelector('[role="tablist"][aria-label="Results view"]');
+		if (!pane || !row || !row.checkVisibility()) return null;
+		for (let e = row.parentElement; e && e !== pane; e = e.parentElement) {
+			if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) {
+				return { clientWidth: e.clientWidth, scrollWidth: e.scrollWidth };
+			}
+		}
+		return null;
+	});
+}
+
 /** Show one of the results views (Summary, Nodes, Links, Pumps, ...). */
 export async function resultsView(page: Page, view: string): Promise<Locator> {
 	const tab = resultsPane(page)

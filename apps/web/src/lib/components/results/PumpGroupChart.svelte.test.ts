@@ -320,6 +320,38 @@ describe('the card', () => {
 		expect(onslots).toHaveBeenLastCalledWith(['P1', 'P2', 'P3']);
 	});
 
+	it('says once that showing a group found replaces the pumps ticked, each button described by it and wrapping', () => {
+		// pumps-results-layout.md §9 S0 (F10): `.btn` (its min-h-ctl kept) does not wrap; these do, so
+		// the Results pane never scrolls sideways (tests/pumps-layout.e2e.ts measures it).
+		const c = named('ladder');
+		const sentence = 'Showing a group found replaces the pumps ticked.';
+		const view = render(
+			PumpGroupChart,
+			props(c, {
+				slots: ['P2'],
+				curve: undefined,
+				suggestions: [
+					{ pumpIds: ['P1', 'P2', 'P3'], kind: 'parallel' },
+					{ pumpIds: ['P2', 'P3'], kind: 'parallel' }
+				]
+			})
+		);
+		expect(screen.getAllByText(sentence)).toHaveLength(1);
+		const buttons = screen.getAllByRole('button', { name: /^Also found: / });
+		expect(buttons.map((b) => b.textContent)).toEqual([
+			'Also found: Pump P1, Pump P2 and Pump P3',
+			'Also found: Pump P2 and Pump P3'
+		]);
+		for (const button of buttons) {
+			expect(button).toHaveAccessibleDescription(sentence);
+			expect(button).toHaveClass('btn', 'whitespace-normal', 'text-left');
+		}
+		// No other group offered: no sentence.
+		view.unmount();
+		render(PumpGroupChart, props(c, { slots: ['P2', 'P3'], curve: undefined, suggestions: [] }));
+		expect(screen.queryByText(sentence)).toBeNull();
+	});
+
 	it('keeps the focus in the card when a group found is shown and its button goes', async () => {
 		const c = named('ladder');
 		const suggestions = [

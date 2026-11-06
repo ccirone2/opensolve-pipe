@@ -16,7 +16,7 @@ import {
 	type PumpChecksInput
 } from '$lib/utils/pump-chart';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '$lib/testing/results';
-import { outOfSight } from '$lib/testing/helpers';
+import { outOfSight, wordsInSight } from '$lib/testing/helpers';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
 import type { ChartImageRequest, ChartImageSource } from '$lib/utils/export/chart-image';
@@ -1706,10 +1706,23 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 	 * state of the chart, its system curve and its panels, chips and limits shown.
 	 */
 	describe('every note of the figure on screen, word for word', () => {
+		// Only the words in sight are read, so a line hidden in a child of a visible <p> is off
+		// screen (wordsInSight, testing/helpers.ts).
 		const onScreen = (figure: HTMLElement, line: string) =>
 			[...figure.querySelectorAll('p, span')].some(
-				(el) => squash(el.textContent).includes(line) && !outOfSight(el)
+				(el) => squash(wordsInSight(el)).includes(line) && !outOfSight(el)
 			);
+
+		it('reads only the words in sight: a line hidden inside a visible one is off screen', () => {
+			const figure = document.createElement('figure');
+			figure.innerHTML =
+				'<p class="text-xs"><span class="max-sm:sr-only">Efficiency at 80 % speed: made up.</span></p>' +
+				'<p class="text-xs">Shown <span class="sr-only">hidden</span> words.</p>';
+			expect(onScreen(figure, 'Efficiency at 80 % speed: made up.')).toBe(false);
+			expect(onScreen(figure, 'Shown hidden words.')).toBe(false);
+			// The control: the words in sight are on screen.
+			expect(onScreen(figure, 'Shown words.')).toBe(true);
+		});
 
 		const full = pumpResult({
 			operatingFlow: 0.034,

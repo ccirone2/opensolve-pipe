@@ -390,3 +390,17 @@ export function outOfSight(el: Element): boolean {
 	const details = el.closest('details');
 	return !!details && !details.open && !el.closest('summary');
 }
+
+/**
+ * The words of `el` in sight: its text nodes whose element is not out of sight (outOfSight),
+ * joined, so a line hidden in a child of a visible element is not read as on screen with it. The
+ * words-on-screen guards (proposal pumps-results-layout.md §10, §6.4 item 3) read it.
+ */
+export function wordsInSight(el: Element): string {
+	let words = '';
+	const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+	for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+		if (n.parentElement && !outOfSight(n.parentElement)) words += n.textContent ?? '';
+	}
+	return words;
+}

@@ -21,7 +21,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { gzip } from 'pako';
 import type { Project } from '../src/lib/api/types';
-import { exampleProject } from '../src/lib/utils/examples';
+import { exampleProject, pumpTransferExample } from '../src/lib/utils/examples';
 import { canonicalJson } from '../src/lib/utils/json';
 import {
 	caseGroup,
@@ -30,6 +30,7 @@ import {
 	resultsScroller,
 	resultsView,
 	showPane,
+	solve,
 	solveConverged
 } from './support';
 
@@ -79,7 +80,7 @@ async function solveAll(page: Page, counter: { n: number }, expected: number) {
 	await expect(resultsPane(page).getByRole('heading', { name: 'Converged' })).toBeVisible();
 }
 
-/** The Pumps tab at rest: no figure busy and no request in progress, for `stable` ms on end. */
+/** The Pumps tab at rest: nothing busy and no request in progress, for `stable` ms on end. */
 async function settle(page: Page, stable = 1500) {
 	let since = 0;
 	await expect
@@ -91,11 +92,8 @@ async function settle(page: Page, stable = 1500) {
 						(p) => !(p as HTMLElement).hidden
 					) as HTMLElement | undefined;
 					if (!tab) return false;
-					if (
-						[...tab.querySelectorAll('figure')].some((f) => f.getAttribute('aria-busy') === 'true')
-					) {
-						return false;
-					}
+					// Busy is a figure's or, from S1, its canvas's (pumps-results-layout.md §5.3).
+					if (tab.querySelector('[aria-busy="true"]')) return false;
 					return !/Computing|Solving/.test(tab.innerText);
 				});
 				if (!quiet) {
@@ -752,6 +750,222 @@ const sizeOf = (page: Page) => {
 	return `${v.width}x${v.height}`;
 };
 
+// ---- S1: the pump chart (§9 S1) -----------------------------------------------------------------
+
+/**
+ * §5.7 row 2: the pump chart's Show data table at most this far below its canvas, measured idle
+ * after the requests; at 320×640 no budget (§5.7: the sideways, nav and outline checks only).
+ */
+/**
+ * What Chromium's `<select>` keeps for itself beyond the author's padding: its inner start padding
+ * and its arrow. Measured in this Chromium at 16 px by comparing a select's text with the same
+ * select 80 px wider, pixel for pixel: names of 69, 237 and 276 px drew whole from 18 or 19 px
+ * more than text and padding, with `pr-8` or `pr-3` alike.
+ */
+const MENULIST_INNER = 20;
+
+const SHOW_TABLE_BELOW_CANVAS: Readonly<Record<string, number>> = {
+	'1280x800': 300,
+	'390x844': 400
+};
+
+/** On screen at a size of its own: not hidden, and not sr-only's 1 px box, which toBeVisible accepts. */
+async function seenBox(locator: Locator): Promise<boolean> {
+	return locator.evaluate((el) => {
+		const r = el.getBoundingClientRect();
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			r.width > 1 &&
+			r.height > 1
+		);
+	});
+}
+
+const pumpFigure = (page: Page) =>
+	resultsView(page, 'Pumps').then((tab) =>
+		tab.getByRole('figure', { name: /^Pump and system curves/ })
+	);
+
+/**
+ * The pump chart's part of S1, at the size shown (soft, so a run reports every check): its
+ * budget, the tab's outline down to the Pumps together card (§7: h3 Results per pump, h3 Pump
+ * chart, h4 Other cases on the pump chart), the containers (§5.5: none above a "Fields shown in …"
+ * group, whose sheet is fixed on a phone) and its two live lines at rest (§7 Live regions).
+ */
+async function pumpChartPart(page: Page, where: string) {
+	const size = sizeOf(page);
+	const figure = await pumpFigure(page);
+	const budget = SHOW_TABLE_BELOW_CANVAS[size];
+	if (budget !== undefined) {
+		const canvas = await figure.getByRole('img').boundingBox();
+		const toggle = await figure
+			.getByRole('button', { name: /^(Show|Hide) data table of the pump chart$/ })
+			.boundingBox();
+		expect.soft(canvas && toggle, `the canvas and Show data table drawn, ${where}`).toBeTruthy();
+		if (canvas && toggle) {
+			const below = Math.round(toggle.y - (canvas.y + canvas.height));
+			console.log(`${where}: Show data table ${below} px below the pump canvas (budget ${budget})`);
+			expect
+				.soft(below, `Show data table below the pump canvas, ${where}`)
+				.toBeLessThanOrEqual(budget);
+		}
+	}
+
+	const read = await page.evaluate(() => {
+		const pane = document.querySelector('section[aria-label="Results"]')!;
+		const tab = [...pane.querySelectorAll('[role="tabpanel"]')].find(
+			(p) => !(p as HTMLElement).hidden
+		)!;
+		const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+		const card = tab.querySelector('[data-pumps-together]');
+		const headings = [...tab.querySelectorAll('h1,h2,h3,h4,h5,h6')]
+			.filter((h) => h.checkVisibility() && h.getBoundingClientRect().height > 1)
+			.map((h) => ({
+				level: Number(h.tagName[1]),
+				text: squash(h.textContent),
+				inCard: !!card && card.contains(h)
+			}));
+		const containers: string[] = [];
+		const groups = [...document.querySelectorAll('[role="group"][aria-label^="Fields shown in"]')];
+		for (const group of groups) {
+			for (let e = group.parentElement; e; e = e.parentElement) {
+				const type = getComputedStyle(e).containerType;
+				if (type !== 'normal') {
+					containers.push(
+						`${group.getAttribute('aria-label')}: <${e.tagName.toLowerCase()} class="${e.className}"> ${type}`
+					);
+				}
+			}
+		}
+		const figure = [...tab.querySelectorAll('figure')].find((f) =>
+			squash(f.querySelector(':scope > figcaption')?.textContent).startsWith(
+				'Pump and system curves'
+			)
+		)!;
+		const lines = [
+			figure.querySelector('[data-pump-strip] [aria-live]'),
+			figure.querySelector('[data-overlay-state]')
+		]
+			.filter((l): l is Element => l !== null)
+			.map((l) => ({
+				id: l.id,
+				live: l.getAttribute('aria-live'),
+				atomic: l.getAttribute('aria-atomic'),
+				role: l.getAttribute('role'),
+				text: squash(l.textContent),
+				busyAncestor: !!l.parentElement?.closest('[aria-busy="true"]'),
+				buttons: l.querySelectorAll('button').length
+			}));
+		// What §5.3 keeps visible, on screen at this size: not hidden and not a 1 px visually hidden
+		// box (toBeVisible accepts sr-only's): the notes about the values and the strip's plain
+		// lines (§10 Words on screen), the select's cost sentence, an off case's note, the cap and
+		// the overlay's cost (§6.4 item 8).
+		const seen = (el: Element) => {
+			const r = el.getBoundingClientRect();
+			return (
+				el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+				r.width > 1 &&
+				r.height > 1
+			);
+		};
+		const select = tab.querySelector('select[aria-labelledby][aria-describedby]');
+		const kept = [
+			...figure.querySelectorAll('[data-pump-notes] p, [data-pump-strip] p'),
+			document.getElementById(select?.getAttribute('aria-describedby') ?? ''),
+			...figure.querySelectorAll('[data-pump-others] fieldset p, [id$="-overlay-hint"]')
+		].filter((el): el is Element => el !== null);
+		const unseen = kept.filter((el) => !seen(el)).map((el) => squash(el.textContent));
+		return {
+			headings,
+			groups: groups.length,
+			containers,
+			lines,
+			kept: kept.length,
+			unseen,
+			scenarios: !!figure.querySelector('[data-pump-others]'),
+			// The card's group curve keeps its status until S3 (§10 S3); the pump chart has none.
+			statuses: figure.querySelectorAll('[role="status"]').length
+		};
+	});
+
+	// The outline down to the card, in order: the pump chart's part (§7).
+	const before = read.headings.filter((h) => !h.inCard);
+	expect
+		.soft(before, `the headings above the Pumps together card, ${where}`)
+		.toEqual([
+			{ level: 3, text: 'Results per pump', inCard: false },
+			{ level: 3, text: 'Pump chart', inCard: false },
+			...(read.scenarios
+				? [{ level: 4, text: 'Other cases on the pump chart', inCard: false }]
+				: [])
+		]);
+	const next = read.headings[before.length];
+	expect.soft(next?.level, `the card's heading next, ${where}`).toBe(3);
+	expect.soft(next?.text ?? '', `the card's heading next, ${where}`).toMatch(/^Pumps together/);
+
+	// §5.5: no container above a "Fields shown in …" group (a phone's sheet is fixed).
+	expect.soft(read.groups, `"Fields shown in …" groups, ${where}`).toBeGreaterThan(0);
+	expect
+		.soft(read.containers, `containers above a "Fields shown in …" group, ${where}`)
+		.toEqual([]);
+
+	// The live lines, at rest: there, polite, never a status, never busy, holding no button.
+	expect
+		.soft(read.lines.length, `the pump chart's live lines, ${where}`)
+		.toBe(read.scenarios ? 2 : 1);
+	for (const line of read.lines) {
+		expect.soft(line, `the live line ${line.id || 'of the other cases'}, ${where}`).toEqual({
+			id: line.id,
+			live: 'polite',
+			atomic: 'true',
+			role: null,
+			text: '',
+			busyAncestor: false,
+			buttons: 0
+		});
+	}
+	expect.soft(read.statuses, `role=status in the pump chart, ${where}`).toBe(0);
+
+	// Kept visible (§5.3, §6.4 item 8, §10 Words on screen): each at a size of its own.
+	expect.soft(read.kept, `the pump chart's notes and hints read, ${where}`).toBeGreaterThan(2);
+	expect.soft(read.unseen, `the pump chart's notes and hints out of sight, ${where}`).toEqual([]);
+
+	// §5.3 item 2 (§15 item 17): the select shows each pump's whole name, since a name's end can be
+	// the only part that tells two pumps apart ("Condenser water pump CWP-1" to "… CWP-6"). Its
+	// text box is its width less its padding and less what Chromium's own select keeps beyond the
+	// author's padding (MENULIST_INNER, measured), against the longest name in its own font. At
+	// 320×640 no row holds the condenser's names: there the select takes the row's whole width.
+	const select = await page.evaluate((inner) => {
+		const el = document.querySelector<HTMLSelectElement>('[data-pump-chart] select');
+		if (!el) return null;
+		const css = getComputedStyle(el);
+		const context = document.createElement('canvas').getContext('2d')!;
+		context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+		const longest = [...el.options].reduce(
+			(widest, option) => {
+				const width = context.measureText(option.text).width;
+				return width > widest.width ? { name: option.text, width } : widest;
+			},
+			{ name: '', width: 0 }
+		);
+		const padding = parseFloat(css.paddingLeft) + parseFloat(css.paddingRight);
+		return {
+			name: longest.name,
+			text: Math.ceil(longest.width),
+			room: Math.floor(el.clientWidth - padding - inner),
+			width: Math.round(el.getBoundingClientRect().width),
+			row: Math.round(el.parentElement!.getBoundingClientRect().width)
+		};
+	}, MENULIST_INNER);
+	if (select && size === '320x640') {
+		expect.soft(select.width, `the Pump chart select's width, ${where}`).toBe(select.row);
+	} else if (select) {
+		expect
+			.soft(select.room, `room in the Pump chart select for "${select.name}", ${where}`)
+			.toBeGreaterThanOrEqual(select.text);
+	}
+}
+
 /**
  * §9's merge condition "axe is clean with every disclosure open", over the whole Pumps tabpanel
  * (§7 Proof): axe-core with the suite's WCAG 2.0 to 2.2 A and AA tags, then `heading-order` and
@@ -812,6 +1026,7 @@ async function axeClean(page: Page, where: string) {
 async function atEachSize(page: Page, info: TestInfo, view: string, extra: object) {
 	const size = sizeOf(page);
 	await noSidewaysScroll(page, `${view} at ${size}`);
+	await pumpChartPart(page, `${view} at ${size}`);
 	await measure(page, info, `${view}-${size}`, extra);
 	if (info.project.name !== 'mobile') {
 		await axeClean(page, `${view} at ${size}`);
@@ -821,6 +1036,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await page.setViewportSize({ width: 320, height: 640 });
 	await settle(page, 1000);
 	await noSidewaysScroll(page, `${view} at 320x640`);
+	await pumpChartPart(page, `${view} at 320x640`);
 	await measure(page, info, `${view}-320x640`, extra);
 	await axeClean(page, `${view} at 320x640`);
 	await page.setViewportSize(viewport);
@@ -828,9 +1044,9 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await axeClean(page, `${view} at ${size}`);
 }
 
-// ---- S0: no sideways scroll ---------------------------------------------------------------------
+// ---- S0: no sideways scroll; S1: the pump chart's budget and outline -----------------------------
 
-test('the condenser example after Add cases, the card open: the Results pane’s scroller does not scroll sideways; axe clean, every disclosure open', async ({
+test('the condenser example after Add cases, the card open: the Results pane’s scroller does not scroll sideways; the pump chart holds its budget; axe clean, every disclosure open', async ({
 	page
 }, info) => {
 	test.setTimeout(420_000);
@@ -838,18 +1054,312 @@ test('the condenser example after Add cases, the card open: the Results pane’s
 	await atEachSize(page, info, '3-condenser', extra);
 });
 
-test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; axe clean, every disclosure open', async ({
+test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump chart holds its budget; axe clean, every disclosure open', async ({
 	page
 }, info) => {
 	test.setTimeout(240_000);
 	const extra = await oneOff(page);
 	await atEachSize(page, info, '1-one-off', extra);
+
+	// S1 (§5.3, §10): a case in which Pump PA is off says so in its box's description, beside
+	// the box; the others do not. The fixture's scenarios set PA off in "Pump PA off" and "Both
+	// pumps off" (pump-groups-input.json).
+	const figure = await pumpFigure(page);
+	const cases = figure.getByRole('group', { name: 'Cases on the chart' });
+	const NOTE = 'off in this case: no operating point';
+	for (const name of ['Pump PA off', 'Both pumps off']) {
+		const box = cases.getByRole('checkbox', { name, exact: true });
+		await expect(box).toHaveAccessibleDescription(new RegExp(`\\(${NOTE}\\)`));
+	}
+	for (const name of ['Pump PB off', 'Delivery tank 5 m higher']) {
+		const box = cases.getByRole('checkbox', { name, exact: true });
+		await expect(box).toHaveAccessibleDescription('');
+	}
+	await expect(cases.getByText(`(${NOTE})`, { exact: true })).toHaveCount(2);
+	await expect(cases.getByText(`(${NOTE})`, { exact: true }).first()).toBeVisible();
+	// Its own box, not sr-only's 1 px one, which toBeVisible accepts (§5.3).
+	for (const note of await cases.getByText(`(${NOTE})`, { exact: true }).all()) {
+		expect(await seenBox(note), `the off note's box at ${sizeOf(page)}`).toBe(true);
+	}
 });
 
-test('lineups, every disclosure and data table open: nothing scrolls sideways; axe clean', async ({
+test('lineups, every disclosure and data table open: nothing scrolls sideways; the pump chart holds its budget; axe clean', async ({
 	page
 }, info) => {
 	test.setTimeout(420_000);
 	const extra = await lineups(page);
 	await atEachSize(page, info, '2-lineups', extra);
+
+	// S1 (§5.1, §5.3): the data region opens after the notes and before the other cases, the
+	// operating point at its top and the case shown's tables first.
+	const figure = await pumpFigure(page);
+	const order = await figure.evaluate((f) => {
+		const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+		const region = f.querySelector('[data-pump-data]');
+		const notes = f.querySelector('[data-pump-notes]');
+		const others = f.querySelector('[data-pump-others]');
+		const follows = (a: Element | null, b: Element | null) =>
+			!!a && !!b && !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+		return {
+			afterNotes: follows(notes, region),
+			beforeOthers: follows(region, others),
+			first: squash(region?.firstElementChild?.textContent),
+			tables: [...(region?.querySelectorAll('table') ?? [])].map((t) =>
+				squash(t.querySelector('caption')?.textContent)
+			)
+		};
+	});
+	expect(order.afterNotes).toBe(true);
+	expect(order.beforeOthers).toBe(true);
+	expect(order.first).toMatch(/^Operating point: [\d.]+ L\/s at [\d.]+ m/);
+	expect(order.tables[0]).toBe('Operating points by case');
+	expect(order.tables[1]).toMatch(/^Pump curve at /);
+	expect(order.tables[2]).toBe('System curve');
+	// The case shown first in "Operating points by case", "Speed (%)" with bare numbers.
+	const byCase = figure.getByRole('table', { name: 'Operating points by case' });
+	await expect(byCase.getByRole('columnheader')).toHaveText([
+		'Case',
+		'Flow (L/s)',
+		'Head (m)',
+		'Speed (%)',
+		'State'
+	]);
+	await expect(byCase.getByRole('rowheader').first()).toHaveText(/\(shown\)$/);
+	for (const cell of await byCase.getByRole('row').nth(1).getByRole('cell').all()) {
+		await expect(cell).not.toContainText('%');
+	}
+});
+
+// ---- S1 review fixes: the live line, the failed request's mark, the lasting reason, the notes ---
+
+/**
+ * Logs each live line's words when it is inserted and each time they change, with the frame it
+ * happened in (a counter its own animation-frame callback steps, registered before any of the
+ * page's), so a test can tell a line drawn empty before it spoke from one inserted speaking.
+ */
+function liveRecorder() {
+	const w = window as unknown as {
+		__frame: number;
+		__live: { id: string; kind: 'insert' | 'change'; text: string; frame: number }[];
+	};
+	w.__frame = 0;
+	w.__live = [];
+	const step = () => {
+		w.__frame++;
+		requestAnimationFrame(step);
+	};
+	requestAnimationFrame(step);
+	const words = new WeakMap<Element, string>();
+	new MutationObserver(() => {
+		for (const e of document.querySelectorAll('[aria-live]')) {
+			const text = (e.textContent ?? '').replace(/\s+/g, ' ').trim();
+			const before = words.get(e);
+			if (before === text) continue;
+			words.set(e, text);
+			w.__live.push({
+				id: e.id,
+				kind: before === undefined ? 'insert' : 'change',
+				text,
+				frame: w.__frame
+			});
+		}
+	}).observe(document, { subtree: true, childList: true, characterData: true });
+}
+
+/** The recorder's log for one live line, in order. */
+async function liveLog(page: Page, id: string) {
+	const log = await page.evaluate(() => (window as unknown as { __live: { id: string }[] }).__live);
+	return (log as { id: string; kind: string; text: string; frame: number }[]).filter(
+		(e) => e.id === id
+	);
+}
+
+const COMPUTING = 'Computing the system curve for this solve…';
+
+/**
+ * §7 Live regions (F17): the line's first progress message is announced, so the line is drawn
+ * empty before it speaks, and never inserted already speaking: the frame after the one that first
+ * draws it, at the soonest. Both ways a curve starts with a new chart: the tab's opening and a
+ * pump chosen.
+ */
+async function drawnEmptyThenSpoke(page: Page, figure: Locator, where: string) {
+	const id = (await figure.locator('[data-pump-strip] [aria-live]').getAttribute('id'))!;
+	const log = await liveLog(page, id);
+	expect(log[0], `the line inserted, ${where}`).toMatchObject({ kind: 'insert', text: '' });
+	const spoke = log.find((e) => e.text === COMPUTING);
+	expect(spoke, `the line said "${COMPUTING}", ${where}`).toBeDefined();
+	expect(spoke!.kind, `as a change, ${where}`).toBe('change');
+	expect(spoke!.frame - log[0]!.frame, `frames from insert to words, ${where}`).toBeGreaterThan(1);
+	return id;
+}
+
+test('the pump chart’s live line is drawn empty before it speaks: on the tab’s opening and on a pump chosen (§7, F17)', async ({
+	page
+}) => {
+	test.setTimeout(120_000);
+	await page.addInitScript(liveRecorder);
+	await open(page, projectOf('one-off'));
+	await solveConverged(page);
+	// Each curve held a moment, so its progress has time to be said.
+	await page.route('**/api/v1/system-curve', async (route) => {
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		await route.continue();
+	});
+	const tab = await pumpsTab(page);
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	const method = figure.locator('[data-pump-method]');
+	await expect(method).toBeVisible({ timeout: 60_000 });
+	const first = await drawnEmptyThenSpoke(page, figure, 'the Pumps tab opened');
+
+	const select = tab.getByRole('combobox', { name: 'Pump chart' });
+	const shown = await select.inputValue();
+	const values = await select
+		.locator('option')
+		.evaluateAll((all) => all.map((o) => (o as HTMLOptionElement).value));
+	await select.selectOption(values.find((v) => v !== shown)!);
+	await expect(method).toBeVisible({ timeout: 60_000 });
+	const second = await drawnEmptyThenSpoke(page, figure, 'another pump chosen');
+	expect(second, 'a new chart, a new line').not.toBe(first);
+});
+
+/** The pump example with every note that qualifies a reading (made-up curve data; the API's). */
+function notedTransfer(): Project {
+	const project = pumpTransferExample();
+	const curve = project.pumpLibrary[0]!;
+	// The head rises from 26 m at shutoff to 28 m at 10 L/s.
+	curve.points[0]!.head = 26;
+	// NPSHr climbs to 14 m at 30 L/s, past NPSHa (about 12.4 m there along the system curve).
+	curve.npshrCurve = [
+		{ flow: 0.005, npshr: 1.5 },
+		{ flow: 0.015, npshr: 2.5 },
+		{ flow: 0.03, npshr: 14 }
+	];
+	// A flow control set above the duty: the system curve has no head past its 33 L/s.
+	const valve = project.components[2]!;
+	project.components[2] = {
+		type: 'valve',
+		valveType: 'fcv',
+		id: valve.id,
+		name: 'Flow limiter',
+		elevation: valve.elevation,
+		status: 'active',
+		setpoint: 0.033,
+		ports: valve.ports
+	} as Project['components'][number];
+	return project;
+}
+
+test('every note that qualifies a reading is on screen at each size: the rising head, NPSHa below NPSHr, the points without a head (§10 Words on screen)', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await open(page, notedTransfer());
+	await solveConverged(page);
+	const tab = await pumpsTab(page);
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	await expect(figure.locator('[data-pump-method]')).toBeVisible({ timeout: 60_000 });
+	const notes = [
+		figure.locator('[data-pump-notes] p').filter({ hasText: /^The head rises with flow/ }),
+		figure.locator('[data-pump-notes] p').filter({ hasText: /^NPSHa falls below NPSHr at about/ }),
+		figure.locator('[data-pump-strip] p').filter({ hasText: /system-curve points have no head/ })
+	];
+	const sizes = info.project.name === 'mobile' ? [null, { width: 320, height: 640 }] : [null];
+	for (const size of sizes) {
+		if (size) await page.setViewportSize(size);
+		for (const note of notes) {
+			await expect(note).toHaveCount(1);
+			expect(await seenBox(note), `${await note.innerText()} at ${sizeOf(page)}`).toBe(true);
+		}
+	}
+});
+
+test('a failed system curve’s mark is set at its first line, however its sentence wraps (§5.2)', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await page.route('**/api/v1/system-curve', (route) =>
+		route.fulfill({
+			status: 500,
+			contentType: 'application/json',
+			body: JSON.stringify({ error: { code: 'INTERNAL', message: 'Made-up failure.' } })
+		})
+	);
+	await open(page, pumpTransferExample());
+	await solveConverged(page);
+	const tab = await pumpsTab(page);
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	await expect(figure.getByRole('button', { name: 'Try again' })).toBeVisible({ timeout: 60_000 });
+	const line = figure.locator('[data-pump-strip] [aria-live]');
+	await expect(line).toHaveText(/^The system curve could not be computed: /);
+	const sizes = info.project.name === 'mobile' ? [null, { width: 320, height: 640 }] : [null];
+	for (const size of sizes) {
+		if (size) await page.setViewportSize(size);
+		const m = await line.evaluate((el) => {
+			const mark = el.querySelector('svg')!.getBoundingClientRect();
+			const words = [...el.childNodes].find((n) => n.nodeType === 3 && n.textContent!.trim())!;
+			const range = document.createRange();
+			range.selectNodeContents(words);
+			const lines = [...range.getClientRects()].filter((r) => r.width > 0);
+			const top = Math.min(...lines.map((r) => r.top));
+			const first = lines.find((r) => r.top < top + 1)!;
+			return {
+				lines: new Set(lines.map((r) => Math.round(r.top))).size,
+				mark: mark.top + mark.height / 2,
+				first: first.top + first.height / 2
+			};
+		});
+		const where = sizeOf(page);
+		if (info.project.name === 'mobile') {
+			expect(m.lines, `the sentence wraps at ${where}`).toBeGreaterThan(1);
+		}
+		expect(
+			Math.abs(m.mark - m.first),
+			`the mark's middle from its first line's, ${where}`
+		).toBeLessThanOrEqual(2);
+	}
+});
+
+test('a lasting image reason sits with Download image, beside it or under it, never under Show data table (§5.3 Actions, §5.5)', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await open(page, pumpTransferExample());
+	await solveConverged(page);
+	let tab = await pumpsTab(page);
+	await expect(tab.getByRole('figure').getByRole('img')).toHaveAccessibleName(
+		/ and system curve; operating point /,
+		{ timeout: 60_000 }
+	);
+	// The latest solve did not converge: no image is made of its values, a lasting reason.
+	await page.route('**/api/v1/solve', async (route) => {
+		const response = await route.fetch();
+		const body = await response.json();
+		body.solvedState.converged = false;
+		await route.fulfill({ response, json: body });
+	});
+	await solve(page);
+	tab = await pumpsTab(page);
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	const download = figure.getByRole('button', { name: /^Download image/ });
+	await expect(download).toHaveAttribute('aria-disabled', 'true');
+	const reason = page.locator(`[id="${await download.getAttribute('aria-describedby')}"]`);
+	await expect(reason).toHaveText(/no image is made/);
+	const show = figure.getByRole('button', { name: 'Show data table of the pump chart' });
+	const sizes = info.project.name === 'mobile' ? [null, { width: 320, height: 640 }] : [null];
+	for (const size of sizes) {
+		if (size) await page.setViewportSize(size);
+		const where = sizeOf(page);
+		expect(await seenBox(reason), `the reason shown, ${where}`).toBe(true);
+		const [r, d, s] = await Promise.all([reason, download, show].map((l) => l.boundingBox()));
+		const beside = r!.x >= d!.x + d!.width - 1 && r!.y < d!.y + d!.height;
+		const under = r!.y >= d!.y + d!.height - 1 && Math.abs(r!.x - d!.x) <= 1;
+		expect(beside || under, `the reason beside or under Download image, ${where}`).toBe(true);
+		// Under Show data table only where Download image itself is (both at the row's start).
+		if (Math.abs(r!.x - s!.x) <= 1) {
+			expect(
+				Math.abs(d!.x - s!.x),
+				`Download image dropped under Show, ${where}`
+			).toBeLessThanOrEqual(1);
+		}
+	}
 });

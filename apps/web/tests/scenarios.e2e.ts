@@ -218,7 +218,7 @@ test('solve one case and all of them, read the comparison and the other cases on
 		/other cases' operating points: Base case .* at .*; Higher tank /
 	);
 	await expect(figure.getByRole('group', { name: 'Cases on the chart' })).toBeVisible();
-	await figure.getByRole('button', { name: 'Show data table' }).click();
+	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
 	const byCase = figure.getByRole('table', { name: 'Operating points by case' });
 	await expect(byCase.getByRole('rowheader')).toHaveText([
 		'Slower pump (shown)',
@@ -236,7 +236,9 @@ test('solve one case and all of them, read the comparison and the other cases on
 		name: "Also show the other cases' system curves"
 	});
 	await overlay.check();
-	const progress = figure.getByRole('status').filter({ hasText: 'Computing system curves' });
+	// Its always-present polite line (proposal pumps-results-layout.md §5.3, §10 S1), not a status.
+	const progress = figure.locator('[data-overlay-state]');
+	await expect(progress).toHaveAttribute('aria-live', 'polite');
 	await expect(progress).toHaveText('Computing system curves: 1 of 2…');
 	await expect.poll(() => curves.length).toBe(1);
 	expect('scenarioId' in curves[0]!).toBe(false); // the base case's
@@ -244,7 +246,11 @@ test('solve one case and all of them, read the comparison and the other cases on
 	const aborted = page.waitForEvent('requestfailed', (r) => r.url().endsWith('/system-curve'));
 	await figure.getByRole('button', { name: "Cancel the other cases' system curves" }).click();
 	await aborted;
-	await expect(progress).toHaveCount(0);
+	// The line stays, saying nothing; its Cancel is gone.
+	await expect(progress).toHaveText('');
+	await expect(
+		figure.getByRole('button', { name: "Cancel the other cases' system curves" })
+	).toHaveCount(0);
 	await page.unroute('**/api/v1/system-curve');
 	await overlay.uncheck();
 	await overlay.check();

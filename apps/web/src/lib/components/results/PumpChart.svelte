@@ -52,6 +52,7 @@
 		pumpLine,
 		saveHiddenPanels,
 		untickedAfter,
+		valueNotes,
 		type ChipKey,
 		type OtherCaseInput,
 		type PanelKey,
@@ -82,6 +83,11 @@
 		oncancel?: () => void;
 		/** Open the pump's trace, which defines the system curve (H_sys) among its equations. */
 		ontrace?: () => void;
+		/**
+		 * Show the Results view Checks, with the focus on its tab: the verdicts of the design
+		 * checks whose limits the chart draws (pumps-results-layout.md §5.3, D19).
+		 */
+		onchecks?: () => void;
 		/** Another pump of the solve is speed-controlled and on: it keeps regulating in the system curve. */
 		othersControlled?: boolean;
 		/** The case shown, in a project with scenarios ("Winter"): the caption names it. */
@@ -117,6 +123,7 @@
 		onretry,
 		oncancel,
 		ontrace,
+		onchecks,
 		othersControlled = false,
 		caseName,
 		others = [],
@@ -233,6 +240,15 @@
 		if (flow !== undefined) cursor = Math.min(xMax, Math.max(0, flow));
 	}
 	let figure: HTMLElement | undefined = $state();
+	let readSlider: HTMLInputElement | undefined = $state();
+	/**
+	 * Back to the duty: the button goes as it is pressed, so the focus moves to the slider it
+	 * belongs to (pumps-results-layout.md F40, §7 Focus), as on the group chart.
+	 */
+	function backToDuty() {
+		cursor = null;
+		void tick().then(() => readSlider?.focus());
+	}
 	let cancelButton: HTMLButtonElement | undefined = $state();
 	/** The button that computes the curve again (failed, cancelled or not computed). */
 	let retryButton: HTMLButtonElement | undefined = $state();
@@ -247,6 +263,32 @@
 	const fmt = (v: number) => formatNumber(v, 4);
 	const markerOf = (key: string) => otherData.find((o) => o.key === key)?.marker;
 	const off = $derived(result.status === 'off');
+	/**
+	 * "Operating points by case" (pumps-results-layout.md §5.3, the data region): the case shown
+	 * first, then the other cases drawn, each with its marker; the speed a bare number under
+	 * "Speed (%)" ("—" for an off pump).
+	 */
+	const caseRows = $derived([
+		{
+			key: '',
+			shown: true,
+			marker: null,
+			label: `${caseName ?? 'This case'} (shown)`,
+			flow: data.operating ? fmt(data.operating.x) : data.held ? '0' : '—',
+			head: data.operating ? fmt(data.operating.y) : data.held ? fmt(data.held.y) : '—',
+			speed: off ? '—' : formatNumber(result.speed * 100, 4),
+			state: off ? 'Off' : data.held ? 'Held at zero flow' : 'Running'
+		},
+		...otherData.map((o) => ({
+			key: o.key,
+			shown: false,
+			marker: MARKER_SYMBOLS[o.marker],
+			label: o.label,
+			...o.row
+		}))
+	]);
+	/** An element id for another case ('' is the base case). */
+	const caseId = (key: string) => key || 'base';
 	const controlled = $derived(!!result.control);
 	/** How a speed-controlled pump's speed was set: solved for its setpoint, or a drive limit. */
 	const controlNote = $derived.by(() => {
@@ -360,6 +402,31 @@
 	const notes = $derived(
 		chartNotes({ data, result, system, othersControlled, shown, speedShown, checksShown })
 	);
+	/** The notes about the values, in the screen's order (pumps-results-layout.md §5.3). */
+	const valued = $derived(valueNotes(notes, data));
+	/** The system curve's request line: being computed, failed, or not computed (the strip's). */
+	const curveState = $derived(notes.curve?.kind === 'missing' ? null : notes.curve);
+	/**
+	 * The live lines are drawn empty before their progress is said (pumps-results-layout.md §7 Live
+	 * regions, F17): PumpsView mounts the chart in the flush that starts its system curve (the
+	 * Pumps tab opened, a pump chosen), and a polite line inserted already holding its words is not
+	 * announced. Two frames: the first one's callbacks run before it draws the empty lines.
+	 */
+	let linesDrawn = $state(false);
+	$effect(() => {
+		let frame = requestAnimationFrame(() => {
+			frame = requestAnimationFrame(() => (linesDrawn = true));
+		});
+		return () => cancelAnimationFrame(frame);
+	});
+	/** What the system curve's line says: its progress once the line has been drawn empty. */
+	const curveLine = $derived(curveState?.kind === 'loading' && !linesDrawn ? null : curveState);
+	/** What the other cases' line says, on the same rule. */
+	const overlayLine = $derived(linesDrawn ? overlayProgress : null);
+	/** The points without a head, a plain line after the request's (§5.2: no mark on a fact). */
+	const coverage = $derived(notes.curve?.kind === 'missing' ? notes.curve.text : null);
+	/** The strip has nothing to show: it takes no room (its live line stays, empty). */
+	const stripIdle = $derived(!notes.pump && !curveLine && !coverage);
 
 	// Before the DOM drops Cancel when the curve stops loading (cancelled, computed or failed): if
 	// it has the focus, what replaces it takes it: the button to compute it again, else the chart.
@@ -451,6 +518,12 @@
 							? 'The chart is being drawn.'
 							: '')
 	);
+	/**
+	 * The results' own reason (not converged, a failed solve shown, a calculation), which lasts:
+	 * shown beside the button. A passing one (a curve computed, the chart drawn) changes on every
+	 * redraw, so it stays visually hidden and in the title (pumps-results-layout.md §5.3, Actions).
+	 */
+	const imageLasting = $derived(!!image?.unavailable);
 	let makingImage = false;
 
 	/**
@@ -493,13 +566,14 @@
 	}
 </script>
 
-<figure
-	bind:this={figure}
-	class="space-y-2"
-	aria-labelledby="{id}-caption"
-	aria-busy={loading}
-	tabindex="-1"
->
+<!--
+	One anatomy (proposal pumps-results-layout.md §5.1, §5.3 item 2): the caption, the canvas, the
+	reading controls, the strip of the system curve's request, the actions, the notes about the
+	values, the data region, then the other cases under their own heading. `aria-busy` is the
+	canvas's, the part that is redrawn, so no live line below has a busy ancestor (§5.3 markup
+	rules, §7).
+-->
+<figure bind:this={figure} class="space-y-2" aria-labelledby="{id}-caption" tabindex="-1">
 	<figcaption id="{id}-caption" class="text-sm font-medium">
 		Pump and system curves: {name}{caseName ? `, ${caseName}` : ''}
 	</figcaption>
@@ -513,29 +587,37 @@
 			style:height="{heightRem}rem"
 			role="img"
 			aria-label={summary}
+			aria-busy={loading}
 			onpointermove={pointerRead}
 			onpointerdown={pointerRead}
 		>
 			<canvas bind:this={canvas} aria-hidden="true"></canvas>
 		</div>
 		{#if chips.length}
+			<!-- Toggle chips (§5.3, Reading): filled with a check when on, outlined when off. -->
 			<div role="group" aria-label="Show" class="flex flex-wrap items-center gap-2">
-				<span class="text-xs text-slate-700" aria-hidden="true">Show</span>
+				<span class="text-xs font-medium text-slate-700" aria-hidden="true">Show</span>
 				{#each chips as chip (chip)}
+					{@const on = isShown(chip)}
 					<button
 						type="button"
-						class={['btn px-3 text-sm', isShown(chip) && 'border-blue-700 bg-blue-50']}
-						aria-pressed={isShown(chip)}
-						onclick={() => togglePanel(chip)}>{CHIP_LABELS[chip]}</button
+						class={['btn px-3', on && 'border-blue-700 bg-blue-50 text-blue-900 hover:bg-blue-100']}
+						aria-pressed={on}
+						onclick={() => togglePanel(chip)}
+						>{#if on}<Icon name="check" class="size-4 shrink-0 text-blue-700" />{/if}{CHIP_LABELS[
+							chip
+						]}</button
 					>
 				{/each}
 			</div>
 		{/if}
 		{#if xMax > 0}
-			<div class="space-y-1">
+			<!-- A container: the readout's pairs go two-up from 26 rem, one per line below (§5.5). -->
+			<div class="@container space-y-1">
 				<div class="flex flex-wrap items-center gap-x-3">
 					<label for="{id}-read" class="text-xs font-medium text-slate-700">Read at flow</label>
 					<input
+						bind:this={readSlider}
 						id="{id}-read"
 						type="range"
 						class="min-h-11 min-w-40 flex-1 accent-slate-700"
@@ -555,27 +637,27 @@
 						}}
 					/>
 					{#if data.operating && cursor !== null}
-						<button
-							type="button"
-							class="btn btn-quiet px-2 text-blue-800"
-							onclick={() => (cursor = null)}>Back to the duty</button
+						<button type="button" class="btn btn-quiet px-2 text-blue-800" onclick={backToDuty}
+							>Back to the duty</button
 						>
 					{/if}
 				</div>
 				{#if readAt !== null}
-					<p class="flex flex-wrap gap-x-3 text-xs text-slate-700 tabular-nums">
-						<span class="font-medium"
+					<!-- One paragraph, not live (pump-chart.md §4.3): each pair kept on one line, the
+						separators visually hidden, so its text reads as one sentence (§5.3, Reading). -->
+					<p
+						data-pump-readout
+						class="grid grid-cols-1 gap-x-4 text-sm tabular-nums @min-[26rem]:grid-cols-2"
+					>
+						<span class="col-span-full font-medium"
 							>{cursor === null ? 'At the duty' : 'At'} {fmt(readAt)} {data.flowUnit}:</span
 						>
-						{#each readout as item, i (item.key)}
-							<span class="whitespace-nowrap"
-								>{#if i}<span class="sr-only">,&nbsp;</span>{/if}{item.label}
-								{fmt(item.value)}
-								{item.unit}</span
-							>
-						{:else}
-							<span>no line is drawn at this flow</span>
-						{/each}
+						{#each readout as item, i (item.key)}<span class="whitespace-nowrap"
+								>{#if i}<span class="sr-only">,&nbsp;</span>{/if}<span class="text-slate-600"
+									>{item.label}</span
+								>
+								<span class="font-medium">{fmt(item.value)} {item.unit}</span></span
+							>{:else}<span>no line is drawn at this flow</span>{/each}
 					</p>
 				{/if}
 			</div>
@@ -585,33 +667,47 @@
 			The chart cannot be drawn in this browser. The table below lists its points.
 		</p>
 	{/if}
-	{#if notes.pump}
-		<p class="text-xs text-slate-700">{notes.pump}</p>
-	{/if}
-	{#if notes.curve?.kind === 'loading'}
+	<!--
+		The strip (§5.3, The strip): the pump's state, then the system curve's request, one row: an
+		always-present polite line, empty when idle and never role=status (a pane-wide status query
+		finds the Results header's alone, §5.3 markup rules), drawn empty before its first progress
+		(linesDrawn, §7), its mark at its first line however its sentence wraps (§5.2), its button
+		after it and described by it; then the points' coverage, plain. Visually hidden while it has
+		nothing to say, so it takes no room, its line still in the accessibility tree.
+	-->
+	<div data-pump-strip class={['space-y-1', stripIdle && 'sr-only']}>
+		{#if notes.pump}
+			<p class="text-xs text-slate-700">{notes.pump}</p>
+		{/if}
 		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-			<p id="{id}-curve-state" class="text-xs text-slate-600">{notes.curve.text}</p>
-			{#if oncancel}
+			<span
+				id="{id}-curve-state"
+				aria-live="polite"
+				aria-atomic="true"
+				class={[
+					'inline-flex items-start gap-1.5 text-xs',
+					curveLine?.kind === 'error' ? 'text-red-800' : 'text-slate-700'
+				]}
+				>{#if curveLine?.kind === 'loading'}<Icon
+						name="spinner"
+						class="mt-px size-3.5 shrink-0 text-slate-500 motion-safe:animate-spin"
+					/>{:else if curveLine?.kind === 'error'}<Icon
+						name="octagon"
+						class="mt-px size-3.5 shrink-0 text-red-700"
+					/>{/if}{curveLine?.text ?? ''}</span
+			>
+			{#if curveState?.kind === 'loading' && oncancel}
 				<button
 					bind:this={cancelButton}
 					type="button"
 					class="btn btn-quiet px-2 text-blue-800"
 					aria-label="Cancel the system curve"
+					aria-describedby="{id}-curve-state"
 					onclick={oncancel}
 				>
 					Cancel
 				</button>
-			{/if}
-		</div>
-	{:else if notes.curve?.kind === 'error' || notes.curve?.kind === 'cancelled'}
-		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-			<p
-				id="{id}-curve-state"
-				class={['text-xs', notes.curve.kind === 'error' ? 'text-red-800' : 'text-slate-600']}
-			>
-				{notes.curve.text}
-			</p>
-			{#if onretry}
+			{:else if (curveState?.kind === 'error' || curveState?.kind === 'cancelled') && onretry}
 				<button
 					bind:this={retryButton}
 					type="button"
@@ -619,107 +715,18 @@
 					aria-describedby="{id}-curve-state"
 					onclick={onretry}
 				>
-					{notes.curve.kind === 'error' ? 'Try again' : 'Compute the system curve'}
+					{curveState.kind === 'error' ? 'Try again' : 'Compute the system curve'}
 				</button>
 			{/if}
 		</div>
-	{:else if notes.curve}
-		<p class="text-xs text-slate-700">{notes.curve.text}</p>
-	{/if}
-	{#if notes.method}
-		<!-- How the curve shown was computed, where it is shown (GOALS §4.2): the request
-			(POST /api/v1/system-curve) returns points without a trace; the pump's trace defines it. -->
-		<p class="text-xs text-slate-600">
-			{notes.method}
-			{#if ontrace}
-				<button
-					type="button"
-					class="inline-flex min-h-11 items-center px-1 text-left text-blue-800 underline underline-offset-2"
-					onclick={ontrace}>Trace of {name}</button
-				>
-			{/if}
-		</p>
-	{/if}
-	{#if notes.extrapolated}
-		<p class="text-xs text-slate-600">{notes.extrapolated}</p>
-	{/if}
-	{#each [...notes.facts, ...notes.panels, ...notes.checks] as note (note)}
-		<p class="text-xs text-slate-600">{note}</p>
-	{/each}
-	{#if others.length}
-		<fieldset class="space-y-1">
-			<legend class="text-xs font-medium text-slate-700">Cases on the chart</legend>
-			<div class="flex flex-wrap gap-x-4">
-				<span class="flex min-h-11 items-center gap-2 text-sm">
-					<span aria-hidden="true">●</span>{caseName ?? 'This case'} (shown)
-				</span>
-				{#each others as other (other.key)}
-					{@const on = shownKeys.has(other.key)}
-					{@const full = !on && shownOthers.length >= MAX_CHART_CASES - 1}
-					{@const marker = markerOf(other.key)}
-					<label class="flex min-h-11 items-center gap-2 text-sm">
-						<input
-							type="checkbox"
-							class="size-4"
-							checked={on}
-							aria-disabled={full}
-							aria-describedby={full ? `${id}-full` : undefined}
-							onclick={(event) => {
-								if (full) {
-									event.preventDefault();
-									return;
-								}
-								setShown(other.key, event.currentTarget.checked);
-							}}
-						/>
-						{#if marker}<span aria-hidden="true" class="text-slate-600"
-								>{MARKER_SYMBOLS[marker]}</span
-							>{/if}
-						{other.name}{other.stale ? ' (out of date)' : ''}
-					</label>
-				{/each}
-			</div>
-			{#if others.length > MAX_CHART_CASES - 1}
-				<p id="{id}-full" class="hint">At most {MAX_CHART_CASES} cases at once.</p>
-			{/if}
-		</fieldset>
-		{#if onoverlay}
-			<div>
-				<label class="flex min-h-11 items-center gap-2 text-sm">
-					<input
-						type="checkbox"
-						class="size-4"
-						checked={overlayCurves}
-						aria-describedby="{id}-overlay-hint"
-						onchange={(event) => onoverlay(event.currentTarget.checked, unticked)}
-					/>
-					Also show the other cases' system curves
-				</label>
-				<p id="{id}-overlay-hint" class="hint">
-					Each is computed on request, one at a time, for that case's last solve; a curve costs
-					about 41 solves of the network.
-				</p>
-			</div>
-			{#if overlayProgress}
-				<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-					<p class="text-xs text-slate-600" role="status">
-						Computing system curves: {Math.min(overlayProgress.done + 1, overlayProgress.total)} of
-						{overlayProgress.total}…
-					</p>
-					{#if oncanceloverlay}
-						<button
-							type="button"
-							class="btn btn-quiet px-2 text-blue-800"
-							aria-label="Cancel the other cases' system curves"
-							onclick={oncanceloverlay}>Cancel</button
-						>
-					{/if}
-				</div>
-			{/if}
+		{#if coverage}
+			<p class="text-xs text-slate-700">{coverage}</p>
 		{/if}
-	{/if}
+	</div>
 	{#if !unavailable && !loadFailed}
-		<div class="flex flex-wrap items-center gap-x-3">
+		<!-- Actions (§5.3): the names told apart from the group chart's by a visually hidden
+			suffix; a lasting reason why no image can be made shown, a passing one hidden. -->
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
 			<button
 				type="button"
 				class="btn btn-quiet px-2 text-blue-800"
@@ -727,101 +734,323 @@
 				aria-controls="{id}-table"
 				onclick={() => (showTable = !showTable)}
 			>
+				<!-- The space outside the hidden suffix, so every name computation keeps it. -->
 				{tableShown ? 'Hide data table' : 'Show data table'}
+				<span class="sr-only">of the pump chart</span>
 			</button>
 			{#if image}
-				<!-- The chart drawn again at a fixed size, with its caption, as a PNG (export.md §5.5). -->
-				<button
-					type="button"
-					class="btn btn-quiet px-2 text-blue-800"
-					data-chart-image
-					aria-label="Download image of the pump and system curves: {name}{caseName
-						? `, ${caseName}`
-						: ''}"
-					aria-disabled={!!imageReason}
-					aria-describedby={imageReason ? `${id}-image-reason` : undefined}
-					title={imageReason || undefined}
-					onclick={() => void downloadImage()}
-				>
-					<Icon name="download" class="size-4" /> Download image
-				</button>
-				{#if imageReason}<span id="{id}-image-reason" class="sr-only">{imageReason}</span>{/if}
+				<!-- Download image and its reason, one item (§5.3 Actions, §5.5): a lasting reason beside
+					the button where the row has room for it, under it where not, never under Show data
+					table. Its least width is the button's, so the item drops under as the button did. -->
+				<div class="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+					<!-- The chart drawn again at a fixed size, with its caption, as a PNG (export.md §5.5). -->
+					<button
+						type="button"
+						class="btn btn-quiet px-2 text-blue-800"
+						data-chart-image
+						aria-label="Download image of the pump and system curves: {name}{caseName
+							? `, ${caseName}`
+							: ''}"
+						aria-disabled={!!imageReason}
+						aria-describedby={imageReason ? `${id}-image-reason` : undefined}
+						title={(!imageLasting && imageReason) || undefined}
+						onclick={() => void downloadImage()}
+					>
+						<Icon name="download" class="size-4" /> Download image
+					</button>
+					{#if imageReason}<span
+							id="{id}-image-reason"
+							class={imageLasting ? 'text-xs text-slate-700' : 'sr-only'}>{imageReason}</span
+						>{/if}
+				</div>
 			{/if}
 		</div>
 	{/if}
+	<!-- Notes about the values (§5.3): facts first, unmarked (§5.2), chartNotes' words. -->
+	<div class="space-y-1" data-pump-notes>
+		{#each [...valued.first, ...valued.facts, ...valued.panels] as note (note)}
+			<p class="text-xs text-slate-700">{note}</p>
+		{/each}
+		{#if valued.extrapolated}
+			<p class="text-xs text-slate-700">{valued.extrapolated}</p>
+		{/if}
+		{#if valued.method}
+			<!-- How the curve shown was computed, where it is shown (GOALS §4.2): the request
+				(POST /api/v1/system-curve) returns points without a trace; the pump's trace defines it.
+				The link is inline in its sentence (WCAG 2.5.8's inline exception, §5.3). -->
+			<p class="text-xs text-slate-700" data-pump-method>
+				{valued.method}
+				{#if ontrace}
+					<button
+						type="button"
+						class="text-left text-blue-800 underline underline-offset-2 hover:text-blue-900"
+						onclick={ontrace}>Trace of {name}</button
+					>
+				{/if}
+			</p>
+		{/if}
+		{#if valued.checks.length}
+			<!-- The design checks' limits drawn (D19), never a verdict: Checks has those. -->
+			<div class="space-y-1 pt-1" data-pump-checks>
+				<p class="text-xs font-medium text-slate-700">Design-check limits drawn</p>
+				{#each valued.checks as note (note)}
+					<p class="text-xs text-slate-700">{note}</p>
+				{/each}
+				{#if onchecks}
+					<button type="button" class="btn btn-quiet px-2 text-blue-800" onclick={onchecks}
+						>Go to Checks</button
+					>
+				{/if}
+			</div>
+		{/if}
+	</div>
+	<!--
+		The data region (pumps-results-layout.md §5.1 item 9, §5.3 The data region), after the
+		notes, so a table shown never pushes a note away from its chart. The case shown first: its
+		operating point at the top (the table is the chart's long description, pump-chart.md §4.4),
+		"Operating points by case", then its curves, two-up only from a 40 rem container (§5.5); the
+		other cases' system curves last. Every box shades its edges when it scrolls sideways.
+	-->
 	{#if tableShown}
-		<div id="{id}-table" class="space-y-3">
+		<div id="{id}-table" class="space-y-3" data-pump-data>
+			{#if data.operating}
+				<p class="text-sm">
+					Operating point: <span class="tabular-nums">{fmt(data.operating.x)} {data.flowUnit}</span>
+					at <span class="tabular-nums">{fmt(data.operating.y)} {data.headUnit}</span>
+					{#if !data.inCurveRange}(extrapolated){/if}
+				</p>
+			{:else if data.held}
+				<p class="text-sm">
+					Held at zero flow: <span class="tabular-nums">{fmt(data.held.y)} {data.headUnit}</span>
+					across the pump
+				</p>
+			{/if}
 			{#if otherData.length}
+				<!-- A list below 640 px (ui-guide, Phones): explicit roles, so CSS never unmakes the
+					table for screen readers; each row its case, then "Flow (L/s) 21.58" pairs. -->
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 				<div
-					class="overflow-auto rounded-md border border-slate-200 bg-white"
+					class="scroll-shadow-x max-w-full overflow-auto rounded-md border border-slate-200 bg-white max-sm:overflow-visible"
 					role="region"
 					aria-labelledby="{id}-cases-caption"
 					tabindex="0"
 				>
-					<table class="w-full text-sm">
+					<!-- svelte-ignore a11y_no_redundant_roles -->
+					<table role="table" class="w-full text-sm max-sm:block">
 						<caption
 							id="{id}-cases-caption"
-							class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
+							class="px-2 py-1 text-left text-xs font-semibold text-slate-700 max-sm:block"
 						>
 							Operating points by case
 						</caption>
-						<thead class="bg-slate-50">
-							<tr>
-								<th scope="col" class="px-2 py-1 text-left font-medium">Case</th>
-								<th scope="col" class="px-2 py-1 text-right font-medium">Flow ({data.flowUnit})</th>
-								<th scope="col" class="px-2 py-1 text-right font-medium">Head ({data.headUnit})</th>
-								<th scope="col" class="px-2 py-1 text-right font-medium">Speed</th>
-								<th scope="col" class="px-2 py-1 text-left font-medium">State</th>
+						<!-- svelte-ignore a11y_no_redundant_roles -->
+						<thead role="rowgroup" class="bg-slate-50 max-sm:sr-only">
+							<!-- svelte-ignore a11y_no_redundant_roles -->
+							<tr role="row">
+								<th role="columnheader" scope="col" class="px-2 py-1 text-left font-medium">Case</th
+								>
+								<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
+									>Flow ({data.flowUnit})</th
+								>
+								<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
+									>Head ({data.headUnit})</th
+								>
+								<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
+									>Speed (%)</th
+								>
+								<th role="columnheader" scope="col" class="px-2 py-1 text-left font-medium"
+									>State</th
+								>
 							</tr>
 						</thead>
-						<tbody>
-							<tr class="border-t border-slate-100">
-								<th scope="row" class="px-2 py-1 text-left font-normal"
-									>{caseName ?? 'This case'} (shown)</th
+						<!-- svelte-ignore a11y_no_redundant_roles -->
+						<tbody role="rowgroup" class="max-sm:block">
+							{#each caseRows as row (row.shown ? '\u0000shown' : row.key)}
+								{@const cells = [
+									{ label: `Flow (${data.flowUnit})`, value: row.flow, numeric: true },
+									{ label: `Head (${data.headUnit})`, value: row.head, numeric: true },
+									{ label: 'Speed (%)', value: row.speed, numeric: true },
+									{ label: 'State', value: row.state, numeric: false }
+								]}
+								<!-- svelte-ignore a11y_no_redundant_roles -->
+								<tr
+									role="row"
+									class="border-t border-slate-100 max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5"
 								>
-								<td class="px-2 py-1 text-right tabular-nums"
-									>{data.operating ? fmt(data.operating.x) : data.held ? '0' : '—'}</td
-								>
-								<td class="px-2 py-1 text-right tabular-nums"
-									>{data.operating ? fmt(data.operating.y) : data.held ? fmt(data.held.y) : '—'}</td
-								>
-								<td class="px-2 py-1 text-right tabular-nums"
-									>{off ? '—' : `${formatNumber(result.speed * 100, 4)} %`}</td
-								>
-								<td class="px-2 py-1 text-xs text-slate-600"
-									>{off ? 'Off' : data.held ? 'Held at zero flow' : 'Running'}</td
-								>
-							</tr>
-							{#each otherData as other (other.key)}
-								<tr class="border-t border-slate-100">
-									<th scope="row" class="px-2 py-1 text-left font-normal"
-										><span aria-hidden="true" class="text-slate-600"
-											>{MARKER_SYMBOLS[other.marker]}</span
-										>
-										{other.label}</th
+									<th
+										role="rowheader"
+										scope="row"
+										class="px-2 py-1 text-left font-normal max-sm:block max-sm:w-full max-sm:px-0 max-sm:pt-1 max-sm:font-medium"
+										>{#if row.marker}<span aria-hidden="true" class="text-slate-600"
+												>{row.marker}</span
+											>
+											{row.label}{:else}{row.label}{/if}</th
 									>
-									<td class="px-2 py-1 text-right tabular-nums">{other.row.flow}</td>
-									<td class="px-2 py-1 text-right tabular-nums">{other.row.head}</td>
-									<td class="px-2 py-1 text-right tabular-nums">{other.row.speed}</td>
-									<td class="px-2 py-1 text-xs text-slate-600">{other.row.state}</td>
+									{#each cells as cell (cell.label)}
+										<td
+											role="cell"
+											data-label={cell.label}
+											class={[
+												'px-2 py-1',
+												cell.numeric ? 'text-right tabular-nums' : 'text-xs text-slate-600',
+												'max-sm:flex max-sm:items-baseline max-sm:gap-1 max-sm:p-0 max-sm:text-left',
+												'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]',
+												// A phone's row leaves out what it has no value for, out of sight only.
+												cell.value === '—' && 'max-sm:sr-only'
+											]}>{cell.value}</td
+										>
+									{/each}
 								</tr>
 							{/each}
 						</tbody>
 					</table>
 				</div>
 			{/if}
+			<!-- A container (§5.5): the shown case's tables two-up only where two fit, from 40 rem. -->
+			<div class="@container">
+				<div class="grid gap-3 @min-[40rem]:grid-cols-2">
+					<!-- A scroll box keyboard users can reach and scroll; its headings stay in view. -->
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<div
+						class="scroll-shadow-x max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+						role="region"
+						aria-labelledby="{id}-curve-caption"
+						tabindex="0"
+					>
+						<table class="w-full text-sm">
+							<caption
+								id="{id}-curve-caption"
+								class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
+							>
+								Pump curve at {speedText}
+							</caption>
+							<thead class="sticky top-0 bg-slate-50">
+								<tr>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Flow ({data.flowUnit})</th
+									>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Head ({data.headUnit})</th
+									>
+									<th scope="col" class="px-2 py-1 text-left font-medium">Data</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each data.curveRows as row, i (i)}
+									<tr class="border-t border-slate-100">
+										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+										<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
+										<td class="px-2 py-1 text-xs text-slate-600"
+											>{row.extrapolated ? 'Extrapolated' : 'Curve'}</td
+										>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+					{#if data.system}
+						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+						<div
+							class="scroll-shadow-x max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+							role="region"
+							aria-labelledby="{id}-system-caption"
+							tabindex="0"
+						>
+							<table class="w-full text-sm">
+								<caption
+									id="{id}-system-caption"
+									class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
+								>
+									System curve
+								</caption>
+								<thead class="sticky top-0 bg-slate-50">
+									<tr>
+										<th scope="col" class="px-2 py-1 text-right font-medium"
+											>Flow ({data.flowUnit})</th
+										>
+										<th scope="col" class="px-2 py-1 text-right font-medium"
+											>Head ({data.headUnit})</th
+										>
+										{#if data.npsh?.available}
+											<th scope="col" class="px-2 py-1 text-right font-medium"
+												>NPSHa ({data.headUnit})</th
+											>
+										{/if}
+										{#if data.systemMissing}
+											<th scope="col" class="px-2 py-1 text-left font-medium">Why no head</th>
+										{/if}
+									</tr>
+								</thead>
+								<tbody>
+									{#each data.systemRows as row, i (i)}
+										<tr class="border-t border-slate-100">
+											<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+											<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
+											{#if data.npsh?.available}
+												<td class="px-2 py-1 text-right tabular-nums">{row.npsha}</td>
+											{/if}
+											{#if data.systemMissing}
+												<td class="px-2 py-1 text-xs text-slate-600"
+													>{row.note}{#if row.detail}<IssueDetail
+															detail={row.detail}
+															subject="the point at {row.flow} {data.flowUnit}"
+														/>{/if}</td
+												>
+											{/if}
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+					{#each curveTables as table (table.key)}
+						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+						<div
+							class="scroll-shadow-x max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+							role="region"
+							aria-labelledby="{id}-{table.key}-caption"
+							tabindex="0"
+						>
+							<table class="w-full text-sm">
+								<caption
+									id="{id}-{table.key}-caption"
+									class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
+								>
+									{table.caption}
+								</caption>
+								<thead class="sticky top-0 bg-slate-50">
+									<tr>
+										<th scope="col" class="px-2 py-1 text-right font-medium"
+											>Flow ({data.flowUnit})</th
+										>
+										<th scope="col" class="px-2 py-1 text-right font-medium">{table.column}</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each table.rows as row, i (i)}
+										<tr class="border-t border-slate-100">
+											<td class="px-2 py-1 text-right tabular-nums">{fmt(row.x)}</td>
+											<td class="px-2 py-1 text-right tabular-nums">{fmt(row.y)}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/each}
+				</div>
+			</div>
+			<!-- The other cases' system curves, on this chart's flow grid, last (§5.3, F33). -->
 			{#each otherData.filter((o) => o.system) as other (other.key)}
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 				<div
-					class="max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+					class="scroll-shadow-x max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
 					role="region"
-					aria-labelledby="{id}-system-{other.key || 'base'}"
+					aria-labelledby="{id}-system-{caseId(other.key)}"
 					tabindex="0"
 				>
 					<table class="w-full text-sm">
 						<caption
-							id="{id}-system-{other.key || 'base'}"
+							id="{id}-system-{caseId(other.key)}"
 							class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
 						>
 							System curve, {other.label}
@@ -839,7 +1068,10 @@
 									<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
 									<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
 									<td class="px-2 py-1 text-xs text-slate-600"
-										>{row.note}{#if row.detail}<IssueDetail detail={row.detail} />{/if}</td
+										>{row.note}{#if row.detail}<IssueDetail
+												detail={row.detail}
+												subject="the point at {row.flow} {data.flowUnit}, {other.label}"
+											/>{/if}</td
 									>
 								</tr>
 							{/each}
@@ -847,141 +1079,129 @@
 					</table>
 				</div>
 			{/each}
-			{#if data.operating}
-				<p class="text-sm">
-					Operating point: <span class="tabular-nums">{fmt(data.operating.x)} {data.flowUnit}</span>
-					at <span class="tabular-nums">{fmt(data.operating.y)} {data.headUnit}</span>
-					{#if !data.inCurveRange}(extrapolated){/if}
-				</p>
-			{:else if data.held}
-				<p class="text-sm">
-					Held at zero flow: <span class="tabular-nums">{fmt(data.held.y)} {data.headUnit}</span>
-					across the pump
-				</p>
-			{/if}
-			<div class="grid gap-3 sm:grid-cols-2">
-				<!-- A scroll box keyboard users can reach and scroll; its headings stay in view. -->
-				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<div
-					class="max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-					role="region"
-					aria-labelledby="{id}-curve-caption"
-					tabindex="0"
-				>
-					<table class="w-full text-sm">
-						<caption
-							id="{id}-curve-caption"
-							class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
-						>
-							Pump curve at {speedText}
-						</caption>
-						<thead class="sticky top-0 bg-slate-50">
-							<tr>
-								<th scope="col" class="px-2 py-1 text-right font-medium">Flow ({data.flowUnit})</th>
-								<th scope="col" class="px-2 py-1 text-right font-medium">Head ({data.headUnit})</th>
-								<th scope="col" class="px-2 py-1 text-left font-medium">Data</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each data.curveRows as row, i (i)}
-								<tr class="border-t border-slate-100">
-									<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
-									<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
-									<td class="px-2 py-1 text-xs text-slate-600"
-										>{row.extrapolated ? 'Extrapolated' : 'Curve'}</td
-									>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
+		</div>
+	{/if}
+	<!--
+		Other cases (§5.3, "Other cases on the pump chart"), under their own heading at the figure's
+		end, so every figure-scoped test still finds them: the cases drawn, then the switch for
+		their system curves with its cost kept visible (§6.4 item 8), then its live line.
+	-->
+	{#if others.length}
+		<div class="space-y-2 border-t border-slate-200 pt-3" data-pump-others>
+			<h4 class="text-sm font-semibold text-slate-900">Other cases on the pump chart</h4>
+			<!-- The legend the fieldset's first child, so the group keeps its name (§5.3 markup). -->
+			<fieldset>
+				<legend class="text-xs font-medium text-slate-700">Cases on the chart</legend>
+				<!-- An auto-fill grid, 13 rem at least: two columns in a 480 px pane, one on a phone. -->
+				<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-3">
+					<!-- The case shown: a tag, not a control (§5.2 Tags). -->
+					<span
+						class="col-span-full mt-1 justify-self-start rounded bg-slate-100 px-1.5 text-xs text-slate-700"
+						><span aria-hidden="true">●</span> {caseName ?? 'This case'} (shown)</span
+					>
+					{#each others as other (other.key)}
+						{@const on = shownKeys.has(other.key)}
+						{@const full = !on && shownOthers.length >= MAX_CHART_CASES - 1}
+						{@const marker = markerOf(other.key)}
+						{@const offHere = other.result.status === 'off'}
+						{@const described = [offHere && `${id}-off-${caseId(other.key)}`, full && `${id}-full`]
+							.filter(Boolean)
+							.join(' ')}
+						<div>
+							<!-- Capped (§5.3): the box greyed, the name kept readable (slate-600). -->
+							<label
+								class={[
+									'flex min-h-11 items-start gap-2 py-3 text-sm',
+									full && 'cursor-not-allowed text-slate-600'
+								]}
+							>
+								<input
+									type="checkbox"
+									class={['mt-0.5 size-4 shrink-0', full && 'opacity-45']}
+									checked={on}
+									aria-disabled={full}
+									aria-describedby={described || undefined}
+									onclick={(event) => {
+										if (full) {
+											event.preventDefault();
+											return;
+										}
+										setShown(other.key, event.currentTarget.checked);
+									}}
+								/>
+								<!-- The marker's column is kept, so a name never moves on tick. -->
+								<span aria-hidden="true" class="w-4 shrink-0 text-center text-slate-600"
+									>{marker ? MARKER_SYMBOLS[marker] : ''}</span
+								>
+								<span class="min-w-0 break-words"
+									>{other.name}{other.stale ? ' (out of date)' : ''}</span
+								>
+							</label>
+							{#if offHere}
+								<!-- Beside its box, outside its label, and in its description (§5.3). -->
+								<p
+									id="{id}-off-{caseId(other.key)}"
+									class="-mt-2 pb-2 pl-12 text-xs text-slate-600"
+								>
+									(off in this case: no operating point)
+								</p>
+							{/if}
+						</div>
+					{/each}
 				</div>
-				{#if data.system}
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						class="max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-system-caption"
-						tabindex="0"
-					>
-						<table class="w-full text-sm">
-							<caption
-								id="{id}-system-caption"
-								class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
-							>
-								System curve
-							</caption>
-							<thead class="sticky top-0 bg-slate-50">
-								<tr>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Flow ({data.flowUnit})</th
-									>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Head ({data.headUnit})</th
-									>
-									{#if data.npsh?.available}
-										<th scope="col" class="px-2 py-1 text-right font-medium"
-											>NPSHa ({data.headUnit})</th
-										>
-									{/if}
-									{#if data.systemMissing}
-										<th scope="col" class="px-2 py-1 text-left font-medium">Why no head</th>
-									{/if}
-								</tr>
-							</thead>
-							<tbody>
-								{#each data.systemRows as row, i (i)}
-									<tr class="border-t border-slate-100">
-										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
-										<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
-										{#if data.npsh?.available}
-											<td class="px-2 py-1 text-right tabular-nums">{row.npsha}</td>
-										{/if}
-										{#if data.systemMissing}
-											<td class="px-2 py-1 text-xs text-slate-600"
-												>{row.note}{#if row.detail}<IssueDetail detail={row.detail} />{/if}</td
-											>
-										{/if}
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
+				{#if others.length > MAX_CHART_CASES - 1}
+					<p id="{id}-full" class="hint">At most {MAX_CHART_CASES} cases at once.</p>
 				{/if}
-				{#each curveTables as table (table.key)}
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						class="max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-{table.key}-caption"
-						tabindex="0"
+			</fieldset>
+			{#if onoverlay}
+				<div>
+					<label class="flex min-h-11 items-center gap-2 text-sm">
+						<input
+							type="checkbox"
+							class="size-4 shrink-0"
+							checked={overlayCurves}
+							aria-describedby="{id}-overlay-hint"
+							onchange={(event) => onoverlay(event.currentTarget.checked, unticked)}
+						/>
+						Also show the other cases' system curves
+					</label>
+					<!-- A cost: kept visible, since on touch the tap that focuses it starts the solves. -->
+					<p id="{id}-overlay-hint" class="-mt-1 pl-6 text-xs text-slate-600">
+						Each is computed on request, one at a time, for that case's last solve; a curve costs
+						about 41 solves of the network.
+					</p>
+				</div>
+				<!-- Its live line (§5.3 markup rules, §7 Live regions): always there, polite, never
+					role=status, empty while idle (and then out of sight); Cancel after it, outside it,
+					described by it. -->
+				<div
+					class={['flex flex-wrap items-center gap-x-3 gap-y-1', !overlayLine && 'sr-only']}
+					data-overlay-row
+				>
+					<span
+						id="{id}-overlay-state"
+						data-overlay-state
+						aria-live="polite"
+						aria-atomic="true"
+						class="inline-flex items-start gap-1.5 text-xs text-slate-700"
+						>{#if overlayLine}<Icon
+								name="spinner"
+								class="mt-px size-3.5 shrink-0 text-slate-500 motion-safe:animate-spin"
+							/>Computing system curves: {Math.min(overlayLine.done + 1, overlayLine.total)}
+							of
+							{overlayLine.total}…{/if}</span
 					>
-						<table class="w-full text-sm">
-							<caption
-								id="{id}-{table.key}-caption"
-								class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
-							>
-								{table.caption}
-							</caption>
-							<thead class="sticky top-0 bg-slate-50">
-								<tr>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Flow ({data.flowUnit})</th
-									>
-									<th scope="col" class="px-2 py-1 text-right font-medium">{table.column}</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each table.rows as row, i (i)}
-									<tr class="border-t border-slate-100">
-										<td class="px-2 py-1 text-right tabular-nums">{fmt(row.x)}</td>
-										<td class="px-2 py-1 text-right tabular-nums">{fmt(row.y)}</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				{/each}
-			</div>
+					{#if overlayProgress && oncanceloverlay}
+						<button
+							type="button"
+							class="btn btn-quiet px-2 text-blue-800"
+							aria-label="Cancel the other cases' system curves"
+							aria-describedby="{id}-overlay-state"
+							onclick={oncanceloverlay}>Cancel</button
+						>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	{/if}
 </figure>

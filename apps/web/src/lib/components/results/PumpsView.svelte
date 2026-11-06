@@ -39,7 +39,6 @@
 		PumpGroupStation,
 		SolvedState
 	} from '$lib/api/types';
-	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import {
 		hydraulicFingerprint,
@@ -65,6 +64,7 @@
 		markChanged,
 		pumpTable,
 		resultsProject,
+		type ResultsView,
 		type TableSort
 	} from '$lib/utils/results';
 	import { defaultGroup, pressureControlOnly, suggestGroups } from '$lib/utils/pump-groups';
@@ -105,10 +105,13 @@
 		changed?: ReadonlySet<string>;
 		/** A sort for the table (the Summary's links). */
 		sortRequest?: (TableSort & { id: number }) | null;
+		/** Show another Results view with the focus on its tab (the pump chart's Go to Checks). */
+		onview?: (view: ResultsView) => void;
 	}
 
-	let { solved, changed = new Set(), sortRequest = null }: Props = $props();
+	let { solved, changed = new Set(), sortRequest = null, onview }: Props = $props();
 	const ws = useWorkspace();
+	const uid = $props.id();
 	const table = $derived(
 		markChanged(pumpTable(ws.labelsProject, solved, ws.displayUnits), changed)
 	);
@@ -834,13 +837,21 @@
 </script>
 
 <div class="space-y-4">
-	<ResultsTable
-		{table}
-		{sortRequest}
-		caption="Results per pump"
-		first="Pump"
-		onselect={(row) => ws.inspect(row.element)}
-	/>
+	<!--
+		Results per pump (proposal pumps-results-layout.md §5.3 item 1): the table and its note under
+		a visible heading, the title every other section has (tabindex −1, the section nav's target
+		from S2); the table keeps its visually hidden caption, its name. A plain div, not a landmark.
+	-->
+	<div class="space-y-2" data-pump-table>
+		<h3 id="{uid}-per-pump" class="text-base font-semibold" tabindex="-1">Results per pump</h3>
+		<ResultsTable
+			{table}
+			{sortRequest}
+			caption="Results per pump"
+			first="Pump"
+			onselect={(row) => ws.inspect(row.element)}
+		/>
+	</div>
 	<p class="text-xs text-slate-600">
 		Head is the rise in the energy grade line across the pump; for a pump held at zero flow it is
 		the head across it (its shutoff head when its discharge is closed off). NPSH available is
@@ -851,20 +862,44 @@
 			rule that put it there).{/if}
 	</p>
 	{#if viewed && result}
-		<div class="card space-y-3 p-3">
-			{#if pumps.length > 1}
-				<SelectField
-					label="Pump chart"
-					hint="The pump and system curves of one pump at a time; each system curve is computed when its pump is shown."
-					value={viewed.key}
-					options={pumps.map((row) => ({ value: row.key, label: row.name }))}
-					shared
-					onchange={(id) => {
-						chosen = id;
-						unticked = []; // the new pump's chart starts with every case ticked
-					}}
-				/>
-			{/if}
+		<div class="card space-y-3 p-3" data-pump-chart>
+			<!--
+				The header row (proposal pumps-results-layout.md §5.3 item 2): the h3 and, with more
+				than one pump, the select it names, beside it from a 26 rem container (the desktop
+				split) and under it below, so on a phone the select has the row's whole width and
+				shows a name's end, often what tells two pumps apart ("… CWP-1" to "… CWP-6"; §15
+				item 17). The select's sentence stays visible: a choice starts a system curve, a cost
+				(§6.4 item 8).
+			-->
+			<div class="@container">
+				<div class="flex flex-col gap-x-3 gap-y-1 @min-[26rem]:flex-row @min-[26rem]:items-center">
+					<h3 id="{uid}-pump-chart" class="shrink-0 text-base font-semibold" tabindex="-1">
+						Pump chart
+					</h3>
+					{#if pumps.length > 1}
+						<select
+							class="input pr-8 @min-[26rem]:w-auto @min-[26rem]:flex-1"
+							aria-labelledby="{uid}-pump-chart"
+							aria-describedby="{uid}-pump-chart-hint"
+							value={viewed.key}
+							onchange={(event) => {
+								chosen = event.currentTarget.value;
+								unticked = []; // the new pump's chart starts with every case ticked
+							}}
+						>
+							{#each pumps as row (row.key)}
+								<option value={row.key}>{row.name}</option>
+							{/each}
+						</select>
+					{/if}
+				</div>
+				{#if pumps.length > 1}
+					<p id="{uid}-pump-chart-hint" class="hint">
+						The pump and system curves of one pump at a time; each system curve is computed when its
+						pump is shown.
+					</p>
+				{/if}
+			</div>
 			{#key viewed.key}
 				<PumpChart
 					{result}
@@ -879,6 +914,7 @@
 						: undefined}
 					oncancel={response ? () => ws.store.cancelSystemCurve(viewed.key) : undefined}
 					ontrace={() => ws.inspect(viewed.element)}
+					{...onview && solved.designChecks?.length ? { onchecks: () => onview('checks') } : {}}
 					{othersControlled}
 					{...hasScenarios ? { caseName: ws.caseName(ws.store.activeCase) } : {}}
 					{others}

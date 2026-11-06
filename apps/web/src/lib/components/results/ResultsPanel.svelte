@@ -1024,7 +1024,12 @@
 							{:else if v === 'links'}
 								<LinksView {solved} {changed} sortRequest={sortRequests.links ?? null} />
 							{:else if v === 'pumps'}
-								<PumpsView {solved} {changed} sortRequest={sortRequests.pumps ?? null} />
+								<PumpsView
+									{solved}
+									{changed}
+									sortRequest={sortRequests.pumps ?? null}
+									onview={showView}
+								/>
 							{:else if v === 'valves' && valves}
 								<ResultsTable
 									table={valves}

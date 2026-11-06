@@ -1,6 +1,6 @@
 # Pump chart: design proposal
 
-**Status: slices 1, 2 and 3 built, slice 4 decided and its parts 4a, 4b, 4c and 4d built** (slices 1 and 2 2026-10-26, §9 and §10 record where the builds depart from this text; slice 3, 2026-10-27, as the design checks of `docs/proposals/design-checks.md`, CLAUDE.md D19; slice 4, 2026-10-28, designed in `docs/proposals/pump-groups.md`, the owner's answers there, its slices 4a, 4b, 4c and 4d built, CLAUDE.md D21). **Owner's decision (2026-10-26):** the best efficiency point is shown by default as a fact of the curve; the duty as a % of BEP flow and every operating-region band wait for the opt-in design checks (slice 3). Written against `main` at `bbafbff` (export, D17, merged) for item 12 of `docs/proposals/ui-ux-refinement.md` ("pump chart layers"), which this document replaces and widens. Everything here is a reversible default under D14 except where it is marked **owner** (a GOALS value, a model input or a design-practice check).
+**Status: slices 1, 2 and 3 built, slice 4 decided and its parts 4a, 4b, 4c and 4d built** (slices 1 and 2 2026-10-26, §9 and §10 record where the builds depart from this text; slice 3, 2026-10-27, as the design checks of `docs/proposals/design-checks.md`, CLAUDE.md D19; slice 4, 2026-10-28, designed in `docs/proposals/pump-groups.md`, the owner's answers there, its slices 4a, 4b, 4c and 4d built, CLAUDE.md D21; the chart's place in the Pumps tab restructured by `docs/proposals/pumps-results-layout.md`, slice S1, 2026-11-05 to 11-06, §11). **Owner's decision (2026-10-26):** the best efficiency point is shown by default as a fact of the curve; the duty as a % of BEP flow and every operating-region band wait for the opt-in design checks (slice 3). Written against `main` at `bbafbff` (export, D17, merged) for item 12 of `docs/proposals/ui-ux-refinement.md` ("pump chart layers"), which this document replaces and widens. Everything here is a reversible default under D14 except where it is marked **owner** (a GOALS value, a model input or a design-practice check).
 
 The pump chart is where a mechanical engineer checks a selection: whether the pump meets the duty, how far from its best efficiency it runs, what power the driver needs, how much NPSH margin there is across the range the system will see, and how all of this moves between cases and speeds. Today the chart answers the first question only. This proposal lays out the whole chart a design engineer expects, in slices that each ship on their own, so that the first slice leaves room for every later one.
 
@@ -90,7 +90,7 @@ A vertical cursor follows the pointer (desktop; a tap on a phone) and a **Read a
 
 ### 4.4 Data table
 
-The table under the chart grows the matching columns: flow, head, efficiency, shaft power, NPSHr (pump curve), and flow, system head, NPSHa (system curve), with the "Data / Extrapolated / Held" note per value. It stays the chart's long description.
+The table, opened under the chart's notes since the Pumps tab's S1 (§11), grows the matching columns: flow, head, efficiency, shaft power, NPSHr (pump curve), and flow, system head, NPSHa (system curve), with the "Data / Extrapolated / Held" note per value. It stays the chart's long description.
 
 ### 4.5 Image (D17)
 
@@ -162,3 +162,13 @@ Proof: `utils/pump-chart-panels.test.ts` (9 tests), new cases in `PumpChart.svel
 
 Proof: `utils/pump-chart-facts.test.ts`, the updated chart, image and component tests, the `pump-chart-facts` e2e flow on desktop and phone, and a clean axe scan of the chart with a drooping curve and a speed range.
 
+## 11. In the Pumps tab's anatomy (`pumps-results-layout.md` S1, as built)
+
+The chart's parts kept their contents and moved into the section anatomy of [`pumps-results-layout.md`](pumps-results-layout.md) (§5.1, §5.3; its §15 items 16 to 46 record the build). Where this text placed them:
+
+- **The order under the canvas:** the chips (§4.1), Read at flow and the readout (§4.3), a strip with the pump's state and the system curve's request, Show data table and Download image, the notes, the data table (§4.4) when shown, then "Other cases on the pump chart". The heading "Pump chart" sits above the figure, with the select of pumps beside it from a 21 rem container and under it below.
+- **The chips** are filled and led by a check icon when on, outlined when off; their words are unchanged.
+- **The readout** is 14 px label and value pairs, one per row below a 26 rem container (a phone) and two per row from it. It stays one paragraph and not a live region; the slider's value text carries it (§4.3).
+- **The notes:** each rising-head range and the NPSHa crossing first, then the best efficiency point, the shutoff head and the speed range, the panels' notes, the dashed note, and the method sentence with "Trace of {pump}" as an inline link. The design checks' limits follow under "Design-check limits drawn". chartNotes' words and the image's footer are unchanged.
+- **The data table** (§4.4) opens after the notes: the operating point first, then "Operating points by case" ("Speed (%)", bare numbers), the case shown's tables, two-up only from a 40 rem container, and the other cases' system curves last. Each Why no head Details is named for its point.
+- **`aria-busy`** is the canvas's, not the figure's, and the system curve's state is an always-present polite line with its button after it.

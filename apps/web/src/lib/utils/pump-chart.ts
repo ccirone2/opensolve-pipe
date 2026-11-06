@@ -771,7 +771,10 @@ export interface OtherCaseData {
 	curveLabel: string;
 	/** Its system curve, when computed (a null head is a gap). */
 	system: { x: number; y: number | null }[] | null;
-	/** Table row: flow, head, speed and state, formatted. */
+	/**
+	 * Table row: flow, head, speed and state, formatted; the speed a bare number, under "Speed (%)"
+	 * (proposal pumps-results-layout.md §5.3, the data region; "—" for an off pump).
+	 */
 	row: { flow: string; head: string; speed: string; state: string };
 	systemRows: SystemRow[];
 }
@@ -817,8 +820,7 @@ export function otherCasesData(
 			row: {
 				flow: data.operating ? fmt(data.operating.x) : data.held ? '0' : '—',
 				head: data.operating ? fmt(data.operating.y) : data.held ? fmt(data.held.y) : '—',
-				speed:
-					other.result.status === 'off' ? '—' : `${formatNumber(other.result.speed * 100, 4)} %`,
+				speed: other.result.status === 'off' ? '—' : formatNumber(other.result.speed * 100, 4),
 				state: STATE_WORDS[other.result.status] ?? other.result.status
 			},
 			systemRows: data.systemRows
@@ -1066,10 +1068,7 @@ function factNotes(d: PumpChartData, speedShown: boolean): string[] {
 				: ''
 		}.`
 	);
-	for (const [lo, hi] of rising.ranges)
-		notes.push(
-			`The head rises with flow from ${fmt(lo)} to ${fmt(hi)} ${d.flowUnit} (amber): a system curve can cross the pump curve more than once there.`
-		);
+	for (const [lo, hi] of rising.ranges) notes.push(risingNote(d, lo, hi));
 	if (speedShown && speedRange) {
 		const levels = speedRange.iso.filter((l) => !l.best).map((l) => l.efficiency);
 		const unique = [...new Set(levels.map((l) => fmt(l)))];
@@ -1107,12 +1106,61 @@ function panelNotes(d: PumpChartData, result: PumpResult, shown: readonly PanelK
 		);
 	}
 	if (shown.includes('npsh') && d.npsh) {
-		if (d.npsh.crossing !== null)
-			notes.push(
-				`NPSHa falls below NPSHr at about ${fmt(d.npsh.crossing)} ${d.flowUnit} (read from the drawn lines): the pump would cavitate beyond that flow.`
-			);
+		if (d.npsh.crossing !== null) notes.push(npshCrossingNote(d, d.npsh.crossing));
 		else if (!d.system && d.npsh.required)
 			notes.push('NPSHa along the system curve is drawn once the system curve is computed.');
 	}
 	return notes;
+}
+
+/** A stretch where the head rises with flow, as a fact (pump-chart.md §10: not a flag). */
+function risingNote(d: PumpChartData, lo: number, hi: number): string {
+	const fmt = (v: number) => formatNumber(v, 4);
+	return `The head rises with flow from ${fmt(lo)} to ${fmt(hi)} ${d.flowUnit} (amber): a system curve can cross the pump curve more than once there.`;
+}
+
+/** Where NPSHa falls below NPSHr along the drawn lines (pump-chart.md §4.2). */
+function npshCrossingNote(d: PumpChartData, crossing: number): string {
+	return `NPSHa falls below NPSHr at about ${formatNumber(crossing, 4)} ${d.flowUnit} (read from the drawn lines): the pump would cavitate beyond that flow.`;
+}
+
+/** The notes about the values, grouped in the order the screen shows them (valueNotes). */
+export interface ValueNotes {
+	/** Each rising-head range, then the NPSHa crossing: what qualifies a reading, first. */
+	first: string[];
+	/** The best efficiency point or why none is marked, the shutoff head, the speed range. */
+	facts: string[];
+	/** The panels' other notes (efficiency at speed or held, shaft power, NPSHa to come). */
+	panels: string[];
+	extrapolated: string | null;
+	/** How the system curve shown was computed (D10), with its link to the pump's trace. */
+	method: string | null;
+	/** The design checks' limits drawn and their closing sentence (D19), when shown. */
+	checks: string[];
+}
+
+/**
+ * The notes about the values in the order the screen shows them (proposal
+ * pumps-results-layout.md §5.3, item 2, Notes about the values), from the figure's notes: the
+ * facts that qualify a reading first (each rising-head range, then where NPSHa falls below
+ * NPSHr), then the curve facts (the best efficiency point or none, the shutoff head, the speed
+ * range), the panels' other notes, the dashed extrapolation, the method sentence, and the design
+ * checks' limits. Every sentence is chartNotes' own, each once, its words unchanged; the image's
+ * footer keeps chartNotes' order (chart-image.ts imageNoteLines). The pump's state and the system
+ * curve's state and coverage are the strip's (§5.3, The strip), not here.
+ */
+export function valueNotes(notes: ChartNotes, d: PumpChartData): ValueNotes {
+	const lead = new Set([
+		...d.facts.rising.ranges.map(([lo, hi]) => risingNote(d, lo, hi)),
+		...(d.npsh && d.npsh.crossing !== null ? [npshCrossingNote(d, d.npsh.crossing)] : [])
+	]);
+	const isLead = (note: string) => lead.has(note);
+	return {
+		first: [...notes.facts.filter(isLead), ...notes.panels.filter(isLead)],
+		facts: notes.facts.filter((note) => !isLead(note)),
+		panels: notes.panels.filter((note) => !isLead(note)),
+		extrapolated: notes.extrapolated,
+		method: notes.method,
+		checks: notes.checks
+	};
 }

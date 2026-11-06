@@ -8,6 +8,7 @@
  * The API is replaced by fakes.
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
@@ -98,6 +99,26 @@ describe('staleness', () => {
 			p.pumpLibrary[0]!.motorRatedPower = 6000;
 		}, 'change motor rated power');
 		expect(ws.store.results.stale).toBe(true);
+	});
+});
+
+describe("the pump chart's design-check limits", () => {
+	it('lead to the Checks view, its tab focused (proposal pumps-results-layout.md §5.3)', async () => {
+		await solveFixture();
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		const pumps = within(results().getByRole('tabpanel', { name: 'Pumps' }));
+		const limits = pumps.getByText('Design-check limits drawn').parentElement!;
+		expect(limits).toHaveTextContent(/Shaded blue \(POR\): the preferred operating region/);
+		// The closing sentence, then the button that goes there.
+		expect(limits).toHaveTextContent(
+			/Results → Checks says whether the duty meets them\. Go to Checks$/
+		);
+		await fireEvent.click(within(limits).getByRole('button', { name: 'Go to Checks' }));
+		await tick();
+		const tab = results().getByRole('tab', { name: 'Checks' });
+		expect(tab).toHaveAttribute('aria-selected', 'true');
+		expect(tab).toHaveFocus();
+		expect(results().getByRole('tabpanel', { name: 'Checks' })).toBeVisible();
 	});
 });
 

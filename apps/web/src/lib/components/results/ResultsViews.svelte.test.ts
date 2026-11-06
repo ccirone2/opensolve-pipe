@@ -25,6 +25,7 @@ import {
 	SAMPLE_METHODS,
 	SAMPLE_TRACE
 } from '$lib/testing/results';
+import { outOfSight } from '$lib/testing/helpers';
 import { testWorkspace, type TestWorkspaceOptions } from '$lib/testing/workspace';
 import { insertComponentInConnection } from '$lib/utils/edit';
 import { pumpTransferExample } from '$lib/utils/examples';
@@ -496,7 +497,11 @@ describe('pump chart: the system curve on demand (D10)', () => {
 			pumpTransferExample(),
 			pumpTransferSolved()
 		);
-		expect(panel.getByText('Computing the system curve for this solve…')).toBeInTheDocument();
+		// The tab opened, the chart's line is drawn empty first, then speaks (pumps-results-layout.md
+		// §7 Live regions, F17): inserted already holding its words, it would not be announced.
+		const line = panel.getByRole('figure').querySelector('[data-pump-strip] [aria-live]')!;
+		expect(line.textContent).toBe('');
+		expect(await panel.findByText('Computing the system curve for this solve…')).toBe(line);
 		await vi.waitFor(() => expect(systemCurve).toHaveBeenCalledTimes(1));
 		const [project, pumpId] = systemCurve.mock.calls[0]!;
 		expect(project).toBe(solve.mock.calls[0]![0]);
@@ -517,6 +522,28 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		expect(ws.store.results.stale).toBe(true);
 		expect(panel.getByRole('table', { name: 'System curve' })).toBeInTheDocument();
 		expect(systemCurve).toHaveBeenCalledTimes(1);
+	});
+
+	it('heads the table "Results per pump", visibly, its caption kept (pumps-results-layout.md §5.3)', async () => {
+		const { panel } = await solveAndOpenPumps(pumpTransferExample(), pumpTransferSolved());
+		const headings = panel.getAllByRole('heading');
+		expect(headings.map((h) => [h.tagName, h.textContent!.trim()])).toEqual([
+			['H3', 'Results per pump'],
+			['H3', 'Pump chart']
+		]);
+		const heading = headings[0]!;
+		expect(heading).toBeVisible();
+		expect(heading).not.toHaveClass('sr-only');
+		expect(heading).toHaveAttribute('tabindex', '-1');
+		expect(heading).toHaveClass('text-base', 'font-semibold');
+		// The table keeps its name from its visually hidden caption, and follows its heading.
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		expect(table.querySelector('caption')).toHaveClass('sr-only');
+		expect(heading.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		// Not a landmark: the tab gains no region for it.
+		expect(heading.closest('section, [role="region"]')).toBe(
+			screen.getByRole('region', { name: 'Results' })
+		);
 	});
 
 	it('cancels the curve being computed; computed again on request, it is shown', async () => {
@@ -571,6 +598,19 @@ describe('pump chart: the system curve on demand (D10)', () => {
 				.getAllByRole('option')
 				.map((o) => o.textContent)
 		).toEqual(['Transfer pump', 'Booster pump']);
+		// Named by the chart's heading, beside it; its cost sentence visible and its description
+		// (proposal pumps-results-layout.md §5.3 item 2).
+		const heading = panel.getByRole('heading', { level: 3, name: 'Pump chart' });
+		expect(heading).toHaveAttribute('tabindex', '-1');
+		expect(picker).toHaveAttribute('aria-labelledby', heading.id);
+		expect(picker.parentElement).toBe(heading.parentElement);
+		const hint = panel.getByText(
+			'The pump and system curves of one pump at a time; each system curve is computed when its pump is shown.'
+		);
+		expect(hint).toBeVisible();
+		// Visible at every width: jsdom applies no CSS, so its markup says (§5.3 item 2, §6.4 item 8).
+		expect(outOfSight(hint)).toBe(false);
+		expect(picker).toHaveAccessibleDescription(hint.textContent!.replace(/\s+/g, ' ').trim());
 		expect(panel.getAllByRole('figure')).toHaveLength(1);
 		expect(
 			panel.getByRole('figure', { name: 'Pump and system curves: Transfer pump' })
@@ -579,12 +619,15 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		answers[0]!(systemCurveResponse('P1'));
 		await panel.findByRole('table', { name: 'System curve' });
 		await fireEvent.change(picker, { target: { value: booster.id } });
-		expect(
-			panel.getByRole('figure', { name: 'Pump and system curves: Booster pump' })
-		).toBeInTheDocument();
+		const boosterFigure = panel.getByRole('figure', {
+			name: 'Pump and system curves: Booster pump'
+		});
+		// The new chart's line, too, is drawn empty before it speaks (§7 Live regions, F17).
+		const line = boosterFigure.querySelector('[data-pump-strip] [aria-live]')!;
+		expect(line.textContent).toBe('');
 		await vi.waitFor(() => expect(systemCurve).toHaveBeenCalledTimes(2));
 		expect(systemCurve.mock.calls[1]![1]).toBe(booster.id);
-		expect(panel.getByText('Computing the system curve for this solve…')).toBeInTheDocument();
+		expect(await panel.findByText('Computing the system curve for this solve…')).toBe(line);
 		// Back to the first pump: its curve is cached.
 		await fireEvent.change(picker, { target: { value: 'P1' } });
 		expect(await panel.findByRole('table', { name: 'System curve' })).toBeInTheDocument();

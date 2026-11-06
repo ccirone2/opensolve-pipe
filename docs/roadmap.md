@@ -30,7 +30,7 @@ Speed-controlled pumps slice 2 (discharge pressure) and C1 (an exact Newton step
 
 ## 4. Web: Build density (proposal `proposals/build-density.md` §10, §12)
 
-Built: every Build form laid out from the field registry, one label and unit table, and the budgets the e2e suite enforces (`proposals/build-density.md` §11). What remains is its §12: the strip kept in view when it gains a flag after a solve; segments for three-value choices where their labels fit; Build inputs in the results workbook, if wanted (D17).
+Built: every Build form laid out from the field registry, one label and unit table, and the budgets the e2e suite enforces (`proposals/build-density.md` §11). What remains is its §12: the strip kept in view when it gains a flag after a solve; segments for three-value choices where their labels fit; Build inputs in the results workbook, if wanted (D17). A reservoir's entrance and exit buttons under Fittings (`FittingsEditor.svelte:286, 293`) are still to take `wrap-anywhere`, so that a reservoir name with no spaces breaks inside them (`ui-guide.md`, Phones; `proposals/pumps-results-layout.md` §15 item 1).
 
 ## 5. Still to do by hand
 

@@ -232,7 +232,7 @@ test('two pumps in parallel: the station, each share and loss on its way, the PN
 	expect(footer).toContain('Station flow, into the station at Tee T1 (run inlet)');
 	expect(footer).toContain('Rise from Tee T1 (run inlet) to Tee T2 (run outlet)');
 
-	await card.getByRole('button', { name: 'Show data table' }).click();
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
 	const samples = card.getByRole('table', { name: "Group curve (station's flow at each rise)" });
 	await expect(samples.getByRole('row')).toHaveCount(body.points.length + 1);
 	await noSidewaysScroll(page);
@@ -247,6 +247,52 @@ test('two pumps in parallel: the station, each share and loss on its way, the PN
 	expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 	expect(png.toString('latin1', 12, 16)).toBe('IHDR');
 	expect(png.readUInt32BE(16)).toBe(1600);
+});
+
+test('the station: its answer before the group table, each flagged pump’s flag line under its row, its text in the box’s visible width and read once (pumps-results-layout.md §5.3, §9 S3)', async ({
+	page
+}) => {
+	await open(page, projectOf('parallel-crane'));
+	const solved = await solveConverged(page);
+	const { card, toggle } = await openCard(page);
+	await answersOf(page, () => toggle.click());
+	const station = card.locator('[data-group-station]');
+	await expect(station.getByRole('heading', { name: 'Station', level: 4 })).toBeVisible();
+	// The answer first: the station's dl, then the table.
+	const answer = station.getByLabel('The station');
+	const region = station.getByRole('region', { name: 'The pumps in the group' });
+	const [a, r] = [(await answer.boundingBox())!, (await region.boundingBox())!];
+	expect(a.y + a.height).toBeLessThanOrEqual(r.y);
+	await expect(region.getByRole('columnheader', { name: 'Flags' })).toHaveCount(0);
+	// Both pumps' NPSH is not checked here: a warning flag each, in the solve.
+	const flagged = ['PA', 'PB'].filter((id) => solved.flags.some((f) => f.componentId === id));
+	expect(flagged).toEqual(['PA', 'PB']);
+	const box = (await region.boundingBox())!;
+	for (const id of flagged) {
+		const name = `Pump ${id}`;
+		const line = region.locator(`[data-row-notes="${id}"]`);
+		await expect(line).toHaveAttribute('data-label', 'Flags');
+		// Named by its pump first (visually hidden), then each flag's pill and its text, visible.
+		await expect(line).toHaveText(new RegExp(`^${name}, flags:\\s*Warning\\s+\\S`));
+		const flags = line.locator('p');
+		const count = solved.flags.filter((f) => f.componentId === id).length;
+		await expect(flags).toHaveCount(count);
+		const whole = squash((await line.textContent()) ?? '');
+		for (let i = 0; i < count; i++) {
+			const p = flags.nth(i);
+			await expect(p).toBeVisible();
+			const text = squash(await p.innerText()).replace(/^Warning /, '');
+			expect(text.length).toBeGreaterThan(10);
+			// The flag's sentence once in its line (no hidden copy, no title).
+			expect(whole.split(text)).toHaveLength(2);
+			await expect(p.locator('[title]')).toHaveCount(0);
+			// Inside the box's visible width, whatever the table's own width.
+			const b = (await p.boundingBox())!;
+			expect(b.x).toBeGreaterThanOrEqual(box.x - 0.5);
+			expect(b.x + b.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+		}
+	}
+	await noSidewaysScroll(page);
 });
 
 test('two pumps in series: inlet and discharge pressures and the loss between them, in US units', async ({
@@ -360,6 +406,9 @@ test('the group system curve: drawn, listed with the response’s values, crossi
 	await expect(figure.getByRole('img')).toHaveAccessibleName(
 		/, on the group curve and the group system curve, where they cross; group curve shown; group system curve shown\.$/
 	);
+	// The group system curve's note is reference since pumps-results-layout.md S3 (§5.3): inside
+	// "How to read this chart", opened first.
+	await figure.locator('[data-group-reading] > summary').click();
 	await expect(
 		figure.getByText(
 			"The group's system curve is the rise the rest of the network needs between Tee T1 (run inlet) and Tee T2 (run outlet) at each total flow; it does not depend on how the pumps share the flow."
@@ -372,7 +421,7 @@ test('the group system curve: drawn, listed with the response’s values, crossi
 	).toBeVisible();
 
 	// The data table: every point of the group system curve, its flow and rise as the response's.
-	await card.getByRole('button', { name: 'Show data table' }).click();
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
 	const table = card.getByRole('table', {
 		name: "Group system curve (rise the rest of the network needs at each station's flow)"
 	});
@@ -441,7 +490,7 @@ test('the group system curve in US units: its points in gpm and ft', async ({ pa
 	const { card, toggle } = await openCard(page);
 	const { system } = await answersOf(page, () => toggle.click());
 	expect(system.status).toBe(200);
-	await card.getByRole('button', { name: 'Show data table' }).click();
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
 	const table = card.getByRole('table', {
 		name: "Group system curve (rise the rest of the network needs at each station's flow)"
 	});
@@ -485,7 +534,7 @@ test('an FCV outside the station: the group system curve has no rise beyond it, 
 			`${missing.length} of ${points.length} group-system-curve points have no rise: the line has gaps there, and the data table says why for each.`
 		)
 	).toBeVisible();
-	await card.getByRole('button', { name: 'Show data table' }).click();
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
 	const table = card.getByRole('table', {
 		name: "Group system curve (rise the rest of the network needs at each station's flow)"
 	});
@@ -709,7 +758,7 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 		shows(match![1]!, answer.body.duty!.flow * 1000);
 		shows(match![2]!, answer.body.duty!.head);
 	}
-	await card.getByRole('button', { name: 'Show data table' }).click();
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
 	const table = card.getByRole('table', { name: "Other cases' station duties" });
 	for (const [i, answer] of duties.entries()) {
 		const cells = table
@@ -780,7 +829,7 @@ test('the Pumps together card with its cases passes axe, everything open', async
 	await expect(card.getByRole('figure').getByRole('list', { name: 'Legend' })).toContainText(
 		'2 · Pump PB off (station duty)'
 	);
-	await card.getByRole('button', { name: 'Show data table' }).click();
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
 	await openEveryDisclosure(page);
 	await expect(card.getByRole('table', { name: "Other cases' station duties" })).toBeVisible();
 	await axeCleanTab(page);
@@ -1003,7 +1052,7 @@ test('the curve family: after adding cases by number running, each lineup’s ow
 	).toBeVisible();
 
 	// 2. The data table: the column, and every point of each case's curve, in display units.
-	await card.getByRole('button', { name: 'Show data table' }).click();
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
 	const duties = card.getByRole('table', { name: "Other cases' station duties" });
 	await expect(duties.getByRole('columnheader', { name: 'Its group curve' })).toBeVisible();
 	for (const [i] of names.entries()) {

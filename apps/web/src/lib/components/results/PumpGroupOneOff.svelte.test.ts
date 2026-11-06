@@ -734,7 +734,9 @@ describe('one pump off on the Pumps together card', () => {
 		expect(name).toMatch(
 			/; other cases' group curves drawn: 1 \(1 running\) and 3 \(1 running\); group curve shown; group system curve shown\.$/
 		);
-		await fireEvent.click(within(card()).getByRole('button', { name: 'Show data table' }));
+		await fireEvent.click(
+			within(card()).getByRole('button', { name: 'Show data table of the group chart' })
+		);
 		const table = within(card()).getByRole('table', { name: "Other cases' station duties" });
 		const claims = within(table)
 			.getAllByRole('row')
@@ -847,7 +849,9 @@ describe('one pump off on the Pumps together card', () => {
 				.getAllByRole('button')
 				.map((b) => b.textContent?.trim())
 		).toEqual(['Pump lineups table…']);
-		await fireEvent.click(within(card()).getByRole('button', { name: 'Show data table' }));
+		await fireEvent.click(
+			within(card()).getByRole('button', { name: 'Show data table of the group chart' })
+		);
 		const table = await within(card()).findByRole('table', { name: "Other cases' station duties" });
 		await waitFor(() =>
 			expect(within(table).getAllByRole('row')[1]!.textContent).toContain(

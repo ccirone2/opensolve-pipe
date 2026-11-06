@@ -1105,7 +1105,7 @@ async function navPart(page: Page, where: string) {
 		const figure = card.getByRole('figure');
 		const canvas = await figure.getByRole('img').boundingBox();
 		const button = await figure
-			.getByRole('button', { name: /^(Show|Hide) data table$/ })
+			.getByRole('button', { name: /^(Show|Hide) data table of the group chart$/ })
 			.boundingBox();
 		soft(canvas && button, `the group canvas and its Show data table, ${where}`).toBeTruthy();
 		if (canvas && button) {
@@ -1591,6 +1591,57 @@ test('the pump chart’s live line is drawn empty before it speaks: on the tab�
 	await expect(method).toBeVisible({ timeout: 60_000 });
 	const second = await drawnEmptyThenSpoke(page, figure, 'another pump chosen');
 	expect(second, 'a new chart, a new line').not.toBe(first);
+});
+
+test('the card’s live lines are drawn empty before they speak: the group curve’s at Station’s head and the group system curve’s in the strip, the card opened (§7, F17; §9 S3)', async ({
+	page
+}) => {
+	test.setTimeout(120_000);
+	await page.addInitScript(liveRecorder);
+	await open(page, projectOf('parallel-crane'));
+	await solveConverged(page);
+	// Each curve held a moment, so its progress has time to be said.
+	await page.route('**/api/v1/pump-group-curve', async (route) => {
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		await route.continue();
+	});
+	const tab = await pumpsTab(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	await card.getByRole('button', { name: /^Pumps together/ }).click();
+	const figure = card.getByRole('figure');
+	// Both curves answered: the chart names the group system curve shown, and nothing is busy.
+	await expect(figure.getByRole('img')).toHaveAccessibleName(/group system curve shown\.$/, {
+		timeout: 60_000
+	});
+	await expect(figure.getByRole('img')).toHaveAttribute('aria-busy', 'false');
+	for (const [hook, words] of [
+		['[data-group-station] [data-group-curve-state]', 'Computing the group curve for this solve…'],
+		[
+			'[data-group-strip] [data-group-system-state]',
+			'Computing the group system curve for this solve…'
+		]
+	] as const) {
+		const line = card.locator(hook);
+		// Polite and atomic, never role=status, with no busy ancestor, holding no button.
+		await expect(line).toHaveAttribute('aria-live', 'polite');
+		await expect(line).not.toHaveAttribute('role', /./);
+		expect(
+			await line.evaluate((el) => !!el.parentElement?.closest('[aria-busy="true"]')),
+			`no busy ancestor, ${hook}`
+		).toBe(false);
+		await expect(line.locator('button')).toHaveCount(0);
+		const id = (await line.getAttribute('id'))!;
+		const log = await liveLog(page, id);
+		expect(log[0], `the line inserted, ${hook}`).toMatchObject({ kind: 'insert', text: '' });
+		const spoke = log.find((e) => e.text === words);
+		expect(spoke, `the line said "${words}"`).toBeDefined();
+		expect(spoke!.kind, `as a change, ${hook}`).toBe('change');
+		expect(spoke!.frame - log[0]!.frame, `frames from insert to words, ${hook}`).toBeGreaterThan(1);
+		// Answered: still there, saying nothing.
+		await expect(line).toHaveText('');
+	}
+	// A pane-wide status query still finds the Results header's alone (§5.3 markup rules).
+	await expect(resultsPane(page).getByRole('status')).toHaveCount(1);
 });
 
 /** The pump example with every note that qualifies a reading (made-up curve data; the API's). */

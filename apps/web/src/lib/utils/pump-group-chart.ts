@@ -2024,10 +2024,26 @@ export interface GroupReadoutMark {
 	points: ChartPoint[];
 }
 
+/**
+ * The readout's words in parts, which the screen lays out as pairs (proposal
+ * pumps-results-layout.md §5.3 Reading): `${at}: ` and then each pump's and the group's name and
+ * value joined by ", ", or what stands for them (`none`). Joined so, they are the sample's `text`.
+ */
+export interface GroupReadoutParts {
+	/** "At a rise of 20 m". */
+	at: string;
+	/** Each member's flow (and its state when it does not run), then the station's ("group"). */
+	pairs: { name: string; value: string }[];
+	/** In place of the pairs, where the sample has no flow ("no flow solved here; …"). */
+	none: string | null;
+}
+
 /** A sample of the group curve as the readout gives it. */
 export interface GroupReadoutSample {
 	/** "At a rise of 20 m: Pump PA 43.8 L/s, Pump PB 24 L/s, group 67.8 L/s". */
 	text: string;
+	/** The same words in parts, for the screen's pairs. */
+	parts: GroupReadoutParts;
 	/** The sample at the duty's rise. */
 	duty: boolean;
 	mark: GroupReadoutMark;
@@ -2054,29 +2070,34 @@ export function groupReadout(
 			const rise = fromSI(p.head, headUnit);
 			const at = `At a rise of ${fmt(rise)} ${headLabel}`;
 			if (p.flow === null) {
+				const none = 'no flow solved here; the data table says why.';
 				return {
 					text: `${at}: no flow solved here; the data table says why.`,
+					parts: { at, pairs: [], none },
 					duty: p.isDuty,
 					mark: { rise, points: [] }
 				};
 			}
-			const members = response.station.memberIds.flatMap((id) => {
+			const pairs = response.station.memberIds.flatMap((id) => {
 				const m = p.members.find((x) => x.pumpId === id);
 				if (!m) return [];
 				const state =
 					m.status === 'running'
 						? ''
 						: ` (${MEMBER_STATUS_WORDS[m.status]?.toLowerCase() ?? m.status})`;
-				return [`${name(id)} ${fmt(fromSI(m.flow, flowUnit))} ${flowLabel}${state}`];
+				return [{ name: name(id), value: `${fmt(fromSI(m.flow, flowUnit))} ${flowLabel}${state}` }];
 			});
+			const members = pairs.map((pair) => `${pair.name} ${pair.value}`);
 			const points: ChartPoint[] = [
 				...p.members.flatMap((m) =>
 					m.head === null ? [] : [{ x: fromSI(m.flow, flowUnit), y: fromSI(m.head, headUnit) }]
 				),
 				{ x: fromSI(p.flow, flowUnit), y: rise }
 			];
+			const group = { name: 'group', value: `${fmt(fromSI(p.flow, flowUnit))} ${flowLabel}` };
 			return {
 				text: `${at}: ${[...members, `group ${fmt(fromSI(p.flow, flowUnit))} ${flowLabel}`].join(', ')}`,
+				parts: { at, pairs: [...pairs, group], none: null },
 				duty: p.isDuty,
 				mark: { rise, points }
 			};

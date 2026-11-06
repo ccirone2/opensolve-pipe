@@ -144,6 +144,20 @@ export const SEVERITY_LABELS: Readonly<Record<Severity, string>> = {
 	info: 'Info'
 };
 
+/**
+ * A flag pill's tint by its severity (border, fill and text), FlagBadge's: red for invalid, amber
+ * for a warning, slate for information. A pure helper, so a component that reads no workspace
+ * (the Pumps together card's flag lines, proposal pumps-results-layout.md §5.3 Station) tints
+ * its pills as FlagBadge does.
+ */
+export function flagTone(severity: Severity): string {
+	return severity === 'invalid'
+		? 'border-red-300 bg-red-50 text-red-900'
+		: severity === 'warning'
+			? 'border-amber-300 bg-amber-50 text-amber-900'
+			: 'border-slate-300 bg-slate-50 text-slate-700';
+}
+
 export const SEVERITY_TITLES: Readonly<Record<Severity, string>> = {
 	invalid: 'Physically invalid',
 	warning: 'Warnings',

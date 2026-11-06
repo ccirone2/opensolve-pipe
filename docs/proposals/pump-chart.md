@@ -166,7 +166,7 @@ Proof: `utils/pump-chart-facts.test.ts`, the updated chart, image and component 
 
 The chart's parts kept their contents and moved into the section anatomy of [`pumps-results-layout.md`](pumps-results-layout.md) (§5.1, §5.3; its §15 items 16 to 46 record the build). Where this text placed them:
 
-- **The order under the canvas:** the chips (§4.1), Read at flow and the readout (§4.3), a strip with the pump's state and the system curve's request, Show data table and Download image, the notes, the data table (§4.4) when shown, then "Other cases on the pump chart". The heading "Pump chart" sits above the figure, with the select of pumps beside it.
+- **The order under the canvas:** the chips (§4.1), Read at flow and the readout (§4.3), a strip with the pump's state and the system curve's request, Show data table and Download image, the notes, the data table (§4.4) when shown, then "Other cases on the pump chart". The heading "Pump chart" sits above the figure, with the select of pumps beside it from a 21 rem container and under it below.
 - **The chips** are filled and led by a check icon when on, outlined when off; their words are unchanged.
 - **The readout** is 14 px label and value pairs, one per row below a 26 rem container (a phone) and two per row from it. It stays one paragraph and not a live region; the slider's value text carries it (§4.3).
 - **The notes:** each rising-head range and the NPSHa crossing first, then the best efficiency point, the shutoff head and the speed range, the panels' notes, the dashed note, and the method sentence with "Trace of {pump}" as an inline link. The design checks' limits follow under "Design-check limits drawn". chartNotes' words and the image's footer are unchanged.

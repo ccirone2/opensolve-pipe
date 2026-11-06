@@ -57,9 +57,11 @@
 	import { wordsText, type Words } from '$lib/utils/pump-groups';
 	import type { OtherGroupCase } from '$lib/utils/pump-group-one-off';
 	import { formatNumber } from '$lib/utils/units';
+	import { sectionMark } from '$lib/utils/section-nav';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import IssueDetail from './IssueDetail.svelte';
 	import PumpGroupOthers from './PumpGroupOthers.svelte';
+	import { registerSection } from './section-nav.svelte';
 
 	/** Why the pumps are not a station, for one issue: the issue, and its words with names. */
 	interface Refusal {
@@ -185,6 +187,25 @@
 		othersRetryReason
 	}: Props = $props();
 	const id = $props.id();
+
+	/**
+	 * The section nav's "Group chart" (§5.4): its mark, a refusal (the group curve's or the group
+	 * system curve's), else a request that failed (either curve, or a case's station duty on the
+	 * chart). In S2 the refusal and the group curve's line are drawn here; S3 moves them to Station.
+	 */
+	let heading: HTMLElement | undefined = $state();
+	registerSection(
+		'group-chart',
+		() => heading,
+		() =>
+			sectionMark({
+				refused: notes.curve?.kind === 'refused' || notes.systemCurve?.kind === 'refused',
+				failed:
+					notes.curve?.kind === 'error' ||
+					notes.systemCurve?.kind === 'error' ||
+					others.some((o) => o.onChart && o.state === 'error')
+			})
+	);
 
 	const caption = $derived(
 		`${groupCaption(memberNames, arrangement)}${caseName ? `, ${caseName}` : ''}${stale ? ' (out of date)' : ''}`
@@ -417,7 +438,14 @@
 
 <!-- A plain div with its heading, not a landmark (§7); tabindex −1, the section nav's target. -->
 <div class="space-y-2 border-t border-slate-200 pt-3" data-group-chart>
-	<h4 id="{id}-heading" class="text-sm font-semibold text-slate-900" tabindex="-1">Group chart</h4>
+	<h4
+		bind:this={heading}
+		id="{id}-heading"
+		class="scroll-mt-[calc(var(--pumps-nav-h,0px)-var(--pumps-nav-pad,0px)+0.5rem)] text-sm font-semibold text-slate-900"
+		tabindex="-1"
+	>
+		Group chart
+	</h4>
 	<figure
 		bind:this={figure}
 		class="space-y-2"

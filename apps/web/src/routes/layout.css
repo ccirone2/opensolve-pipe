@@ -184,3 +184,12 @@
 			white;
 	}
 }
+
+/*
+ * "Back to the sections" (pumps-results-layout.md §5.4 The way back) ends a card, visually hidden
+ * until focused, so it takes no room: the block before it keeps no `space-y` gap after it until
+ * it shows. Unlayered, so it outranks the gap's zero-specificity rule.
+ */
+:where(*):has(+ [data-back-to-sections]:not(:focus-within)) {
+	margin-block-end: 0;
+}

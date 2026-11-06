@@ -49,6 +49,11 @@
 	combinations (PumpGroupCombinations, with the extremes), each a plain div under an h4. The
 	section components are presentation only and take their values from here; the card's props
 	are as before. Closed, a second line under the heading says what opening it shows.
+
+	The section nav (§5.4): the card's toggle is the target of the nav's "Pumps together" (so a
+	press lands on the control, its expanded state announced), and each section registers its own
+	heading; the card ends with "Back to the sections". Without PumpsView (this card's own tests)
+	there is no nav, and neither is drawn.
 -->
 <script lang="ts">
 	import { tick } from 'svelte';
@@ -76,10 +81,12 @@
 		OtherGroupCase
 	} from '$lib/utils/pump-group-one-off';
 	import Icon from '$lib/components/ui/Icon.svelte';
+	import BackToSections from './BackToSections.svelte';
 	import PumpGroupCombinations from './PumpGroupCombinations.svelte';
 	import PumpGroupFigure from './PumpGroupFigure.svelte';
 	import PumpGroupStation from './PumpGroupStation.svelte';
 	import PumpLineupsBlock, { type LineupsBlockProps } from './PumpLineupsBlock.svelte';
+	import { registerSection } from './section-nav.svelte';
 
 	interface Props {
 		/** Pumps with a result, in table order: each a box. */
@@ -334,6 +341,10 @@
 	const about = $derived(
 		`The station's duty, the group curve, each pump's share and cases with fewer pumps running${onothers ? '; Running combinations' : ''}`
 	);
+
+	/** The toggle: the section nav's "Pumps together" lands on it (§5.4 Targets). */
+	let toggle: HTMLElement | undefined = $state();
+	registerSection('pumps-together', () => toggle);
 </script>
 
 <!--
@@ -345,8 +356,9 @@
 	<div>
 		<h3 id="{id}-heading" class="text-base font-semibold">
 			<button
+				bind:this={toggle}
 				type="button"
-				class="flex min-h-11 w-full items-center gap-2 text-left"
+				class="flex min-h-11 w-full scroll-mt-[calc(var(--pumps-nav-h,0px)-var(--pumps-nav-pad,0px)+0.5rem)] items-center gap-2 text-left"
 				aria-expanded={open}
 				aria-controls="{id}-body"
 				aria-describedby={open ? undefined : `${id}-about`}
@@ -503,4 +515,6 @@
 			{/if}
 		</div>
 	{/if}
+	<!-- The card's last control (§5.3 item 3): the nav one Tab and a press away. -->
+	<BackToSections />
 </section>

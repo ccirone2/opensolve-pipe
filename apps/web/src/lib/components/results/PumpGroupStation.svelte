@@ -9,7 +9,9 @@
 	import type { Flag } from '$lib/api/types';
 	import type { GroupTable } from '$lib/utils/pump-group-chart';
 	import { SEVERITY_LABELS } from '$lib/utils/results';
+	import { flagSeverities, sectionMark } from '$lib/utils/section-nav';
 	import FlagIcon from './FlagIcon.svelte';
+	import { registerSection } from './section-nav.svelte';
 
 	interface Props {
 		/** The group table (groupTable): its columns, a row per member and the station's footer. */
@@ -26,11 +28,26 @@
 
 	let { table, caseName, oninspect, flagText, sharesPending = false }: Props = $props();
 	const id = $props.id();
+
+	/** The section nav's "Station" (§5.4): its mark, the members' worst flag in this table. */
+	let heading: HTMLElement | undefined = $state();
+	registerSection(
+		'station',
+		() => heading,
+		() => sectionMark(flagSeverities(table.rows.flatMap((row) => row.flags)))
+	);
 </script>
 
 <!-- A plain div with its heading, not a landmark (§7); tabindex −1, the section nav's target. -->
 <div class="space-y-3 border-t border-slate-200 pt-3" data-group-station>
-	<h4 id="{id}-heading" class="text-sm font-semibold text-slate-900" tabindex="-1">Station</h4>
+	<h4
+		bind:this={heading}
+		id="{id}-heading"
+		class="scroll-mt-[calc(var(--pumps-nav-h,0px)-var(--pumps-nav-pad,0px)+0.5rem)] text-sm font-semibold text-slate-900"
+		tabindex="-1"
+	>
+		Station
+	</h4>
 	<!-- The group table: from the solve, with the shares and losses from the duty. Positioned,
 		so the flags' screen-reader text (absolutely placed) scrolls with it, never the page. -->
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->

@@ -251,6 +251,59 @@ describe('tables', () => {
 		);
 	});
 
+	it('is the shared sideways row: ring room that moves no layout, the wheel, and a row-only keep-in-view (pumps-results-layout.md §5.4)', async () => {
+		await solveWith(pumpTransferSolved());
+		const row = results().getByRole('tablist', { name: 'Results view' });
+		// py-1 keeps a focused pill's ring inside the box that clips; -my-1, in a flow root, keeps
+		// the row where it was.
+		expect(row).toHaveClass('scroll-shadow-x', 'overflow-x-auto', 'py-1', '-my-1');
+		// Positioned: hidden words of a pill scrolled out of sight stay inside its clip.
+		expect(row).toHaveClass('relative');
+		expect(row.parentElement).toHaveClass('flow-root');
+		// Boxes, as a 300 px row holding pills 100 px wide, 6 px apart from its 12 px padding.
+		const tabs = within(row).getAllByRole('tab');
+		Object.defineProperty(row, 'clientWidth', { configurable: true, value: 300 });
+		Object.defineProperty(row, 'scrollWidth', {
+			configurable: true,
+			value: 12 + 106 * tabs.length
+		});
+		const at = new Map<Element, number>(tabs.map((t, i) => [t, 12 + 106 * i]));
+		const boxes = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: Element
+		) {
+			const left = this === row ? row.scrollLeft : (at.get(this) ?? 0);
+			const width = this === row ? 300 : at.has(this) ? 100 : 0;
+			return { left, right: left + width, width, top: 0, bottom: 44, height: 44 } as DOMRect;
+		});
+		row.style.paddingLeft = '12px';
+		row.style.paddingRight = '12px';
+		// The wheel scrolls it sideways while it can move, and takes the event from the pane.
+		const wheel = new WheelEvent('wheel', { deltaY: 40, bubbles: true, cancelable: true });
+		row.dispatchEvent(wheel);
+		expect(wheel.defaultPrevented).toBe(true);
+		expect(row.scrollLeft).toBe(40);
+		row.scrollLeft = 0;
+		// A view chosen far along: the row alone scrolls, to show it and the one after it, never
+		// an ancestor (scrollIntoView would move the pane).
+		const scrollTo = vi.fn();
+		row.scrollTo = scrollTo as unknown as typeof row.scrollTo;
+		const intoView = vi.fn();
+		HTMLElement.prototype.scrollIntoView = intoView;
+		try {
+			expect(tabs.length).toBeGreaterThan(4);
+			const fourth = tabs[3]!;
+			await fireEvent.click(fourth);
+			expect(fourth).toHaveAttribute('aria-selected', 'true');
+			// The fifth pill ends at 12 + 106 × 4 + 100 = 536; with the 12 px end padding in view,
+			// the row scrolls to 548 − 300 = 248.
+			expect(scrollTo).toHaveBeenLastCalledWith({ left: 248, behavior: 'smooth' });
+			expect(intoView).not.toHaveBeenCalled();
+		} finally {
+			delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+			boxes.mockRestore();
+		}
+	});
+
 	it('summarises the fluid properties used, with absolute vapor pressure', async () => {
 		await solveWith(pumpTransferSolved());
 		expect(results().getByRole('heading', { name: 'Fluid: Water' })).toBeInTheDocument();

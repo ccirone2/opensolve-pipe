@@ -17,7 +17,9 @@
 	} from '$lib/utils/pump-group-one-off';
 	import { SEVERITY_LABELS } from '$lib/utils/results';
 	import Icon from '$lib/components/ui/Icon.svelte';
+	import { sectionMark } from '$lib/utils/section-nav';
 	import FlagIcon from './FlagIcon.svelte';
+	import { registerSection } from './section-nav.svelte';
 
 	interface Props {
 		/** "Running combinations": every case's members. */
@@ -30,11 +32,36 @@
 
 	let { combinations, extremes = null, flagText }: Props = $props();
 	const id = $props.id();
+
+	/**
+	 * The section nav's "Running combinations" (§5.4): its mark over the cases with current
+	 * results, as the extremes count them (§5.3 the lead): a member invalid in one, else one with
+	 * a warning flag.
+	 */
+	let heading: HTMLElement | undefined = $state();
+	registerSection(
+		'combinations',
+		() => heading,
+		() => {
+			// The nav may read it in the flush that takes this section away, its table already gone.
+			const groups = (combinations as CombinationsTable | null)?.groups ?? [];
+			const rows = groups.filter((g) => g.values && !g.stale).flatMap((g) => g.rows);
+			return sectionMark({
+				invalid: rows.some((row) => row.invalid),
+				warning: rows.some((row) => row.flags.some((f) => f.severity === 'warning'))
+			});
+		}
+	);
 </script>
 
 <!-- A plain div with its heading, not a landmark (§7); tabindex −1, the section nav's target. -->
 <div class="space-y-3 border-t border-slate-200 pt-3" data-group-combinations>
-	<h4 id="{id}-heading" class="text-sm font-semibold text-slate-900" tabindex="-1">
+	<h4
+		bind:this={heading}
+		id="{id}-heading"
+		class="scroll-mt-[calc(var(--pumps-nav-h,0px)-var(--pumps-nav-pad,0px)+0.5rem)] text-sm font-semibold text-slate-900"
+		tabindex="-1"
+	>
 		Running combinations
 	</h4>
 	<!-- Running combinations (slice 4d): every case's members; a list below 640 px. -->

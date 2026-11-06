@@ -369,13 +369,17 @@
 		</div>
 	</div>
 	{#if count}
-		<!-- The Scenarios menu: under the header, over the panes; Escape or a press outside closes it. -->
+		<!-- The Scenarios menu: under the header, over the panes; Escape or a press outside closes it.
+			z-40: above the panes' sticky chrome, the Pumps tab's pinned section nav (z-[35]) and the
+			tables' sticky cells (z-30), so none takes a press meant for it
+			(pumps-results-layout.md §5.4); the trace panel and a sheet's backdrop (z-40, later in the
+			page) still draw over it, as before. -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			bind:this={casesPanel}
 			id={casesId}
 			hidden={!casesOpen}
-			class="absolute top-full right-2 z-30 mt-1 w-[min(26rem,calc(100vw-1rem))] rounded-lg border border-slate-200 bg-white p-3 shadow-lg"
+			class="absolute top-full right-2 z-40 mt-1 w-[min(26rem,calc(100vw-1rem))] rounded-lg border border-slate-200 bg-white p-3 shadow-lg"
 			onkeydown={(event) => {
 				if (event.key === 'Escape') {
 					event.preventDefault();

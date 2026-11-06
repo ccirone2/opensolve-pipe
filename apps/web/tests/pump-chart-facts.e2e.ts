@@ -35,7 +35,7 @@ test('marks the best efficiency point and shows a flow-controlled pump’s speed
 	await expect(speedNote).toContainText('minimum (50 %) and maximum (100 %) speeds');
 	await expect(speedNote).toContainText('at 65, 60, 55 %');
 
-	await figure.getByRole('button', { name: 'Show data table' }).click();
+	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
 	await expect(
 		figure.getByRole('table', { name: 'Pump curve at 50 % speed (minimum)' })
 	).toBeVisible();

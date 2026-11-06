@@ -174,7 +174,7 @@ test('switch a pump to flow control, solve, read its speed and state, share and 
 	await expect(chart.getByText(/^System curve: /)).toContainText(
 		'its flow control replaced by that fixed flow'
 	);
-	await chart.getByRole('button', { name: 'Show data table' }).click();
+	await chart.getByRole('button', { name: 'Show data table of the pump chart' }).click();
 	await expect(
 		chart.getByRole('table', { name: `Pump curve at ${speedShown} % speed (flow control)` })
 	).toBeVisible();

@@ -18,7 +18,7 @@ Computed by the API from a converged solved state (`services/design_checks.py`),
 
 ### Designers' web defaults (reversible, D14)
 
-Settings → Design checks: a switch per check, limits in display units, the preset buttons; a typed limit makes the source the user's; a pair out of order is refused with the reason (the pairs read from `x-ordered-fields`); locked in a scenario, as the site and solver are. "Manufacturer data (optional)" in the pump curve form. Results → Checks after Summary (not met, met, not evaluated; element links; the server's message under Details) and a Summary card; checks never mark the Results tab. On the pump chart, behind a "Design checks" chip, the limits only (the preferred and allowable regions shaded, the minimum flow, the NPSHa required, the motor's rating), each in a note. An export sheet after Flags. *(GOALS §4.7.)*
+Settings → Design checks: a switch per check, limits in display units, the preset buttons; a typed limit makes the source the user's; a pair out of order is refused with the reason (the pairs read from `x-ordered-fields`); locked in a scenario, as the site and solver are. "Manufacturer data (optional)" in the pump curve form. Results → Checks after Summary (not met, met, not evaluated; element links; the server's message under Details) and a Summary card; checks never mark the Results tab. On the pump chart, behind a "Design checks" chip, the limits only (the preferred and allowable regions shaded, the minimum flow, the NPSHa required, the motor's rating), each in a note, the notes under "Design-check limits drawn" with Go to Checks, which shows Results → Checks (`proposals/pumps-results-layout.md` §15 item 29). An export sheet after Flags. *(GOALS §4.7.)*
 
 ### Proof
 

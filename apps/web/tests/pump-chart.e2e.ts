@@ -48,7 +48,7 @@ test('draws the efficiency, power and NPSH panels and reads them at the duty', a
 	// Hiding a panel is remembered in this browser.
 	await panels.getByRole('button', { name: 'Shaft power' }).click();
 	await expect(chart).toHaveAccessibleName(/below, on the same flow axis: efficiency, npsh/);
-	await figure.getByRole('button', { name: 'Show data table' }).click();
+	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
 	await expect(
 		figure.getByRole('table', { name: /Efficiency curve at 100 % speed/ })
 	).toBeVisible();

@@ -4,13 +4,17 @@
  */
 import { describe, expect, it } from 'vitest';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '../testing/results';
+import { imageNoteLines } from './export/chart-image';
 import { pumpTransferExample } from './examples';
 import {
 	chartNotes,
 	otherCasesData,
 	pumpChartData,
 	ratedCurveRange,
-	untickedAfter
+	untickedAfter,
+	valueNotes,
+	type PanelKey,
+	type PumpChecksInput
 } from './pump-chart';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
@@ -229,6 +233,43 @@ describe('pumps not running', () => {
 		expect(off.operating).toBeNull();
 		expect(off.held).toBeNull();
 	});
+
+	it('gives other cases’ table rows a bare speed, for "Speed (%)", and none for an off pump', () => {
+		// pumps-results-layout.md §5.3, the data region: bare numbers under "Speed (%)".
+		const rows = otherCasesData(
+			[
+				{
+					key: 'S1',
+					name: 'Slower',
+					result: pumpResult({ speed: 0.873214 }),
+					stale: false,
+					system: null
+				},
+				{
+					key: 'S2',
+					name: 'Off',
+					result: pumpResult({ status: 'off', operatingFlow: 0, operatingHead: 0 }),
+					stale: false,
+					system: null
+				},
+				{
+					key: 'S3',
+					name: 'Held',
+					result: pumpResult({ status: 'no_flow', operatingFlow: 0, operatingHead: 30 }),
+					stale: true,
+					system: null
+				}
+			],
+			SI_UNITS,
+			[0, 0.03],
+			1
+		).map((o) => o.row);
+		expect(rows).toEqual([
+			{ flow: '20', head: '22', speed: '87.32', state: 'Running' },
+			{ flow: '—', head: '—', speed: '—', state: 'Off' },
+			{ flow: '0', head: '30', speed: '100', state: 'Held at zero flow' }
+		]);
+	});
 });
 
 // The notes the screen and the image both use (proposal export.md §3.4).
@@ -344,5 +385,113 @@ describe('untickedAfter: unticking a case in a capped list', () => {
 	});
 	it('adds only the case when every case is shown', () => {
 		expect(untickedAfter([], '', ['', 'S1'], ['', 'S1'])).toEqual(['']);
+	});
+});
+
+// The notes about the values in the screen's order (proposal pumps-results-layout.md §5.3):
+// chartNotes' own sentences, each once, the image's footer in chartNotes' order.
+describe('valueNotes: the notes about the values, in the screen’s order', () => {
+	/** Every panel, a rising stretch and an extrapolated duty (made-up test input). */
+	const result = pumpResult({
+		operatingFlow: 0.034,
+		operatingHead: 7.5,
+		inCurveRange: false,
+		efficiencyCurve: [
+			{ flow: 0.004, efficiency: 0.4 },
+			{ flow: 0.012, efficiency: 0.7 },
+			{ flow: 0.02, efficiency: 0.6 }
+		],
+		bestEfficiencyPoint: { flow: 0.012, efficiency: 0.7, head: 18, headExtrapolated: false },
+		powerCurve: [
+			{ flow: 0.004, shaftPower: 2000 },
+			{ flow: 0.02, shaftPower: 5000 }
+		],
+		npshrCurve: [
+			{ flow: 0, npshr: 1 },
+			{ flow: 0.03, npshr: 4 }
+		],
+		risingHeadRanges: [
+			{ flowMin: 0, flowMax: 0.005 },
+			{ flowMin: 0.007, flowMax: 0.009 }
+		]
+	});
+	// NPSHa 10, 8, 4, 1 m against NPSHr 1, 2, 3, 4 m at 0, 10, 20, 30 L/s: NPSHa − NPSHr is +1 m
+	// at 20 L/s and −3 m at 30 L/s, so the lines cross at 20 + 10 × 1 / (1 + 3) = 22.5 L/s.
+	const curve = systemCurveResponse();
+	[10, 8, 4, 1].forEach((npsha, i) => (curve.points[i]!.npshAvailable = npsha));
+	const limits: PumpChecksInput = {
+		checks: { operatingRegion: { preferredMin: 0.7, preferredMax: 1.2, source: { kind: 'user' } } },
+		curve: null,
+		sources: { npshMargin: null, operatingRegion: 'your values' }
+	};
+	const data = pumpChartData(result, SI_UNITS, [0, 0.03], curve, null, limits);
+	const shown: PanelKey[] = ['head', 'efficiency', 'power', 'npsh'];
+	const notes = chartNotes({
+		data,
+		result,
+		system: { status: 'ready', curve },
+		shown,
+		checksShown: true
+	});
+	const rising = [
+		'The head rises with flow from 0 to 5 L/s (amber): a system curve can cross the pump curve more than once there.',
+		'The head rises with flow from 7 to 9 L/s (amber): a system curve can cross the pump curve more than once there.'
+	];
+	const crossing =
+		'NPSHa falls below NPSHr at about 22.5 L/s (read from the drawn lines): the pump would cavitate beyond that flow.';
+
+	it('puts the facts that qualify a reading first: each rising range, then the NPSHa crossing', () => {
+		const v = valueNotes(notes, data);
+		expect(v.first).toEqual([...rising, crossing]);
+		expect(v.facts.map((n) => n.slice(0, 20))).toEqual([
+			'Best efficiency poin',
+			'Shutoff head (–): 30'
+		]);
+		expect(v.panels.map((n) => n.slice(0, 20))).toEqual([
+			'Efficiency: the duty',
+			'Shaft power ρgQH/η o'
+		]);
+		expect(v.extrapolated).toBe(notes.extrapolated);
+		expect(v.method).toBe(notes.method);
+		expect(v.checks).toEqual(notes.checks);
+		expect(v.checks.at(-1)).toMatch(/^These are the limits of the design checks/);
+	});
+
+	it('keeps every sentence of the figure’s notes once, in the words the image gives', () => {
+		const v = valueNotes(notes, data);
+		const screen = [
+			...v.first,
+			...v.facts,
+			...v.panels,
+			...(v.extrapolated ? [v.extrapolated] : []),
+			...(v.method ? [v.method] : []),
+			...v.checks
+		];
+		// The image's footer, less what the strip shows (the pump's and the curve's state).
+		const image = imageNoteLines(notes, [], {}).filter(
+			(line) => line !== notes.pump && line !== notes.curve?.text
+		);
+		expect([...screen].sort()).toEqual([...image].sort());
+		expect(new Set(screen).size).toBe(screen.length);
+		// The image keeps chartNotes' order: method, extrapolation, panels, facts, checks.
+		expect(image[0]).toBe(notes.method);
+		expect(image.indexOf(crossing)).toBeLessThan(image.indexOf(rising[0]!));
+	});
+
+	it('has no first notes without a rising range or a crossing shown', () => {
+		const plain = pumpChartData(pumpResult(), SI_UNITS, null, systemCurveResponse());
+		const v = valueNotes(
+			chartNotes({ data: plain, result: pumpResult(), system: undefined }),
+			plain
+		);
+		expect(v.first).toEqual([]);
+		// The NPSH panel hidden: its crossing is not a note, so not a first one.
+		const hidden = chartNotes({
+			data,
+			result,
+			system: { status: 'ready', curve },
+			shown: ['head', 'efficiency', 'power']
+		});
+		expect(valueNotes(hidden, data).first).toEqual(rising);
 	});
 });

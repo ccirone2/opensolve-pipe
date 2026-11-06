@@ -406,10 +406,27 @@
 	const valued = $derived(valueNotes(notes, data));
 	/** The system curve's request line: being computed, failed, or not computed (the strip's). */
 	const curveState = $derived(notes.curve?.kind === 'missing' ? null : notes.curve);
+	/**
+	 * The live lines are drawn empty before their progress is said (pumps-results-layout.md §7 Live
+	 * regions, F17): PumpsView mounts the chart in the flush that starts its system curve (the
+	 * Pumps tab opened, a pump chosen), and a polite line inserted already holding its words is not
+	 * announced. Two frames: the first one's callbacks run before it draws the empty lines.
+	 */
+	let linesDrawn = $state(false);
+	$effect(() => {
+		let frame = requestAnimationFrame(() => {
+			frame = requestAnimationFrame(() => (linesDrawn = true));
+		});
+		return () => cancelAnimationFrame(frame);
+	});
+	/** What the system curve's line says: its progress once the line has been drawn empty. */
+	const curveLine = $derived(curveState?.kind === 'loading' && !linesDrawn ? null : curveState);
+	/** What the other cases' line says, on the same rule. */
+	const overlayLine = $derived(linesDrawn ? overlayProgress : null);
 	/** The points without a head, a plain line after the request's (§5.2: no mark on a fact). */
 	const coverage = $derived(notes.curve?.kind === 'missing' ? notes.curve.text : null);
 	/** The strip has nothing to show: it takes no room (its live line stays, empty). */
-	const stripIdle = $derived(!notes.pump && !curveState && !coverage);
+	const stripIdle = $derived(!notes.pump && !curveLine && !coverage);
 
 	// Before the DOM drops Cancel when the curve stops loading (cancelled, computed or failed): if
 	// it has the focus, what replaces it takes it: the button to compute it again, else the chart.
@@ -653,9 +670,10 @@
 	<!--
 		The strip (§5.3, The strip): the pump's state, then the system curve's request, one row: an
 		always-present polite line, empty when idle and never role=status (a pane-wide status query
-		finds the Results header's alone, §5.3 markup rules), its button after it and described by
-		it; then the points' coverage, plain. Visually hidden while it has nothing to say, so it
-		takes no room, its line still in the accessibility tree.
+		finds the Results header's alone, §5.3 markup rules), drawn empty before its first progress
+		(linesDrawn, §7), its mark at its first line however its sentence wraps (§5.2), its button
+		after it and described by it; then the points' coverage, plain. Visually hidden while it has
+		nothing to say, so it takes no room, its line still in the accessibility tree.
 	-->
 	<div data-pump-strip class={['space-y-1', stripIdle && 'sr-only']}>
 		{#if notes.pump}
@@ -667,16 +685,16 @@
 				aria-live="polite"
 				aria-atomic="true"
 				class={[
-					'inline-flex items-center gap-1.5 text-xs',
-					curveState?.kind === 'error' ? 'text-red-800' : 'text-slate-700'
+					'inline-flex items-start gap-1.5 text-xs',
+					curveLine?.kind === 'error' ? 'text-red-800' : 'text-slate-700'
 				]}
-				>{#if curveState?.kind === 'loading'}<Icon
+				>{#if curveLine?.kind === 'loading'}<Icon
 						name="spinner"
-						class="size-3.5 shrink-0 text-slate-500 motion-safe:animate-spin"
-					/>{:else if curveState?.kind === 'error'}<Icon
+						class="mt-px size-3.5 shrink-0 text-slate-500 motion-safe:animate-spin"
+					/>{:else if curveLine?.kind === 'error'}<Icon
 						name="octagon"
-						class="size-3.5 shrink-0 text-red-700"
-					/>{/if}{curveState?.text ?? ''}</span
+						class="mt-px size-3.5 shrink-0 text-red-700"
+					/>{/if}{curveLine?.text ?? ''}</span
 			>
 			{#if curveState?.kind === 'loading' && oncancel}
 				<button
@@ -721,25 +739,30 @@
 				<span class="sr-only">of the pump chart</span>
 			</button>
 			{#if image}
-				<!-- The chart drawn again at a fixed size, with its caption, as a PNG (export.md §5.5). -->
-				<button
-					type="button"
-					class="btn btn-quiet px-2 text-blue-800"
-					data-chart-image
-					aria-label="Download image of the pump and system curves: {name}{caseName
-						? `, ${caseName}`
-						: ''}"
-					aria-disabled={!!imageReason}
-					aria-describedby={imageReason ? `${id}-image-reason` : undefined}
-					title={(!imageLasting && imageReason) || undefined}
-					onclick={() => void downloadImage()}
-				>
-					<Icon name="download" class="size-4" /> Download image
-				</button>
-				{#if imageReason}<span
-						id="{id}-image-reason"
-						class={imageLasting ? 'text-xs text-slate-700' : 'sr-only'}>{imageReason}</span
-					>{/if}
+				<!-- Download image and its reason, one item (§5.3 Actions, §5.5): a lasting reason beside
+					the button where the row has room for it, under it where not, never under Show data
+					table. Its least width is the button's, so the item drops under as the button did. -->
+				<div class="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+					<!-- The chart drawn again at a fixed size, with its caption, as a PNG (export.md §5.5). -->
+					<button
+						type="button"
+						class="btn btn-quiet px-2 text-blue-800"
+						data-chart-image
+						aria-label="Download image of the pump and system curves: {name}{caseName
+							? `, ${caseName}`
+							: ''}"
+						aria-disabled={!!imageReason}
+						aria-describedby={imageReason ? `${id}-image-reason` : undefined}
+						title={(!imageLasting && imageReason) || undefined}
+						onclick={() => void downloadImage()}
+					>
+						<Icon name="download" class="size-4" /> Download image
+					</button>
+					{#if imageReason}<span
+							id="{id}-image-reason"
+							class={imageLasting ? 'text-xs text-slate-700' : 'sr-only'}>{imageReason}</span
+						>{/if}
+				</div>
 			{/if}
 		</div>
 	{/if}
@@ -1152,7 +1175,7 @@
 					role=status, empty while idle (and then out of sight); Cancel after it, outside it,
 					described by it. -->
 				<div
-					class={['flex flex-wrap items-center gap-x-3 gap-y-1', !overlayProgress && 'sr-only']}
+					class={['flex flex-wrap items-center gap-x-3 gap-y-1', !overlayLine && 'sr-only']}
 					data-overlay-row
 				>
 					<span
@@ -1160,13 +1183,13 @@
 						data-overlay-state
 						aria-live="polite"
 						aria-atomic="true"
-						class="inline-flex items-center gap-1.5 text-xs text-slate-700"
-						>{#if overlayProgress}<Icon
+						class="inline-flex items-start gap-1.5 text-xs text-slate-700"
+						>{#if overlayLine}<Icon
 								name="spinner"
-								class="size-3.5 shrink-0 text-slate-500 motion-safe:animate-spin"
-							/>Computing system curves: {Math.min(overlayProgress.done + 1, overlayProgress.total)}
+								class="mt-px size-3.5 shrink-0 text-slate-500 motion-safe:animate-spin"
+							/>Computing system curves: {Math.min(overlayLine.done + 1, overlayLine.total)}
 							of
-							{overlayProgress.total}…{/if}</span
+							{overlayLine.total}…{/if}</span
 					>
 					{#if overlayProgress && oncanceloverlay}
 						<button

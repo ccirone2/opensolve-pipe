@@ -368,3 +368,25 @@ export function libraryProject(): Project {
 	];
 	return project;
 }
+
+/** A class that hides an element at some width: `sr-only`, `hidden` or `invisible`, any variant. */
+const HIDING_CLASS = /(^|:)(sr-only|hidden|invisible)$/;
+
+/**
+ * Out of sight by its markup, whatever the width (jsdom applies no CSS, so `sr-only` or
+ * `max-sm:hidden` changes nothing it can measure): the element or an ancestor carries a hiding
+ * class at any breakpoint, the `hidden` attribute or an inline `display: none` or
+ * `visibility: hidden`, or it is inside a closed disclosure but not its summary. The words-on-screen
+ * guards (proposal pumps-results-layout.md §10) and the "kept visible" checks read it.
+ */
+export function outOfSight(el: Element): boolean {
+	for (let e: Element | null = el; e; e = e.parentElement) {
+		if ([...e.classList].some((c) => HIDING_CLASS.test(c)) || e.hasAttribute('hidden')) {
+			return true;
+		}
+		const style = (e as HTMLElement).style;
+		if (style && (style.display === 'none' || style.visibility === 'hidden')) return true;
+	}
+	const details = el.closest('details');
+	return !!details && !details.open && !el.closest('summary');
+}

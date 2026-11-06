@@ -17,6 +17,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { gzip } from 'pako';
 import type { Project } from '../src/lib/api/types';
@@ -966,24 +967,86 @@ async function pumpChartPart(page: Page, where: string) {
 }
 
 /**
+ * §9's merge condition "axe is clean with every disclosure open", over the whole Pumps tabpanel
+ * (§7 Proof): axe-core with the suite's WCAG 2.0 to 2.2 A and AA tags, then `heading-order` and
+ * `landmark-unique`, which those tags leave out. Run after the view's measurement, so the
+ * disclosures it opens change no number. It presses only closed summaries
+ * (`details:not([open]) > summary`), found anew each round since an opened one can hold more, so
+ * it never closes one.
+ */
+async function axeClean(page: Page, where: string) {
+	const panel = '[role="tabpanel"][id$="-panel-pumps"]';
+	const closed = page.locator(`${panel} details:not([open]) > summary`);
+	// The first closed one a user can see and press; one inside a closed one is pressed after it.
+	const firstShown = () =>
+		closed.evaluateAll((all) =>
+			all.findIndex((s) => {
+				const r = s.getBoundingClientRect();
+				return s.checkVisibility() && r.width > 1 && r.height > 1;
+			})
+		);
+	for (let round = 0; round < 60; round++) {
+		const index = await firstShown();
+		if (index < 0) break;
+		await closed.nth(index).click();
+	}
+	expect(await firstShown(), `a closed disclosure left in the Pumps tab, ${where}`).toBe(-1);
+	await settle(page, 1000);
+	const wcag = await new AxeBuilder({ page })
+		.include(panel)
+		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+		.analyze();
+	expect
+		.soft(
+			wcag.violations.map((v) => `${v.id} (${v.nodes.length})`),
+			`axe over the Pumps tab, every disclosure open, ${where}`
+		)
+		.toEqual([]);
+	expect
+		.soft(wcag.passes.length, `axe's rules that passed over the Pumps tab, ${where}`)
+		.toBeGreaterThan(0);
+	const outline = await new AxeBuilder({ page })
+		.include(panel)
+		.withRules(['heading-order', 'landmark-unique'])
+		.analyze();
+	expect
+		.soft(
+			outline.violations.map((v) => `${v.id} (${v.nodes.length})`),
+			`axe's heading-order and landmark-unique over the Pumps tab, ${where}`
+		)
+		.toEqual([]);
+}
+
+/**
  * Check and measure the view at the project's size and, on the phone, at 320×640 too (reflow at
- * 400 % zoom; pump-lineups.e2e.ts resizes the same way).
+ * 400 % zoom; pump-lineups.e2e.ts resizes the same way). Then axe with every disclosure open at
+ * each size, once the measuring is done, so the view is measured as the test set it up: on the
+ * phone at 320×640 first, then back at 390×844.
  */
 async function atEachSize(page: Page, info: TestInfo, view: string, extra: object) {
-	await noSidewaysScroll(page, `${view} at ${sizeOf(page)}`);
-	await pumpChartPart(page, `${view} at ${sizeOf(page)}`);
-	await measure(page, info, `${view}-${sizeOf(page)}`, extra);
-	if (info.project.name !== 'mobile') return;
+	const size = sizeOf(page);
+	await noSidewaysScroll(page, `${view} at ${size}`);
+	await pumpChartPart(page, `${view} at ${size}`);
+	await measure(page, info, `${view}-${size}`, extra);
+	if (info.project.name !== 'mobile') {
+		await axeClean(page, `${view} at ${size}`);
+		return;
+	}
+	const viewport = page.viewportSize()!;
 	await page.setViewportSize({ width: 320, height: 640 });
 	await settle(page, 1000);
 	await noSidewaysScroll(page, `${view} at 320x640`);
 	await pumpChartPart(page, `${view} at 320x640`);
 	await measure(page, info, `${view}-320x640`, extra);
+	await axeClean(page, `${view} at 320x640`);
+	await page.setViewportSize(viewport);
+	await settle(page, 1000);
+	await axeClean(page, `${view} at ${size}`);
 }
 
 // ---- S0: no sideways scroll; S1: the pump chart's budget and outline -----------------------------
 
-test('the condenser example after Add cases, the card open: the Results pane’s scroller does not scroll sideways; the pump chart holds its budget', async ({
+test('the condenser example after Add cases, the card open: the Results pane’s scroller does not scroll sideways; the pump chart holds its budget; axe clean, every disclosure open', async ({
 	page
 }, info) => {
 	test.setTimeout(420_000);
@@ -991,7 +1054,7 @@ test('the condenser example after Add cases, the card open: the Results pane’s
 	await atEachSize(page, info, '3-condenser', extra);
 });
 
-test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump chart holds its budget', async ({
+test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump chart holds its budget; axe clean, every disclosure open', async ({
 	page
 }, info) => {
 	test.setTimeout(240_000);
@@ -1020,7 +1083,7 @@ test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump ch
 	}
 });
 
-test('lineups, every disclosure and data table open: nothing scrolls sideways; the pump chart holds its budget', async ({
+test('lineups, every disclosure and data table open: nothing scrolls sideways; the pump chart holds its budget; axe clean', async ({
 	page
 }, info) => {
 	test.setTimeout(420_000);

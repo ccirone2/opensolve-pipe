@@ -865,18 +865,20 @@
 		<div class="card space-y-3 p-3" data-pump-chart>
 			<!--
 				The header row (proposal pumps-results-layout.md §5.3 item 2): the h3 and, with more
-				than one pump, the select it names, beside it from a 21 rem container and under it
-				below (§5.5). The select's sentence stays visible: a choice starts a system curve, a
-				cost (§6.4 item 8).
+				than one pump, the select it names, beside it from a 26 rem container (the desktop
+				split) and under it below, so on a phone the select has the row's whole width and
+				shows a name's end, often what tells two pumps apart ("… CWP-1" to "… CWP-6"; §15
+				item 17). The select's sentence stays visible: a choice starts a system curve, a cost
+				(§6.4 item 8).
 			-->
 			<div class="@container">
-				<div class="flex flex-col gap-x-3 gap-y-1 @min-[21rem]:flex-row @min-[21rem]:items-center">
+				<div class="flex flex-col gap-x-3 gap-y-1 @min-[26rem]:flex-row @min-[26rem]:items-center">
 					<h3 id="{uid}-pump-chart" class="shrink-0 text-base font-semibold" tabindex="-1">
 						Pump chart
 					</h3>
 					{#if pumps.length > 1}
 						<select
-							class="input pr-8 @min-[21rem]:w-auto @min-[21rem]:flex-1"
+							class="input pr-8 @min-[26rem]:w-auto @min-[26rem]:flex-1"
 							aria-labelledby="{uid}-pump-chart"
 							aria-describedby="{uid}-pump-chart-hint"
 							value={viewed.key}

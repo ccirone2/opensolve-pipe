@@ -755,6 +755,14 @@ const sizeOf = (page: Page) => {
  * §5.7 row 2: the pump chart's Show data table at most this far below its canvas, measured idle
  * after the requests; at 320×640 no budget (§5.7: the sideways, nav and outline checks only).
  */
+/**
+ * What Chromium's `<select>` keeps for itself beyond the author's padding: its inner start padding
+ * and its arrow. Measured in this Chromium at 16 px by comparing a select's text with the same
+ * select 80 px wider, pixel for pixel: names of 69, 237 and 276 px drew whole from 18 or 19 px
+ * more than text and padding, with `pr-8` or `pr-3` alike.
+ */
+const MENULIST_INNER = 20;
+
 const SHOW_TABLE_BELOW_CANVAS: Readonly<Record<string, number>> = {
 	'1280x800': 300,
 	'390x844': 400
@@ -920,6 +928,41 @@ async function pumpChartPart(page: Page, where: string) {
 	// Kept visible (§5.3, §6.4 item 8, §10 Words on screen): each at a size of its own.
 	expect.soft(read.kept, `the pump chart's notes and hints read, ${where}`).toBeGreaterThan(2);
 	expect.soft(read.unseen, `the pump chart's notes and hints out of sight, ${where}`).toEqual([]);
+
+	// §5.3 item 2 (§15 item 17): the select shows each pump's whole name, since a name's end can be
+	// the only part that tells two pumps apart ("Condenser water pump CWP-1" to "… CWP-6"). Its
+	// text box is its width less its padding and less what Chromium's own select keeps beyond the
+	// author's padding (MENULIST_INNER, measured), against the longest name in its own font. At
+	// 320×640 no row holds the condenser's names: there the select takes the row's whole width.
+	const select = await page.evaluate((inner) => {
+		const el = document.querySelector<HTMLSelectElement>('[data-pump-chart] select');
+		if (!el) return null;
+		const css = getComputedStyle(el);
+		const context = document.createElement('canvas').getContext('2d')!;
+		context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+		const longest = [...el.options].reduce(
+			(widest, option) => {
+				const width = context.measureText(option.text).width;
+				return width > widest.width ? { name: option.text, width } : widest;
+			},
+			{ name: '', width: 0 }
+		);
+		const padding = parseFloat(css.paddingLeft) + parseFloat(css.paddingRight);
+		return {
+			name: longest.name,
+			text: Math.ceil(longest.width),
+			room: Math.floor(el.clientWidth - padding - inner),
+			width: Math.round(el.getBoundingClientRect().width),
+			row: Math.round(el.parentElement!.getBoundingClientRect().width)
+		};
+	}, MENULIST_INNER);
+	if (select && size === '320x640') {
+		expect.soft(select.width, `the Pump chart select's width, ${where}`).toBe(select.row);
+	} else if (select) {
+		expect
+			.soft(select.room, `room in the Pump chart select for "${select.name}", ${where}`)
+			.toBeGreaterThanOrEqual(select.text);
+	}
 }
 
 /**

@@ -1063,7 +1063,7 @@ def test_a_disagreement_is_explained_only_by_a_rule() -> None:
     at = next(p for p in curve.system_points if p.is_duty)
     d13 = (
         "the rest of the network ... needs a rise of ... (more than 0.5 % or 0.01 m apart): the "
-        "rest of the network has more than one steady state at this flow (CLAUDE.md D13)"
+        "rest of the network has more than one steady state at this flow"
     )
     check = curve.system_duty_check.model_copy(
         update={"agrees": False, "head": curve.duty.head + 1.0, "message": d13}

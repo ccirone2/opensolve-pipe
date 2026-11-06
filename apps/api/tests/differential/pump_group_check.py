@@ -2049,7 +2049,9 @@ def _system_duty_check(
         why = at.reason if at is not None else "the duty's flow outside the range"
         rec.counts[f"system_disagrees: no rise ({why})"] += 1
         rec.notes.append(f"system duty check without a rise ({why}; {where}): {check.message}")
-    elif "CLAUDE.md D13" not in check.message:
+    elif "steady state" not in check.message:
+        # D13's words, not its citation (pumps-results-layout.md §9 A1): a rise that disagrees
+        # comes with one of two messages, "another steady state" or "more than one steady state".
         problems.append(f"{label} the system duty check disagrees, without D13's words: {check}")
     elif abs(duty.flow) <= DUTY_FLOOR:
         rec.counts["system_disagrees: zero station flow"] += 1

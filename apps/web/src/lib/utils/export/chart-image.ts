@@ -177,11 +177,16 @@ interface Block {
 	before: number;
 }
 
-/** The PNG of a pump chart: `config` drawn at a fixed size with `caption`. */
+/**
+ * The PNG of a pump chart: `config` drawn at a fixed size with `caption`, or with `drawnCaption`'s
+ * when given, read once the chart is drawn (a figure whose notes say what its drawing left out:
+ * the curve labels of CLAUDE.md D24 §9.3).
+ */
 export async function renderChartImage(
 	Chart: typeof ChartInstance,
 	config: PumpChartConfig,
-	caption: ChartImageCaption
+	caption: ChartImageCaption,
+	drawnCaption?: () => ChartImageCaption
 ): Promise<Blob> {
 	// The chart, on a detached canvas: Chart.js reads its CSS size from these attributes when it
 	// is not responsive, and draws it synchronously without animation.
@@ -193,6 +198,7 @@ export async function renderChartImage(
 	if (!plotContext) throw new Error('this browser cannot draw the chart');
 	const chart = new Chart(plotContext, config);
 	try {
+		const words = drawnCaption?.() ?? caption;
 		const image = document.createElement('canvas');
 		const context = image.getContext('2d');
 		if (!context) throw new Error('this browser cannot draw the image');
@@ -208,12 +214,12 @@ export async function renderChartImage(
 			before
 		});
 		const header: Block[] = [
-			block(caption.title, FONTS.title, COLORS.ink, 24),
-			block(caption.subtitle, FONTS.text, COLORS.slate, 18, 4),
-			...(caption.warning ? [block(caption.warning, FONTS.text, COLORS.amber, 18, 4)] : [])
+			block(words.title, FONTS.title, COLORS.ink, 24),
+			block(words.subtitle, FONTS.text, COLORS.slate, 18, 4),
+			...(words.warning ? [block(words.warning, FONTS.text, COLORS.amber, 18, 4)] : [])
 		];
-		const footer = caption.footer.map((text, i) =>
-			block(text, FONTS.text, COLORS.slate, 18, i === 0 ? 0 : 6)
+		const footer = words.footer.map((line, i) =>
+			block(line, FONTS.text, COLORS.slate, 18, i === 0 ? 0 : 6)
 		);
 		const height = (blocks: Block[]) =>
 			blocks.reduce((sum, b) => sum + b.before + b.lines.length * b.lineHeight, 0);
@@ -318,6 +324,11 @@ export interface FigureImageRequest {
 	title: string;
 	/** The figure's notes, in its order (pump-group-chart.ts groupNoteLines). */
 	lines: readonly string[];
+	/**
+	 * The notes as the image's own drawing gives them, read once its chart is drawn, in place of
+	 * `lines` (CLAUDE.md D24 §9.3: the curves whose labels that drawing left out for space).
+	 */
+	drawnLines?: () => readonly string[];
 	/** What the file holds ("Pumps together PA, PB"), for its name. */
 	content: string;
 	/** The case shown, in a project with scenarios. */
@@ -349,24 +360,29 @@ export async function downloadChartImage(
 	const pump = 'lines' in request ? null : request;
 	try {
 		const utcOffsetMinutes = -now.getTimezoneOffset();
-		const notes = figure
+		const pumpName = pump?.pumpName ?? '';
+		const caption = (notes: readonly string[]) =>
+			chartImageCaption({
+				pumpName,
+				...(figure ? { title: figure.title } : {}),
+				...(request.caseName ? { caseName: request.caseName } : {}),
+				projectName: source.projectName,
+				timestamp: source.timestamp,
+				methodVersion: source.methodVersion,
+				stale: source.stale,
+				notes,
+				disclaimer: request.disclaimer,
+				origin: source.origin,
+				utcOffsetMinutes
+			});
+		const lines = figure
 			? [...figure.lines]
 			: imageNoteLines(pump!.notes, pump!.others, pump!.markerSymbols);
-		const pumpName = pump?.pumpName ?? '';
-		const caption = chartImageCaption({
-			pumpName,
-			...(figure ? { title: figure.title } : {}),
-			...(request.caseName ? { caseName: request.caseName } : {}),
-			projectName: source.projectName,
-			timestamp: source.timestamp,
-			methodVersion: source.methodVersion,
-			stale: source.stale,
-			notes,
-			disclaimer: request.disclaimer,
-			origin: source.origin,
-			utcOffsetMinutes
-		});
-		const blob = await render(Chart, request.config, caption);
+		const drawnLines = figure?.drawnLines;
+		// A figure's notes that depend on its drawing are read once the image's chart is drawn.
+		const blob = drawnLines
+			? await render(Chart, request.config, caption(lines), () => caption([...drawnLines()]))
+			: await render(Chart, request.config, caption(lines));
 		const fileName = chartImageFileName({
 			projectName: source.projectName,
 			caseName: request.caseName ?? null,

@@ -5,9 +5,13 @@
  * table, the group table and the image. Chart.js is replaced by a recorder (jsdom has no canvas);
  * the results and responses are the shared fixture's real API answers. Slice 4b: the group
  * system curve's states, its rows in the data table and its line in the image, and "Read along
- * the curves".
+ * the curves". Slice 4d with D24's Add cases block (PumpLineupsBlock, drawn in 4d's place): 4d's
+ * tests of its block, under Each pump off. D24 slice L3 (pump-lineups.md §10.3 Component): the
+ * family's legend entry, the column "Its group curve", the table "Other cases' group curves" (its
+ * row groups and its list below 640 px), and the notes' and the image's counts of labels left out,
+ * on the `lineups` station's real answers (testing/curve-family.ts).
  */
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -21,17 +25,36 @@ import type {
 } from '$lib/api/types';
 import type { GroupCurveState } from '$lib/state/project.svelte';
 import type { ChartImageSource, FigureImageRequest } from '$lib/utils/export/chart-image';
+import {
+	answer,
+	drawnChart,
+	lineupAnswers,
+	lineupCaseName,
+	lineupOn,
+	lineupPrefs,
+	lineups,
+	lineupView,
+	readyState,
+	type LineupViewOptions
+} from '$lib/testing/curve-family';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
+import type { CurveLabelsDrawn, PumpChartConfig } from '$lib/utils/pump-chart-config';
 import { ratedCurveRange } from '$lib/utils/pump-chart';
-import { groupMethodsHeading, type GroupMemberInput } from '$lib/utils/pump-group-chart';
+import {
+	GROUP_OTHER,
+	groupMethodsHeading,
+	OTHER_CURVES_CAPTION,
+	OTHER_CURVES_LABEL,
+	type GroupMemberInput
+} from '$lib/utils/pump-group-chart';
 import {
 	combinationExtremes,
-	onePumpOffPlan,
 	otherGroupCases,
 	runningCombinations,
 	type CombinationsInput,
 	type OtherGroupCase
 } from '$lib/utils/pump-group-one-off';
+import { lineupPlan, type LineupPlanInput } from '$lib/utils/pump-lineups';
 import { withScenarios } from '$lib/utils/scenarios';
 import { formatNumber } from '$lib/utils/units';
 import PumpGroupChart from './PumpGroupChart.svelte';
@@ -951,7 +974,10 @@ describe('the group system curve (slice 4b)', () => {
 	});
 });
 
-describe('one pump off (slice 4d)', () => {
+describe('one pump off (slice 4d), now the Add cases block under Each pump off (D24)', () => {
+	// 4d's assertions on its block, driven through D24's block with Each pump off chosen (4d's
+	// cases). Only the strings pump-lineups.md §7.12 lists under "4d's strings that change"
+	// changed, each named where it does.
 	type Answer = { status: number; body: unknown };
 	type OneOffCase = FixtureCase & {
 		solve: SolveResponse;
@@ -965,26 +991,36 @@ describe('one pump off (slice 4d)', () => {
 		reason: '',
 		hint: 'Solves each case whose results are missing or out of date, one after another: up to 2 solves.'
 	};
-	/** The plan for the base case of `project` (default: `one-off` without its scenarios). */
+	/**
+	 * The block's props for the base case of `project` (default: `one-off` without its scenarios),
+	 * Each pump off chosen, with the handlers given.
+	 */
 	function plan(
-		values: Partial<Parameters<typeof onePumpOffPlan>[0]> = {},
-		solveAll: typeof runnable = runnable
+		values: Partial<LineupPlanInput> = {},
+		solveAll: typeof runnable = runnable,
+		handlers: { onadd?: () => void; onsolveall?: () => void } = {}
 	) {
 		return {
-			...onePumpOffPlan({
+			plan: lineupPlan({
 				project: withScenarios(structuredClone(c.project), []),
 				shownCase: null,
 				station,
 				memberIds: ['PA', 'PB'],
 				base: { response: c.solve, stale: false },
+				preset: 'each',
+				savedOrder: [],
 				...values
 			}),
-			solveAll
+			solveAll,
+			...handlers
 		};
 	}
 	const base = (values: Record<string, unknown> = {}) =>
 		props(c, { system: systemReady(c), caseName: 'Base case', ...values });
-	const block = () => screen.getByRole('region', { name: 'One pump off' });
+	// §7.12: the h4 and region name "One pump off" becomes "Add cases".
+	const block = () => screen.getByRole('region', { name: 'Add cases' });
+	/** The add button, by any of its labels ("Add {n} case(s)", or "Add cases"). */
+	const ADD = /^Add (\d+ )?cases?$/;
 
 	/** The `one-off` scenarios as the card has them, every one ready. */
 	function others(ids = ['S1', 'S2', 'S3', 'S4']): OtherGroupCase[] {
@@ -1014,27 +1050,29 @@ describe('one pump off (slice 4d)', () => {
 	}
 
 	it('offers the add for a parallel station, and says why it is not offered otherwise', async () => {
-		const view = render(PumpGroupChart, base({ oneOff: plan() }));
-		expect(within(block()).getByRole('heading', { name: 'One pump off', level: 4 })).toBeVisible();
+		const view = render(PumpGroupChart, base({ lineups: plan() }));
+		expect(within(block()).getByRole('heading', { name: 'Add cases', level: 4 })).toBeVisible();
 		expect(block()).toHaveTextContent(
 			'Makes one scenario per pump running in the base case (Pump PA and Pump PB): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.'
 		);
-		const add = within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' });
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		const add = within(block()).getByRole('button', { name: 'Add 2 cases' });
 		expect(add).not.toHaveAttribute('aria-disabled', 'true');
-		const gates: [Partial<Parameters<typeof onePumpOffPlan>[0]>, string, boolean][] = [
+		// §7.12: gates 1, 2 and 3 take §7.2's rows 1, 2 and 3; gate 4 is 4d's.
+		const gates: [Partial<LineupPlanInput>, string, boolean][] = [
 			[
 				{ station: (named('series').groupCurve.body as PumpGroupCurveResponse).station },
-				'Cases with one pump off are offered for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.',
+				'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.',
 				false
 			],
 			[
 				{ station: { ...station, arrangement: 'mixed' } },
-				'Cases with one pump off are offered for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.',
+				'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.',
 				false
 			],
 			[
 				{ project: c.project, shownCase: 'S3' },
-				'Cases with one pump off are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with a pump off, duplicate it in Scenarios and set that pump off there.',
+				'Cases are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with pumps off, duplicate it in Scenarios and set those pumps off there.',
 				false
 			],
 			[
@@ -1044,37 +1082,42 @@ describe('one pump off (slice 4d)', () => {
 			]
 		];
 		for (const [values, sentence, solveAll] of gates) {
-			await view.rerender(base({ oneOff: plan(values) }));
+			await view.rerender(base({ lineups: plan(values) }));
 			expect(block()).toHaveTextContent(sentence);
-			expect(within(block()).queryByRole('button', { name: /^Add cases/ })).toBeNull();
+			expect(within(block()).queryByRole('button', { name: ADD })).toBeNull();
 			expect(!!within(block()).queryByRole('button', { name: /^Solve all/ })).toBe(solveAll);
 		}
 		// No plan, or no station: no block.
-		await view.rerender(base({ oneOff: null }));
-		expect(screen.queryByRole('region', { name: 'One pump off' })).toBeNull();
+		await view.rerender(base({ lineups: null }));
+		expect(screen.queryByRole('region', { name: 'Add cases' })).toBeNull();
 	});
 
 	it('refuses the add with its reason, described, and makes nothing', async () => {
-		const onaddoneoff = vi.fn();
-		render(PumpGroupChart, base({ oneOff: plan({ project: c.project }), onaddoneoff }));
-		const add = within(block()).getByRole('button', { name: 'Add cases with one pump off' });
+		const onadd = vi.fn();
+		render(PumpGroupChart, base({ lineups: plan({ project: c.project }, runnable, { onadd }) }));
+		// §7.12: "Add cases with one pump off" becomes "Add cases".
+		const add = within(block()).getByRole('button', { name: 'Add cases' });
 		expect(add).toHaveAttribute('aria-disabled', 'true');
 		expect(add).toHaveAccessibleDescription(
 			'Every case with one pump off already exists: Pump PA off and Pump PB off.'
 		);
-		expect(block()).toHaveTextContent('Pump PA has its case already: Pump PA off.');
+		// §7.12: "{name} has its case already: {found.name}." becomes the preview item
+		// "{offName}: already a scenario, «{other}» ({id})", in §7.7's short form: the names are equal.
+		expect(block()).toHaveTextContent('Pump PA off: already a scenario (S1)');
 		await fireEvent.click(add);
-		expect(onaddoneoff).not.toHaveBeenCalled();
+		expect(onadd).not.toHaveBeenCalled();
 	});
 
 	it('adds, then gives the focus to Solve all, which stays in place with its reasons', async () => {
-		const onaddoneoff = vi.fn();
+		const onadd = vi.fn();
 		const onsolveall = vi.fn();
-		const view = render(PumpGroupChart, base({ oneOff: plan(), onaddoneoff, onsolveall }));
-		await fireEvent.click(
-			within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
+		const view = render(
+			PumpGroupChart,
+			base({ lineups: plan({}, runnable, { onadd, onsolveall }) })
 		);
-		expect(onaddoneoff).toHaveBeenCalledTimes(1);
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
+		expect(onadd).toHaveBeenCalledTimes(1);
 		await tick();
 		const solveAll = within(block()).getByRole('button', { name: 'Solve all (2)' });
 		expect(solveAll).toHaveFocus();
@@ -1093,7 +1136,7 @@ describe('one pump off (slice 4d)', () => {
 		];
 		for (const state of states) {
 			await view.rerender(
-				base({ oneOff: plan({}, { ...state, hint: runnable.hint }), onaddoneoff, onsolveall })
+				base({ lineups: plan({}, { ...state, hint: runnable.hint }, { onadd, onsolveall }) })
 			);
 			const button = within(block()).getByRole('button', { name: /^Solve all/ });
 			expect(button).toBe(solveAll);
@@ -1288,11 +1331,18 @@ describe('one pump off (slice 4d)', () => {
 		const headings = within(table)
 			.getAllByRole('rowheader')
 			.filter((h) => h.getAttribute('scope') === 'rowgroup');
+		// Each case with values gains D24's lineup line (§7.10) between its heading and 4d's station
+		// line, read from its solve (a case without values has none).
 		expect(headings.map((h) => h.textContent!.replace(/\s+/g, ' ').trim())).toEqual([
-			'Base case (shown) Station 55.15 L/s at a rise of 27.38 m',
-			'Pump PB off (out of date) · ring 2',
-			'Held (synthetic)',
+			'Base case (shown) 2 of 2 carrying flow: Pump PA and Pump PB Station 55.15 L/s at a rise of 27.38 m',
+			'Pump PB off (out of date) · ring 2 1 of 2 carrying flow: Pump PA; off: Pump PB',
+			'Held (synthetic) 1 of 2 carrying flow: Pump PA; on, carrying no flow: Pump PB',
 			'Failed case Failed'
+		]);
+		expect([...headings[0]!.children].map((line) => line.textContent)).toEqual([
+			'Base case (shown)',
+			'2 of 2 carrying flow: Pump PA and Pump PB',
+			'Station 55.15 L/s at a rise of 27.38 m'
 		]);
 		const held = groups[3]!;
 		const rows = within(held).getAllByRole('row');
@@ -1423,6 +1473,263 @@ describe('one pump off (slice 4d)', () => {
 			screen.getByRole('button', { name: /^Download image of the pumps together/ })
 		).toHaveAccessibleDescription(
 			"Wait until the other cases' station duties are computed, or cancel them."
+		);
+	}, 20_000);
+});
+
+describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Component)', () => {
+	/** The `lineups` case names, as the fixture stores them. */
+	const NAMES: Record<string, string> = {
+		S1: '3 of 4 running (Pump P4 off)',
+		S2: '2 of 4 running (Pump P3, Pump P4 off)',
+		S3: '1 of 4 running (Pump P2, Pump P3, Pump P4 off)',
+		S4: 'Pump P1 off',
+		S5: 'Pump P2 off',
+		S6: 'Pump P3 off',
+		S7: 'Pump P1 at 90 % speed',
+		S8: 'Delivery tank 5 m higher'
+	};
+	/** The card for the `lineups` station with `shown` shown and the others as PumpsView gives them. */
+	function family(shown = '', options: LineupViewOptions = {}) {
+		const view = lineupView(shown, options);
+		const { groupCurve, systemCurve, solve } = lineupAnswers(shown);
+		return {
+			view,
+			props: {
+				// The members of the case shown, without their slots (the card gives them).
+				pumps: view.members.map(({ id, name, result, ratedRange, curveId, flags }) => ({
+					id,
+					name,
+					result,
+					ratedRange,
+					curveId,
+					flags
+				})),
+				slots: lineups.memberIds,
+				prefs: lineupPrefs,
+				project: lineups.project,
+				nodes: solve.solvedState.nodeResults,
+				open: true,
+				curve: readyState(groupCurve),
+				system: readyState(systemCurve),
+				otherCases: view.others,
+				othersOn: true,
+				onothers: () => {},
+				shownOn: lineupOn(shown),
+				caseName: shown ? lineupCaseName(shown) : 'Base case',
+				image: image()
+			}
+		};
+	}
+	const crossing = (k: string) => `Drawn (${k}): it crosses the group system curve at the ring`;
+	/**
+	 * Render the card and wait for its chart (the chart chunk's import, slow on a loaded machine),
+	 * so no import of one render is still pending in the next.
+	 */
+	async function renderDrawn(props: ReturnType<typeof family>['props']) {
+		const before = charts.length;
+		const view = render(PumpGroupChart, props);
+		await vi.waitFor(() => expect(charts).toHaveLength(before + 1), { timeout: 10_000 });
+		return view;
+	}
+
+	it('adds the family’s one legend entry, a slate line, after the group curve’s and before the group system curve’s', async () => {
+		await renderDrawn(family().props);
+		const legend = within(screen.getByRole('figure')).getByRole('list', { name: 'Legend' });
+		const items = within(legend).getAllByRole('listitem');
+		const texts = items.map((li) => li.textContent!.trim());
+		const at = texts.indexOf(OTHER_CURVES_LABEL);
+		expect(texts.slice(at - 1, at + 2)).toEqual([
+			'Group curve, a pump beyond its data (dashed)',
+			"Other cases' group curves (slate; dashed beyond a pump's data)",
+			"Group system curve (the rest of the network between the station's inlet and outlet, station's flow)"
+		]);
+		const line = items[at]!.querySelector('line')!;
+		expect(line.getAttribute('stroke')).toBe(GROUP_OTHER);
+		expect(line.hasAttribute('stroke-dasharray')).toBe(false);
+		// 4d's chart (no curve state): no such entry.
+		cleanup();
+		await renderDrawn(family('', { without: true }).props);
+		expect(screen.queryByText(OTHER_CURVES_LABEL)).toBeNull();
+	});
+
+	it('gives "Other cases’ station duties" the column "Its group curve", in capitalised words', async () => {
+		await renderDrawn(family('', { unticked: ['S5', 'S6'], stale: ['S1'] }).props);
+		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		const table = screen.getByRole('table', { name: "Other cases' station duties" });
+		expect(
+			within(table)
+				.getAllByRole('columnheader')
+				.map((h) => h.textContent!.replace(/\s+/g, ' ').trim())
+		).toEqual([
+			'Case',
+			'Station flow (L/s)',
+			'Rise (m)',
+			'On the group system curve shown',
+			'Its group curve'
+		]);
+		const rows = within(table)
+			.getAllByRole('row')
+			.slice(1)
+			.map((r) =>
+				[...r.querySelectorAll('th, td')].map((c) => c.textContent!.replace(/\s+/g, ' ').trim())
+			);
+		// The cases in the chart's order: S1 (stale), S2, S3, S4, the unticked S5 and S6 in their
+		// place (no ring), then S7 and S8 within the cap.
+		expect(rows.map((r) => [r[0], r[4]])).toEqual([
+			[`○ 1 · ${NAMES.S1} (out of date)`, crossing('as last solved: 3 running')],
+			[`○ 2 · ${NAMES.S2}`, crossing('2 running')],
+			[`○ 3 · ${NAMES.S3}`, crossing('1 running')],
+			[`○ 4 · ${NAMES.S4}`, crossing('3 running')],
+			[NAMES.S5, undefined],
+			[NAMES.S6, undefined],
+			[
+				`○ 5 · ${NAMES.S7}`,
+				'Not drawn: the station differs inside in more than which pumps are switched on'
+			],
+			[`○ 6 · ${NAMES.S8}`, "The same as this case's: the station is the same inside"]
+		]);
+		// The cases not on the chart span the four columns after their name.
+		const unticked = within(table)
+			.getAllByRole('row')
+			.filter((r) => r.textContent!.includes(NAMES.S5!));
+		expect(unticked).toHaveLength(1);
+		expect(unticked[0]!.querySelector('td')!.getAttribute('colspan')).toBe('4');
+		// 4d's table, without curve states: no such column.
+		cleanup();
+		await renderDrawn(family('', { without: true }).props);
+		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		expect(
+			within(screen.getByRole('table', { name: "Other cases' station duties" })).queryByRole(
+				'columnheader',
+				{ name: 'Its group curve' }
+			)
+		).toBeNull();
+		expect(screen.queryByRole('table', { name: OTHER_CURVES_CAPTION })).toBeNull();
+	});
+
+	it('lists every point of each curve drawn in "Other cases’ group curves": a row group per case, a list below 640 px', async () => {
+		const { view, props } = family('', { stale: ['S1'] });
+		await renderDrawn(props);
+		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		const region = screen.getByRole('region', { name: OTHER_CURVES_CAPTION });
+		expect(region).toHaveClass('max-h-72', 'overflow-auto');
+		expect(region).toHaveAttribute('tabindex', '0');
+		const table = within(region).getByRole('table', { name: OTHER_CURVES_CAPTION });
+		expect(OTHER_CURVES_CAPTION).toBe("Other cases' group curves (station's flow at each rise)");
+		expect(table).toHaveClass('max-sm:block');
+		expect(
+			within(table)
+				.getAllByRole('columnheader')
+				.map((h) => h.textContent!.trim())
+		).toEqual(['Rise (m)', 'Flow (L/s)', 'Note']);
+		expect(table.querySelector('thead')).toHaveClass('max-sm:sr-only');
+		const groups = within(table).getAllByRole('rowgroup').slice(1);
+		const headers = groups.map((g) => within(g).getAllByRole('rowheader')[0]!);
+		expect(headers.map((h) => h.getAttribute('scope'))).toEqual(Array(6).fill('rowgroup'));
+		expect(headers.map((h) => h.getAttribute('colspan'))).toEqual(Array(6).fill('3'));
+		expect(headers.map((h) => h.textContent!.replace(/^○\s*/, '').trim())).toEqual([
+			`1 · ${NAMES.S1} (out of date): as last solved: 3 running`,
+			`2 · ${NAMES.S2}: 2 running`,
+			`3 · ${NAMES.S3}: 1 running`,
+			`4 · ${NAMES.S4}: 3 running`,
+			`5 · ${NAMES.S5}: 3 running`,
+			`6 · ${NAMES.S6}: 3 running`
+		]);
+		// A stale case's header as Running combinations marks one.
+		expect(headers[0]).toHaveClass('bg-amber-50/60');
+		expect(headers[1]).toHaveClass('bg-slate-50/60');
+		const f = (v: number) => formatNumber(v, 4);
+		for (const [i, key] of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'].entries()) {
+			const points = [...answer(lineupAnswers(key).groupCurve).points].sort(
+				(a, b) => a.head - b.head
+			);
+			const rows = within(groups[i]!).getAllByRole('row').slice(1);
+			expect(rows).toHaveLength(42);
+			expect(rows).toHaveLength(points.length);
+			for (const [j, row] of rows.entries()) {
+				const cells = within(row).getAllByRole('cell');
+				expect(cells.map((c) => c.getAttribute('data-label'))).toEqual([
+					'Rise (m)',
+					'Flow (L/s)',
+					'Note'
+				]);
+				const p = points[j]!;
+				expect(cells[0]).toHaveTextContent(f(p.head));
+				expect(cells[1]!.textContent).toBe(p.flow === null ? '—' : f(p.flow * 1000));
+				if (p.isDuty) expect(cells[2]!.textContent).toBe("Its duty's rise (its duty check).");
+				// On a phone a pair of label and value; "—" and an empty note out of sight.
+				expect(row).toHaveClass('max-sm:flex', 'max-sm:flex-wrap');
+				for (const cell of cells) {
+					expect(cell).toHaveClass('max-sm:before:content-[attr(data-label)]');
+					expect(cell.classList.contains('max-sm:sr-only')).toBe(
+						cell.textContent === '—' || cell.textContent === ''
+					);
+				}
+			}
+		}
+		// "1 of 4 running" has no flow at its 45 m rise: the row says why.
+		const gap = within(groups[2]!)
+			.getAllByRole('row')
+			.find((r) => within(r).queryAllByRole('cell')[1]?.textContent === '—')!;
+		expect(within(gap).getAllByRole('cell')[2]!.textContent).toMatch(
+			/^Its solve did not converge\. /
+		);
+		expect(view.data.otherCurves).toHaveLength(6);
+	}, 20_000);
+
+	it('counts the labels its drawing left out in the notes, keeps the placement on the canvas, and the image counts its own', async () => {
+		const { props } = family('S3');
+		await renderDrawn(props);
+		const config = charts[0]!.config as PumpChartConfig;
+		// A phone-sized drawing: the curves cut at the right edge end among the rings, and some
+		// labels are left out for space (the browser's measurement, pump-lineups.md §15).
+		const narrow = drawnChart(config);
+		narrow.draw();
+		const canvas = document.querySelector('[data-pumps-together] canvas') as HTMLCanvasElement;
+		const placed = JSON.parse(canvas.dataset.curveLabels!) as CurveLabelsDrawn;
+		expect(placed.leftOut).toBeGreaterThan(0);
+		// Every curve is labelled or counted: the six other cases' and this case's.
+		expect(placed.labels.flatMap((l) => l.curves).length + placed.leftOut).toBe(7);
+		const sentence = (n: number) =>
+			`Labels of ${n} ${n === 1 ? 'curve' : 'curves'} are left out for space; the data table lists every curve.`;
+		expect(await screen.findByText(sentence(placed.leftOut))).toBeVisible();
+		// A roomy drawing: none left out, and the sentence goes.
+		drawnChart(config, { plot: { left: 50, right: 900, top: 10, bottom: 500 } }).draw();
+		await tick();
+		expect(JSON.parse(canvas.dataset.curveLabels!).leftOut).toBe(0);
+		expect(screen.queryByText(/are left out for space/)).toBeNull();
+		// Crowded again on screen; the image's own drawing places its labels anew.
+		narrow.draw();
+		await tick();
+		await fireEvent.click(
+			screen.getByRole('button', { name: /^Download image of the pumps together/ })
+		);
+		await vi.waitFor(() => expect(images.requests).toHaveLength(1));
+		const request = images.requests[0] as FigureImageRequest;
+		expect(request.lines).toContain(sentence(placed.leftOut));
+		const imageChart = drawnChart(request.config, {
+			plot: { left: 50, right: 900, top: 10, bottom: 500 }
+		});
+		imageChart.draw();
+		// The image writes the curves' labels in the desktop's words at 14 px (§9.3, §9.6): the base
+		// (1, 4 running), "2 of 4 running" (3) and the 3-running cases merged, numbers ascending,
+		// and this case's own.
+		const labels = imageChart.written.filter((w) => / running( \(this case\))?$/.test(w.text));
+		expect(labels.map((w) => w.text).sort()).toEqual([
+			'1 running (this case)',
+			'1 · 4 running',
+			'2, 4, 5, 6 · 3 running',
+			'3 · 2 running'
+		]);
+		expect([...new Set(labels.map((w) => w.font))]).toEqual(['14px system-ui, sans-serif']);
+		const drawnLines = request.drawnLines!();
+		expect(drawnLines.some((l) => l.includes('left out for space'))).toBe(false);
+		expect(drawnLines).toEqual(request.lines.filter((l) => l !== sentence(placed.leftOut)));
+		// The image's datasets carry the family with its full labels.
+		const sets = request.config.data.datasets as unknown as Record<string, unknown>[];
+		expect(sets.filter((d) => d.curveFamily).map((d) => d.label)).toContain(
+			`1 · Base case: group curve, 4 running`
 		);
 	}, 20_000);
 });

@@ -36,7 +36,7 @@ Out of scope: transient (water hammer), two-phase, gas and open-channel flow, an
 | Document | Contents |
 |----------|----------|
 | [`docs/GOALS.md`](docs/GOALS.md) | Mission, values and priorities that guide decisions |
-| [`docs/decisions/`](docs/decisions/README.md) | Decisions D1–D23: the architecture rules and one record per built feature |
+| [`docs/decisions/`](docs/decisions/README.md) | Decisions D1–D24: the architecture rules and one record per built feature |
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements: users, scope, features |
 | [`docs/SDD.md`](docs/SDD.md) | Software design: architecture, data models, API |
 | [`docs/TSD.md`](docs/TSD.md) | Technical spec: stack, layout, solver, tests, deployment settings |

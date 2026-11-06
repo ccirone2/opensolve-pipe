@@ -22,6 +22,7 @@ Read a proposal when you need to know *why* a feature is shaped as it is, or whe
 | [`pump-groups.md`](pump-groups.md) | slices 4a–4d built | D21 | The station frame, the group curve and the group system curve, three designs reconciled (§11), §13 owner's answers, §14–§17 as built |
 | [`project-library.md`](project-library.md) | built | D22 | References not templates, the K-at-a-bore conversion, §9 Later, §10 owner's answers, §12 as built, appendix prototype |
 | [`pressure-relief-valve.md`](pressure-relief-valve.md) | built | D23 | The law and its three named departures, the band convention accepted as an exception, §10 owner's answers, §12 as built |
+| [`pump-lineups.md`](pump-lineups.md) | slices L1 (L1a, L1b), L2 and L3 built (web only) | D24 | Lineups as status-only scenarios: the presets, the naming and follow rule, the pump table, the curve family; §13 owner's answers, §14 review record, §15 as built |
 
 ## Writing one
 

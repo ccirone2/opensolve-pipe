@@ -40,7 +40,7 @@
 	import type { Component, ControlValve } from '$lib/api/types';
 	import SiteFooter from '$lib/components/SiteFooter.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
-	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { caseNameIn, useWorkspace } from '$lib/state/workspace.svelte';
 	import { freePorts, isBoundary } from '$lib/utils/graph';
 	import { componentName, portLabel } from '$lib/utils/labels';
 	import { mediaQuery, WIDE_SCREEN } from '$lib/utils/media.svelte';
@@ -75,8 +75,10 @@
 		lapsedChanges,
 		overridesOf,
 		changeFieldLabel,
-		changeTargetLabel
+		changeTargetLabel,
+		findScenario
 	} from '$lib/utils/scenarios';
+	import { solvedCaseWords } from '$lib/utils/pump-lineups';
 	import { scenarioProblems } from '$lib/utils/scenario-problems';
 	import { calculatingReason } from '$lib/utils/goal-seek';
 	import {
@@ -110,6 +112,12 @@
 	const solved = $derived(response?.solvedState);
 	/** The project has scenarios: results name their case, and Compare cases is offered. */
 	const hasScenarios = $derived(ws.scenarios.length > 0);
+	/**
+	 * A solved scenario's name as stored (the response's when no longer stored): the Methods view
+	 * names the case as the rest of the screen does (CLAUDE.md D24, proposal pump-lineups.md §5).
+	 */
+	const storedName = (scenario: { id: string; name: string }) =>
+		findScenario(ws.store.project, scenario.id)?.name ?? scenario.name;
 	const caseId = $derived(ws.store.activeCase);
 	const caseName = $derived(ws.caseName(caseId));
 	const comparing = $derived(hasScenarios && ws.comparing);
@@ -330,7 +338,9 @@
 				const own = draft.scenarios?.find((s) => s.id === scenario.id);
 				if (own) own.overrides = overridesOf(own).filter((o) => !same(o));
 			},
-			`reset ${changeFieldLabel(ws.store.project, override).toLowerCase()} in ${scenario.name}`
+			// Named as the step leaves it: an app-made name follows its pumps (CLAUDE.md D24).
+			(after) =>
+				`reset ${changeFieldLabel(ws.store.project, override).toLowerCase()} in ${caseNameIn(after, scenario.id)}`
 		);
 	}
 
@@ -915,10 +925,7 @@
 								<button
 									type="button"
 									class="btn btn-quiet shrink-0 px-2 text-blue-800 underline underline-offset-2"
-									onclick={() => {
-										ws.managerFocus = caseId;
-										ws.managerOpen = true;
-									}}>Review</button
+									onclick={() => ws.openManager({ focus: caseId ?? undefined })}>Review</button
 								>
 							</li>
 						{/if}
@@ -1148,9 +1155,11 @@
 									{...hasScenarios
 										? {
 												caseName: response.scenario
-													? `scenario ${response.scenario.name} (${response.scenario.id})`
+													? solvedCaseWords(storedName(response.scenario), response.scenario)
 													: 'base case',
-												...(response.scenario ? { scenarioName: response.scenario.name } : {})
+												...(response.scenario
+													? { scenarioName: storedName(response.scenario) }
+													: {})
 											}
 										: {}}
 								/>

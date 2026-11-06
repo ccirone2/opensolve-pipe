@@ -2,10 +2,11 @@
  * The chart image's caption and name (proposal export.md §3.4, §3.5, §7.1): the title with and
  * without a case, the solve's time in the export's UTC offset (never the machine's time zone), the
  * out-of-date line, and the footer: the figure's own notes, then the disclaimer and the app. jsdom
- * has no canvas, so the drawing itself is covered end to end (tests/export.e2e.ts). The values
- * are made-up inputs.
+ * has no canvas, so the drawing itself is covered end to end (tests/export.e2e.ts); which caption
+ * the drawing writes (a figure's notes read once its chart is drawn, D24 §9.3) is checked here on
+ * stand-in canvases. The values are made-up inputs.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Chart } from 'chart.js';
 import { DISCLAIMER } from '../../components/links';
 import { pumpResult, systemCurveResponse } from '../../testing/results';
@@ -19,6 +20,7 @@ import {
 	downloadChartImage,
 	imageNoteLines,
 	offsetDateTime,
+	renderChartImage,
 	wrapText,
 	type ChartImageCaption,
 	type ChartImageCaptionInput,
@@ -338,5 +340,115 @@ describe('an image of the Pumps together card (CLAUDE.md D21)', () => {
 			/^Booster station - Pumps together PA, PB \d{4}-\d\d-\d\d \d{4}\.png$/
 		);
 		expect(notices[0]!.kind).toBe('info');
+	});
+
+	it('takes the footer from the image’s own drawing when the figure gives its drawn lines (D24 §9.3)', async () => {
+		// The screen left out 4 curve labels; the image's chart, once built, none (made up).
+		const screen = 'Labels of 4 curves are left out for space; the data table lists every curve.';
+		let built = false;
+		const drawn: { caption: ChartImageCaption; drawn: ChartImageCaption | undefined }[] = [];
+		await downloadChartImage(
+			FakeChart,
+			{
+				config: pumpChartConfig(pumpChartData(pumpResult(), SI_UNITS), [], {
+					speedText: '100 % speed',
+					legendLabels: () => [],
+					format: String,
+					forImage: true
+				}),
+				title: 'Pumps together: PA, PB (parallel)',
+				lines: ['Made-up first note.', screen],
+				drawnLines: () => (built ? ['Made-up first note.'] : ['Read before the chart was built.']),
+				content: 'Pumps together PA, PB',
+				disclaimer: DISCLAIMER,
+				source: {
+					projectName: 'Booster station',
+					timestamp: '2026-10-28T09:30:00Z',
+					methodVersion: '1.6.0',
+					stale: false,
+					unavailable: '',
+					origin: 'https://opensolve-pipe.app',
+					notify: () => {}
+				}
+			},
+			{
+				now,
+				render: async (_chart, _config, caption, drawnCaption) => {
+					built = true;
+					drawn.push({ caption, drawn: drawnCaption?.() });
+					return new Blob(['x']);
+				},
+				save: () => {}
+			}
+		);
+		const tail = [DISCLAIMER, 'OpenSolve Pipe · https://opensolve-pipe.app'];
+		expect(drawn[0]!.caption.footer).toEqual(['Made-up first note.', screen, ...tail]);
+		expect(drawn[0]!.drawn?.footer).toEqual(['Made-up first note.', ...tail]);
+		expect({ ...drawn[0]!.drawn, footer: [] }).toEqual({ ...drawn[0]!.caption, footer: [] });
+	});
+});
+
+describe('drawing the image (renderChartImage, on stand-in canvases)', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('writes the caption read once its chart is drawn, when given one (D24 §9.3)', async () => {
+		const written: string[] = [];
+		const context = {
+			font: '',
+			fillStyle: '',
+			textBaseline: '',
+			measureText: (text: string) => ({ width: text.length * 6 }),
+			scale() {},
+			fillRect() {},
+			drawImage() {},
+			fillText: (text: string) => void written.push(text)
+		};
+		const canvas = () => ({
+			width: 0,
+			height: 0,
+			getContext: () => context,
+			toBlob: (done: (blob: Blob | null) => void) => done(new Blob(['png']))
+		});
+		vi.stubGlobal('document', { createElement: canvas });
+		// A stand-in for Chart.js: drawn when made, as it is without animation; destroyed after.
+		let charts = 0;
+		let destroyed = 0;
+		class DrawnChart {
+			constructor() {
+				charts++;
+			}
+			destroy() {
+				destroyed++;
+			}
+		}
+		const caption = (note: string): ChartImageCaption =>
+			chartImageCaption(input({ title: 'Pumps together: PA, PB (parallel)', notes: [note] }));
+		const config = pumpChartConfig(pumpChartData(pumpResult(), SI_UNITS), [], {
+			speedText: '100 % speed',
+			legendLabels: () => [],
+			format: String,
+			forImage: true
+		});
+		const blob = await renderChartImage(
+			DrawnChart as unknown as typeof Chart,
+			config,
+			caption('The screen’s count.'),
+			() => caption(charts ? 'The drawing’s count.' : 'Read before the chart was drawn.')
+		);
+		expect(blob.size).toBeGreaterThan(0);
+		expect(written).toContain('The drawing’s count.');
+		expect(written).not.toContain('The screen’s count.');
+		expect(written).not.toContain('Read before the chart was drawn.');
+		expect([charts, destroyed]).toEqual([1, 1]);
+		// Without one, the caption given.
+		written.length = 0;
+		await renderChartImage(
+			DrawnChart as unknown as typeof Chart,
+			config,
+			caption('The screen’s count.')
+		);
+		expect(written).toContain('The screen’s count.');
 	});
 });

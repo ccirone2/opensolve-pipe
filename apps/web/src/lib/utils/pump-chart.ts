@@ -721,6 +721,26 @@ export type CaseMarker = (typeof CASE_MARKERS)[number];
 /** At most this many cases on the chart at once (the case shown and five others). */
 export const MAX_CHART_CASES = 6;
 
+/**
+ * The cases unticked once the user unticks `key` in a list of cases shown at most so many at a
+ * time (the pump chart's "Cases on the chart", the Pumps together card's "Cases on this chart"):
+ * the cases unticked before, `key`, and every case of `listed` not in `shown` now, which already
+ * reads as unticked. So its place stays free: no case comes onto the chart by itself, `key` can be
+ * ticked again, and any other case can be ticked into its place. Ticking a case removes it alone.
+ */
+export function untickedAfter(
+	unticked: readonly string[],
+	key: string,
+	listed: readonly string[],
+	shown: readonly string[]
+): string[] {
+	const next = [...unticked];
+	for (const k of [key, ...listed.filter((k) => !shown.includes(k))]) {
+		if (!next.includes(k)) next.push(k);
+	}
+	return next;
+}
+
 export interface OtherCaseInput {
 	/** The case's id ('' for the base case). */
 	key: string;

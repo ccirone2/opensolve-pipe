@@ -11,6 +11,15 @@
  * labels (names, the project name and description, display units) or a refusal (anything else),
  * as one undo step.
  *
+ * Names that follow (CLAUDE.md D24, proposal pump-lineups.md §4.5): every edit of the stored
+ * project goes through one private commit path (#commit), used by edit() in the base and, through
+ * editScenario() (§8.6, which the Pump lineups table calls for any case), in a scenario,
+ * updateStored() (the manager's actions, each field's Reset, goal seek's "as new scenario") and
+ * goal seek's Apply. The store's update() renames, in the same undo step, each
+ * scenario whose name the app made and whose pumps the edit changed; the commit path makes the
+ * undo label from the project after the step (a case is named as it is now on screen) and says
+ * the renames in the notice, after a base edit's carry notes.
+ *
  * Goal seek (proposal goal-seek.md §6.15): its setup (goals, variables, bounds, targets) is page
  * state here, not in the project or the link, and resets when another project is loaded. While
  * the setup names a component or connection, no new element takes its id (newId's alsoUsed, as
@@ -34,7 +43,7 @@ import { fittingFallbackName } from '../utils/labels';
 import { pipeNominalSize } from '../utils/piping';
 import {
 	caseProject,
-	changeStates,
+	changesText,
 	changeValueText,
 	findScenario,
 	makeOverride,
@@ -87,8 +96,11 @@ import {
 	finishedGoalSeek,
 	structuralProblems,
 	type GoalSeekRun,
-	type ProjectStore
+	type ProjectStore,
+	type UpdateLabel
 } from './project.svelte';
+import { historyText, type ManagerTab } from '../utils/lineup-table';
+import { renameNotice, type LineupPreset } from '../utils/pump-lineups';
 import { LibraryStore } from './library.svelte';
 import { NavigatorStore, pathAfterInsert } from './navigator.svelte';
 
@@ -119,6 +131,35 @@ export interface Notice {
 	/** Increments with every notice, so the same text shown twice is announced twice. */
 	id: number;
 }
+
+/** What an undo or redo did (Workspace.undoStep, redoStep; proposal pump-lineups.md §8.9). */
+export interface HistoryStep {
+	step: 'undo' | 'redo';
+	/** The step's undo label ("turn Pump PA off in Scenario 2"). */
+	label: string;
+	/** The case shown changed: the step was made in another case. */
+	caseChanged: boolean;
+	/** "Undid {label}." or "Redid {label}.", then " Now showing {case words}." when caseChanged. */
+	text: string;
+}
+
+/**
+ * What Workspace.editScenario did (CLAUDE.md D24, proposal pump-lineups.md §8.6). Applied: whether
+ * the project changed, and the rename words of the names that followed (§4.5; '' for none).
+ * Refused: why, in the words that follow "Could not {label}: " (LIMIT_MESSAGE at 30 changes);
+ * 'refused' (not a scenario value) gives "In a scenario you can change only its values.".
+ */
+export type ScenarioEditResult =
+	| { ok: true; changed: boolean; renamed: string }
+	| { ok: false; reason: 'refused' | 'limit' | 'failed' | 'invalid'; message: string };
+
+/**
+ * What Workspace.updateStoredQuiet did (proposal pump-lineups.md §8.1): whether the project
+ * changed and the rename words (§4.5; '' for none), or the refusal in the words updateStored
+ * would have notified ("Could not {label}: {problem}").
+ */
+export type StoredStepResult =
+	{ ok: true; changed: boolean; renamed: string } | { ok: false; text: string };
 
 /** Kinds that can be inserted into a connection (separate inlet and outlet ports). */
 export const INLINE_KINDS: readonly ComponentKind[] = [
@@ -158,6 +199,17 @@ export class Workspace {
 	settingsSection = $state<'fluid' | null>(null);
 	/** The scenario whose card the manager opens on (null: the active one). */
 	managerFocus = $state<string | null>(null);
+	/**
+	 * The manager's tab last used (CLAUDE.md D24, proposal pump-lineups.md §8.1): Cases, or Pump
+	 * lineups. Page state, reset on load; the tab shown is derived from it (lineup-table.ts
+	 * shownManagerTab: Cases unless the project has two pumps or more).
+	 */
+	managerTab = $state<ManagerTab>('cases');
+	/**
+	 * The pumps the Pump lineups table shows when opened from the Pumps together card (§8.1: the
+	 * card's members), or null: every pump. Page state, cleared when the manager closes.
+	 */
+	managerPumps = $state.raw<readonly string[] | null>(null);
 	/** The project library dialog is open (CLAUDE.md D22). */
 	libraryOpen = $state(false);
 	/** Where the library dialog opens (null: its pipe specs). */
@@ -195,11 +247,23 @@ export class Workspace {
 	/**
 	 * "Also show the other cases' station duties" on the Pumps together card (slice 4d): each other
 	 * case's group curve is asked for, its duty drawn as a ring. Page state, off by default, kept
-	 * through a case switch; "Add cases with one pump off" turns it on.
+	 * through a case switch; adding cases on the card turns it on.
 	 */
 	pumpGroupOthers = $state(false);
 	/** The other cases unticked under "Cases on this chart" (keys: '' is the base). Page state. */
 	pumpGroupUnticked = $state.raw<readonly string[]>([]);
+	/**
+	 * The Add cases block's preset on the Pumps together card (CLAUDE.md D24, proposal
+	 * pump-lineups.md §7.3): By number running by default, or Each pump off. Page state.
+	 */
+	lineupPreset = $state<LineupPreset>('running');
+	/**
+	 * The stop order the user set on the card (D24 §7.5; the first stops first), written only by
+	 * its move buttons and Default order ([]: none). Page state. The order used is derived from it
+	 * (pump-lineups.ts effectiveStopOrder: this one while it holds exactly the pumps on in the base
+	 * case, else the default), never written by an effect (decision 26).
+	 */
+	pumpStopOrder = $state.raw<readonly string[]>([]);
 	#noticeId = 0;
 	/** The project of the case shown (the base, or the base with the active scenario's changes). */
 	#caseProject: Project;
@@ -247,9 +311,9 @@ export class Workspace {
 
 	/**
 	 * Forget the page state about the project shown (the trace open, Compare cases and its chosen
-	 * rows, the scenario manager, Settings, the last case announcement, the pump group), as a
-	 * reload would: the
-	 * rows and cards named elements of the project before.
+	 * rows, the scenario manager with its tab and filter, Settings, the last case announcement, the
+	 * pump group, the Add cases block's preset and stop order), as a reload would: the rows and
+	 * cards named elements of the project before.
 	 */
 	#resetPage(): void {
 		this.inspected = null;
@@ -257,6 +321,8 @@ export class Workspace {
 		this.compareRows = null;
 		this.managerOpen = false;
 		this.managerFocus = null;
+		this.managerTab = 'cases';
+		this.managerPumps = null;
 		this.settingsOpen = false;
 		this.settingsSection = null;
 		this.libraryOpen = false;
@@ -270,6 +336,8 @@ export class Workspace {
 		this.pumpGroupOpen = false;
 		this.pumpGroupOthers = false;
 		this.pumpGroupUnticked = [];
+		this.lineupPreset = 'running';
+		this.pumpStopOrder = [];
 	}
 
 	/**
@@ -285,6 +353,27 @@ export class Workspace {
 		);
 		const ids = [...reservedIds(this.goalSeekSetup), ...group];
 		return ids.filter((id, i) => ids.indexOf(id) === i);
+	}
+
+	/**
+	 * Open the Scenarios manager (CLAUDE.md D24, proposal pump-lineups.md §8.1): on the tab last
+	 * used (the header's Scenarios button, the menu's "Manage scenarios…"); on a scenario's card
+	 * (`focus`, which always shows Cases); or on Pump lineups showing only `pumps` (the Pumps
+	 * together card's members).
+	 */
+	openManager(options: { focus?: string; pumps?: readonly string[] } = {}): void {
+		this.managerFocus = options.focus ?? null;
+		this.managerPumps = options.pumps ? [...options.pumps] : null;
+		if (options.focus) this.managerTab = 'cases';
+		else if (options.pumps) this.managerTab = 'lineups';
+		this.managerOpen = true;
+	}
+
+	/** Close the Scenarios manager: its card asked for and the table's filter are forgotten (§8.1). */
+	closeManager(): void {
+		this.managerOpen = false;
+		this.managerFocus = null;
+		this.managerPumps = null;
 	}
 
 	/** Open the project library dialog: on a list, an entry's form or a new entry's form. */
@@ -390,18 +479,19 @@ export class Workspace {
 		const values = foundValueTexts(response, this.goalSeekWords(run)).join(', ');
 		if (this.store.activeCase !== run.caseId) this.setCase(run.caseId);
 		if (mode === 'case') {
-			const label =
-				run.caseId === null
-					? 'apply goal seek values'
-					: `apply goal seek values in ${this.caseName(run.caseId)}`;
-			const result = this.store.update((draft) => applyToCase(draft, run.caseId, overrides), label);
-			if (!result.ok) {
-				this.notify(
-					'error',
-					`Could not ${label}: ${result.problems[0] ?? 'the change is not valid.'}`
-				);
-				return false;
-			}
+			const caseId = run.caseId;
+			// The commit path (CLAUDE.md D24, proposal pump-lineups.md §6): goal seek's values are
+			// numbers, never a status, so a lineup case keeps its pumps' words; but a value written
+			// into it is another change, which its name counts (§4.4), and one written into the base
+			// can make a scenario's change equal to the base value again.
+			const result = this.#commit(
+				(draft) => applyToCase(draft, caseId, overrides),
+				(project) =>
+					caseId === null
+						? 'apply goal seek values'
+						: `apply goal seek values in ${caseNameIn(project, caseId)}`
+			);
+			if (!result) return false;
 			if (!result.changed) {
 				const words = this.caseWords(run.caseId);
 				this.closeGoalSeek();
@@ -420,9 +510,10 @@ export class Workspace {
 						)
 					: [];
 			this.closeGoalSeek();
+			const renamed = result.renamed ? ` ${result.renamed}` : '';
 			this.notify(
 				'info',
-				`Applied to ${this.caseWords(run.caseId)}: ${values}. Undo restores the values before.${kept.join('')}`
+				`Applied to ${this.caseWords(run.caseId)}: ${values}. Undo restores the values before.${kept.join('')}${renamed}`
 			);
 		} else {
 			const description = newScenarioDescription(
@@ -482,12 +573,7 @@ export class Workspace {
 
 	/** "3 changes" or "3 changes, 1 no longer applies" of a scenario. */
 	changesText(scenario: Scenario): string {
-		const count = overridesOf(scenario).length;
-		const lapsed = changeStates(this.store.project, scenario.id).filter(
-			(c) => c.state !== 'applied'
-		).length;
-		const changes = `${count} change${count === 1 ? '' : 's'}`;
-		return lapsed ? `${changes}, ${lapsed} no longer appl${lapsed === 1 ? 'ies' : 'y'}` : changes;
+		return changesText(this.store.project, scenario);
 	}
 
 	/**
@@ -506,24 +592,38 @@ export class Workspace {
 
 	/** Undo the last change; when it was made in another case, show that case and say so. */
 	undo(): boolean {
-		return this.#history('undo');
+		return this.undoStep() !== null;
 	}
 
 	/** Redo the last undone change; when it was made in another case, show that case and say so. */
 	redo(): boolean {
+		return this.redoStep() !== null;
+	}
+
+	/**
+	 * undo(), saying what it did (CLAUDE.md D24, proposal pump-lineups.md §8.9): the words for the
+	 * Scenarios manager's status line, "Undid {label}." with " Now showing {case words}." when the
+	 * case shown changed (the workspace notice, behind the modal, says the latter only, as before).
+	 * Null when there was nothing to undo.
+	 */
+	undoStep(): HistoryStep | null {
+		return this.#history('undo');
+	}
+
+	/** redo(), saying what it did ("Redid {label}.", undoStep's words); null when nothing. */
+	redoStep(): HistoryStep | null {
 		return this.#history('redo');
 	}
 
-	#history(step: 'undo' | 'redo'): boolean {
+	#history(step: 'undo' | 'redo'): HistoryStep | null {
 		const before = this.store.activeCase;
-		const label = step === 'undo' ? this.store.undoLabel : this.store.redoLabel;
-		if (!(step === 'undo' ? this.store.undo() : this.store.redo())) return false;
+		const label = (step === 'undo' ? this.store.undoLabel : this.store.redoLabel) ?? '';
+		if (!(step === 'undo' ? this.store.undo() : this.store.redo())) return null;
 		const after = this.store.activeCase;
-		if (after !== before) {
-			const did = step === 'undo' ? 'Undid' : 'Redid';
-			this.notify('info', `${did} ${label}. Now showing ${this.caseWords(after)}.`);
-		}
-		return true;
+		const caseChanged = after !== before;
+		const text = historyText(step, label, caseChanged ? this.caseWords(after) : null);
+		if (caseChanged) this.notify('info', text);
+		return { step, label, caseChanged, text };
 	}
 
 	/**
@@ -570,10 +670,13 @@ export class Workspace {
 			reset: () => {
 				const s = this.activeScenario;
 				if (!s) return;
-				this.updateStored((draft) => {
-					const own = draft.scenarios?.find((x) => x.id === s.id);
-					if (own) own.overrides = overridesOf(own).filter((o) => !matches(o));
-				}, `reset ${name.toLowerCase()} in ${s.name}`);
+				this.updateStored(
+					(draft) => {
+						const own = draft.scenarios?.find((x) => x.id === s.id);
+						if (own) own.overrides = overridesOf(own).filter((o) => !matches(o));
+					},
+					(after) => `reset ${name.toLowerCase()} in ${caseNameIn(after, s.id)}`
+				);
 			},
 			setBy: scenario
 				? []
@@ -602,18 +705,86 @@ export class Workspace {
 
 	/**
 	 * One undo step on the stored project (the base and its scenarios: the scenario manager's
-	 * actions, Reset), with a notice when it is refused.
+	 * actions, Reset), with a notice when it is refused, and one when an app-made name followed its
+	 * pumps (CLAUDE.md D24). A label that names a case is best made from the project after the step
+	 * (`label` as a function), so it names the case as it is then. `notice` is the caller's own
+	 * sentence for the step (see edit()).
 	 */
-	updateStored(change: (draft: Project) => Project | void, label: string): boolean {
+	updateStored(
+		change: (draft: Project) => Project | void,
+		label: UpdateLabel,
+		notice = ''
+	): boolean {
+		const result = this.#commit(change, label);
+		if (!result) return false;
+		this.#say(result, notice);
+		return true;
+	}
+
+	/**
+	 * updateStored(), saying nothing (CLAUDE.md D24, proposal pump-lineups.md §8.1): the Scenarios
+	 * manager's actions, which say what a step did on the manager's own status and alert lines, as
+	 * the workspace notice sits behind the modal. Gives whether the project changed and the step's
+	 * rename words (§4.5; '' for none), or the words a refusal would have been notified with
+	 * ("Could not {label}: {problem}", the label as before the step).
+	 */
+	updateStoredQuiet(
+		change: (draft: Project) => Project | void,
+		label: UpdateLabel
+	): StoredStepResult {
+		const result = this.#step(change, label);
+		if (!result.ok) {
+			const text = typeof label === 'string' ? label : label(this.store.project);
+			return { ok: false, text: `Could not ${text}: ${result.problem}` };
+		}
+		return { ok: true, changed: result.changed, renamed: result.renamed };
+	}
+
+	/**
+	 * The one commit path (CLAUDE.md D24, proposal pump-lineups.md §4.5): one undo step through the
+	 * store's update(), which follows app-made names in that same step. A refusal is said here
+	 * ("Could not {label}: …", the label as before the step) and gives null; otherwise what the step
+	 * did to the scenarios, for the caller's notice: the carry notes of a base edit, then the renames.
+	 */
+	#commit(
+		change: (draft: Project) => Project | void,
+		label: UpdateLabel
+	): { changed: boolean; notes: readonly string[]; renamed: string } | null {
+		const result = this.#step(change, label);
+		if (!result.ok) {
+			const text = typeof label === 'string' ? label : label(this.store.project);
+			this.notify('error', `Could not ${text}: ${result.problem}`);
+			return null;
+		}
+		return result;
+	}
+
+	/** #commit's step, saying nothing: a refusal gives its problem. */
+	#step(
+		change: (draft: Project) => Project | void,
+		label: UpdateLabel
+	):
+		| { ok: true; changed: boolean; notes: readonly string[]; renamed: string }
+		| { ok: false; problem: string } {
 		const result = this.store.update(change, label);
 		if (!result.ok) {
-			this.notify(
-				'error',
-				`Could not ${label}: ${result.problems[0] ?? 'the change is not valid.'}`
-			);
-			return false;
+			return { ok: false, problem: result.problems[0] ?? 'the change is not valid.' };
 		}
-		return true;
+		return {
+			ok: true,
+			changed: result.changed,
+			notes: result.notes ?? [],
+			renamed: renameNotice(result.renamed ?? [])
+		};
+	}
+
+	/**
+	 * The notice of a step: the caller's own sentence (`lead`), then its carry notes, then its
+	 * renames (§4.5), when there are any; one notice, so none of them replaces another.
+	 */
+	#say(result: { notes: readonly string[]; renamed: string }, lead = ''): void {
+		const said = [lead, ...result.notes, result.renamed].filter(Boolean);
+		if (said.length) this.notify('info', said.join(' '));
 	}
 
 	get units(): UnitPreferences {
@@ -650,41 +821,92 @@ export class Workspace {
 	 * comment): values become the scenario's changes, labels go to the base, and anything else
 	 * refuses the whole edit ("Switch to the base case to …"). An edit that would make the case's
 	 * project invalid is refused too, as one of the base is. A base edit that moved or retired
-	 * scenario changes says so.
+	 * scenario changes says so. Both go through the one commit path (#commit): a name the app made
+	 * follows its pumps in the same step, said after the carry notes, and in a scenario the undo
+	 * label names the case as it is after the step (CLAUDE.md D24, proposal pump-lineups.md §4.5,
+	 * §8.6).
+	 *
+	 * `notice` is the caller's own sentence when the edit is applied ("3 pipes now use …"): the
+	 * notice opens with it and the step's carry notes and renames follow, so a caller never says
+	 * its own words over them (§4.5: every rename is said).
 	 */
-	edit(change: (draft: Project) => Project | void, label: string): boolean {
+	edit(change: (draft: Project) => Project | void, label: string, notice = ''): boolean {
 		const scenario = this.activeScenario;
 		if (!scenario) {
-			const result = this.store.update(change, label);
-			if (!result.ok) {
-				this.notify(
-					'error',
-					`Could not ${label}: ${result.problems[0] ?? 'the change is not valid.'}`
-				);
-				return false;
-			}
-			if (result.notes?.length) this.notify('info', result.notes.join(' '));
+			const result = this.#commit(change, label);
+			if (!result) return false;
+			this.#say(result, notice);
 			return true;
 		}
+		return this.editScenario(scenario.id, change, label, { notice }).ok;
+	}
+
+	/**
+	 * An edit of scenario `scenarioId`'s case, whichever case is shown (CLAUDE.md D24, proposal
+	 * pump-lineups.md §8.6): edit()'s scenario path, which edit() calls for the case shown and the
+	 * Pump lineups table for any case, so Build and the table run one function. `change` edits a copy
+	 * of the case's project; scenarioEdit sorts it into the scenario's changes (a value back at the
+	 * base value removes its change; a new one is appended, an existing one changed in its place),
+	 * an edit that would make the case's project invalid is refused, and the step goes through the
+	 * one commit path (#commit's), so a name the app made follows its pumps in the same step.
+	 *
+	 * One undo step, labelled "{label} in {scenario name}" with the name after the step (the one on
+	 * screen, §8.6 item 3). The step records the case shown (store.update), as the manager's actions
+	 * do, so Undo never switches case for a step made in another case from the table; the case
+	 * shown is not changed.
+	 *
+	 * Without `quiet`, a refusal and the step's notice are said as edit() says them ("Could not
+	 * {label}: {message}"; `notice` leads the step's carry notes and renames). With `quiet` (the
+	 * table, whose manager has its own status and alert lines) nothing is notified: the result
+	 * gives the renames, or the refusal's reason and words, for the caller to say.
+	 */
+	editScenario(
+		scenarioId: string,
+		change: (draft: Project) => Project | void,
+		label: string,
+		options: { quiet?: boolean; notice?: string } = {}
+	): ScenarioEditResult {
+		const { quiet = false, notice = '' } = options;
 		const base = this.store.project;
-		const edit = scenarioEdit(base, scenario.id, change);
+		const edit = scenarioEdit(base, scenarioId, change);
 		if (!edit.ok) {
-			this.notify(
-				'error',
-				edit.reason === 'refused'
-					? `In a scenario you can change only its values. Switch to the base case to ${label}.`
-					: `Could not ${label}: ${edit.message}`
-			);
-			return false;
+			if (!quiet) {
+				this.notify(
+					'error',
+					edit.reason === 'refused'
+						? `In a scenario you can change only its values. Switch to the base case to ${label}.`
+						: `Could not ${label}: ${edit.message}`
+				);
+			}
+			return {
+				ok: false,
+				reason: edit.reason,
+				message:
+					edit.reason === 'refused' ? 'In a scenario you can change only its values.' : edit.message
+			};
 		}
-		const known = structuralProblems(caseProject(base, scenario.id));
-		return this.updateStored((draft) => {
-			edit.apply(draft);
-			const added = structuralProblems(caseProject(draft, scenario.id)).filter(
-				(p) => !known.includes(p)
-			);
-			if (added.length) throw new Error(added[0]);
-		}, `${label} in ${scenario.name}`);
+		const known = structuralProblems(caseProject(base, scenarioId));
+		const result = this.#step(
+			(draft) => {
+				edit.apply(draft);
+				const added = structuralProblems(caseProject(draft, scenarioId)).filter(
+					(p) => !known.includes(p)
+				);
+				if (added.length) throw new Error(added[0]);
+			},
+			(after) => `${label} in ${caseNameIn(after, scenarioId)}`
+		);
+		if (!result.ok) {
+			if (!quiet) {
+				this.notify(
+					'error',
+					`Could not ${label} in ${caseNameIn(this.store.project, scenarioId)}: ${result.problem}`
+				);
+			}
+			return { ok: false, reason: 'invalid', message: result.problem };
+		}
+		if (!quiet) this.#say(result, notice);
+		return { ok: true, changed: result.changed, renamed: result.renamed };
 	}
 
 	/** Edit one component in place (its id and connected ports cannot change). */
@@ -884,9 +1106,13 @@ export class Workspace {
 		);
 	}
 
-	/** Remove a connection, leaving both ports free. */
-	disconnect(connectionId: string): boolean {
-		return this.edit((p) => disconnect(p, connectionId), `remove connection ${connectionId}`);
+	/** Remove a connection, leaving both ports free; `notice` as for edit(). */
+	disconnect(connectionId: string, notice = ''): boolean {
+		return this.edit(
+			(p) => disconnect(p, connectionId),
+			`remove connection ${connectionId}`,
+			notice
+		);
 	}
 
 	/** Solve the case shown, and show the results pane on narrow screens. */
@@ -951,6 +1177,14 @@ export class Workspace {
 		if (portId && portById(component, portId)) this.nav.showConnection(portId);
 		this.pane = 'build';
 	}
+}
+
+/**
+ * A scenario's name in `project` (its id when it is not there): an undo label made after the step
+ * names the case as the step left it (CLAUDE.md D24, proposal pump-lineups.md §8.6).
+ */
+export function caseNameIn(project: Project, scenarioId: string): string {
+	return findScenario(project, scenarioId)?.name ?? scenarioId;
 }
 
 /** What results labels depend on: names, kinds, port order and connection ends. */

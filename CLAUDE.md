@@ -76,6 +76,7 @@ Decisions override the specs and are overridden only by GOALS. Code and tests ci
 | D21 | Pump groups: the station between S and D, its duty, group curve and group system curve solved exactly; page state only | [`docs/decisions/D21-pump-groups.md`](docs/decisions/D21-pump-groups.md) |
 | D22 | Project library: pipe specs and K/Cv/Kv entries with sources, referenced by id, resolved in the network build (1.5.0) | [`docs/decisions/D22-project-library.md`](docs/decisions/D22-project-library.md) |
 | D23 | Pressure relief valve, liquids: API 520/526 capacity, the linear lift band as an accepted exception, a closed start (1.6.0) | [`docs/decisions/D23-pressure-relief-valve.md`](docs/decisions/D23-pressure-relief-valve.md) |
+| D24 | Pump lineups: status-only D15 scenarios by number running or each pump off, a stop order, names that follow their pumps, a lineups table in the Scenarios manager, each lineup's own group curve on the group chart; web only | [`docs/decisions/D24-pump-lineups.md`](docs/decisions/D24-pump-lineups.md) |
 
 ---
 

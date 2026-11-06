@@ -1,6 +1,8 @@
 /**
- * One pump off on the Pumps together card, in the workspace (CLAUDE.md D21 slice 4d): the add in
- * one undo step, its notice and the box it ticks; the add during a run, after which the card asks
+ * One pump off on the Pumps together card, in the workspace (CLAUDE.md D21 slice 4d), now D24's Add
+ * cases block (PumpLineupsBlock) with Each pump off chosen: 4d's tests with the same assertions,
+ * only the strings pump-lineups.md §7.12 lists under "4d's strings that change" changed, each named
+ * where it does. The add in one undo step, its notice and the box it ticks; the add during a run, after which the card asks
  * again for the curve the run cancelled, before any other case's; the other cases' requests (after
  * the case shown's curves and after any calculation, one at a time, cancelled by the box or a
  * solve and asked again after it, withdrawn by a members change and asked again on going back,
@@ -122,7 +124,11 @@ function setup(
 
 const results = () => within(screen.getByRole('region', { name: 'Results' }));
 const card = () => results().getByRole('region', { name: /^Pumps together/ }) as HTMLElement;
-const block = () => within(card()).getByRole('region', { name: 'One pump off' });
+// §7.12: the h4 and region name "One pump off" becomes "Add cases".
+const block = () => within(card()).getByRole('region', { name: 'Add cases' });
+/** Choose Each pump off in the block (4d's cases; By number running is the default). */
+const chooseEach = () =>
+	fireEvent.click(within(block()).getByRole('radio', { name: 'Each pump off' }));
 const others = (calls: Call[]) => calls.filter((c) => c.scenarioId !== null);
 
 /** Solve the base, show the Pumps view and open the card; its two curves answered. */
@@ -140,7 +146,9 @@ describe('one pump off on the Pumps together card', () => {
 		await waitFor(() =>
 			expect(within(card()).getByRole('img')).toHaveAccessibleName(/group system curve shown/)
 		);
-		const add = within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' });
+		await chooseEach();
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		const add = within(block()).getByRole('button', { name: 'Add 2 cases' });
 		const depth = ws.store.undoDepth;
 		await fireEvent.click(add);
 		expect(ws.scenarios.map((s) => [s.id, s.name, s.overrides])).toEqual([
@@ -173,9 +181,7 @@ describe('one pump off on the Pumps together card', () => {
 		expect(scenariosOf(ws.store.project)).toEqual([]);
 		expect(ws.store.activeCase).toBeNull();
 		await waitFor(() =>
-			expect(
-				within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
-			).toBeVisible()
+			expect(within(block()).getByRole('button', { name: 'Add 2 cases' })).toBeVisible()
 		);
 	});
 
@@ -194,9 +200,9 @@ describe('one pump off on the Pumps together card', () => {
 		await openCard(ws, calls);
 		const response = ws.store.results.response;
 		expect(ws.store.groupSystemCurve(response, ['PA', 'PB'])).toEqual({ status: 'loading' });
-		await fireEvent.click(
-			within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
-		);
+		await chooseEach();
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
 		await fireEvent.click(within(block()).getByRole('button', { name: 'Solve all (2)' }));
 		expect(ws.store.groupSystemCurve(response, ['PA', 'PB'])).toEqual({
 			status: 'cancelled',
@@ -232,9 +238,9 @@ describe('one pump off on the Pumps together card', () => {
 	it('keeps the focus on its Solve all through the run and after, the button in place', async () => {
 		const { ws, calls, solves } = setup(withoutScenarios());
 		await openCard(ws, calls);
-		await fireEvent.click(
-			within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
-		);
+		await chooseEach();
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
 		const solveAll = within(block()).getByRole('button', { name: 'Solve all (2)' });
 		await waitFor(() => expect(solveAll).toHaveFocus());
 		await fireEvent.click(solveAll);
@@ -258,8 +264,10 @@ describe('one pump off on the Pumps together card', () => {
 		ws.pumpGroupOthers = true;
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
+		// drawn once all four are, is S3's (in case order it was S4's).
 		await waitFor(() =>
-			expect(within(card()).getByRole('img')).toHaveAccessibleName(/4 · Both pumps off/)
+			expect(within(card()).getByRole('img')).toHaveAccessibleName(/4 · Delivery tank 5 m higher/)
 		);
 		// Every case out of date, then S3 shown with its curves answered (its group system curve
 		// asked as the case shown).
@@ -276,16 +284,18 @@ describe('one pump off on the Pumps together card', () => {
 		const before = calls.length;
 		await ws.solveAll();
 		await waitFor(() => expect(calls.length - before).toBe(6));
+		// The chart's order is D24's (lineupChartPriority, pump-lineups.md §4.6): one lineup of each
+		// number running first, most running first (the base, 2; S1, 1; S4, 0), then S2.
 		expect(
 			calls.slice(before).map((c) => [c.scenarioId, c.curve]),
 			'the case shown first, then the others in the chart’s order'
 		).toEqual([
 			['S3', 'group'],
 			['S3', 'system'],
-			['S1', 'group'],
-			['S2', 'group'],
 			[null, 'group'],
-			['S4', 'group']
+			['S1', 'group'],
+			['S4', 'group'],
+			['S2', 'group']
 		]);
 		// Two runs of five solves: the budget of the card's other long tests.
 	}, 20_000);
@@ -333,17 +343,20 @@ describe('one pump off on the Pumps together card', () => {
 		release.S2.resolve();
 		await running;
 		const legend = within(card()).getByRole('list', { name: 'Legend' });
+		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
+		// drawn once all four are, is S3's (in case order it was S4's).
 		await waitFor(() =>
-			expect(within(legend).getByText('4 · Both pumps off (station duty)')).toBeVisible()
+			expect(within(legend).getByText('4 · Delivery tank 5 m higher (station duty)')).toBeVisible()
 		);
+		// In the chart's order (D24 §4.6): S1 (1 running), S4 (0), then S2 and S3.
 		expect(calls.map((c) => [c.scenarioId, c.curve])).toEqual([
 			[null, 'group'],
 			[null, 'system'],
 			[null, 'system'],
 			['S1', 'group'],
+			['S4', 'group'],
 			['S2', 'group'],
-			['S3', 'group'],
-			['S4', 'group']
+			['S3', 'group']
 		]);
 
 		// The case shown's curves answered: two new cases, S6's solve held. S5, solved, waits for
@@ -407,7 +420,7 @@ describe('one pump off on the Pumps together card', () => {
 		// The case shown's group system curve not answered yet: no other case is asked.
 		expect(others(calls)).toEqual([]);
 		baseSystem.resolve();
-		// Then the cases with one pump off first, one at a time.
+		// Then in the chart's order (D24 §4.6: S1, 1 running; S4, 0; then S2, S3), one at a time.
 		await waitFor(() => expect(others(calls)).toHaveLength(1));
 		expect(others(calls)[0]!.scenarioId).toBe('S1');
 		expect(within(card()).getByRole('status')).toHaveTextContent(
@@ -415,15 +428,15 @@ describe('one pump off on the Pumps together card', () => {
 		);
 		waiting.shift()!();
 		await waitFor(() => expect(others(calls)).toHaveLength(2));
-		expect(others(calls).map((c) => c.scenarioId)).toEqual(['S1', 'S2']);
+		expect(others(calls).map((c) => c.scenarioId)).toEqual(['S1', 'S4']);
 		expect(others(calls).filter((c) => !c.settled)).toHaveLength(1);
 
 		// A base solve during them cancels them; once it ends, they are asked again.
-		const s2 = ws.store.resultsFor('S2').response;
+		const s4 = ws.store.resultsFor('S4').response;
 		const solving = ws.solve();
-		expect(ws.store.groupCurve(s2, ids)).toEqual({ status: 'cancelled', by: 'solve' });
+		expect(ws.store.groupCurve(s4, ids)).toEqual({ status: 'cancelled', by: 'solve' });
 		await solving;
-		await waitFor(() => expect(others(calls).filter((c) => c.scenarioId === 'S2')).toHaveLength(2));
+		await waitFor(() => expect(others(calls).filter((c) => c.scenarioId === 'S4')).toHaveLength(2));
 		// After the case shown's curves again, and still one at a time.
 		const base = calls.filter((c) => c.scenarioId === null);
 		expect(base).toHaveLength(4);
@@ -435,14 +448,14 @@ describe('one pump off on the Pumps together card', () => {
 			within(card()).getByRole('checkbox', { name: "Also show the other cases' station duties" });
 		await fireEvent.click(box());
 		expect(ws.pumpGroupOthers).toBe(false);
-		expect(ws.store.groupCurve(s2, ids)).toEqual({ status: 'cancelled', by: 'user' });
+		expect(ws.store.groupCurve(s4, ids)).toEqual({ status: 'cancelled', by: 'user' });
 		// Ticked again, a case the user cancelled waits for "Compute them again".
 		const sent = calls.length;
 		await fireEvent.click(box());
 		const again = await within(card()).findByRole('button', { name: 'Compute them again' });
 		expect(calls).toHaveLength(sent);
 		await fireEvent.click(again);
-		await waitFor(() => expect(ws.store.groupCurve(s2, ids)).toEqual({ status: 'loading' }));
+		await waitFor(() => expect(ws.store.groupCurve(s4, ids)).toEqual({ status: 'loading' }));
 
 		// A change of members withdraws them: not cancelled by the user, they read as never asked.
 		await fireEvent.click(
@@ -451,12 +464,13 @@ describe('one pump off on the Pumps together card', () => {
 				{ name: /Pump PB/ }
 			)
 		);
-		expect(ws.store.groupCurve(s2, ids)).toBeUndefined();
+		expect(ws.store.groupCurve(s4, ids)).toBeUndefined();
 		for (const release of waiting) release();
 	});
 
 	it('a change of members and back asks the other cases again, none cancelled by the user', async () => {
-		// S1's first request is held until it is aborted; S2 to S4 wait behind it.
+		// S1's first request is held until it is aborted; S4, S2 and S3 wait behind it (the chart's
+		// order, D24 §4.6).
 		let firstS1 = true;
 		const { ws, calls } = setup(structuredClone(oneOff.project), {
 			hold: (call) => {
@@ -490,17 +504,19 @@ describe('one pump off on the Pumps together card', () => {
 		// Back to the same members: their curves for the case shown are still there, then each
 		// other case's is asked again, in the chart's order.
 		await fireEvent.click(pb());
+		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
+		// drawn once all four are, is S3's (in case order it was S4's).
 		await waitFor(() =>
-			expect(within(card()).getByRole('img')).toHaveAccessibleName(/4 · Both pumps off/)
+			expect(within(card()).getByRole('img')).toHaveAccessibleName(/4 · Delivery tank 5 m higher/)
 		);
 		expect(calls.map((c) => [c.scenarioId, c.curve])).toEqual([
 			[null, 'group'],
 			[null, 'system'],
 			['S1', 'group'],
 			['S1', 'group'],
+			['S4', 'group'],
 			['S2', 'group'],
-			['S3', 'group'],
-			['S4', 'group']
+			['S3', 'group']
 		]);
 		expect(card().textContent).not.toContain('you cancelled it');
 		expect(within(card()).queryByRole('button', { name: 'Compute them again' })).toBeNull();
@@ -582,15 +598,16 @@ describe('one pump off on the Pumps together card', () => {
 	});
 
 	it('never asks again by itself for a curve that failed or that the user cancelled', async () => {
-		// S2's group curve fails; S3's first request is held in flight, S4 waits behind it.
-		let firstS3 = true;
+		// In the chart's order (D24 §4.6: S1, S4, S2, S3): S4's group curve fails; S2's first
+		// request is held in flight, S3 waits behind it.
+		let firstS2 = true;
 		const { ws, calls } = setup(structuredClone(oneOff.project), {
 			hold: (call) => {
-				if (call.scenarioId !== 'S3' || !firstS3) return undefined;
-				firstS3 = false;
+				if (call.scenarioId !== 'S2' || !firstS2) return undefined;
+				firstS2 = false;
 				return new Promise<void>(() => {});
 			},
-			fail: (call) => (call.scenarioId === 'S2' ? new Error('The server is busy.') : undefined)
+			fail: (call) => (call.scenarioId === 'S4' ? new Error('The server is busy.') : undefined)
 		});
 		const ids = ['PA', 'PB'];
 		const state = (c: string) => ws.store.groupCurve(ws.store.resultsFor(c).response, ids);
@@ -599,37 +616,37 @@ describe('one pump off on the Pumps together card', () => {
 		ws.pumpGroupOthers = true;
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
-		await waitFor(() => expect(asked('S3')).toBe(1));
-		expect(state('S2')).toEqual({ status: 'error', message: 'The server is busy.' });
-		expect(state('S4')).toEqual({ status: 'loading' });
-		// The user unticks S4 while it waits, and ticks it again: cancelled by the user.
+		await waitFor(() => expect(asked('S2')).toBe(1));
+		expect(state('S4')).toEqual({ status: 'error', message: 'The server is busy.' });
+		expect(state('S3')).toEqual({ status: 'loading' });
+		// The user unticks S3 while it waits, and ticks it again: cancelled by the user.
 		const onChart = () =>
 			within(within(card()).getByRole('group', { name: 'Cases on this chart' })).getByRole(
 				'checkbox',
-				{ name: /Both pumps off/ }
+				{ name: /Delivery tank 5 m higher/ }
 			);
 		await fireEvent.click(onChart());
 		await fireEvent.click(onChart());
-		expect(state('S4')).toEqual({ status: 'cancelled', by: 'user' });
-		// A Solve all of one new case: S3, cancelled by it, is asked again after it, and the new
-		// case asked; S2 and S4 are not (S4 was never sent: it was cancelled while it waited).
+		expect(state('S3')).toEqual({ status: 'cancelled', by: 'user' });
+		// A Solve all of one new case: S2, cancelled by it, is asked again after it, and the new
+		// case asked; S4 and S3 are not (S3 was never sent: it was cancelled while it waited).
 		ws.store.update(
 			(p) => withScenarios(p, [...scenariosOf(p), { id: 'S5', name: 'Copy', overrides: [] }]),
 			'add scenario'
 		);
 		await ws.solveAll();
 		await waitFor(() => expect(state('S5')?.status).toBe('ready'));
+		await waitFor(() => expect(state('S2')?.status).toBe('ready'));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(['S1', 'S2', 'S3', 'S4', 'S5'].map(asked)).toEqual([1, 2, 0, 1, 1]);
+		expect(state('S4')).toEqual({ status: 'error', message: 'The server is busy.' });
+		expect(state('S3')).toEqual({ status: 'cancelled', by: 'user' });
+		// Only "Compute them again" asks for them, once each: S4 fails again and stays failed.
+		await fireEvent.click(within(card()).getByRole('button', { name: 'Compute them again' }));
 		await waitFor(() => expect(state('S3')?.status).toBe('ready'));
 		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(['S1', 'S2', 'S3', 'S4', 'S5'].map(asked)).toEqual([1, 1, 2, 0, 1]);
-		expect(state('S2')).toEqual({ status: 'error', message: 'The server is busy.' });
-		expect(state('S4')).toEqual({ status: 'cancelled', by: 'user' });
-		// Only "Compute them again" asks for them, once each: S2 fails again and stays failed.
-		await fireEvent.click(within(card()).getByRole('button', { name: 'Compute them again' }));
-		await waitFor(() => expect(state('S4')?.status).toBe('ready'));
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(['S1', 'S2', 'S3', 'S4', 'S5'].map(asked)).toEqual([1, 2, 2, 1, 1]);
-		expect(state('S2')).toEqual({ status: 'error', message: 'The server is busy.' });
+		expect(['S1', 'S2', 'S3', 'S4', 'S5'].map(asked)).toEqual([1, 2, 1, 2, 1]);
+		expect(state('S4')).toEqual({ status: 'error', message: 'The server is busy.' });
 	}, 20_000);
 
 	it('offers "Compute them again" as unavailable while a run holds, says why, and asks nothing until it ends', async () => {
@@ -695,19 +712,27 @@ describe('one pump off on the Pumps together card', () => {
 			within(card()).getByRole('checkbox', { name: "Also show the other cases' station duties" })
 		);
 		const img = () => within(card()).getByRole('img');
-		await waitFor(() => expect(img()).toHaveAccessibleName(/4 · Both pumps off/));
+		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
+		// drawn once all four are, is S3's (in case order it was S4's).
+		await waitFor(() => expect(img()).toHaveAccessibleName(/4 · Delivery tank 5 m higher/));
 		const name = img().getAttribute('aria-label')!;
+		// D24 §9.6: with this case's group curve drawn, each case's part gains "; group curve:
+		// {words}" (its own curve drawn for a case with one pump off, which has flow; the same as this
+		// case's for the delivery tank; none drawn for both pumps off), then the curves drawn.
 		expect(name).toMatch(
-			/1 · Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network\)/
+			/1 · Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network; group curve: drawn \(1 running\): it crosses the group system curve at the ring\)/
 		);
 		expect(name).toMatch(
-			/2 · Pump PB off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network\)/
+			/3 · Pump PB off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network; group curve: drawn \(1 running\): it crosses the group system curve at the ring\)/
 		);
 		expect(name).toMatch(
-			/3 · Delivery tank 5 m higher, [\d.]+ L\/s at a rise of [\d.]+ m \(No: the rest of the network differs from this case's; its own group system curve is not drawn\)/
+			/4 · Delivery tank 5 m higher, [\d.]+ L\/s at a rise of [\d.]+ m \(No: the rest of the network differs from this case's; its own group system curve is not drawn; group curve: the same as this case's: the station is the same inside\)/
 		);
 		expect(name).toMatch(
-			/4 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state \(D13\)\)/
+			/2 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state \(D13\); group curve: not drawn: no flow at any rise\)/
+		);
+		expect(name).toMatch(
+			/; other cases' group curves drawn: 1 \(1 running\) and 3 \(1 running\); group curve shown; group system curve shown\.$/
 		);
 		await fireEvent.click(within(card()).getByRole('button', { name: 'Show data table' }));
 		const table = within(card()).getByRole('table', { name: "Other cases' station duties" });
@@ -715,13 +740,78 @@ describe('one pump off on the Pumps together card', () => {
 			.getAllByRole('row')
 			.slice(1)
 			.map((r) => r.querySelectorAll('td')[2]?.textContent);
+		// The table's rows in the rings' order (D24 §7.9): Pump PA off, Both pumps off, Pump PB off,
+		// Delivery tank 5 m higher.
 		expect(claims).toEqual([
 			'Yes: the same rest of the network',
+			'Not said: at zero station flow the rest can hold more than one state (D13)',
 			'Yes: the same rest of the network',
-			"No: the rest of the network differs from this case's; its own group system curve is not drawn",
-			'Not said: at zero station flow the rest can hold more than one state (D13)'
+			"No: the rest of the network differs from this case's; its own group system curve is not drawn"
 		]);
-		// Running combinations: every case, the shown first, with its station line and ring.
+		// Running combinations: every case, the shown first, with its station line and ring (the
+		// cases in case order, D24 §7.10; the rings numbered in the chart's order, §7.9).
+		const combos = within(card()).getByRole('table', { name: 'Running combinations' });
+		const headings = within(combos)
+			.getAllByRole('rowheader')
+			.filter((h) => h.getAttribute('scope') === 'rowgroup')
+			.map((h) => h.firstElementChild!.textContent);
+		expect(headings).toEqual([
+			'Base case (shown)',
+			'Pump PA off · ring 1',
+			'Pump PB off · ring 3',
+			'Delivery tank 5 m higher · ring 4',
+			'Both pumps off · ring 2'
+		]);
+	});
+
+	it('lists "Cases on this chart" and numbers the rings in the chart’s order (D24 §4.6, §7.9)', async () => {
+		// S1 Pump PA off and S2 Pump PB off (1 running each), S3 a tank level (no lineup), S4 both
+		// off (0 running): one lineup of each count first, most running first (S1, S4), then the
+		// other lineup (S2), then every other case (S3).
+		const { ws, calls } = setup(structuredClone(oneOff.project));
+		await ws.store.solveAll();
+		ws.pumpGroupOthers = true;
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		const legend = () => within(card()).getByRole('list', { name: 'Legend' });
+		const rings = () =>
+			within(legend())
+				.getAllByRole('listitem')
+				.map((li) => li.textContent!.replace(/\s+/g, ' ').trim())
+				.filter((text) => text.endsWith('(station duty)'));
+		await waitFor(() => expect(rings()).toHaveLength(4));
+		expect(rings()).toEqual([
+			'○ 1 · Pump PA off (station duty)',
+			'○ 2 · Both pumps off (station duty)',
+			'○ 3 · Pump PB off (station duty)',
+			'○ 4 · Delivery tank 5 m higher (station duty)'
+		]);
+		expect(others(calls).map((c) => c.scenarioId)).toEqual(['S1', 'S4', 'S2', 'S3']);
+		const listed = () =>
+			within(within(card()).getByRole('group', { name: 'Cases on this chart' }))
+				.getAllByRole('checkbox')
+				.map((box) => box.closest('label')!.textContent!.replace(/\s+/g, ' ').trim());
+		expect(listed()).toEqual([
+			'○ 1 · Pump PA off',
+			'○ 2 · Both pumps off',
+			'○ 3 · Pump PB off',
+			'○ 4 · Delivery tank 5 m higher'
+		]);
+		// Unticked, a case keeps its place in the list, and the rings after it are numbered on.
+		await fireEvent.click(
+			within(within(card()).getByRole('group', { name: 'Cases on this chart' })).getByRole(
+				'checkbox',
+				{ name: /Both pumps off/ }
+			)
+		);
+		await waitFor(() => expect(rings()).toHaveLength(3));
+		expect(listed()).toEqual([
+			'○ 1 · Pump PA off',
+			'Both pumps off',
+			'○ 2 · Pump PB off',
+			'○ 3 · Delivery tank 5 m higher'
+		]);
+		// Running combinations keeps case order (§7.10), each case with its ring's number.
 		const combos = within(card()).getByRole('table', { name: 'Running combinations' });
 		const headings = within(combos)
 			.getAllByRole('rowheader')
@@ -732,22 +822,31 @@ describe('one pump off on the Pumps together card', () => {
 			'Pump PA off · ring 1',
 			'Pump PB off · ring 2',
 			'Delivery tank 5 m higher · ring 3',
-			'Both pumps off · ring 4'
+			'Both pumps off'
 		]);
-	});
+	}, 20_000);
 
 	it('in a scenario: made from the base case only, and the base’s duty beyond this curve', async () => {
 		const { ws, calls } = setup(structuredClone(oneOff.project));
 		await ws.store.solveAll();
 		ws.setCase('S1');
 		ws.pumpGroupOthers = true;
+		// Each pump off chosen (page state; the gate holds under both presets, no control shows).
+		ws.lineupPreset = 'each';
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
 		await waitFor(() => expect(calls.filter((c) => c.scenarioId === 'S1')).toHaveLength(2));
+		// §7.12: gate 3's words become §7.2 row 3's.
 		expect(block()).toHaveTextContent(
-			'Cases with one pump off are made from the base case: show the base case to add them. To study Pump PA off with a pump off, duplicate it in Scenarios and set that pump off there.'
+			'Cases are made from the base case: show the base case to add them. To study Pump PA off with pumps off, duplicate it in Scenarios and set those pumps off there.'
 		);
-		expect(within(block()).queryByRole('button')).toBeNull();
+		// No Add and no Solve all under the gate; its one button is D24 slice L2's "Pump lineups
+		// table…", drawn whenever the block is, gates included (pump-lineups.md §8.1).
+		expect(
+			within(block())
+				.getAllByRole('button')
+				.map((b) => b.textContent?.trim())
+		).toEqual(['Pump lineups table…']);
 		await fireEvent.click(within(card()).getByRole('button', { name: 'Show data table' }));
 		const table = await within(card()).findByRole('table', { name: "Other cases' station duties" });
 		await waitFor(() =>
@@ -766,7 +865,9 @@ describe('one pump off on the Pumps together card', () => {
 		}));
 		const { ws, calls } = setup(withScenarios(withoutScenarios(), nineteen));
 		await openCard(ws, calls);
-		const add = within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' });
+		await chooseEach();
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		const add = within(block()).getByRole('button', { name: 'Add 2 cases' });
 		expect(add).toHaveAttribute('aria-disabled', 'true');
 		expect(add).toHaveAccessibleDescription(
 			'Adding 2 cases would make 21 scenarios; a project holds at most 20 scenarios.'
@@ -783,20 +884,22 @@ describe('one pump off on the Pumps together card', () => {
 		for (const c of project.components) if (c.type === 'pump') c.name = 'Booster pump';
 		const { ws, calls, solves } = setup(project);
 		await openCard(ws, calls);
-		await fireEvent.click(
-			within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
-		);
+		await chooseEach();
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
+		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
 		expect(ws.scenarios.map((s) => [s.id, s.name])).toEqual([
 			['S1', 'Booster pump (PA) off'],
 			['S2', 'Booster pump (PB) off']
 		]);
+		// §7.12: the note "{name} has its case already: {found.name}." becomes the preview item
+		// "{offName}: already a scenario, «{other}» ({id})", in §7.7's short form: the names are equal.
 		expect(
 			within(block())
-				.getAllByText(/has its case already/)
+				.getAllByText(/: already a scenario/)
 				.map((p) => p.textContent)
 		).toEqual([
-			'Booster pump (PA) has its case already: Booster pump (PA) off.',
-			'Booster pump (PB) has its case already: Booster pump (PB) off.'
+			'Booster pump (PA) off: already a scenario (S1)',
+			'Booster pump (PB) off: already a scenario (S2)'
 		]);
 		await fireEvent.click(within(block()).getByRole('button', { name: 'Solve all (2)' }));
 		await waitFor(() => expect(solves).toEqual([null, 'S1', 'S2']));
@@ -843,6 +946,7 @@ describe('one pump off on the Pumps together card', () => {
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
 		await waitFor(() => expect(calls.filter((c) => c.scenarioId === null)).toHaveLength(2));
+		await chooseEach();
 		// Each read again: the block's button is drawn anew when the case shown changes, and the
 		// menu closes when a run ends (its focus goes to Solve).
 		const ours = () => within(block()).getByRole('button', { name: /^Solve all/ });
@@ -892,5 +996,72 @@ describe('one pump off on the Pumps together card', () => {
 		await run;
 		await same("Every case's results are current.");
 		// Six states, each awaited: the budget of the card's other long tests.
+	}, 20_000);
+});
+
+describe('"Cases on this chart" past its cap of six', () => {
+	it('keeps the place a case leaves free: the case unticked can be ticked again, or another into its place', async () => {
+		// Seven other cases: the one-off project's four and three copies of the base (no changes),
+		// so the seventh in the chart's order (Copy S7) is past the cap and reads as unticked.
+		const project = structuredClone(oneOff.project);
+		const copies = ['S5', 'S6', 'S7'].map((id) => ({ id, name: `Copy ${id}`, overrides: [] }));
+		const { ws } = setup(withScenarios(project, [...scenariosOf(project), ...copies]));
+		await ws.store.solveAll();
+		ws.pumpGroupOthers = true;
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		const group = () => within(card()).getByRole('group', { name: 'Cases on this chart' });
+		const box = (name: RegExp) =>
+			within(group()).getByRole('checkbox', { name }) as HTMLInputElement;
+		const capped = (name: RegExp) => box(name).getAttribute('aria-disabled') === 'true';
+		const ticked = () =>
+			within(group())
+				.getAllByRole('checkbox')
+				.filter((b) => (b as HTMLInputElement).checked)
+				.map((b) =>
+					b
+						.closest('label')!
+						.textContent!.replace(/^[^A-Z]*/, '')
+						.trim()
+				);
+		const hint = 'At most 6 other cases at once.';
+		await waitFor(() => expect(within(group()).getAllByRole('checkbox')).toHaveLength(7));
+		const six = [
+			'Pump PA off',
+			'Both pumps off',
+			'Pump PB off',
+			'Delivery tank 5 m higher',
+			'Copy S5',
+			'Copy S6'
+		];
+		expect(ticked()).toEqual(six);
+		expect(capped(/Copy S7/)).toBe(true);
+		expect(group()).toHaveTextContent(hint);
+
+		// Unticked, Pump PA off leaves its place free: no case comes in by itself.
+		await fireEvent.click(box(/Pump PA off/));
+		expect(ticked()).toEqual(six.slice(1));
+		expect(capped(/Pump PA off/)).toBe(false);
+		expect(capped(/Copy S7/)).toBe(false);
+		expect(group()).not.toHaveTextContent(hint);
+		expect(ws.pumpGroupUnticked).toEqual(['S1', 'S7']);
+
+		// Ticked again, it takes its place back, and the box past the cap is capped again.
+		await fireEvent.click(box(/Pump PA off/));
+		expect(ticked()).toEqual(six);
+		expect(box(/Pump PA off/).checked).toBe(true);
+		expect(capped(/Copy S7/)).toBe(true);
+		expect(ws.pumpGroupUnticked).toEqual(['S7']);
+
+		// Or another case is ticked into the place: then the case unticked is the one capped.
+		await fireEvent.click(box(/Pump PA off/));
+		await fireEvent.click(box(/Copy S7/));
+		expect(ticked()).toEqual([...six.slice(1), 'Copy S7']);
+		expect(capped(/Pump PA off/)).toBe(true);
+		expect(ws.pumpGroupUnticked).toEqual(['S1']);
+		// A click on the capped box ticks nothing.
+		await fireEvent.click(box(/Pump PA off/));
+		expect(box(/Pump PA off/).checked).toBe(false);
+		expect(ticked()).toEqual([...six.slice(1), 'Copy S7']);
 	}, 20_000);
 });

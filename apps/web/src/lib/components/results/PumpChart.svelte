@@ -51,6 +51,7 @@
 		pumpChartData,
 		pumpLine,
 		saveHiddenPanels,
+		untickedAfter,
 		type ChipKey,
 		type OtherCaseInput,
 		type PanelKey,
@@ -143,9 +144,19 @@
 		)
 	);
 
-	/** Tick or untick another case; with its system curves asked for, they follow the cases shown. */
+	/**
+	 * Tick or untick another case; with its system curves asked for, they follow the cases shown.
+	 * Unticking leaves its place free (untickedAfter), so it can be ticked again.
+	 */
 	function setShown(key: string, on: boolean) {
-		const next = on ? unticked.filter((k) => k !== key) : [...unticked, key];
+		const next = on
+			? unticked.filter((k) => k !== key)
+			: untickedAfter(
+					unticked,
+					key,
+					others.map((o) => o.key),
+					shownOthers.map((o) => o.key)
+				);
 		unticked = next;
 		if (overlayCurves) onoverlay?.(true, next);
 	}

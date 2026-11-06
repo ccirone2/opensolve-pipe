@@ -9,11 +9,12 @@
 	entries two-up where they fit; the notes about the values, the duty checks first (✓ when they
 	agree); the reference, three disclosures ("How to read this chart" with the axes, the group
 	system curve and each pump's own system curve, then how each curve is computed); and, after
-	it, the data region (§5.1: so a table never pushes a note away from its chart). The group
-	curve's line and the refusal head Station (PumpGroupStation) since S3. Then the other cases'
-	controls (PumpGroupOthers), their progress and their notes, at the figure's end, where S3's
-	second half gives them their heading. Presentation only: PumpGroupChart gives every value and
-	PumpsView makes every request.
+	it, the data region (§5.1: so a table never pushes a note away from its chart): each pump's
+	point, the duty sentence in two (the duty check, then the system duty check, each with its
+	Details), the shown case's curves, then the other cases' tables. The group curve's line and the
+	refusal head Station (PumpGroupStation) since S3. Last, the other cases under their h5
+	(PumpGroupOthers): the switch, the cases, their own live line and the ring notes, cut.
+	Presentation only: PumpGroupChart gives every value and PumpsView makes every request.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
@@ -141,6 +142,8 @@
 		onretryothers?: () => void;
 		/** Why "Compute them again" is unavailable ('' when it can run). */
 		othersRetryReason: string;
+		/** Running combinations is drawn: the other cases' "Go to Running combinations" goes there. */
+		combinations?: boolean;
 	}
 
 	let {
@@ -179,7 +182,8 @@
 		othersProgress,
 		oncancelothers,
 		onretryothers,
-		othersRetryReason
+		othersRetryReason,
+		combinations = false
 	}: Props = $props();
 	const id = $props.id();
 
@@ -261,8 +265,6 @@
 	let readSlider: HTMLInputElement | undefined = $state();
 	let systemCancelButton: HTMLButtonElement | undefined = $state();
 	let systemRetryButton: HTMLButtonElement | undefined = $state();
-	let othersCancelButton: HTMLButtonElement | undefined = $state();
-	let othersRetryButton: HTMLButtonElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let noCanvas = $state(false);
 	let loadFailed = $state(false);
@@ -282,21 +284,8 @@
 		if (!retry || document.activeElement !== retry) return;
 		void tick().then(() => (systemCancelButton ?? figure)?.focus());
 	});
-	// The same for the other cases' Cancel and "Compute them again" (slice 4d). "Compute them
-	// again" also goes without a progress line, when it is pressed while a calculation runs (the
-	// Pumps view gives none then: nothing is computed for the other cases until it ends).
-	$effect.pre(() => {
-		if (othersLoading) return;
-		const cancel = untrack(() => othersCancelButton);
-		if (!cancel || document.activeElement !== cancel) return;
-		void tick().then(() => (othersRetryButton ?? figure)?.focus());
-	});
-	$effect.pre(() => {
-		if (othersRetry && !othersLoading) return;
-		const retry = untrack(() => othersRetryButton);
-		if (!retry || document.activeElement !== retry) return;
-		void tick().then(() => (othersCancelButton ?? figure)?.focus());
-	});
+	// The other cases' Cancel and "Compute them again" hand the focus over in PumpGroupOthers, the
+	// figure their fallback too.
 
 	/** The chart chunk, kept once loaded (the image never waits for it again). */
 	let chartModule: typeof import('./chart-setup') | null = null;
@@ -880,7 +869,9 @@
 					</table>
 				</div>
 				{#if stationShown?.duty && data.station}
-					<p class="text-sm">
+					<!-- The duty sentence split in two (§5.3 The data region), each check with its own
+						Details: the duty and the duty check, then the system duty check. -->
+					<p class="text-sm" data-group-duty>
 						<span aria-hidden="true">{STATION_SYMBOL}</span> Group duty (station's flow):
 						<span class="tabular-nums">{fmt(data.station.flow)} {data.flowUnit}</span> at a rise of
 						<span class="tabular-nums">{fmt(data.station.point.y)} {data.headUnit}</span>; {ARRANGEMENT_WORDS[
@@ -894,17 +885,123 @@
 								subject="the duty check"
 							/>
 						{/if}
-						{#if systemShown?.systemDutyCheck}
+					</p>
+					{#if systemShown?.systemDutyCheck}
+						<p class="text-sm" data-group-system-duty>
 							System duty check: {systemDutyCheckState(systemShown)}.<IssueDetail
 								detail={systemShown.systemDutyCheck.message}
 								subject="the system duty check"
 							/>
-						{/if}
-					</p>
+						</p>
+					{/if}
+				{/if}
+				{#if samples.length}
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<div
+						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+						role="region"
+						aria-labelledby="{id}-samples-caption"
+						tabindex="0"
+					>
+						<table class="w-full text-sm">
+							<caption
+								id="{id}-samples-caption"
+								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
+							>
+								Group curve (station's flow at each rise)
+							</caption>
+							<thead class="sticky top-0 bg-slate-50">
+								<tr>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Rise ({data.headUnit})</th
+									>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Flow ({data.flowUnit})</th
+									>
+									{#each shown!.station.memberIds as memberId (memberId)}
+										<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
+											>{nameOf(memberId)} flow ({data.flowUnit})</th
+										>
+										<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
+											>{nameOf(memberId)} head ({data.headUnit})</th
+										>
+										<th scope="col" class="px-2 py-1 text-left font-medium whitespace-nowrap"
+											>{nameOf(memberId)} state</th
+										>
+									{/each}
+									<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each samples as sample, i (i)}
+									<tr class="border-t border-slate-100">
+										<td class="px-2 py-1 text-right tabular-nums">{sample.rise}</td>
+										<td class="px-2 py-1 text-right tabular-nums">{sample.flow}</td>
+										{#each sample.members as m, k (k)}
+											<td class="px-2 py-1 text-right tabular-nums">{m.flow}</td>
+											<td class="px-2 py-1 text-right tabular-nums">{m.head}</td>
+											<td class="px-2 py-1 text-xs whitespace-nowrap text-slate-600">{m.state}</td>
+										{/each}
+										<td class="px-2 py-1 text-xs text-slate-600"
+											>{[sample.duty ? "The duty's rise (the duty check)." : '', sample.note]
+												.filter(Boolean)
+												.join(' ')}</td
+										>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+				{#if systemRows.length}
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<div
+						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+						role="region"
+						aria-labelledby="{id}-system-caption"
+						tabindex="0"
+					>
+						<table class="w-full text-sm">
+							<caption
+								id="{id}-system-caption"
+								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
+							>
+								Group system curve (rise the rest of the network needs at each station's flow)
+							</caption>
+							<thead class="sticky top-0 bg-slate-50">
+								<tr>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Flow ({data.flowUnit})</th
+									>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Rise ({data.headUnit})</th
+									>
+									<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each systemRows as row, i (i)}
+									<tr class="border-t border-slate-100">
+										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+										<td class="px-2 py-1 text-right tabular-nums">{row.rise}</td>
+										<td class="px-2 py-1 text-xs text-slate-600"
+											>{[row.duty ? "The duty's flow (the system duty check)." : '', row.note]
+												.filter(Boolean)
+												.join(' ')}{#if row.detail}<IssueDetail
+													detail={row.detail}
+													subject="the point at {row.flow} {data.flowUnit}"
+												/>{/if}</td
+										>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
 				{/if}
 				{#if othersOn && others.length}
-					<!-- The other cases' station duties (slice 4d): the rings, and why a case has none;
-						none while they are not asked for (the notes' one line says so). -->
+					<!-- The other cases' tables last, after the shown case's (§5.3 The data region, F33):
+						their station duties (slice 4d), the rings and why a case has none (none while
+						they are not asked for: the one line says so), then their own group curves. -->
 					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 					<div
 						class="relative overflow-auto rounded-md border border-slate-200 bg-white"
@@ -1048,173 +1145,29 @@
 						</table>
 					</div>
 				{/if}
-				{#if samples.length}
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-samples-caption"
-						tabindex="0"
-					>
-						<table class="w-full text-sm">
-							<caption
-								id="{id}-samples-caption"
-								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
-							>
-								Group curve (station's flow at each rise)
-							</caption>
-							<thead class="sticky top-0 bg-slate-50">
-								<tr>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Rise ({data.headUnit})</th
-									>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Flow ({data.flowUnit})</th
-									>
-									{#each shown!.station.memberIds as memberId (memberId)}
-										<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
-											>{nameOf(memberId)} flow ({data.flowUnit})</th
-										>
-										<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
-											>{nameOf(memberId)} head ({data.headUnit})</th
-										>
-										<th scope="col" class="px-2 py-1 text-left font-medium whitespace-nowrap"
-											>{nameOf(memberId)} state</th
-										>
-									{/each}
-									<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each samples as sample, i (i)}
-									<tr class="border-t border-slate-100">
-										<td class="px-2 py-1 text-right tabular-nums">{sample.rise}</td>
-										<td class="px-2 py-1 text-right tabular-nums">{sample.flow}</td>
-										{#each sample.members as m, k (k)}
-											<td class="px-2 py-1 text-right tabular-nums">{m.flow}</td>
-											<td class="px-2 py-1 text-right tabular-nums">{m.head}</td>
-											<td class="px-2 py-1 text-xs whitespace-nowrap text-slate-600">{m.state}</td>
-										{/each}
-										<td class="px-2 py-1 text-xs text-slate-600"
-											>{[sample.duty ? "The duty's rise (the duty check)." : '', sample.note]
-												.filter(Boolean)
-												.join(' ')}</td
-										>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				{/if}
-				{#if systemRows.length}
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-system-caption"
-						tabindex="0"
-					>
-						<table class="w-full text-sm">
-							<caption
-								id="{id}-system-caption"
-								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
-							>
-								Group system curve (rise the rest of the network needs at each station's flow)
-							</caption>
-							<thead class="sticky top-0 bg-slate-50">
-								<tr>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Flow ({data.flowUnit})</th
-									>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Rise ({data.headUnit})</th
-									>
-									<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each systemRows as row, i (i)}
-									<tr class="border-t border-slate-100">
-										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
-										<td class="px-2 py-1 text-right tabular-nums">{row.rise}</td>
-										<td class="px-2 py-1 text-xs text-slate-600"
-											>{[row.duty ? "The duty's flow (the system duty check)." : '', row.note]
-												.filter(Boolean)
-												.join(' ')}{#if row.detail}<IssueDetail
-													detail={row.detail}
-													subject="the point at {row.flow} {data.flowUnit}"
-												/>{/if}</td
-										>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				{/if}
 			</div>
 		{/if}
-		{#if onothers || notes.others.length}
-			<!--
-				The other cases on the group chart (slice 4d), at the figure's end (§5.1 item 10): their
-				controls (PumpGroupOthers), their progress with its Cancel or "Compute them again", and
-				their notes. S3's second half gives them their heading, their own live line and the ring
-				notes' cut (§5.3 "Other cases on the group chart"); until then their progress keeps its
-				status region, the card's last, drawn with scenarios only.
-			-->
-			<div class="space-y-2" data-group-others>
-				{#if onothers && stationShown}
-					<PumpGroupOthers {others} {othersOn} {onothers} {onotherstick} {caseName} />
-				{/if}
-				{#if onothers}
-					<div role="status" class="text-xs text-slate-600">
-						{#if othersLoading && othersProgress && !loading && !systemLoading}
-							<span
-								>Computing the other cases' station duties: {Math.min(
-									othersProgress.done + 1,
-									othersProgress.total
-								)} of {othersProgress.total}…</span
-							>
-						{/if}
-					</div>
-				{/if}
-				{#if othersLoading && !loading && !systemLoading && oncancelothers}
-					<button
-						bind:this={othersCancelButton}
-						type="button"
-						class="btn btn-quiet px-2 text-blue-800"
-						aria-label="Cancel the other cases' station duties"
-						onclick={oncancelothers}>Cancel</button
-					>
-				{:else if othersRetry && !othersLoading}
-					<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-						<p id="{id}-others-state" class="text-xs text-slate-600">
-							Not every other case's station duty was computed: see Running combinations.
-						</p>
-						{#if onretryothers}
-							<button
-								bind:this={othersRetryButton}
-								type="button"
-								class="btn btn-quiet px-2 text-blue-800"
-								aria-disabled={!!othersRetryReason}
-								aria-describedby={othersRetryReason
-									? `${id}-others-retry-reason ${id}-others-state`
-									: `${id}-others-state`}
-								title={othersRetryReason || undefined}
-								onclick={() => {
-									if (!othersRetryReason) onretryothers?.();
-								}}>Compute them again</button
-							>
-							{#if othersRetryReason}<span id="{id}-others-retry-reason" class="sr-only"
-									>{othersRetryReason}</span
-								>{/if}
-						{/if}
-					</div>
-				{/if}
-				<!-- Keyed by index, never by words: a pump's name need not be unique. -->
-				{#each notes.others as note, i (i)}
-					<p class="text-xs text-slate-700">{note}</p>
-				{/each}
-			</div>
+		{#if (onothers && stationShown) || notes.others.length}
+			<!-- The other cases on the group chart, under their h5, the figure's last part (§5.1 item
+				10, §5.3): the switch, the cases, their live line and the ring notes, cut. -->
+			<PumpGroupOthers
+				{others}
+				{othersOn}
+				{onothers}
+				{onotherstick}
+				{caseName}
+				station={!!stationShown}
+				parts={notes.otherParts}
+				{othersLoading}
+				curvesLoading={loading || systemLoading}
+				{othersProgress}
+				{oncancelothers}
+				{othersRetry}
+				{onretryothers}
+				{othersRetryReason}
+				{combinations}
+				{figure}
+			/>
 		{/if}
 	</figure>
 </div>

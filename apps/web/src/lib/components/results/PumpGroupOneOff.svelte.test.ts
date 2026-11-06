@@ -323,7 +323,12 @@ describe('one pump off on the Pumps together card', () => {
 		await openCard(ws, calls);
 		const response = ws.store.results.response;
 		const ids = ['PA', 'PB'];
-		const status = () => within(card()).getByRole('status');
+		// The other cases' own live line (pumps-results-layout.md §5.3: polite, never role=status).
+		const status = () => {
+			const line = card().querySelector('[data-group-others-state]')!;
+			expect(line).toHaveAttribute('aria-live', 'polite');
+			return line;
+		};
 		const running = ws.solveAll();
 		await waitFor(() => expect(ws.store.resultsFor('S1').response).not.toBeNull());
 		expect(ws.store.calculating).toBe('solveAll');
@@ -423,8 +428,10 @@ describe('one pump off on the Pumps together card', () => {
 		// Then in the chart's order (D24 §4.6: S1, 1 running; S4, 0; then S2, S3), one at a time.
 		await waitFor(() => expect(others(calls)).toHaveLength(1));
 		expect(others(calls)[0]!.scenarioId).toBe('S1');
-		expect(within(card()).getByRole('status')).toHaveTextContent(
-			"Computing the other cases' station duties: 1 of 4…"
+		const othersLine = card().querySelector('[data-group-others-state]')!;
+		expect(othersLine).toHaveAttribute('aria-live', 'polite');
+		await waitFor(() =>
+			expect(othersLine).toHaveTextContent("Computing the other cases' station duties: 1 of 4…")
 		);
 		waiting.shift()!();
 		await waitFor(() => expect(others(calls)).toHaveLength(2));
@@ -647,6 +654,36 @@ describe('one pump off on the Pumps together card', () => {
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(['S1', 'S2', 'S3', 'S4', 'S5'].map(asked)).toEqual([1, 2, 1, 2, 1]);
 		expect(state('S4')).toEqual({ status: 'error', message: 'The server is busy.' });
+	}, 20_000);
+
+	it('beside "Compute them again", "Go to Running combinations" focuses that section’s heading, never touching the link (pumps-results-layout.md §5.3, §6.2, S3)', async () => {
+		let failS1 = true;
+		const { ws } = setup(structuredClone(oneOff.project), {
+			fail: (call) => {
+				if (call.scenarioId !== 'S1' || !failS1) return undefined;
+				failS1 = false;
+				return new Error('The server is busy.');
+			}
+		});
+		await ws.store.solveAll();
+		ws.pumpGroupOthers = true;
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		const again = await within(card()).findByRole('button', { name: 'Compute them again' });
+		const section = card().querySelector<HTMLElement>('[data-group-others]')!;
+		const line = section.querySelector('[data-group-others-state]')!;
+		expect(line.textContent).toBe(
+			"Not every other case's station duty was computed: see Running combinations."
+		);
+		const go = within(section).getByRole('button', { name: 'Go to Running combinations' });
+		// After "Compute them again", in the same row as the line that names Running combinations.
+		expect(again.compareDocumentPosition(go) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(go.parentElement).toBe(line.parentElement);
+		const hash = location.hash;
+		await fireEvent.click(go);
+		const heading = within(card()).getByRole('heading', { name: 'Running combinations', level: 4 });
+		expect(document.activeElement).toBe(heading);
+		expect(location.hash).toBe(hash);
 	}, 20_000);
 
 	it('offers "Compute them again" as unavailable while a run holds, says why, and asks nothing until it ends', async () => {

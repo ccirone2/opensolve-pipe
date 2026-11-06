@@ -444,11 +444,15 @@ function collect() {
 		height: number;
 		first: string;
 		last: string;
+		inCard: boolean;
+		inDisclosure: boolean;
 	}[] = [];
 	let run: Element[] = [];
 	const flush = () => {
 		if (run.length >= 3) {
 			runs.push({
+				inCard: !!card && card.contains(run[0]!),
+				inDisclosure: !!run[0]!.closest('details'),
 				paragraphs: run.length,
 				words: run.reduce((s, p) => s + words(text(p)), 0),
 				y: y(run[0]!),
@@ -731,6 +735,7 @@ async function measure(page: Page, info: TestInfo, label: string, extra: object)
 			`paragraphs ${data.paragraphs.count} (${data.paragraphs.words} words), controls ${data.controls.count}, ` +
 			`Tab stops ${stops.length}, sticking out ${s.stickingCount}, page sideways ${s.pageScrollsSideways}, pane sideways ${s.scrollerScrollsSideways}`
 	);
+	return data;
 }
 
 /**
@@ -997,6 +1002,7 @@ const OUTLINE_CARD_OPEN = [
 	{ level: 3, text: 'Pumps together' },
 	{ level: 4, text: 'Station' },
 	{ level: 4, text: 'Group chart' },
+	{ level: 5, text: 'Other cases on the group chart' },
 	{ level: 4, text: 'Add cases' },
 	{ level: 4, text: 'Running combinations' },
 	{ level: 5, text: 'Extremes over these cases (current results)' }
@@ -1221,13 +1227,20 @@ async function navPart(page: Page, where: string) {
 	const names = state.buttons.map((b) => b.name);
 	for (const name of names) {
 		await toolbar.getByRole('button', { name, exact: true }).press('Enter');
-		const pressed = await page.evaluate(() => ({
-			nav: (() => {
-				const n = document.querySelector('[data-pumps-nav]')!;
-				return { pinned: n.hasAttribute('data-pinned'), bottom: n.getBoundingClientRect().bottom };
-			})(),
-			animations: document.getAnimations().length
-		}));
+		// The animations at once; the nav as drawn once its observer has seen the scroll (two
+		// frames: a press back to the pump chart unpins it a frame after the jump, and a read in
+		// between took the nav still pinned over a target already at the pane's top).
+		const pressed = await page.evaluate(async () => {
+			const animations = document.getAnimations().length;
+			await new Promise((resolve) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))
+			);
+			const n = document.querySelector('[data-pumps-nav]')!;
+			return {
+				nav: { pinned: n.hasAttribute('data-pinned'), bottom: n.getBoundingClientRect().bottom },
+				animations
+			};
+		});
 		state = await page.evaluate(readNav);
 		const label = name.split(',')[0]!;
 		const top = state.active ? state.active.top : NaN;
@@ -1386,6 +1399,274 @@ async function axeClean(page: Page, where: string) {
 		.toEqual([]);
 }
 
+// ---- S3: Station and Group chart (§9 S3) -----------------------------------------------------
+
+/**
+ * §5.7 row 5: the card's header to the station's first value, at most this: from the header's
+ * bottom (its toggle's) to the top of the first value of the dl "The station", as S3's first half
+ * measured it (397 px in the condenser at 1280×800). The audit's "Before" (3,522 px, §2.1) ran
+ * from the card's top to the dl's, 56 px more (the card's padding and its 44 px header).
+ */
+const STATION_BELOW_HEADER: Readonly<Record<string, number>> = {
+	'1280x800': 400,
+	'390x844': 600
+};
+/**
+ * §5.7 row 7: the longest run of notes with no heading or control between them, paragraphs, as
+ * drawn: a run inside a disclosure the user opened to read (the methods' items, in the lineups
+ * view, which opens every one) is reference text, not counted; at its defaults (the condenser's
+ * view, the one-off's) nothing is open, so every run counts.
+ */
+const LONGEST_RUN = { card: 5, tab: 6 };
+/**
+ * §5.7 row 8: the ring notes under "Other cases on the group chart" at 1280×800, "How to read the
+ * rings" closed (its default), from the first note under the live line to the last: the lineups'
+ * measured in S3 + 10 % (458 px, so 503), the condenser's set from S8's words, the mock's after-S8
+ * 466 px + 10 % (S3 measured 402).
+ */
+const RING_NOTES_1280: Readonly<Record<string, number>> = {
+	'2-lineups': 503,
+	'3-condenser': 513
+};
+/** §5.7 row 10: Tab stops from the card's header to the group chart's Show data table. */
+const TABS_TO_GROUP_TABLE = 20;
+/** §5.7 row 4: the lineups' group legend at 390×844: measured in S3 + 10 % (332 px), and ≤ 452 px. */
+const LEGEND_390 = 365;
+
+/**
+ * The card's part of S3 at the size shown, with the card open (soft, so a run reports every
+ * check): its budgets (§5.7 rows 4, 5, 7, 8, 10); the other cases under their h5, the switch
+ * before the list it reveals, in the DOM and on screen (§10 Order), their own live line at rest
+ * (§7 Live regions), the ring notes in sight with "How to read the rings" closed before the list
+ * (§5.3), and no name in the card cut short (a name the user must read is shown to its end).
+ */
+async function cardPart(
+	page: Page,
+	view: string,
+	where: string,
+	data: Awaited<ReturnType<typeof measure>>
+) {
+	const soft = expect.configure({ soft: true });
+	const size = sizeOf(page);
+	const tab = resultsPane(page).getByRole('tabpanel', { name: 'Pumps', exact: true });
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const toggle = card.getByRole('button', { name: /^Pumps together/ });
+	if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+		// The card closed (the one-off view's defaults): only the tab's run of notes is held.
+		const tabRun = Math.max(
+			0,
+			...data.runs.filter((r) => !r.inDisclosure).map((r) => r.paragraphs)
+		);
+		console.log(`${where}: the longest run of notes, ${tabRun} paragraphs (the card closed)`);
+		soft(tabRun, `the longest run of notes in the tab, ${where}`).toBeLessThanOrEqual(
+			LONGEST_RUN.tab
+		);
+		return;
+	}
+
+	// §5.7 row 5: the station's first value under the card's header.
+	const stationAt = await page.evaluate(() => {
+		const c = document.querySelector('[data-pumps-together]')!;
+		const header = c.querySelector('h3 button');
+		const dl = c.querySelector('dl[aria-label="The station"]');
+		const value = dl?.querySelector('dd');
+		return header && dl && value
+			? {
+					fromHeader: Math.round(
+						value.getBoundingClientRect().top - header.getBoundingClientRect().bottom
+					),
+					fromCardTop: Math.round(dl.getBoundingClientRect().top - c.getBoundingClientRect().top)
+				}
+			: null;
+	});
+	const station = stationAt?.fromHeader ?? null;
+	// The condenser's (§5.7 row 5): its card at its defaults, six members and four groups found.
+	const stationBudget = view === '3-condenser' ? STATION_BELOW_HEADER[size] : undefined;
+	console.log(
+		`${where}: the station's first value ${station} px under the card's header (its dl ${stationAt?.fromCardTop} px under the card's top)`
+	);
+	soft(station, `the station's dl drawn, ${where}`).not.toBeNull();
+	if (stationBudget !== undefined && station !== null) {
+		soft(
+			station,
+			`the station's first value under the card's header, ${where}`
+		).toBeLessThanOrEqual(stationBudget);
+	}
+
+	// §5.7 row 7: the longest run of notes, in the card and in the tab.
+	const drawn = data.runs.filter((r) => !r.inDisclosure);
+	const cardRun = Math.max(0, ...drawn.filter((r) => r.inCard).map((r) => r.paragraphs));
+	const tabRun = Math.max(0, ...drawn.map((r) => r.paragraphs));
+	const opened = Math.max(0, ...data.runs.filter((r) => r.inDisclosure).map((r) => r.paragraphs));
+	console.log(
+		`${where}: the longest run of notes, ${cardRun} in the card, ${tabRun} in the tab (${opened} inside an opened disclosure)`
+	);
+	soft(cardRun, `the longest run of notes in the card, ${where}`).toBeLessThanOrEqual(
+		LONGEST_RUN.card
+	);
+	soft(tabRun, `the longest run of notes in the tab, ${where}`).toBeLessThanOrEqual(
+		LONGEST_RUN.tab
+	);
+
+	// The other cases (§5.3, §10 Order, §7 Live regions), and the ring notes' height (§5.7 row 8).
+	const others = await page.evaluate(() => {
+		const c = document.querySelector('[data-pumps-together]')!;
+		const section = c.querySelector<HTMLElement>('[data-group-others]');
+		if (!section) return null;
+		const seen = (el: Element | null) => {
+			if (!el) return false;
+			const r = el.getBoundingClientRect();
+			return (
+				el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+				r.width > 1 &&
+				r.height > 1
+			);
+		};
+		const squash = (t: string | null) => (t ?? '').replace(/\s+/g, ' ').trim();
+		const h5 = section.querySelector('h5');
+		const box = [...section.querySelectorAll('label')].find((l) =>
+			squash(l.textContent).startsWith("Also show the other cases' station duties")
+		);
+		const fieldset = section.querySelector('fieldset');
+		const line = section.querySelector('[data-group-others-state]');
+		const row = line?.parentElement ?? null;
+		const how = section.querySelector<HTMLDetailsElement>('[data-group-rings-how]');
+		// The ring notes, "How to read the rings" at its default (closed) while measured.
+		const wasOpen = !!how?.open;
+		if (how) how.open = false;
+		const notes = row
+			? [...section.children].slice([...section.children].indexOf(row) + 1).filter(seen)
+			: [];
+		const height = notes.length
+			? Math.round(
+					notes.at(-1)!.getBoundingClientRect().bottom - notes[0]!.getBoundingClientRect().top
+				)
+			: 0;
+		const list = section.querySelector('[data-group-rings] ul');
+		const lead = list ? document.getElementById(list.getAttribute('aria-labelledby') ?? '') : null;
+		const inSight = [
+			...section.querySelectorAll(':scope > p'),
+			...(list ? [lead, ...list.querySelectorAll('li')] : [])
+		].filter((el): el is Element => !!el);
+		const result = {
+			h5: squash(h5?.textContent ?? null),
+			switchFirst:
+				!!box && !!h5 && !!(h5.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING),
+			listAfterSwitch:
+				!fieldset ||
+				(!!box &&
+					!!(box.compareDocumentPosition(fieldset) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+					fieldset.getBoundingClientRect().top >= box.getBoundingClientRect().bottom - 0.5),
+			line: line
+				? {
+						live: line.getAttribute('aria-live'),
+						atomic: line.getAttribute('aria-atomic'),
+						role: line.getAttribute('role'),
+						text: squash(line.textContent),
+						busyAncestor: !!line.parentElement?.closest('[aria-busy="true"]'),
+						buttons: line.querySelectorAll('button').length,
+						first: line.parentElement?.firstElementChild === line
+					}
+				: null,
+			howBeforeList:
+				!how ||
+				(!!list && !!(how.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING)),
+			howOpen: wasOpen,
+			rings: list ? list.querySelectorAll('li').length : 0,
+			unseen: inSight.filter((el) => !seen(el)).map((el) => squash(el.textContent).slice(0, 60)),
+			height,
+			heights: notes.map((n) => ({
+				what: squash(n.textContent).slice(0, 40),
+				height: Math.round(n.getBoundingClientRect().height)
+			}))
+		};
+		if (how) how.open = wasOpen;
+		return result;
+	});
+	soft(others, `the other cases on the group chart, ${where}`).not.toBeNull();
+	if (others) {
+		console.log(
+			`${where}: the ring notes ${others.height} px (${others.rings} rings): ${others.heights
+				.map((h) => `${h.what} ${h.height}`)
+				.join('; ')}`
+		);
+		soft(others.h5, `the other cases' heading, ${where}`).toBe('Other cases on the group chart');
+		soft(others.switchFirst, `the switch first under the h5, ${where}`).toBe(true);
+		soft(others.listAfterSwitch, `"Cases on this chart" after its switch, ${where}`).toBe(true);
+		soft(others.line, `the other cases' live line at rest, ${where}`).toEqual({
+			live: 'polite',
+			atomic: 'true',
+			role: null,
+			text: '',
+			busyAncestor: false,
+			buttons: 0,
+			first: true
+		});
+		soft(others.howBeforeList, `"How to read the rings" before the ring list, ${where}`).toBe(true);
+		// Closed by default (§5.3): the condenser's view leaves every disclosure as drawn.
+		if (view === '3-condenser') {
+			soft(others.howOpen, `"How to read the rings" at its default, ${where}`).toBe(false);
+		}
+		soft(others.rings, `the ring list's lines, ${where}`).toBeGreaterThan(0);
+		soft(others.unseen, `the ring notes out of sight, ${where}`).toEqual([]);
+		const ringBudget = size === '1280x800' ? RING_NOTES_1280[view] : undefined;
+		if (ringBudget) {
+			soft(others.height, `the ring notes' height, ${where}`).toBeLessThanOrEqual(ringBudget);
+		}
+	}
+
+	// §5.7 row 4: the group legend's height (the lineups' at 390×844 is the budget).
+	const legend = await card.getByRole('list', { name: 'Legend' }).boundingBox();
+	const legendHeight = legend ? Math.round(legend.height) : null;
+	console.log(`${where}: the group legend ${legendHeight} px`);
+	if (view === '2-lineups' && size === '390x844' && LEGEND_390 && legendHeight !== null) {
+		soft(legendHeight, `the group legend's height, ${where}`).toBeLessThanOrEqual(LEGEND_390);
+		soft(legendHeight, `the group legend's height, ${where}`).toBeLessThanOrEqual(452);
+	}
+
+	// No name in the card cut short: no button, summary, label or list item whose words run past
+	// its own box, so each shows its end (a name's end can be what tells two apart, §15 item 17).
+	const cut = await page.evaluate(() => {
+		const c = document.querySelector('[data-pumps-together]')!;
+		return [...c.querySelectorAll<HTMLElement>('button, summary, label, li, legend, h4, h5')]
+			.filter((el) => {
+				const r = el.getBoundingClientRect();
+				return el.checkVisibility() && r.width > 1 && el.scrollWidth > el.clientWidth + 1;
+			})
+			.map(
+				(el) =>
+					`${el.tagName.toLowerCase()} "${(el.textContent ?? '').trim().slice(0, 50)}" ${el.scrollWidth} in ${el.clientWidth}`
+			);
+	});
+	soft(cut, `names cut short in the card, ${where}`).toEqual([]);
+
+	// §5.7 row 10: Tab stops from the card's header to the group chart's Show data table.
+	await toggle.focus();
+	let stops = 0;
+	for (; stops < 80; stops++) {
+		const at = await page.evaluate(() => {
+			const a = document.activeElement;
+			return (
+				!!a &&
+				/^(Show|Hide) data table of the group chart$/.test(
+					(a.textContent ?? '').replace(/\s+/g, ' ').trim()
+				)
+			);
+		});
+		if (at) break;
+		await page.keyboard.press('Tab');
+	}
+	console.log(`${where}: ${stops} Tab stops from the card's header to the group's Show data table`);
+	if (view === '3-condenser') {
+		soft(
+			stops,
+			`Tab stops from the card's header to the group's Show data table, ${where}`
+		).toBeLessThanOrEqual(TABS_TO_GROUP_TABLE);
+	} else {
+		soft(stops, `the group's Show data table reached by Tab, ${where}`).toBeLessThan(80);
+	}
+}
+
 /**
  * Check and measure the view at the project's size and, on the phone, at 320×640 too (reflow at
  * 400 % zoom; pump-lineups.e2e.ts resizes the same way). Then axe with every disclosure open at
@@ -1396,7 +1677,8 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	const size = sizeOf(page);
 	await noSidewaysScroll(page, `${view} at ${size}`);
 	await pumpChartPart(page, `${view} at ${size}`);
-	await measure(page, info, `${view}-${size}`, extra);
+	const data = await measure(page, info, `${view}-${size}`, extra);
+	await cardPart(page, view, `${view} at ${size}`, data);
 	await navPart(page, `${view} at ${size}`);
 	if (info.project.name !== 'mobile') {
 		await axeClean(page, `${view} at ${size}`);
@@ -1407,7 +1689,8 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await settle(page, 1000);
 	await noSidewaysScroll(page, `${view} at 320x640`);
 	await pumpChartPart(page, `${view} at 320x640`);
-	await measure(page, info, `${view}-320x640`, extra);
+	const narrow = await measure(page, info, `${view}-320x640`, extra);
+	await cardPart(page, view, `${view} at 320x640`, narrow);
 	await navPart(page, `${view} at 320x640`);
 	await axeClean(page, `${view} at 320x640`);
 	await page.setViewportSize(viewport);
@@ -1640,6 +1923,61 @@ test('the card’s live lines are drawn empty before they speak: the group curve
 		// Answered: still there, saying nothing.
 		await expect(line).toHaveText('');
 	}
+	// A pane-wide status query still finds the Results header's alone (§5.3 markup rules).
+	await expect(resultsPane(page).getByRole('status')).toHaveCount(1);
+});
+
+test('the other cases’ live line under their h5 is drawn empty before it speaks, says their progress, and is empty again once they are drawn (§7, F17; §9 S3)', async ({
+	page
+}) => {
+	test.setTimeout(240_000);
+	await page.addInitScript(liveRecorder);
+	await oneOff(page);
+	const tab = resultsPane(page).getByRole('tabpanel', { name: 'Pumps', exact: true });
+	const card = await openCard(page, tab);
+	// Each other case's request held a moment, so its progress has time to be said.
+	await page.route('**/api/v1/pump-group-curve', async (route) => {
+		const body = route.request().postDataJSON() as { scenarioId?: string | null };
+		if (body?.scenarioId) await new Promise((resolve) => setTimeout(resolve, 600));
+		await route.continue();
+	});
+	const section = card.locator('[data-group-others]');
+	await expect(
+		section.getByRole('heading', { name: 'Other cases on the group chart', level: 5 })
+	).toBeVisible();
+	const line = section.locator('[data-group-others-state]');
+	await expect(line).toHaveText('');
+	await section
+		.getByRole('checkbox', { name: "Also show the other cases' station duties" })
+		.check();
+	await expect(line).toHaveText(/^Computing the other cases' station duties: 1 of 4…$/, {
+		timeout: 60_000
+	});
+	await expect(
+		section.getByRole('button', { name: "Cancel the other cases' station duties" })
+	).toBeVisible();
+	await expect(line).toHaveText('', { timeout: 120_000 });
+	// Polite and atomic, never role=status, with no busy ancestor, holding no button.
+	await expect(line).toHaveAttribute('aria-live', 'polite');
+	await expect(line).toHaveAttribute('aria-atomic', 'true');
+	await expect(line).not.toHaveAttribute('role', /./);
+	await expect(line.locator('button')).toHaveCount(0);
+	expect(
+		await line.evaluate((el) => !!el.parentElement?.closest('[aria-busy="true"]')),
+		'no busy ancestor'
+	).toBe(false);
+	const log = await liveLog(page, (await line.getAttribute('id'))!);
+	expect(log[0], 'the line inserted').toMatchObject({ kind: 'insert', text: '' });
+	const spoke = log.find((e) => e.text.startsWith("Computing the other cases' station duties"));
+	expect(spoke, 'the line said its progress').toBeDefined();
+	expect(spoke!.kind, 'as a change').toBe('change');
+	expect(spoke!.frame - log[0]!.frame, 'frames from insert to words').toBeGreaterThan(1);
+	// The rings drawn: the ring list, one line per ring, and "How to read the rings" closed.
+	const rings = section.getByRole('list', {
+		name: 'Other cases on the chart (slate rings, numbered):'
+	});
+	await expect(rings.getByRole('listitem')).toHaveCount(4);
+	await expect(section.locator('[data-group-rings-how]')).not.toHaveAttribute('open', /.*/);
 	// A pane-wide status query still finds the Results header's alone (§5.3 markup rules).
 	await expect(resultsPane(page).getByRole('status')).toHaveCount(1);
 });

@@ -59,7 +59,12 @@
 	never moves a name on tick, the server finder's hint the fieldset's description, a line while
 	the members are the group suggested for the pump on the pump chart, and two groups found or
 	more behind "Other groups found: {n}". Station opens with the group curve's line, the refusal
-	and the station's answer, before the group table with its flag lines (PumpGroupStation).
+	and the station's answer, before the group table with its flag lines (PumpGroupStation). The
+	group chart ends with the other cases under their h5 (PumpGroupOthers): the switch first, the
+	cases, their own live line, "Compute them again" with its reason shown and "Go to Running
+	combinations", then the ring notes cut as the owner answered (§12 item 1): the clip note,
+	"How to read the rings" (the frame and the rule), the ring list one line per ring, "Not on the
+	chart" and the left-out count.
 -->
 <script lang="ts">
 	import { tick } from 'svelte';
@@ -549,6 +554,7 @@
 					{oncancelothers}
 					{onretryothers}
 					{othersRetryReason}
+					combinations={!!combinations && !!stationShown}
 				/>
 				{#if lineups && stationShown}
 					<!-- 3. Add cases (D24 slice L1): the cases of the base case with pumps off, the one

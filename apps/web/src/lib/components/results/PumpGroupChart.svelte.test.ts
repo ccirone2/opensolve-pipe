@@ -37,13 +37,15 @@ import {
 	readyState,
 	type LineupViewOptions
 } from '$lib/testing/curve-family';
-import { outOfSight } from '$lib/testing/helpers';
+import { outOfSight, wordsInSight } from '$lib/testing/helpers';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
 import type { CurveLabelsDrawn, PumpChartConfig } from '$lib/utils/pump-chart-config';
 import { ratedCurveRange } from '$lib/utils/pump-chart';
 import {
+	DUTY_CLAIM_RULE,
 	GROUP_OTHER,
 	groupMethodsHeading,
+	groupNotes,
 	OTHER_CURVES_CAPTION,
 	OTHER_CURVES_LABEL,
 	type GroupMemberInput
@@ -156,6 +158,76 @@ type Recorded = { data: { datasets: { label: string }[] } };
 
 /** The chart was drawn (its chunk is imported first: slow on a loaded machine). */
 const drawn = () => vi.waitFor(() => expect(charts).toHaveLength(1), { timeout: 10_000 });
+
+/** The image's footer lines of the card on screen (groupNoteLines): Download image pressed. */
+async function footerLines(): Promise<readonly string[]> {
+	const button = () =>
+		screen.getByRole('button', { name: /^Download image of the pumps together/ });
+	await vi.waitFor(() => expect(button()).not.toHaveAttribute('aria-disabled', 'true'), {
+		timeout: 10_000
+	});
+	const before = images.requests.length;
+	await fireEvent.click(button());
+	await vi.waitFor(() => expect(images.requests).toHaveLength(before + 1));
+	return (images.requests.at(-1) as FigureImageRequest).lines;
+}
+
+/** The ring list's lead, which names it (pumps-results-layout.md §5.3; §6.2: its words kept). */
+const RING_LEAD = 'Other cases on the chart (slate rings, numbered):';
+
+/**
+ * The words-on-screen guard (pumps-results-layout.md §10, §6.4 item 3): every line of the image's
+ * footer, groupNoteLines with the refusals, is on the card word for word, in sight at every width
+ * (wordsInSight: not visually hidden or hidden by any class variant, attribute or style, and not
+ * in a closed disclosure), or else inside a named disclosure, and then only in "How to read this
+ * chart" or "How to read the rings". The ring list's sentence is on screen as its lead and its
+ * lines, one per ring, which otherNoteLines joins back into it. Returns the lines found only
+ * inside a disclosure.
+ */
+function footerOnScreen(lines: readonly string[]): string[] {
+	const card = screen.getByRole('region', { name: /^Pumps together/ });
+	const squash = (t: string) => t.replace(/\s+/g, ' ').trim();
+	const inSight = (line: string) =>
+		[...card.querySelectorAll('p, span, li, summary')].some(
+			(el) => !outOfSight(el) && squash(wordsInSight(el)).includes(line)
+		);
+	/** The reference that may hold a footer line (§5.3): what it holds, closed. */
+	const reference = [...card.querySelectorAll('[data-group-reading], [data-group-rings-how]')];
+	const allowed = reference.flatMap((d) => [...d.querySelectorAll('p')].map((p) => p.textContent));
+	const inDisclosure: string[] = [];
+	expect(lines.length).toBeGreaterThan(0);
+	for (const line of lines) {
+		if (line.startsWith(`${RING_LEAD} `)) {
+			const list = within(card).getByRole('list', { name: RING_LEAD });
+			const lead = document.getElementById(list.getAttribute('aria-labelledby')!)!;
+			const items = within(list).getAllByRole('listitem');
+			expect(outOfSight(lead), line).toBe(false);
+			for (const li of items) expect(outOfSight(li), li.textContent!).toBe(false);
+			const text = (li: Element) => {
+				const copy = li.cloneNode(true) as Element;
+				for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+				return squash(copy.textContent!);
+			};
+			expect(`${squash(wordsInSight(lead))} ${items.map(text).join('; ')}.`).toBe(line);
+			continue;
+		}
+		if (inSight(line)) continue;
+		// Not in sight: inside a closed disclosure that names what it holds, and in sight once open.
+		const holder = reference.find((d) => squash(d.textContent!).includes(line)) as
+			HTMLDetailsElement | undefined;
+		expect(holder, `on screen, or in a named disclosure: ${line}`).toBeDefined();
+		expect(holder!.open).toBe(false);
+		expect(squash(holder!.querySelector(':scope > summary')!.textContent!)).toMatch(
+			/^How to read (this chart|the rings): /
+		);
+		expect(allowed, line).toContain(line);
+		holder!.open = true;
+		expect(inSight(line), line).toBe(true);
+		holder!.open = false;
+		inDisclosure.push(line);
+	}
+	return inDisclosure;
+}
 
 describe('the card', () => {
 	it('is a disclosure, closed by default, naming the pumps; opened, it shows the members', async () => {
@@ -1926,6 +1998,11 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(boxes[0]!.closest('label')).toHaveTextContent('○ 1 · Case 1');
 		expect(boxes[6]).toHaveAttribute('aria-disabled', 'true');
 		expect(boxes[6]).toHaveAccessibleDescription('At most 6 other cases at once.');
+		// The capped look (§5.3, as the pump chart's): the box greyed, the name kept readable.
+		expect(boxes[6]).toHaveClass('opacity-45');
+		expect(boxes[6]!.closest('label')).toHaveClass('cursor-not-allowed', 'text-slate-600');
+		expect(boxes[0]).not.toHaveClass('opacity-45');
+		expect(boxes[0]!.closest('label')).not.toHaveClass('cursor-not-allowed');
 		await fireEvent.click(boxes[6]!);
 		expect(onotherstick).not.toHaveBeenCalled();
 		await fireEvent.click(boxes[1]!);
@@ -1938,7 +2015,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		await fireEvent.click(box);
 		expect(onothers).toHaveBeenCalledWith(false);
 
-		// Being computed: the progress in the one live region, and Cancel.
+		// Being computed: the progress in their own live line (§5.3 markup rules: polite, never
+		// role=status), and Cancel.
 		const loading = others(['S1', 'S2']).map((o, i) =>
 			i === 1 ? { ...o, state: 'loading' as const, number: null, duty: null, claim: null } : o
 		);
@@ -1950,8 +2028,10 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				...handlers
 			})
 		);
-		expect(screen.getByRole('status')).toHaveTextContent(
-			"Computing the other cases' station duties: 2 of 2…"
+		const othersLine = document.querySelector('[data-group-others-state]')!;
+		expect(othersLine).toHaveAttribute('aria-live', 'polite');
+		await vi.waitFor(() =>
+			expect(othersLine).toHaveTextContent("Computing the other cases' station duties: 2 of 2…")
 		);
 		expect(within(screen.getByRole('figure')).getByRole('img')).toHaveAttribute(
 			'aria-busy',
@@ -2016,6 +2096,346 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(screen.getByRole('figure')).toHaveFocus();
 	});
 
+	it('the other cases under their h5: the switch first, the cases under it, their own live line, the lasting retry reason shown (pumps-results-layout.md §5.3, S3)', async () => {
+		const follows = (a: Node, b: Node) =>
+			!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+		const handlers = {
+			onothers: vi.fn(),
+			onotherstick: vi.fn(),
+			oncancelothers: vi.fn(),
+			onretryothers: vi.fn()
+		};
+		const view = render(
+			PumpGroupChart,
+			base({ otherCases: others(), othersOn: true, ...handlers })
+		);
+		await drawn();
+		const figure = screen.getByRole('figure');
+		const section = figure.querySelector<HTMLElement>('[data-group-others]')!;
+		// The h5 heads the figure's last part (§5.1 item 10, §7's outline), a section title.
+		const heading = within(figure).getByRole('heading', {
+			name: 'Other cases on the group chart',
+			level: 5
+		});
+		expect(section.firstElementChild).toBe(heading);
+		expect(heading).toHaveClass('section-title');
+		expect(figure.lastElementChild).toBe(section);
+		// The switch first, its cost visible; the list it reveals under it (§6.4 item 10).
+		const box = within(section).getByRole('checkbox', {
+			name: "Also show the other cases' station duties"
+		});
+		const hint = document.getElementById(box.getAttribute('aria-describedby')!)!;
+		expect(outOfSight(hint)).toBe(false);
+		const fieldset = within(section).getByRole('group', { name: 'Cases on this chart' });
+		expect(follows(heading, box)).toBe(true);
+		expect(follows(hint, fieldset)).toBe(true);
+		expect(fieldset.firstElementChild!.tagName).toBe('LEGEND');
+		// The case shown: a tag, not a control (§5.2 Tags), the grid's first item.
+		const grid = fieldset.querySelector('legend + div')!;
+		const tag = grid.firstElementChild!;
+		expect(tag).toHaveTextContent('● Base case (shown)');
+		expect(tag).toHaveClass('rounded', 'bg-slate-100', 'text-xs');
+		expect(tag.querySelector('input, button')).toBeNull();
+		expect(grid).toHaveClass('grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]');
+		// Each box: the ring and its number in a reserved column, then the name.
+		const labels = within(fieldset)
+			.getAllByRole('checkbox')
+			.map((b) => b.closest('label')!);
+		for (const label of labels) {
+			const column = label.querySelector('input + span')!;
+			expect(column).toHaveClass('w-10', 'shrink-0');
+			expect(column.querySelector('[aria-hidden="true"]')).toHaveTextContent('○');
+		}
+		expect(
+			labels.map((l) => l.querySelector('input + span')!.textContent!.replace(/\s+/g, ' ').trim())
+		).toEqual(labels.map((_, i) => `○ ${i + 1} ·`));
+		// Its own live line (§5.3 markup rules, §7): there while idle, empty, polite and atomic,
+		// never role=status, the first child of its row, holding no button, no busy ancestor; the
+		// card has no status region of its own.
+		const line = section.querySelector<HTMLElement>('[data-group-others-state]')!;
+		expect(line).toHaveAttribute('aria-live', 'polite');
+		expect(line).toHaveAttribute('aria-atomic', 'true');
+		expect(line).not.toHaveAttribute('role');
+		expect(line.textContent).toBe('');
+		expect(line.parentElement!.firstElementChild).toBe(line);
+		expect(line.querySelector('button')).toBeNull();
+		expect(line.closest('[aria-busy]')).toBeNull();
+		expect(line.parentElement).toHaveClass('sr-only');
+		expect(
+			within(screen.getByRole('region', { name: /^Pumps together/ })).queryByRole('status')
+		).toBeNull();
+		expect(follows(fieldset, line)).toBe(true);
+
+		// Some not computed, while a calculation runs: the sentence in the line, "Compute them
+		// again" after it with its lasting reason shown (§6.2 Made visible), not in its title.
+		const cancelled = others(['S1', 'S2']).map((o, i) =>
+			i === 1
+				? {
+						...o,
+						state: 'cancelled' as const,
+						retry: true,
+						number: null,
+						duty: null,
+						claim: null,
+						words: 'cancelled: you cancelled it'
+					}
+				: o
+		);
+		const reason = 'Solve all is running; Cancel in the header stops it.';
+		await view.rerender(
+			base({
+				otherCases: cancelled,
+				othersOn: true,
+				othersProgress: null,
+				othersRetryReason: reason,
+				...handlers
+			})
+		);
+		expect(line.textContent).toBe(
+			"Not every other case's station duty was computed: see Running combinations."
+		);
+		expect(line.parentElement).not.toHaveClass('sr-only');
+		const again = within(section).getByRole('button', { name: 'Compute them again' });
+		expect(again).toHaveAttribute('aria-disabled', 'true');
+		expect(again).not.toHaveAttribute('title');
+		expect(again).toHaveAccessibleDescription(
+			`${reason} Not every other case's station duty was computed: see Running combinations.`
+		);
+		const shownReason = section.querySelector('[data-others-retry-reason]')!;
+		expect(shownReason).toHaveTextContent(reason);
+		expect(outOfSight(shownReason)).toBe(false);
+		expect(shownReason.parentElement).toBe(again.parentElement);
+		expect(follows(line, again)).toBe(true);
+		await fireEvent.click(again);
+		expect(handlers.onretryothers).not.toHaveBeenCalled();
+		// Without the section nav (this card alone) there is no way to Running combinations.
+		expect(
+			within(section).queryByRole('button', { name: 'Go to Running combinations' })
+		).toBeNull();
+
+		// The switch off: the one line, no list, no ring notes.
+		const off = others().map((o) => ({
+			...o,
+			state: 'off' as const,
+			onChart: false,
+			number: null,
+			duty: null,
+			claim: null
+		}));
+		await view.rerender(base({ otherCases: off, othersOn: false, ...handlers }));
+		expect(within(section).queryByRole('group', { name: 'Cases on this chart' })).toBeNull();
+		const offLine = section.querySelector('[data-group-others-off]')!;
+		expect(offLine.textContent).toBe(
+			"Other cases' station duties are not on the chart: tick “Also show the other cases' station duties” to compute them (4 other cases with results)."
+		);
+		expect(follows(box, offLine)).toBe(true);
+		expect(section.querySelector('[data-group-rings-how], [data-group-rings]')).toBeNull();
+	});
+
+	it('the rings on screen (4d): the frame in "How to read the rings", the rule only with a group system curve; no ring, no disclosure (pumps-results-layout.md §5.3, S3)', async () => {
+		const follows = (a: Node, b: Node) =>
+			!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+		const list = others();
+		// S4 unticked (synthetic): no ring, and the reason under the list.
+		list[3] = {
+			...list[3]!,
+			state: 'unticked',
+			onChart: false,
+			number: null,
+			duty: null,
+			claim: null,
+			words: 'not on the chart (unticked under Cases on this chart)'
+		};
+		const view = render(
+			PumpGroupChart,
+			base({ otherCases: list, othersOn: true, onothers: () => {}, image: image() })
+		);
+		await drawn();
+		const section = document.querySelector<HTMLElement>('[data-group-others]')!;
+		const how = section.querySelector<HTMLDetailsElement>('[data-group-rings-how]')!;
+		// Closed by default; its summary names what it holds: the frame and the rule.
+		expect(how.open).toBe(false);
+		const summary = how.querySelector('summary')!;
+		expect(summary).toHaveClass('more-summary');
+		expect(summary.textContent!.replace(/\s+/g, ' ').trim()).toBe(
+			'How to read the rings: what a ring is, which curve it lies on, when it is called a point of the group system curve'
+		);
+		const held = [...how.querySelectorAll('p')].map((p) => p.textContent);
+		expect(held).toHaveLength(2);
+		expect(held[0]).toMatch(/^Each numbered slate ring is another case's station duty: /);
+		expect(held[1]).toMatch(/^A ring is called a point of the group system curve shown only when /);
+		for (const p of how.querySelectorAll('p')) expect(outOfSight(p)).toBe(true);
+		// The list after it, named by its lead (told apart from the legend), one item per ring.
+		const ringList = within(section).getByRole('list', {
+			name: 'Other cases on the chart (slate rings, numbered):'
+		});
+		expect(follows(how, ringList)).toBe(true);
+		const items = within(ringList).getAllByRole('listitem');
+		expect(items).toHaveLength(3);
+		const notOn = within(section).getByText(
+			'Not on the chart: Both pumps off (unticked under Cases on this chart).'
+		);
+		expect(follows(ringList, notOn)).toBe(true);
+		expect(outOfSight(notOn)).toBe(false);
+		// The image's footer keeps the frame, the rule and the ring list as one sentence (§6.3).
+		await vi.waitFor(() =>
+			expect(
+				screen.getByRole('button', { name: /^Download image of the pumps together/ })
+			).not.toHaveAttribute('aria-disabled', 'true')
+		);
+		await fireEvent.click(
+			screen.getByRole('button', { name: /^Download image of the pumps together/ })
+		);
+		await vi.waitFor(() => expect(images.requests).toHaveLength(1));
+		const lines = (images.requests[0] as FigureImageRequest).lines;
+		expect(lines).toContain(held[0]);
+		expect(lines).toContain(held[1]);
+		const text = (li: Element) => {
+			const copy = li.cloneNode(true) as Element;
+			for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+			return copy.textContent!.replace(/\s+/g, ' ').trim();
+		};
+		expect(lines).toContain(
+			`Other cases on the chart (slate rings, numbered): ${items.map(text).join('; ')}.`
+		);
+
+		// Without a group system curve: the frame alone, and the summary says so.
+		await view.rerender(
+			base({ otherCases: list, othersOn: true, onothers: () => {}, system: undefined })
+		);
+		const frameOnly = section.querySelector<HTMLDetailsElement>('[data-group-rings-how]')!;
+		expect(frameOnly.querySelector('summary')!.textContent!.replace(/\s+/g, ' ').trim()).toBe(
+			'How to read the rings: what a ring is, which curve it lies on'
+		);
+		expect(frameOnly.querySelectorAll('p')).toHaveLength(1);
+
+		// No ring on the chart (every case unticked): no disclosure and no list, "Not on the chart" stays.
+		const none = list.map((o) => ({
+			...o,
+			state: 'unticked' as const,
+			onChart: false,
+			number: null,
+			duty: null,
+			claim: null,
+			words: 'not on the chart (unticked under Cases on this chart)'
+		}));
+		await view.rerender(base({ otherCases: none, othersOn: true, onothers: () => {} }));
+		expect(section.querySelector('[data-group-rings-how]')).toBeNull();
+		expect(section.querySelector('[data-group-rings]')).toBeNull();
+		expect(within(section).getByText(/^Not on the chart: Pump PA off/)).toBeVisible();
+
+		// No station shown (the group curve not ready, the group system curve without a duty): no
+		// ring, so neither the disclosure nor the rule (§5.3: the rule never comes without the frame).
+		const noDuty = structuredClone(c.systemCurve!.body as PumpGroupCurveResponse);
+		noDuty.duty = null;
+		await view.rerender(
+			base({
+				otherCases: list,
+				othersOn: true,
+				onothers: () => {},
+				curve: { status: 'loading' },
+				system: { status: 'ready', response: noDuty }
+			})
+		);
+		expect(document.querySelector('[data-group-rings-how]')).toBeNull();
+		expect(document.querySelector('[data-group-rings]')).toBeNull();
+		expect(screen.queryByText(/^A ring is called a point of the group system curve/)).toBeNull();
+	});
+
+	it('every footer line on screen with the rings (4d) and with the duties not asked for (pumps-results-layout.md §10, S3)', async () => {
+		const list = others();
+		list[3] = {
+			...list[3]!,
+			state: 'unticked',
+			onChart: false,
+			number: null,
+			duty: null,
+			claim: null,
+			words: 'not on the chart (unticked under Cases on this chart)'
+		};
+		const view = render(
+			PumpGroupChart,
+			base({ otherCases: list, othersOn: true, onothers: () => {}, image: image() })
+		);
+		await drawn();
+		const lines = await footerLines();
+		const inside = footerOnScreen(lines);
+		// The frame and the rule are inside "How to read the rings"; "Not on the chart" in sight.
+		expect(inside.filter((l) => /^Each numbered slate ring/.test(l))).toHaveLength(1);
+		expect(inside).toContain(
+			lines.find((l) => l.startsWith('A ring is called a point of the group system curve'))
+		);
+		const notOn = 'Not on the chart: Both pumps off (unticked under Cases on this chart).';
+		expect(lines).toContain(notOn);
+		expect(inside).not.toContain(notOn);
+		expect(lines.some((l) => l.startsWith(`${RING_LEAD} `))).toBe(true);
+		// The duties not asked for: the one line, in sight.
+		const off = others().map((o) => ({
+			...o,
+			state: 'off' as const,
+			onChart: false,
+			number: null,
+			duty: null,
+			claim: null
+		}));
+		await view.rerender(
+			base({ otherCases: off, othersOn: false, onothers: () => {}, image: image() })
+		);
+		const offLines = await footerLines();
+		expect(offLines.filter((l) => l.includes('Also show'))).toHaveLength(1);
+		expect(footerOnScreen(offLines).some((l) => l.includes('Also show'))).toBe(false);
+	});
+
+	it('the data region: each pump’s point, the duty sentence in two, the group curves’ tables, then the other cases’ (pumps-results-layout.md §5.3, S3)', async () => {
+		render(PumpGroupChart, base({ otherCases: others(), othersOn: true, onothers: () => {} }));
+		await drawn();
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		const region = document.querySelector<HTMLElement>('[data-group-data]')!;
+		// After the reference, before the other cases' part (§5.1 items 8 to 10).
+		const reference = document.querySelectorAll('figure details:not([data-group-rings-how])');
+		const follows = (a: Node, b: Node) =>
+			!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+		for (const d of reference) {
+			if (!region.contains(d)) expect(follows(d, region)).toBe(true);
+		}
+		expect(follows(region, document.querySelector('[data-group-others]')!)).toBe(true);
+		const parts = [...region.children].map((child) =>
+			child.matches('[data-group-duty]')
+				? 'duty'
+				: child.matches('[data-group-system-duty]')
+					? 'system duty'
+					: child.querySelector('caption')!.textContent!.trim()
+		);
+		expect(parts).toEqual([
+			"Each pump's point (flow through it)",
+			'duty',
+			'system duty',
+			"Group curve (station's flow at each rise)",
+			"Group system curve (rise the rest of the network needs at each station's flow)",
+			"Other cases' station duties"
+		]);
+		// Each paragraph its own check and its own Details (§5.3 item 2), the words unchanged.
+		const duty = region.querySelector('[data-group-duty]')!;
+		expect(duty.textContent!.replace(/\s+/g, ' ')).toMatch(
+			/^● Group duty \(station's flow\): [\d.]+ L\/s at a rise of [\d.]+ m; parallel\. Duty check: the group curve passes through it; /
+		);
+		expect(duty.querySelectorAll('details')).toHaveLength(1);
+		expect(
+			within(duty as HTMLElement)
+				.getByText('Details')
+				.closest('summary')
+		).toHaveTextContent('Details of the duty check');
+		expect(duty).not.toHaveTextContent('System duty check');
+		const system = region.querySelector('[data-group-system-duty]')!;
+		expect(system.textContent!.replace(/\s+/g, ' ').trim()).toMatch(
+			/^System duty check: the group system curve passes through it\. ?Details/
+		);
+		expect(system.querySelectorAll('details')).toHaveLength(1);
+		expect(system.querySelector('summary')).toHaveTextContent('Details of the system duty check');
+	});
+
 	it('its sections, in reading order under h4s: Station, Group chart, Add cases, Running combinations (pumps-results-layout.md §5.3, §9 S2)', async () => {
 		const input: CombinationsInput = {
 			members: [
@@ -2072,6 +2492,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			['H3', 'Pumps together'],
 			['H4', 'Station'],
 			['H4', 'Group chart'],
+			['H5', 'Other cases on the group chart'],
 			['H4', 'Add cases'],
 			['H4', 'Running combinations'],
 			['H5', 'Extremes over these cases (current results)']
@@ -2566,6 +2987,150 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		expect(view.data.otherCurves).toHaveLength(6);
 	}, 20_000);
 
+	it('the rings on screen: the clip note, “How to read the rings” closed before the list, the list named by its lead, one line per ring (pumps-results-layout.md §5.3, S3)', async () => {
+		const follows = (a: Node, b: Node) =>
+			!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+		await renderDrawn(family().props);
+		const section = document.querySelector<HTMLElement>('[data-group-others]')!;
+		// Visible: the clip note, what is drawn is not every point.
+		const clip = within(section).getByText(
+			"The group system curve is cut at the top, above every pump's head; the data tables list all their points."
+		);
+		expect(clip.tagName).toBe('P');
+		expect(outOfSight(clip)).toBe(false);
+		// One step away: the frame and the rule, closed, after the clip note and before the list.
+		const how = section.querySelector<HTMLDetailsElement>('[data-group-rings-how]')!;
+		expect(how.open).toBe(false);
+		expect(follows(clip, how)).toBe(true);
+		expect(how.querySelector('summary')!.textContent!.replace(/\s+/g, ' ').trim()).toBe(
+			'How to read the rings: what a ring is, which curve it lies on, when it is called a point of the group system curve'
+		);
+		const [frameNote, rule] = [...how.querySelectorAll('p')];
+		// The frame's family form ends "The list below says, for each ring, which." (§5.3): the
+		// list comes after it.
+		expect(frameNote!.textContent).toMatch(/The list below says, for each ring, which\.$/);
+		expect(rule!.textContent).toBe(DUTY_CLAIM_RULE);
+		expect(outOfSight(frameNote!)).toBe(true);
+		const lead = within(section).getByText('Other cases on the chart (slate rings, numbered):');
+		const ringList = within(section).getByRole('list', {
+			name: 'Other cases on the chart (slate rings, numbered):'
+		});
+		expect(ringList).toHaveAttribute('aria-labelledby', lead.id);
+		expect(follows(how, lead)).toBe(true);
+		expect(follows(lead, ringList)).toBe(true);
+		// One line per ring, in number order: the glyph and number in a reserved column, the
+		// case's name in medium weight, the rest regular.
+		const items = within(ringList).getAllByRole('listitem');
+		const keys = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'] as const;
+		expect(items).toHaveLength(keys.length);
+		const text = (li: Element) => {
+			const copy = li.cloneNode(true) as Element;
+			for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+			return copy.textContent!.replace(/\s+/g, ' ').trim();
+		};
+		for (const [i, li] of items.entries()) {
+			const column = li.firstElementChild!;
+			expect(column).toHaveClass('w-9', 'shrink-0');
+			const glyph = column.querySelector('[aria-hidden="true"]')!;
+			expect(glyph.textContent).toBe('○');
+			expect(glyph).toHaveStyle({ color: GROUP_OTHER });
+			expect(column.textContent!.replace(/\s+/g, ' ').trim()).toBe(`○ ${i + 1} ·`);
+			const name = li.querySelector('.font-medium')!;
+			expect(name).toHaveClass('text-slate-900');
+			expect(name.textContent).toBe(NAMES[keys[i]!]);
+			expect(text(li)).toMatch(
+				new RegExp(
+					`^${i + 1} · ${NAMES[keys[i]!]!.replace(/[()]/g, '\\$&')}, [\\d.]+ L/s at a rise of [\\d.]+ m: Yes: the same rest of the network; group curve: drawn \\(\\d running\\): it crosses the group system curve at the ring$`
+				)
+			);
+			expect(outOfSight(li)).toBe(false);
+		}
+		const notOn = within(section).getByText(/^Not on the chart: /);
+		expect(follows(ringList, notOn)).toBe(true);
+		expect(outOfSight(notOn)).toBe(false);
+		// Each line's text without its glyph is its part's (groupNotes' otherParts, §10).
+		const { view } = family();
+		const { groupCurve, systemCurve } = lineupAnswers('');
+		const parts = groupNotes({
+			data: view.data,
+			members: view.members,
+			state: readyState(groupCurve),
+			system: readyState(systemCurve),
+			project: lineups.project,
+			prefs: lineupPrefs,
+			others: view.others
+		}).otherParts;
+		expect(items.map(text)).toEqual(parts.rings!.items.map((item) => item.text));
+		expect(lead.textContent).toBe(parts.rings!.lead);
+		expect(clip.textContent).toBe(parts.clip);
+		expect([frameNote!.textContent, rule!.textContent]).toEqual([parts.frame, parts.claim]);
+		// The image's footer: the frame, the clip note, the rule and the ring list as one
+		// sentence, its entries the lines' texts joined (§6.3: the image keeps its words).
+		await vi.waitFor(() =>
+			expect(
+				screen.getByRole('button', { name: /^Download image of the pumps together/ })
+			).not.toHaveAttribute('aria-disabled', 'true')
+		);
+		await fireEvent.click(
+			screen.getByRole('button', { name: /^Download image of the pumps together/ })
+		);
+		await vi.waitFor(() => expect(images.requests).toHaveLength(1));
+		const lines = (images.requests[0] as FigureImageRequest).lines;
+		const at = lines.indexOf(frameNote!.textContent!);
+		expect(lines.slice(at, at + 5)).toEqual([
+			frameNote!.textContent,
+			clip.textContent,
+			DUTY_CLAIM_RULE,
+			`${lead.textContent} ${items.map(text).join('; ')}.`,
+			notOn.textContent
+		]);
+		// The data region: the other cases' tables after the shown case's, their curves last.
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		const captions = [...document.querySelectorAll('[data-group-data] caption')].map((c) =>
+			c.textContent!.trim()
+		);
+		expect(captions.slice(-2)).toEqual(["Other cases' station duties", OTHER_CURVES_CAPTION]);
+		expect(captions.indexOf("Group curve (station's flow at each rise)")).toBe(1);
+	}, 20_000);
+
+	it('every footer line on screen with the curve family: each clip clause, the left-out count, a stale case (pumps-results-layout.md §10, S3)', async () => {
+		for (const [shown, options] of [
+			['', {}],
+			['S2', {}],
+			['S3', {}],
+			['', { unticked: ['S4', 'S5'], stale: ['S1'] }]
+		] as const) {
+			cleanup();
+			const before = charts.length;
+			render(PumpGroupChart, family(shown, options).props);
+			await vi.waitFor(() => expect(charts).toHaveLength(before + 1), { timeout: 10_000 });
+			// "1 of 4 running" shown, drawn narrow: some labels left out, and the notes count them.
+			if (shown === 'S3') {
+				drawnChart(charts.at(-1)!.config as PumpChartConfig).draw();
+				await screen.findByText(/are left out for space; the data table lists every curve\.$/);
+			}
+			const lines = await footerLines();
+			const inside = footerOnScreen(lines);
+			const where = `${shown || 'Base case'} shown`;
+			// Inside "How to read the rings": the frame (L3's form) and the rule, nothing else of theirs.
+			expect(
+				inside.filter((l) => /^Each numbered slate ring/.test(l)),
+				where
+			).toHaveLength(1);
+			expect(inside, where).toContain(DUTY_CLAIM_RULE);
+			// In sight: the clip note, "Not on the chart", the left-out count, each ring's claim.
+			const qualifying = lines.filter((l) =>
+				/(are cut at|^Not on the chart: |left out for space)/.test(l)
+			);
+			expect(qualifying.length, where).toBeGreaterThan(0);
+			for (const line of qualifying) expect(inside, `${where}: ${line}`).not.toContain(line);
+			if (shown === 'S3')
+				expect(qualifying.some((l) => l.includes('left out for space'))).toBe(true);
+		}
+	}, 30_000);
+
 	it('counts the labels its drawing left out in the notes, keeps the placement on the canvas, and the image counts its own', async () => {
 		const { props } = family('S3');
 		await renderDrawn(props);
@@ -2620,4 +3185,162 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			`1 · Base case: group curve, 4 running`
 		);
 	}, 20_000);
+});
+
+describe('every footer line of the group chart on screen, word for word (pumps-results-layout.md §10, S3)', () => {
+	it('reads only the words in sight, and a disclosure only where the reference is', async () => {
+		const c = named('parallel-crane');
+		render(PumpGroupChart, props(c, { system: systemReady(c), image: image() }));
+		await drawn();
+		const lines = await footerLines();
+		// A line hidden inside a visible one is off screen, and not in a disclosure: the guard fails.
+		const note = screen.getByText(/^Pump curves and points are at each pump's flanges\./);
+		note.classList.add('max-sm:sr-only');
+		expect(() => footerOnScreen(lines)).toThrow();
+		note.classList.remove('max-sm:sr-only');
+		const how = document.querySelector<HTMLDetailsElement>('[data-group-reading]')!;
+		// "How to read this chart" holds the axes, the group system curve's and the own curves' notes.
+		expect(footerOnScreen(lines).sort()).toEqual(
+			[...how.querySelectorAll('p')].map((p) => p.textContent!).sort()
+		);
+	});
+
+	const fixtureCase = (name: string) => named(name);
+	const disagreeing = () => {
+		const c = named('parallel-crane');
+		const group = structuredClone(c.groupCurve.body as PumpGroupCurveResponse);
+		Object.assign(group.dutyCheck!, {
+			agrees: false,
+			flow: group.duty!.flow * 1.1,
+			message: 'made-up server words'
+		});
+		const system = structuredClone(c.systemCurve!.body as PumpGroupCurveResponse);
+		Object.assign(system.systemDutyCheck!, {
+			agrees: false,
+			head: system.duty!.head + 2,
+			message: 'made-up server words'
+		});
+		return props(c, {
+			curve: { status: 'ready', response: group },
+			system: { status: 'ready', response: system }
+		});
+	};
+	const notKnown = () => {
+		const c = named('parallel-ideal');
+		const response = structuredClone(c.groupCurve.body as PumpGroupCurveResponse);
+		response.dutyCheck = {
+			agrees: false,
+			flow: null,
+			members: response.duty!.members.map((x) => ({ pumpId: x.pumpId, flow: null })),
+			message: 'made-up server words'
+		};
+		Object.assign(
+			response.points.find((p) => p.isDuty)!,
+			{
+				flow: null,
+				converged: false,
+				reason: 'not_computed',
+				message: "not computed: the request's 45 s budget ran out",
+				members: []
+			}
+		);
+		return props(c, { curve: { status: 'ready', response } });
+	};
+	const refusedOf = (name: string, system = false) => {
+		const c = named(name);
+		const body = c.groupCurve.body as { message: string; issues: TopologyIssue[] };
+		return props(c, {
+			curve: { status: 'refused', message: body.message, issues: body.issues },
+			...(system ? { system: systemReady(c) } : {}),
+			oninspect: () => {}
+		});
+	};
+	const states: {
+		name: string;
+		props: () => ReturnType<typeof props>;
+		/** Lines the state must give, so the guard is known to read them, each visible. */
+		covers: RegExp[];
+	}[] = [
+		{
+			name: 'both curves, the checks agreeing (parallel-crane)',
+			props: () =>
+				props(fixtureCase('parallel-crane'), { system: systemReady(named('parallel-crane')) }),
+			covers: [/^At the duty's rise the group curve gives/, /^Pump curves and points are at/]
+		},
+		{
+			name: 'group-system-curve points without a rise (fcv-outside)',
+			props: () => props(fixtureCase('fcv-outside'), { system: systemReady(named('fcv-outside')) }),
+			covers: [/group-system-curve points have no rise/]
+		},
+		{
+			name: 'both checks disagreeing (synthetic)',
+			props: disagreeing,
+			covers: [
+				/^The group curve does not pass through the Group point:/,
+				/^The group system curve does not pass through the Group point:/,
+				/^Several steady states can exist/
+			]
+		},
+		{
+			name: 'the duty check not known (synthetic)',
+			props: notKnown,
+			covers: [/^The group curve's point at the duty's rise was not computed/]
+		},
+		{
+			name: 'not a station (refused)',
+			props: () => refusedOf('refused'),
+			covers: [/^These pumps do not form a station/]
+		},
+		{
+			name: 'the group curve not defined for a PRV inside, its group system curve drawn',
+			props: () => refusedOf('prv-inside', true),
+			covers: [/^These pumps form a station, but its group curve is not defined there/]
+		},
+		{
+			name: 'the group curve failed, the group system curve cancelled',
+			props: () =>
+				props(fixtureCase('parallel-ideal'), {
+					curve: { status: 'error', message: 'Made-up message.' },
+					system: { status: 'cancelled', by: 'user' }
+				}),
+			covers: [/^The group curve could not be computed: Made-up message\.$/]
+		},
+		{
+			name: 'in series, the piping between the pumps',
+			props: () => props(fixtureCase('series'), { system: systemReady(named('series')) }),
+			covers: [/the piping between the pumps loses/]
+		},
+		{
+			name: 'no duty in this case',
+			props: () => props(fixtureCase('no-duty')),
+			covers: [/^No group curve for this case: /]
+		},
+		{
+			name: 'one member ticked',
+			props: () => props(fixtureCase('parallel-ideal'), { slots: ['PA'], curve: undefined }),
+			covers: [/^Tick two pumps or more to compute their group curve\.$/]
+		}
+	];
+	for (const state of states) {
+		it(state.name, async () => {
+			render(PumpGroupChart, { ...state.props(), image: image() });
+			await drawn();
+			const lines = await footerLines();
+			for (const pattern of state.covers) {
+				expect(
+					lines.some((line) => pattern.test(line)),
+					String(pattern)
+				).toBe(true);
+			}
+			const inside = footerOnScreen(lines);
+			// What qualifies the reading is never one step away (§5.3, §10): the checks, the
+			// coverage, the refusal and the frame of the members are in sight.
+			for (const pattern of state.covers) {
+				expect(
+					inside.some((line) => pattern.test(line)),
+					String(pattern)
+				).toBe(false);
+			}
+		});
+	}
 });

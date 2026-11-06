@@ -97,6 +97,12 @@ function media(matches: (query: string) => boolean) {
 	})) as unknown as typeof window.matchMedia;
 }
 
+/** `n` animation frames (jsdom pretends to be visual: requestAnimationFrame runs). */
+async function frames(n: number) {
+	for (let i = 0; i < n; i++)
+		await new Promise<void>((done) => requestAnimationFrame(() => done()));
+}
+
 /** jsdom has no scrollIntoView: a recording one, for the test. */
 function stubScroll() {
 	const scrolled = vi.fn();
@@ -385,10 +391,12 @@ describe('the section nav in its pane', () => {
 		place(sections, [-3000, -2300, -1600, -1000, 155, 1000, 1500]);
 		await observe();
 		expect(currentNames()).toEqual(['Group chart']);
-		// Its root reaches below the pane, so a jump past it is seen; its top margin is the nav's.
+		// Its root reaches below the pane, so a jump past it is seen; its top margin is the nav's,
+		// the targets' 0.5 rem and 1 px, so a target at rest 0.5 rem under the nav (161) lies across
+		// the root's top edge (162): seen to arrive there and to leave (S2 check NAV2-LEAVE).
 		const observer = FakeObserver.all.find((o) => o.targets.has(sections[0]!.target))!;
 		expect(observer.root).toBe(scroller);
-		expect(observer.rootMargin).toBe('-61px 0px 100000px 0px');
+		expect(observer.rootMargin).toBe('-62px 0px 100000px 0px');
 	});
 
 	it('moves aria-current only, never the stop, while the focus is in the toolbar', async () => {
@@ -440,8 +448,8 @@ describe('the section nav in its pane', () => {
 		// On the way Group chart crosses the line while Add cases is still below the pane.
 		place(sections, [-2000, -1300, -200, 100, 150, 900, 1400]);
 		await observe();
-		// It stops with Add cases on the observer's top margin (100 + 53 + 8): no threshold is
-		// crossed, so no callback; the scroll's end reads the pane.
+		// It stops with Add cases at rest, 0.5 rem under the nav (100 + 53 + 8): here no observer
+		// callback runs, so the read is the scroll's end's.
 		place(sections, [-2800, -2100, -1000, -700, -650, 161, 600]);
 		scroller.dispatchEvent(new Event('scrollend'));
 		await tick();
@@ -463,6 +471,78 @@ describe('the section nav in its pane', () => {
 		place(sections, [-1500, -800, 300, 600, 900, 2200, 2700]);
 		await observe();
 		expect(currentNames()).toEqual(['Pump chart']);
+	});
+
+	/** A pane whose scroll the test moves: its scrollTop, and each target's top that much higher. */
+	function scrolling(scroller: HTMLElement, sections: SectionTarget[], start: number[]) {
+		let at = 0;
+		Object.defineProperty(scroller, 'scrollTop', {
+			configurable: true,
+			get: () => at,
+			set: (v: number) => (at = v)
+		});
+		place(sections, start);
+		return async (to: number) => {
+			at = to;
+			place(
+				sections,
+				start.map((t) => t - to)
+			);
+			await observe();
+		};
+	}
+
+	it('ends a press its scroll stops short of: the user’s own scroll then brings the target in from below unmarked (§5.4 Where you are; S2 check NAV2-STUCK)', async () => {
+		stubScroll();
+		const { scroller, canvas } = pane();
+		const sections = sectionsOf(ALL);
+		const scrollTo = scrolling(scroller, sections, [180, 900, 2000, 2400, 2700, 4000, 4500]);
+		render(PumpsNav, { props: { sections, scroller, canvas } });
+		await observe();
+		for (const cut of ['Home', 'a scrollbar dragged back'] as const) {
+			await scrollTo(0);
+			await fireEvent.click(button('Running combinations'));
+			await frames(2);
+			// The press's smooth scroll on its way, 1500 px down; then cut short, the pane back at its
+			// top (Home) or at 600 px (the drag), where it stops, Running combinations still below
+			// the pane (100 to 700).
+			await scrollTo(1500);
+			await scrollTo(cut === 'Home' ? 0 : 600);
+			scroller.dispatchEvent(new Event('scrollend'));
+			await frames(4);
+			expect(currentNames(), cut).toEqual(['Per pump']);
+			// Later the user's own scroll brings it in from below, Add cases passed: Add cases is
+			// current, never the target before it is passed.
+			await scrollTo(3850);
+			expect(currentNames(), cut).toEqual(['Add cases']);
+			await scrollTo(3950);
+			expect(currentNames(), cut).toEqual(['Add cases']);
+		}
+	});
+
+	it('keeps a press whose scroll goes on: a stop before its first frame, or one after which the pane goes on toward the target (§5.4 Where you are; S2 check NAV2-STUCK)', async () => {
+		stubScroll();
+		const { scroller, canvas } = pane();
+		const sections = sectionsOf(ALL);
+		const scrollTo = scrolling(scroller, sections, [180, 900, 2000, 2400, 2700, 4000, 4500]);
+		render(PumpsNav, { props: { sections, scroller, canvas } });
+		await observe();
+		await fireEvent.click(button('Running combinations'));
+		// A stop before the first frame after the press ends a scroll begun before it (the focus
+		// bringing the nav into view, at 320×640): the press holds, though the pane has not moved.
+		scroller.dispatchEvent(new Event('scrollend'));
+		await frames(4);
+		// A stop on the way (a scroll it took over ended), after which the pane goes on toward the
+		// target: the press holds.
+		await scrollTo(1500);
+		scroller.dispatchEvent(new Event('scrollend'));
+		await scrollTo(1600);
+		await frames(4);
+		// It stops at the pane's end, Running combinations on screen under the line: current.
+		await scrollTo(3950);
+		scroller.dispatchEvent(new Event('scrollend'));
+		await tick();
+		expect(currentNames()).toEqual(['Running combinations']);
 	});
 
 	it('brings a static nav back into view with the focus an arrow key moves; pinned, the focus scrolls nothing (§5.4 Focus never hidden)', async () => {

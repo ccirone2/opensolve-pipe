@@ -18,7 +18,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
+import {
+	expect,
+	test,
+	type JSHandle,
+	type Locator,
+	type Page,
+	type TestInfo
+} from '@playwright/test';
 import { gzip } from 'pako';
 import type { Project } from '../src/lib/api/types';
 import { exampleProject, pumpTransferExample } from '../src/lib/utils/examples';
@@ -1202,6 +1209,42 @@ function focusInSight(s: NavState, what: string) {
 	}
 }
 
+/**
+ * Where the pane says you are (§5.4 Where you are), read from the targets given in document order
+ * (the sections' targets, as their presses focused them): the last whose top is at or above the
+ * line under the nav (the pane's top, the nav's height, the targets' 0.5 rem and 1 px for
+ * rounding), else the first; and whether each is on screen in the pane.
+ */
+function sectionsPassed(targets: Element[]) {
+	const pane = document.querySelector('section[aria-label="Results"]')!;
+	const row = pane.querySelector('[role="tablist"][aria-label="Results view"]')!;
+	let scroller: HTMLElement | null = null;
+	for (let e = row.parentElement; e && e !== pane; e = e.parentElement) {
+		if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) {
+			scroller = e as HTMLElement;
+			break;
+		}
+	}
+	const box = scroller!.getBoundingClientRect();
+	const top = Math.max(box.top + scroller!.clientTop, 0);
+	const bottom = Math.min(box.top + scroller!.clientTop + scroller!.clientHeight, innerHeight);
+	const nav = document.querySelector('[data-pumps-nav]')!.getBoundingClientRect().height;
+	const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+	const line = top + nav + rem / 2 + 1;
+	const boxes = targets.map((t) => t.getBoundingClientRect());
+	let passed = 0;
+	boxes.forEach((b, i) => {
+		if (b.top <= line) passed = i;
+	});
+	return {
+		passed,
+		line,
+		bottom,
+		tops: boxes.map((b) => Math.round(b.top)),
+		onScreen: boxes.map((b) => b.top < bottom && b.bottom > top)
+	};
+}
+
 /** Scroll the Results pane's scroller by `by` px (or to `to`), and let its observers run. */
 async function scrollPane(page: Page, move: { by?: number; to?: number }) {
 	await page.evaluate((m) => {
@@ -1367,6 +1410,8 @@ async function navPart(page: Page, where: string) {
 	// (pinned) or the pane's top (static), unless the pane cannot scroll that far; no motion.
 	await page.emulateMedia({ reducedMotion: 'reduce' });
 	const names = state.buttons.map((b) => b.name);
+	/** Each button's target, as its press focused it, in the buttons' order. */
+	const targets: JSHandle<Element>[] = [];
 	for (const name of names) {
 		await toolbar.getByRole('button', { name, exact: true }).press('Enter');
 		const animations = await page.evaluate(() => document.getAnimations().length);
@@ -1407,6 +1452,23 @@ async function navPart(page: Page, where: string) {
 		).toBe(hash);
 		focusInSight(state, `after pressing ${label}, ${where}`);
 		await pageStill(page, `after pressing ${label}, ${where}`);
+
+		// Then 150 px back up: aria-current follows, to the section passed last, unless the pane
+		// stopped at its end with the target short of the line and it is still on screen (§5.4
+		// Where you are; S2 check NAV2-LEAVE: a target at rest on the observer's edge left it
+		// unseen, and the section pressed stayed current). Then back where the press left it.
+		targets.push(await page.evaluateHandle(() => document.activeElement!));
+		const i = targets.length - 1;
+		const landed = await page.evaluate(sectionsPassed, targets);
+		await scrollPane(page, { by: -150 });
+		await frames(page);
+		const up = await page.evaluate(sectionsPassed, targets);
+		const held = landed.passed < i && up.onScreen[i]!;
+		soft(
+			(await page.evaluate(readNav)).buttons.find((b) => b.current === 'location')?.name,
+			`aria-current 150 px back up after pressing ${label} (tops ${up.tops.join(', ')}, the line at ${Math.round(up.line)}), ${where}`
+		).toBe(names[held ? i : up.passed]);
+		await scrollPane(page, { to: state.scrollTop });
 	}
 
 	// Each press from the tab's top, the nav static, with motion (the default): the target lands
@@ -1435,6 +1497,73 @@ async function navPart(page: Page, where: string) {
 		).toBe(name);
 		focusInSight(state, `after pressing ${label}, ${where}`);
 		await pageStill(page, `after pressing ${label}, ${where}`);
+	}
+
+	// A press cut short (S2 check NAV2-STUCK): the last button pressed from the tab's top, with
+	// motion, then Home, or the scrollbar dragged back to where the press began (an instant
+	// scroll), while its scroll runs and its target is still below the pane. Later the user's own
+	// scroll brings the target in from below, 60 px above the pane's foot and then 100 px further:
+	// aria-current is the section passed last, never the target before it is passed.
+	const last = names.at(-1)!;
+	for (const cut of ['Home', 'a drag'] as const) {
+		let below = false;
+		// The cut must come while the target is below the pane: tried again if the press was
+		// quicker (at most three times).
+		for (let attempt = 0; attempt < 3 && !below; attempt++) {
+			await scrollPane(page, { to: 0 });
+			await toolbar.getByRole('button', { name: last, exact: true }).press('Enter');
+			below = await page.evaluate(
+				([target, drag]) =>
+					new Promise<boolean>((done) => {
+						const pane = document.querySelector('section[aria-label="Results"]')!;
+						const row = pane.querySelector('[role="tablist"][aria-label="Results view"]')!;
+						let scroller: HTMLElement | null = null;
+						for (let e = row.parentElement; e && e !== pane; e = e.parentElement) {
+							if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) {
+								scroller = e as HTMLElement;
+								break;
+							}
+						}
+						const s = scroller!;
+						const from = s.scrollTop;
+						let n = 0;
+						// 200 px into the press's scroll (or its end, or 10 s), then the cut.
+						const step = () => {
+							if (s.scrollTop < from + 200 && ++n < 600) {
+								requestAnimationFrame(step);
+								return;
+							}
+							const box = s.getBoundingClientRect();
+							const bottom = Math.min(box.top + s.clientTop + s.clientHeight, innerHeight);
+							const out = target.getBoundingClientRect().top >= bottom;
+							if (drag) s.scrollTop = from;
+							done(out);
+						};
+						requestAnimationFrame(step);
+					}),
+				[targets.at(-1)!, cut === 'a drag'] as const
+			);
+			if (cut === 'Home') await page.keyboard.press('Home');
+			await scrollStops(page);
+			await frames(page);
+		}
+		soft(
+			below,
+			`the press of ${last} cut short (${cut}) while its target was below the pane, ${where}`
+		).toBe(true);
+		for (const [step, by] of [
+			['60 px above the pane’s foot', null],
+			['100 px further', 100]
+		] as const) {
+			const at = await page.evaluate(sectionsPassed, targets);
+			await scrollPane(page, { by: by ?? at.tops.at(-1)! - (at.bottom - 60) });
+			await frames(page);
+			const now = await page.evaluate(sectionsPassed, targets);
+			soft(
+				(await page.evaluate(readNav)).buttons.find((b) => b.current === 'location')?.name,
+				`aria-current, ${last} pressed and cut short (${cut}), then scrolled in to ${step} (tops ${now.tops.join(', ')}, the line at ${Math.round(now.line)}), ${where}`
+			).toBe(names[now.passed]);
+		}
 	}
 	await page.emulateMedia({ reducedMotion: 'reduce' });
 
@@ -1621,6 +1750,44 @@ async function navPart(page: Page, where: string) {
 		soft(
 			await toggle.getAttribute('aria-expanded'),
 			`the toggle pressed, "Back to the sections" focused and the pane at its end, ${where}`
+		).toBe('true');
+		if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+		// The pump chart card's "Back to the sections", shown, reaches over the gap onto this
+		// card's top, its toggle's top edge: a press there is the toggle's (S2 check
+		// BACK-OVERLAY: it was Back's, and the focus jumped to the nav).
+		const chartBack = page.locator('[data-pump-chart] [data-back-to-sections] button');
+		await chartBack.evaluate((b) => b.scrollIntoView({ block: 'center' }));
+		await chartBack.evaluate((b) => (b as HTMLElement).focus({ preventScroll: true }));
+		await frames(page);
+		const edge = await chartBack.evaluate(
+			(b, t) => {
+				const r = b.getBoundingClientRect();
+				const box = t.getBoundingClientRect();
+				const x = Math.max(box.left, r.left) + 10;
+				const y = box.top + 2;
+				const hit = document.elementFromPoint(x, y);
+				return {
+					x,
+					y,
+					over: x >= r.left && x <= r.right && y >= r.top && y <= r.bottom,
+					hit: !!hit && t.contains(hit)
+				};
+			},
+			(await toggle.elementHandle())!
+		);
+		console.log(
+			`${where}: the pump chart card's Back shown, ${edge.over ? 'over' : 'clear of'} the toggle's top edge`
+		);
+		soft(
+			edge.hit,
+			`the toggle's top edge takes a press, the pump chart card's Back shown, ${where}`
+		).toBe(true);
+		await page.mouse.click(edge.x, edge.y);
+		soft(
+			await toggle.getAttribute('aria-expanded'),
+			`a click on the toggle's top edge, the pump chart card's Back shown, ${where}`
 		).toBe('true');
 		if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click();
 		await expect(toggle).toHaveAttribute('aria-expanded', 'false');

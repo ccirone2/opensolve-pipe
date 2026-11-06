@@ -196,10 +196,16 @@
 	margin-block-end: 0;
 }
 
-/* 0.25 rem down, so its ring (2 px at a 2 px offset) clears the card's last line. */
+/*
+ * 0.25 rem down, so its ring (2 px at a 2 px offset) clears the card's last line. 44 px tall, it
+ * reaches over the gap onto the next card's top (its toggle's top edge after the pump chart), so a
+ * press there goes to what lies under it: Back is the keyboard's, shown only while focused, and
+ * Enter or Space presses it (S2 check BACK-OVERLAY).
+ */
 [data-back-to-sections] > :focus {
 	position: absolute;
 	top: 0.25rem;
 	left: 0;
 	z-index: 1;
+	pointer-events: none;
 }

@@ -7,7 +7,9 @@
 	Shown, it takes no room: its wrapper is positioned and holds nothing in flow, and the focused
 	button is laid over the card's foot from there (layout.css), white, over what follows. Showing
 	or hiding it never changes the pane's height, so a press elsewhere that hides it lands where it
-	was aimed, even with the pane at its end (the ui-guide's "so nothing moves").
+	was aimed, even with the pane at its end (the ui-guide's "so nothing moves"). Shown, it takes
+	no pointer press either: what lies under it does (the next card's toggle), and the keyboard
+	presses it (S2 check BACK-OVERLAY).
 -->
 <script lang="ts">
 	import { useSectionNav } from './section-nav.svelte';

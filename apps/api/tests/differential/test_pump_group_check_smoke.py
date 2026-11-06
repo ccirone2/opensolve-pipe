@@ -1095,6 +1095,32 @@ def test_a_disagreement_is_explained_only_by_a_rule() -> None:
     plain = check.model_copy(update={"message": "apart"})
     found, _ = problems(dataclasses.replace(curve, system_duty_check=plain), zero, state)
     assert found
+    # the other message of a rise that disagrees holds D13's other words: explained the same
+    another = check.model_copy(
+        update={
+            "message": "the rest of the network ..., solved from the case's own state, leaves "
+            "the rise undetermined (...): the station alone sets the level there, so the solve's "
+            "rise ... m is one of many; the group system curve's point is another steady state, "
+            "found from another start, with a rise of ... m (more than 0.5 % or 0.01 m apart)"
+        }
+    )
+    found, rec = problems(dataclasses.replace(curve, system_duty_check=another), zero, state)
+    assert found == []
+    assert rec.counts["system_disagrees: zero station flow"] == 1
+    # D10's reason words beside a rise are not D13's (pumps-results-layout.md §9 A1): the message
+    # of no rise, and the first start's without its other steady state, explain nothing
+    for message in (
+        "the rest of the network ... has no rise (no steady state carries this flow: every way "
+        "from the station's outlet back ...), so the group system curve is not shown to pass "
+        "through the duty",
+        "the rest of the network ..., solved from the case's own state, leaves the rise "
+        "undetermined (no steady state found that carries this flow: ...): the station alone "
+        "sets the level there, so the solve's rise ... m is one of many (more than 0.5 % or "
+        "0.01 m apart)",
+    ):
+        worded = check.model_copy(update={"message": message})
+        found, _ = problems(dataclasses.replace(curve, system_duty_check=worded), zero, state)
+        assert any("without D13's words" in p for p in found), (message, found)
 
 
 def test_falsified_invariance_is_caught() -> None:

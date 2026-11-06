@@ -1,6 +1,6 @@
 # The Pumps tab below the pump chart: sections, one way through, every feature kept
 
-**Status: Accepted by the owner (2026-11-05); building from S0.** The owner's words: "Start the build. I accept the recommendations to the questions." §12 records each answer and the slice it lands in. Web on `web/pumps-layout`, plus one small API branch, A1 (§9), for the server's words: no model or solver change, no solved value changed, `METHOD_VERSION` stays 1.6.0, `schemaVersion` stays 1, nothing new in the link, no new dependency. Every placement here is a designers' web default, reversible under D14; the four answers of §12 are the owner's. Measured and read against main's content at `3da7bae`; the branch adds only the re-tick fix of `web/cases-on-chart-retick` (`untickedAfter`), which changes no layout. Revised the same day for an accessibility review and a design review, each finding checked against the code (§14 records where each landed), and again for the owner's answers, which cut the card's text further (S3's ring notes, S5's extremes) and settle S6b, S8 and A1. Follows [`ui-ux-refinement.md`](ui-ux-refinement.md) and [`build-density.md`](build-density.md): measure the running app, act, then hold the result in a test.
+**Status: Accepted by the owner (2026-11-05); S0 built (§15), S1 to S8 and A1 to build.** The owner's words: "Start the build. I accept the recommendations to the questions." §12 records each answer and the slice it lands in. Web on `web/pumps-layout`, plus one small API branch, A1 (§9), for the server's words: no model or solver change, no solved value changed, `METHOD_VERSION` stays 1.6.0, `schemaVersion` stays 1, nothing new in the link, no new dependency. Every placement here is a designers' web default, reversible under D14; the four answers of §12 are the owner's. The audit (§2) measured and read main's content at `3da7bae` with the re-tick fix of `web/cases-on-chart-retick` (`untickedAfter`), which changes no layout. That fix has been on main since PR #265 (`2f5e1e3`). S0's record (§15) measures main at `2f5e1e3` against this branch. Revised the same day for an accessibility review and a design review, each finding checked against the code (§14 records where each landed), and again for the owner's answers, which cut the card's text further (S3's ring notes, S5's extremes) and settle S6b, S8 and A1. Follows [`ui-ux-refinement.md`](ui-ux-refinement.md) and [`build-density.md`](build-density.md): measure the running app, act, then hold the result in a test.
 
 ## 1. Scope
 
@@ -1420,3 +1420,93 @@ After this record the owner answered §12 (2026-11-05). The answers changed S3 (
 | design R7, axe's table rules never ran on the phone list | yes; the mock redrawn rather than the claim reworded | the mock's phone list is the restyled native `<table>`; §5.7 |
 | design R8, the extremes' box between S5 and S7 | yes, with `overflow-wrap: break-word` in place of `anywhere`, which narrows the condenser's pump column to 64 px and breaks "Condenser" inside the word (measured) | §5.3, §7 item 25, §9 S5, §10: no `tabindex` until S7, the 40-character name check |
 | fidelity F2 to F11 (a grep, a quotation, a citation, 114 characters, 37 px, the 5,650 px base, two pump switches, line numbers, the D13 hits, §3) | yes. For F4 the ring list cites S3's design; its column is not the case list's width (2.25 rem against 2.5 rem after a checkbox, as the mock draws them) | §3, §5.3, §5.7, §6.2, §9 A1, §10 |
+
+## 15. As built
+
+Each slice records its items here, numbered on from the slice before: each departure of the build from this text, each number of this text its measurement corrects, what it leaves or changes for a later slice, and the screenshots it commits. Its measurements, its failing-first test and its proof follow its items.
+
+**S0, as built** (`b1c3756` on `web/pumps-layout`; measured at `e701931`, which adds only docs: the owner's answers in this text and their review, and the matching lines in the proposals index and the roadmap; no code):
+
+1. **The "Also found" buttons' classes** (§9 S0). Each takes `whitespace-normal`, `text-left` and auto height, as §9 says, and also `py-1.5` and `wrap-anywhere`. `py-1.5` is what the app's other wrapping buttons take (`PortsEditor.svelte:206`, `FittingsEditor.svelte:286, 293`, `ProjectLibrary.svelte:552`). `wrap-anywhere` is `ProjectLibrary.svelte:552`'s: a pump name with no spaces breaks instead of overflowing. `.btn`'s `min-h-ctl`, 44 px in the Results pane, stays. `ui-guide.md` gains the pattern.
+2. **Where the sentence sits** (§5.3 Members leaves it open). "Showing a group found replaces the pumps ticked." is a `.hint` paragraph after the buttons. Each button's `aria-describedby` points to it, so a screen reader hears it with every button, and the screen shows it once per card. It is shown whenever a group is offered, one or more (§5.3: "either way"). The buttons and the sentence share one wrapper. `alsoFound` stays bound to the row of buttons, so `showSuggestion`'s focus handover is unchanged. "Other groups found: {n}" is S3's.
+3. **The doubled words, fixed where §6.2 says.** `otherNotes` gives an unticked case "unticked under Cases on this chart"; `o.words` is unchanged. The fix keeps its own literal, not a constant shared with `utils/pump-group-one-off.ts`: `utils/pump-group-chart.ts` imports only types from that module, and a shared value would make a runtime import cycle. Tests pin both strings exactly. The image footer takes the fixed line through `groupNoteLines`. No footer test pinned the old words, so none changed. The workbook carries no words about the other cases and is unchanged.
+4. **Every view is held to the rule, and the lineups failed it too.** §5.7 row 1 names only the condenser; the new file holds the one-off and lineups views to it as well. On main the lineups view scrolled sideways at 320×640: "Also found: Pump P2, Pump P3 and Pump P4" reached 332 px in a 296 px tab, and the pane's scroller held 344 px in 320. The audit measured only 1280×800 and 390×844, so §2.1 does not record it. The same fix covers it.
+5. **320×640 is a resize, not a project.** In the `mobile` project each test checks at 390×844, then resizes the page to 320×640 and checks again, as `pump-lineups.e2e.ts:568` does. The sideways assertions are `expect.soft`, so one run reports every size. The file has 3 tests, 6 with the two projects. A run of it took 2.9 to 3.0 min on one worker.
+6. **The probe, adapted from `measure.mjs`** (§2, §9 S0). It differs in four ways:
+   - the pane's scroller is the first ancestor of the "Results view" row whose `overflow-y` is `auto` or `scroll` (`resultsScroller`, `tests/support.ts`), with no condition that it overflows, so it is found even when the tab is short;
+   - sideways is strict, `scrollWidth ≤ clientWidth`, where the audit allowed 1 px;
+   - the repeated-phrase counts are dropped, and the count of headings below the chart is added;
+   - the screens are taken at CSS pixels.
+
+   Each run prints one line per view and size, and attaches the numbers to the test as JSON. With `PUMPS_LAYOUT_RECORD` set to a directory, it also writes there the numbers, the accessibility snapshot and the pane's screens from the pump canvas down: the before and after record of a slice.
+7. **The views' flows** (§2). The condenser example is opened by its link (`exampleProject('condenser-water')`, encoded as `build-density.e2e.ts` does), not from the home page. The condenser test also asserts 7 solves in all, and the block's Solve all unavailable at the end.
+8. **Tests beyond §9's list.** `noSidewaysScroll` (`pump-groups.e2e.ts:134–143`) also asserts that the pane's scroller is found. `PumpGroupChart.svelte.test.ts` gains one test (35 tests → 36): the sentence appears once; each "Also found" button has it as its accessible description and carries `btn`, `whitespace-normal` and `text-left`; with no group offered there is no sentence.
+9. **How the before numbers were measured** (§2, §9 S0). The new file's probe ran in record mode in a scratch worktree of main at `2f5e1e3`, with three files of this branch copied in: `tests/pumps-layout.e2e.ts`, `tests/support.ts` (which differs from main's only by `resultsScroller`) and `tests/pump-groups.e2e.ts`, for the before run of its stronger `noSidewaysScroll`. Playwright started the API and the app from that tree, on the e2e build (`pnpm build && pnpm preview`). The after numbers are this branch's, on the same build. The numbers of record come from the e2e config, whose `mobile` project runs at device scale factor 3. The five committed before screenshots (item 15) are crops of that run's screens, taken at CSS pixels. A second measurement after the review, of main in a fresh worktree and of this branch at `e701931`, gave the same numbers in all nine views and sizes, the outline, Tab-stop and paragraph lists included. That measurement also ran main and this branch with every project at device scale factor 1, and a focus probe of the wrapped buttons on this branch at the same scale. Item 14 reads their screens, which are not committed.
+10. **§2.1 against the e2e build.** The condenser at 390×844 measures 11,687 px below the pump canvas, not 11,673, so the area below it is 18.9 screens of 620 px (11,687 / 620 = 18.85), not 18.8. Its group chart's Show data table sits at +9,672, not +9,658. §2.1's two numbers are what the build gives at device scale factor 1; at 3, Running combinations is 14 px taller (4,855 against 4,841). Every other number of §2.1's two tables, of its card and of its walls of notes matches the e2e build.
+11. **§5.7 row 4's "Before" is the condenser's.** "The group legend's height, lineups, 390×844: 452 px" is the condenser's legend at 390×844, as is F27's 452. The lineups' legend measures 312 px there, on main and on this branch; the audit's own record says 312 too. Row 4 is S3's budget, so S3 sets it from its own measurement of both views.
+12. **§5.7's mock heights for the ring notes, against the build.** With S0's words the lineups' ring notes measure 640 px at 1280×800 (main 656), 832 at 390×844 (main 848) and 1,040 at 320×640 (main 1,040). The mock gives 634, 826 and 1,066. The mock's narrowest pane is 288 px wide; the build's at 320×640 is 296. The lineups' "Not on the chart" line goes from 48 to 32 px at 1280×800 and from 64 to 48 at 390×844. At 320×640 it stays 64 px, four lines with "chart)." alone on the last, so the fix saves no height there.
+13. **S0 moves the baselines of S2, S3 and S5.** §5.7's "Before" column is main's. Wrapped, the condenser's four buttons and the new sentence take 276 px at 1280×800, 336 at 390×844 and 452 at 320×640; before, the buttons took 176, cut off at the pane's edge. So, in the condenser:
+    - the card header to the station's first value: 3,522 → 3,622 px at 1280×800, 4,050 → 4,210 at 390×844, 4,618 → 4,894 at 320×640;
+    - the open card: 7,503 → 7,603 px at 1280×800.
+
+    The lineups' two buttons and the sentence take 108 px at 1280×800 and 390×844 and 134 at 320×640 (88 before). Its figure is 16 px shorter at 1280×800 and 390×844, from the "Not on the chart" line. So, in the lineups:
+    - the group canvas to its Show data table (S2's row): +7,416 → +7,400 px at 1280×800 and +11,729 → +11,713 at 390×844, so the row's "Before" is now +6,481 to +11,713; the condenser's is unchanged, +6,481 at 1280×800 and +9,672 at 390×844 (item 10);
+    - the ring notes (S3's row): 656 → 640 px at 1280×800 (item 12).
+
+    S3's "Other groups found: {n}" takes the height back wherever two groups or more are found, which is both views.
+14. **What the after screenshots show,** for S3, which rebuilds the members (§5.3):
+    - the condenser's four buttons read as a block of blue names, 2 to 6 lines each; two of them differ only in their last words;
+    - the quiet button's `px-2` starts each button's text 8 px right of the hint above, the new sentence and the figcaption (805 against 797 px at 1280×800; 33 against 25 on the phones);
+    - the row has `gap-x-2` only, so stacked buttons touch: at 1280×800 a focused button's 2 px outline, at its 2 px offset, overlaps the next button's box by 4 px;
+    - the sentence comes after the buttons, so a sighted reader meets them before learning what one does; at 320×640 it leaves "ticked." alone on a second line;
+    - nothing is clipped: every button wraps inside the card, and the focus ring is whole at 320×640.
+15. **The screenshots committed** (§9 S0, the record). Five crops of the before state, at CSS pixels, in [`pumps-results-layout/`](pumps-results-layout/), each under 120 KB:
+    - the condenser's card from its top, with the four buttons cut off at the pane's edge: [`before-condenser-1280x800-card.png`](pumps-results-layout/before-condenser-1280x800-card.png) (512 × 717), [`before-condenser-390x844-card.png`](pumps-results-layout/before-condenser-390x844-card.png) (390 × 733) and [`before-condenser-320x640-card.png`](pumps-results-layout/before-condenser-320x640-card.png) (320 × 749);
+    - the lineups' card from its top at 320×640, its first button cut off: [`before-lineups-320x640-card.png`](pumps-results-layout/before-lineups-320x640-card.png) (320 × 485);
+    - the one-off view from the pump canvas down at 1280×800: [`before-one-off-1280x800.png`](pumps-results-layout/before-one-off-1280x800.png) (512 × 867).
+
+    The full-length before and after images were stitched from the probe's screens by a script outside the repository, and are not committed.
+
+**S0, measured** on the e2e build in Chromium, main `2f5e1e3` → this branch. The pane is 480 px wide with a scroller of 512 × 666 px at 1280×800, 366 with 390 × 620 at 390×844, and 296 with 320 × 416 at 320×640, in every view. "Holds" is the scroller's `scrollWidth` in its `clientWidth`. "Sticking out" counts the shown elements below the pump canvas, outside any inner box that scrolls or clips sideways (`overflow-x` `auto`, `scroll` or `hidden`), whose box passes the tab's edge by more than 1 px. Heights in px. A cell with one value is the same before and after.
+
+| View | Size | Holds | Sticking out | Below the pump canvas | Open card | Paragraphs (words) | Controls | Tab stops |
+|---|---|---|---|---|---|---|---|---|
+| condenser, after Add cases | 1280×800 | 1,223 in 512 → 512 in 512 | 4 → 0 | 8,356 → 8,456 | 7,503 → 7,603 | 28 (1,409) → 29 (1,417) | 50 | 51 |
+| condenser, after Add cases | 390×844 | 1,219 in 390 → 390 in 390 | 4 → 0 | 11,687 → 11,847 | 10,698 → 10,858 | 28 (1,409) → 29 (1,417) | 50 | 51 |
+| condenser, after Add cases | 320×640 | 1,219 in 320 → 320 in 320 | 4 → 0 | 14,329 → 14,605 | 13,164 → 13,440 | 28 (1,409) → 29 (1,417) | 50 | 51 |
+| lineups, everything open | 1280×800 | 512 in 512 | 0 | 12,391 → 12,395 | 10,282 → 10,286 | 54 (3,210) → 55 (3,210) | 57 | 69 |
+| lineups, everything open | 390×844 | 390 in 390 | 0 | 18,044 → 18,048 | 14,983 → 14,987 | 54 (3,210) → 55 (3,210) | 57 | 69 |
+| lineups, everything open | 320×640 | 344 in 320 → 320 in 320 | 1 → 0 | 21,222 → 21,268 | 17,765 → 17,811 | 54 (3,210) → 55 (3,210) | 57 | 69 |
+| one-off, defaults | 1280×800 | 512 in 512 | 0 | 859 | closed | 10 (243) | 14 | 14 |
+| one-off, defaults | 390×844 | 390 in 390 | 0 | 1,095 | closed | 10 (243) | 14 | 14 |
+| one-off, defaults | 320×640 | 320 in 320 | 0 | 1,295 | closed | 10 (243) | 14 | 14 |
+
+- **What sticks out on main:** in the condenser, the four "Also found" buttons, their right edges at 558, 774, 991 and 1,207 px; in the lineups at 320×640, "Also found: Pump P2, Pump P3 and Pump P4", from 13 to 332 px.
+- **The page** never scrolls sideways, in any view at any size, before or after.
+- **Unchanged:** the headings below the pump canvas (3 in the condenser and the lineups, 1 in the one-off), the outline and the Tab-stop list in each view; every position on the pump chart; the inner boxes that scroll sideways inside the tab (lineups 3, 2 and 4; condenser 2, 1 and 1); the one-off view, identical at every size.
+- **The words:** the condenser gains the new sentence's 8 words; in the lineups the fix removes 8 words and the sentence adds 8.
+
+**S0, the failing-first test.** `tests/pumps-layout.e2e.ts` on main's code failed 3 tests and passed 3 (2.6 min). The assertions that failed, from the run's output, each error's message, expected and received on one line:
+
+```
+Error: the width the Results pane's scroller holds, 3-condenser at 1280x800   Expected: <= 512   Received: 1223
+Error: the width the Results pane's scroller holds, 3-condenser at 390x844    Expected: <= 390   Received: 1219
+Error: the width the Results pane's scroller holds, 3-condenser at 320x640    Expected: <= 320   Received: 1219
+Error: the width the Results pane's scroller holds, 2-lineups at 320x640      Expected: <= 320   Received: 344
+```
+
+Every other check passed: the one-off view at every size, and the lineups at 1280×800 and 390×844. The second measurement of main gave the same three failures (3.1 min). On this branch the file passes, 6 tests (3.0 min).
+
+**S0, proof** (from `apps/web`):
+
+- `pnpm check`: 832 files, 0 errors, 0 warnings. `pnpm lint`: Prettier and ESLint clean.
+- Vitest, the whole suite once: 134 files, 2,013 tests passed (136.8 s), none timed out. The files the slice touches or that read its words: `PumpGroupChart.svelte.test.ts`, `pump-group-others.test.ts`, `pump-group-one-off.test.ts`, `pump-group-chart.test.ts`, `PumpGroupOneOff.svelte.test.ts` and `PumpGroupView.svelte.test.ts`, 175 tests. The image and the export: `chart-image.test.ts`, `export/pump-groups.test.ts`, `export/fixture.test.ts` and `pump-group-system.test.ts`, 81 tests, none changed.
+- The assertions moved, each to the fixed sentence exactly, with the same `toEqual` over the whole notes: `pump-group-others.test.ts:304`, "Not on the chart: Both pumps off (not on the chart (unticked under Cases on this chart))." → "Not on the chart: Both pumps off (unticked under Cases on this chart)."; `:1287`, the same change for `NAMES.S7` and `NAMES.S8`. `o.words` is unchanged, and so are the tests that hold it: `pump-group-one-off.test.ts:399`, which pins it, and the synthetic `o.words` given as input at `PumpGroupChart.svelte.test.ts:1204` (which was `:1172`) and at `pump-group-others.test.ts:297`, the input of `:304`.
+- E2E, on one worker. On this branch: `tests/pumps-layout.e2e.ts` 6 passed. On main's code and on this branch: `tests/pump-groups.e2e.ts` 27 passed and 1 skipped (the phone-only test on desktop), with the stronger `noSidewaysScroll`.
+- Not run in this slice: the whole Playwright suite and axe with every disclosure open, which §9 asks before a web slice is merged.
+- Nothing under `apps/api/src` changed. `METHOD_VERSION` stays 1.6.0 and `schemaVersion` 1.
+
+**S0, after its review** (2 findings, both refuted; nothing changed). A review of the slice's tests made two findings. A check of each against this text, `ui-guide.md`, the decisions and GOALS found neither a fault of S0: the build holds what §9 S0 asks. Each names a check a later slice may add:
+
+- No e2e test asserts that the "Also found" buttons are drawn, so once S3 puts them behind "Other groups found", the condenser test could pass without them. The lineups view still guards them: it opens every closed disclosure, so it would open "Other groups found" (two groups) and fail at 320×640 on a button that does not wrap. The unit tests pin the buttons and their names, and §10 S3 opens the disclosure first in the moved tests.
+- No test tells the sentence visible from visually hidden. It is a `.hint` (`routes/layout.css:89`), so it is visible. jsdom has no Tailwind CSS, and `toBeVisible` cannot tell `sr-only` text from shown text, for this hint or any other.

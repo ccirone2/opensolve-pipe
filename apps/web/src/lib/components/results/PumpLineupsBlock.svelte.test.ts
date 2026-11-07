@@ -26,6 +26,7 @@ import type {
 } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
+import { outOfSight } from '$lib/testing/helpers';
 import { testWorkspace } from '$lib/testing/workspace';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
 import { lineupPlan, type LineupPlanInput } from '$lib/utils/pump-lineups';
@@ -67,6 +68,8 @@ const solvedCase = (name: string) =>
 const lineups = solvedCase('lineups');
 /** PA and PB, PB's discharge valve isolated: PB `running` at 0.0 m³/s in the base case. */
 const closedLeg = solvedCase('lineups-closed-leg');
+/** PA and PB, both carrying flow; its scenarios S1 "Pump PA off" and S2 "Pump PB off" first. */
+const oneOff = solvedCase('one-off');
 const stationOf = (c: FixtureCase) => (c.groupCurve.body as PumpGroupCurveResponse).station;
 const withoutScenarios = (c: FixtureCase = lineups) =>
 	withScenarios(structuredClone(c.project), []);
@@ -80,14 +83,18 @@ const NAMES = [
 // ---- In the workspace ----------------------------------------------------------------------
 
 /**
- * A solver answering from the `lineups` fixture by scenario id; the base case (no id) by
- * `baseOf` of the project sent, the fixture's base answers by default.
+ * A solver answering from the `lineups` fixture (or `from`) by scenario id; the base case (no id)
+ * by `baseOf` of the project sent, the fixture's base answers by default.
  */
-function setup(project: Project, baseOf: (sent: Project) => Responses = () => lineups) {
+function setup(
+	project: Project,
+	baseOf: (sent: Project) => Responses = () => lineups,
+	from: FixtureCase = lineups
+) {
 	const calls: { scenarioId: string | null; curve: 'group' | 'system' }[] = [];
 	const solves: (string | null)[] = [];
 	const responsesOf = (sent: Project, id: string | undefined): Responses =>
-		(id && lineups.scenarioCases[id]) || baseOf(sent);
+		(id && from.scenarioCases[id]) || baseOf(sent);
 	const solver: Solver = {
 		solve: async (project, _o, request) => {
 			solves.push(request?.scenarioId ?? null);
@@ -497,11 +504,12 @@ describe('the Add cases block in the workspace', () => {
 		expect(add).toHaveAccessibleDescription(
 			'Adding 3 cases would make 21 scenarios; a project holds at most 20 scenarios.'
 		);
-		expect(
-			inBlock().getByText(
-				'Adding 3 cases would make 21 scenarios; a project holds at most 20 scenarios.'
-			)
-		).toBeVisible();
+		const refusal = inBlock().getByText(
+			'Adding 3 cases would make 21 scenarios; a project holds at most 20 scenarios.'
+		);
+		expect(refusal).toBeVisible();
+		// On screen, not visually hidden (§5.3 item 4; S4 review MUT-02).
+		expect(outOfSight(refusal)).toBe(false);
 		const depth = ws.store.undoDepth;
 		await fireEvent.click(add);
 		expect(ws.store.undoDepth).toBe(depth);
@@ -724,6 +732,26 @@ describe('the Add cases block, drawn alone', () => {
 
 // ---- The Pumps tab's S4: one structure, the fold, the new lines (pumps-results-layout.md) -----
 
+/**
+ * The panel's parts in order, each by what it is: its header row, the segments, the plan, the
+ * row, the refusal, Solve all's reason (shown or hidden), "Now ticked", the table button, and the
+ * polite line (§5.3 items 1 to 6).
+ */
+function partsOf(region: Element) {
+	return [...region.children].map((el) => {
+		if (el.querySelector(':scope > h4')) return 'header';
+		if (el.querySelector('[role="radiogroup"]')) return 'segments';
+		if (el.matches('[data-lineup-plan]')) return 'plan';
+		if (el.querySelector('button') && el.tagName === 'DIV') return 'row';
+		if (el.id.endsWith('-refusal')) return 'refusal';
+		if (el.id.endsWith('-solve-all')) return el.classList.contains('sr-only') ? 'hidden' : 'reason';
+		if (el.matches('[data-now-ticked]')) return 'ticked';
+		if (el.tagName === 'BUTTON') return 'table';
+		if (el.matches('[data-stop-status]')) return 'status';
+		return el.tagName;
+	});
+}
+
 describe('Add cases in one structure (pumps-results-layout.md §5.3, §9 S4, §10 S4)', () => {
 	const lasting = runnable;
 	const canRun = {
@@ -750,26 +778,7 @@ describe('Add cases in one structure (pumps-results-layout.md §5.3, §9 S4, §1
 		name: `Case ${i + 1}`,
 		overrides: []
 	}));
-	/**
-	 * The panel's parts in order, each by what it is: its header row, the segments, the plan, the
-	 * row, the refusal, Solve all's reason (shown or hidden), "Now ticked", the table button, and the
-	 * polite line (§5.3 items 1 to 6).
-	 */
-	function parts() {
-		return [...region().children].map((el) => {
-			if (el.querySelector(':scope > h4')) return 'header';
-			if (el.querySelector('[role="radiogroup"]')) return 'segments';
-			if (el.matches('[data-lineup-plan]')) return 'plan';
-			if (el.querySelector('button') && el.tagName === 'DIV') return 'row';
-			if (el.id.endsWith('-refusal')) return 'refusal';
-			if (el.id.endsWith('-solve-all'))
-				return el.classList.contains('sr-only') ? 'hidden' : 'reason';
-			if (el.matches('[data-now-ticked]')) return 'ticked';
-			if (el.tagName === 'BUTTON') return 'table';
-			if (el.matches('[data-stop-status]')) return 'status';
-			return el.tagName;
-		});
-	}
+	const parts = () => partsOf(region());
 
 	it('draws a framed panel: its h4 at 14 px with the tag "Changes the project" beside it, a sibling, and the label at 12 px', () => {
 		draw(planOn(lineups), { ontable: vi.fn() });
@@ -786,6 +795,8 @@ describe('Add cases in one structure (pumps-results-layout.md §5.3, §9 S4, §1
 		expect(h4.parentElement).toHaveClass('flex', 'flex-wrap', 'items-center');
 		expect(tag).toHaveClass('text-xs', 'text-slate-600');
 		expect(tag).not.toHaveClass('border');
+		// On screen, not visually hidden (jsdom applies no CSS: the classes say so; S4 review MUT-02).
+		expect(outOfSight(tag)).toBe(false);
 		// "Cases to add" at 12 px (a field label inside a section, §5.2), outside any disclosure.
 		const label = alone().getByText('Cases to add', { exact: true });
 		expect(label).toHaveClass('label');
@@ -882,10 +893,20 @@ describe('Add cases in one structure (pumps-results-layout.md §5.3, §9 S4, §1
 			expect(plan()).toBeNull();
 			expect(alone().queryByRole('radiogroup')).toBeNull();
 			expect(alone().getAllByRole('button').at(-1)).toHaveAccessibleName('Pump lineups table…');
-			// A gate's Solve all keeps its reason visually hidden, as before S4 (§5.3: "as today").
+			// A gate's Solve all shows its lasting reason as outside a gate, visible text and its
+			// description (§7 Names and marks, §6.2 "Made visible"; S4 review AT-3); one that
+			// passes stays visually hidden and in its title.
 			if (count) {
-				expect(region().querySelector('[id$="-solve-all"]')).toHaveClass('sr-only');
-				expect(solveAlls()[0]).toHaveAttribute('title', lasting.reason);
+				const reason = () => region().querySelector('[id$="-solve-all"]')!;
+				expect(reason()).toHaveClass('hint');
+				expect(reason()).not.toHaveClass('sr-only');
+				expect(outOfSight(reason())).toBe(false);
+				expect(solveAlls()[0]).toHaveAccessibleDescription(lasting.reason);
+				expect(solveAlls()[0]).not.toHaveAttribute('title');
+				await view.rerender({ plan: p, solveAll: running, ontable });
+				expect(reason()).toHaveClass('sr-only');
+				expect(solveAlls()[0]).toHaveAccessibleDescription(running.reason);
+				expect(solveAlls()[0]).toHaveAttribute('title', running.reason);
 			}
 		}
 	});
@@ -981,6 +1002,7 @@ describe('Add cases in one structure (pumps-results-layout.md §5.3, §9 S4, §1
 		);
 		const ids = alone().getByText(/^In the names, /);
 		expect(ids).toBeVisible();
+		expect(outOfSight(ids)).toBe(false);
 		await fireEvent.click(plan()!.querySelector(':scope > summary')!);
 		expect(ids).not.toBeVisible();
 	});
@@ -995,6 +1017,7 @@ describe('Add cases in one structure (pumps-results-layout.md §5.3, §9 S4, §1
 		const clause = summary.querySelector('span > span')!;
 		expect(clause.textContent).toBe(': 3 cases by number running: 3 to add');
 		expect(clause).toHaveClass('font-normal', 'text-slate-600');
+		expect(outOfSight(clause)).toBe(false);
 		// Its chevron turns without motion when reduced motion is asked for (§5.3 markup rules), and
 		// is the plan's own: the stop order's turns with the stop order alone (named groups).
 		const chevrons = [...region().querySelectorAll('summary svg')];
@@ -1013,8 +1036,11 @@ describe('Add cases in one structure (pumps-results-layout.md §5.3, §9 S4, §1
 		expect(reason()).toBeVisible();
 		expect(button).toHaveAccessibleDescription("Every case's results are current.");
 		expect(button).not.toHaveAttribute('title');
-		// After the refusal, as §5.3 orders them.
+		expect(outOfSight(reason())).toBe(false);
+		// After the refusal, visible (§5.3 item 4), as §5.3 orders them.
 		const refusal = region().querySelector('[id$="-refusal"]')!;
+		expect(refusal).toHaveTextContent(/^Every case by number running already exists: /);
+		expect(outOfSight(refusal)).toBe(false);
 		expect(refusal.nextElementSibling).toBe(reason());
 		// A run in progress: its reason passes, so it is not drawn but described and the title.
 		await view.rerender({ plan: planOn(lineups, { project: made(3) }), solveAll: running });
@@ -1078,21 +1104,40 @@ describe('Add cases in the workspace since S4 (pumps-results-layout.md §5.3, §
 		await waitFor(() => expect(stopStatus()).toBe(NOW_TICKED));
 		expect(ticked()).toHaveTextContent(NOW_TICKED);
 		expect(ticked()).toBeVisible();
+		// On screen, not visually hidden (jsdom applies no CSS: its classes say so).
+		expect(outOfSight(ticked()!)).toBe(false);
 		expect(block().querySelector('[data-stop-status]')).toHaveAttribute('aria-live', 'polite');
 		// Every case made: the plan stays as the user left it (closed), its summary saying so.
 		expect(plan().open).toBe(false);
 		expect(plan().querySelector('summary')).toHaveTextContent(
 			'The plan: 3 cases by number running: all 3 made'
 		);
-		// The box unticked: the line goes, and does not come back when it is ticked again.
+		// The after-Add state keeps the one structure: "Now ticked" after Solve all's (hidden: it
+		// can run) reason, before the table button; the segments still first (§5.3).
+		expect(partsOf(block())).toEqual([
+			'header',
+			'segments',
+			'plan',
+			'row',
+			'refusal',
+			'hidden',
+			'ticked',
+			'table',
+			'status'
+		]);
+		// The box unticked: the line goes, its polite copy with it (§5.3: the same sentence), and
+		// neither comes back when it is ticked again.
 		const box = within(card()).getByRole('checkbox', {
 			name: "Also show the other cases' station duties"
 		});
 		await fireEvent.click(box);
 		await waitFor(() => expect(ticked()).toBeNull());
+		expect(box).not.toBeChecked();
+		expect(stopStatus()).toBe('');
 		await fireEvent.click(box);
 		expect(ws.pumpGroupOthers).toBe(true);
 		expect(ticked()).toBeNull();
+		expect(stopStatus()).toBe('');
 	}, 20_000);
 
 	it('after Undo the plan opens itself; an Add with the plan open leaves it open; an Add with “Also show …” already ticked says nothing', async () => {
@@ -1102,24 +1147,86 @@ describe('Add cases in the workspace since S4 (pumps-results-layout.md §5.3, §
 		await press('Add 3 cases');
 		await waitFor(() => expect(stopStatus()).toBe(NOW_TICKED));
 		expect(plan().open).toBe(false);
-		// Undo: cases remain again, so the plan opens itself, and "Now ticked" goes with its Add.
+		// Undo: cases remain again, so the plan opens itself, and "Now ticked" goes with its Add,
+		// on screen and in the polite line.
 		expect(ws.undo()).toBe(true);
 		await waitFor(() => expect(plan().open).toBe(true));
 		expect(ticked()).toBeNull();
+		expect(stopStatus()).toBe('');
 		// "Also show …" is still ticked (page state): this Add ticks nothing, so nothing is said.
 		expect(ws.pumpGroupOthers).toBe(true);
-		const before = stopStatus();
 		await press('Add 3 cases');
 		await waitFor(() =>
 			expect(inBlock().getByRole('button', { name: 'Solve all (3)' })).toHaveFocus()
 		);
 		expect(ticked()).toBeNull();
+		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(stopStatus()).toBe('');
-		expect(before).toBe(NOW_TICKED);
 		// The user's own Add left the plan open: it stays open.
 		expect(plan().open).toBe(true);
 		expect(plan().querySelector('summary')).toHaveTextContent(
 			'The plan: 3 cases by number running: all 3 made'
 		);
+	}, 20_000);
+
+	it('another preset chosen after an Add: “Now ticked” goes, on screen and in the polite line, though every case of both presets is made', async () => {
+		const { ws, calls } = setup(withoutScenarios(oneOff), () => oneOff, oneOff);
+		await openCard(ws, calls);
+		await fireEvent.click(inBlock().getByRole('radio', { name: 'Each pump off' }));
+		await press('Add 2 cases');
+		await waitFor(() => expect(stopStatus()).toBe(NOW_TICKED));
+		expect(ticked()).toHaveTextContent(NOW_TICKED);
+		expect(plan().querySelector('summary')).toHaveTextContent(
+			'The plan: 2 cases with each pump off: all 2 made'
+		);
+		// By number running's one case is "Pump PB off" made: nothing remains, only the preset moved.
+		await fireEvent.click(inBlock().getByRole('radio', { name: 'By number running' }));
+		expect(plan().querySelector('summary')).toHaveTextContent(
+			'The plan: 1 case by number running: 1 made'
+		);
+		expect(ws.pumpGroupOthers).toBe(true);
+		expect(ticked()).toBeNull();
+		expect(stopStatus()).toBe('');
+	}, 20_000);
+
+	it('a second Add that ticks “Also show …” again is said: the polite line is drawn empty for a frame before its words (§7 Live regions)', async () => {
+		const { ws, calls } = setup(withoutScenarios());
+		await openCard(ws, calls);
+		await press('Add 3 cases');
+		await waitFor(() => expect(stopStatus()).toBe(NOW_TICKED));
+		const box = within(card()).getByRole('checkbox', {
+			name: "Also show the other cases' station duties"
+		});
+		await fireEvent.click(box);
+		await waitFor(() => expect(ticked()).toBeNull());
+		expect(stopStatus()).toBe('');
+		await fireEvent.click(inBlock().getByRole('radio', { name: 'Each pump off' }));
+		expect(plan().querySelector('summary')).toHaveTextContent(
+			'The plan: 4 cases with each pump off: 3 to add'
+		);
+		// The line at each animation frame from the press on (this sampler is registered before
+		// the block's own frames), and at the first task after the press.
+		const frames: string[] = [];
+		let sampling = true;
+		const sample = () => {
+			frames.push(stopStatus() ?? '');
+			if (sampling) requestAnimationFrame(sample);
+		};
+		let firstTask: string | null = null;
+		setTimeout(() => (firstTask = stopStatus()), 0);
+		requestAnimationFrame(sample);
+		await press('Add 3 cases');
+		expect(ws.pumpGroupOthers).toBe(true);
+		expect(ticked()).toHaveTextContent(NOW_TICKED);
+		await waitFor(() => expect(stopStatus()).toBe(NOW_TICKED));
+		await waitFor(() => expect(frames.at(-1)).toBe(NOW_TICKED));
+		sampling = false;
+		// Empty in the press's own task and at its first frame, then the words, nothing else.
+		expect(firstTask).toBe('');
+		expect(frames[0]).toBe('');
+		const spoke = frames.indexOf(NOW_TICKED);
+		expect(spoke).toBeGreaterThan(0);
+		expect(frames.slice(0, spoke).every((t) => t === '')).toBe(true);
+		expect(frames.slice(spoke).every((t) => t === NOW_TICKED)).toBe(true);
 	}, 20_000);
 });

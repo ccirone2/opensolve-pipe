@@ -826,6 +826,22 @@ async function seenBox(locator: Locator): Promise<boolean> {
 	});
 }
 
+/**
+ * A line on screen as text: seenBox's test, no `.sr-only` element at or above it, and at least a
+ * 12 px line tall (pumps-results-layout.md §9 S4 "New lines … visible"; S4 review MUT-01, MUT-02).
+ */
+async function seenLine(locator: Locator): Promise<boolean> {
+	return locator.evaluate((el) => {
+		const r = el.getBoundingClientRect();
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			!el.closest('.sr-only') &&
+			r.width > 1 &&
+			r.height >= 12
+		);
+	});
+}
+
 const pumpFigure = (page: Page) =>
 	resultsView(page, 'Pumps').then((tab) =>
 		tab.getByRole('figure', { name: /^Pump and system curves/ })
@@ -2320,6 +2336,28 @@ async function addCasesPart(page: Page, view: string, where: string) {
 			true
 		);
 	}
+	// The lines the block shows as text are on screen, each where it is drawn (§9 S4 New lines;
+	// §5.3 items 4 and 5; S4 review MUT-01, MUT-02): the tag, the plan's summary clause, Add's
+	// refusal, "Now ticked", the id line while the plan is open, and Solve all's reason while it
+	// lasts (unavailable at rest: no solve runs here).
+	const lines: [string, Locator][] = [
+		['"Changes the project"', block.locator('[data-add-cases-tag]')],
+		["the plan's summary clause", block.locator('[data-lineup-plan] > summary > span > span')],
+		["Add's refusal", block.locator('[id$="-refusal"]')],
+		['"Now ticked"', block.locator('[data-now-ticked]')]
+	];
+	if (m.planOpen) lines.push(['the id line', block.locator('[data-lineup-ids]')]);
+	const solveAllButton = block.getByRole('button', { name: /^Solve all/ });
+	if (
+		(await solveAllButton.count()) === 1 &&
+		(await solveAllButton.getAttribute('aria-disabled')) === 'true'
+	) {
+		lines.push(["Solve all's lasting reason", block.locator('[id$="-solve-all"]')]);
+	}
+	for (const [what, line] of lines) {
+		if (!(await line.count())) continue;
+		soft(await seenLine(line), `${what} on screen, ${where}`).toBe(true);
+	}
 
 	// §7 item 24: the Tab order through the block, from its segments.
 	const checked = block.locator('[role="radiogroup"] input:checked');
@@ -3149,6 +3187,15 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 		`In the names, P4 is Pump P4, P3 is Pump P3, P2 is ${LONG_PUMP_2} and P1 is ${LONG_PUMP}.`
 	);
 	await expect(ids).toBeVisible();
+	// On screen as text, not sr-only's 1 px box, which toBeVisible accepts (S4 review MUT-02): the
+	// id line, the tag and the summary's clause.
+	expect.soft(await seenLine(ids), 'the id line on screen').toBe(true);
+	expect
+		.soft(await seenLine(block.locator('[data-add-cases-tag]')), 'the tag on screen')
+		.toBe(true);
+	expect
+		.soft(await seenLine(summary.locator(':scope > span > span')), "the summary's clause on screen")
+		.toBe(true);
 	await expect(solveAlls).toHaveCount(1);
 	// The stop order opened too: every line the block draws ends inside its frame, the long names
 	// in the sentence, the stop order and the id line among them.
@@ -3191,6 +3238,9 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	await expect(solveAll).toBeFocused();
 	await expect(block.locator('[data-now-ticked]')).toHaveText(NOW_TICKED);
 	await expect(block.locator('[data-now-ticked]')).toBeVisible();
+	expect
+		.soft(await seenLine(block.locator('[data-now-ticked]')), '"Now ticked" on screen')
+		.toBe(true);
 	await expect(block.locator('[data-stop-status]')).toHaveText(NOW_TICKED);
 	await expect(block.locator('[data-stop-status]')).toHaveAttribute('aria-live', 'polite');
 	await expect(
@@ -3203,6 +3253,7 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 		{ exact: true }
 	);
 	await expect(refusal).toBeVisible();
+	expect.soft(await seenLine(refusal), 'the refusal on screen').toBe(true);
 	await expect(solveAlls).toHaveCount(1);
 
 	// 3. Solve all: the three cases solved; the button keeps the focus, in place, and its reason,
@@ -3216,6 +3267,7 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	await expect(after).toBeFocused();
 	const reason = block.getByText("Every case's results are current.", { exact: true });
 	await expect(reason).toBeVisible();
+	expect.soft(await seenLine(reason), "Solve all's lasting reason on screen").toBe(true);
 	await expect(after).toHaveAccessibleDescription("Every case's results are current.");
 	await expect(solveAlls).toHaveCount(1);
 	await settle(page);
@@ -3233,6 +3285,14 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	await expect(ids).toBeHidden();
 	await expect(refusal).toBeVisible();
 	await expect(reason).toBeVisible();
+	expect.soft(await seenLine(refusal), 'the refusal on screen, folded').toBe(true);
+	expect.soft(await seenLine(reason), "Solve all's lasting reason on screen, folded").toBe(true);
+	expect
+		.soft(
+			await seenLine(summary.locator(':scope > span > span')),
+			"the summary's clause on screen, folded"
+		)
+		.toBe(true);
 	await expect(block.getByRole('radiogroup', { name: 'Cases to add' })).toBeVisible();
 	await expect(block.getByRole('button', { name: 'Pump lineups table…' })).toBeVisible();
 	const folded = await block.evaluate(readAddCases);
@@ -3257,4 +3317,71 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	await expect(ids).toHaveCount(0);
 	await expect(solveAlls).toHaveCount(1);
 	await noSidewaysScroll(page, `Add cases, Each pump off, at ${sizeOf(page)}`);
+
+	// 6. "Also show …" unticked, then an Add that ticks it again: the polite line is empty at the
+	// press and its words come two frames later, so it is drawn empty before it speaks and the
+	// words are said though the focus goes to Solve all (§5.3, §7 Live regions; S1's rule; S4
+	// review AT-1, ADD-1). A frame counter and the line's changes, from here on.
+	const box = card.getByRole('checkbox', { name: "Also show the other cases' station duties" });
+	const status = block.locator('[data-stop-status]');
+	await box.uncheck();
+	await expect(box).not.toBeChecked();
+	await expect(status).toHaveText('');
+	await status.evaluate((line) => {
+		const w = window as unknown as {
+			__frame: number;
+			__press: { frame: number; text: string } | null;
+			__changes: { frame: number; text: string }[];
+		};
+		w.__frame = 0;
+		w.__press = null;
+		w.__changes = [];
+		const step = () => {
+			w.__frame++;
+			requestAnimationFrame(step);
+		};
+		requestAnimationFrame(step);
+		const text = () => (line.textContent ?? '').trim();
+		document.addEventListener('click', () => (w.__press ??= { frame: w.__frame, text: text() }), {
+			capture: true
+		});
+		new MutationObserver(() => w.__changes.push({ frame: w.__frame, text: text() })).observe(line, {
+			subtree: true,
+			childList: true,
+			characterData: true
+		});
+	});
+	const again = block.getByRole('button', { name: 'Add 3 cases' });
+	if (isMobile) {
+		await again.tap();
+	} else {
+		await again.focus();
+		await page.keyboard.press('Enter');
+	}
+	await expect(block.getByRole('button', { name: /^Solve all/ })).toBeFocused();
+	await expect(box).toBeChecked();
+	await expect(block.locator('[data-now-ticked]')).toHaveText(NOW_TICKED);
+	await expect(status).toHaveText(NOW_TICKED);
+	const seen = await page.evaluate(() => {
+		const w = window as unknown as {
+			__press: { frame: number; text: string } | null;
+			__changes: { frame: number; text: string }[];
+		};
+		return { press: w.__press, changes: w.__changes };
+	});
+	console.log(`Add cases' polite line after the second ticking Add: ${JSON.stringify(seen)}`);
+	expect(seen.press, 'the press seen').not.toBeNull();
+	expect.soft(seen.press!.text, 'the line empty at the press').toBe('');
+	const spoke = seen.changes.find((c) => c.text === NOW_TICKED);
+	expect(spoke, `the line said "${NOW_TICKED}"`).toBeDefined();
+	expect
+		.soft(spoke!.frame - seen.press!.frame, 'frames from the press to the words')
+		.toBeGreaterThan(1);
+
+	// 7. Unticked again: "Now ticked" goes from the screen and from the polite line, which no
+	// longer says it (§5.3: the same sentence; S4 review W1, ADD-2).
+	await box.uncheck();
+	await expect(box).not.toBeChecked();
+	await expect(block.locator('[data-now-ticked]')).toHaveCount(0);
+	await expect(status).toHaveText('');
 });

@@ -7,15 +7,16 @@
 	The Pumps tab's S4 (pumps-results-layout.md §5.3, §9 S4): a framed, tinted panel, the one part
 	of the card that changes the project, its h4 (14 px) with the plain tag "Changes the project"
 	beside it, a sibling, so the region is named by the h4 alone. While a gate holds (§7.2), only its
-	sentence, Solve all for gates 4 to 6, and the table button. Otherwise one structure in every
-	state, so no control in use moves from one branch of the markup to another, in D24 §7.11's
-	order: the preset ("Cases to add", label 12 px; By number running or Each pump off, page state);
-	one native disclosure, the plan, holding what it makes (About), the interchangeability sentence
-	and the stop order (By number running only), the cases it would make (each with its kind in
-	words), which group the names count and which pump each id is; one row with Add and the one
-	Solve all (the Scenarios menu's reasons, 4d's); Add's refusal; Solve all's reason while it
-	lasts (one that passes, while a solve runs, stays visually hidden and in `title`); after an Add
-	that ticked it, "Now ticked: …", said by the polite line too.
+	sentence, Solve all for gates 4 to 6 (with its lasting reason, as below), and the table button.
+	Otherwise one structure in every state, so no control in use moves from one branch of the
+	markup to another, in D24 §7.11's order: the preset ("Cases to add", label 12 px; By number
+	running or Each pump off, page state); one native disclosure, the plan, holding what it makes
+	(About), the interchangeability sentence and the stop order (By number running only), the cases
+	it would make (each with its kind in words), which group the names count and which pump each id
+	is; one row with Add and the one Solve all (the Scenarios menu's reasons, 4d's); Add's refusal;
+	Solve all's reason while it lasts (one that passes, while a solve runs, stays visually hidden
+	and in `title`); after an Add that ticked it, "Now ticked: …", said by the polite line too and
+	gone from both with the Add it reports.
 
 	The fold (§5.3): the plan is drawn closed only when every planned case exists (nothing to add,
 	some made), open otherwise, and opens itself when cases come to remain (another preset, a
@@ -77,7 +78,7 @@
 </script>
 
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { LINEUP_TABLE_WORDS } from '$lib/utils/lineup-table';
 	import {
 		ADD_CASES_WORDS,
@@ -132,7 +133,10 @@
 	 * The fold rule (§5.3), before the DOM is updated so the disclosure is drawn as it says: drawn
 	 * (the block mounted, or a gate lifted), it is closed only when every planned case exists; when
 	 * cases come to remain, it opens itself; it is never closed here. "Now ticked" goes with the
-	 * Add it reports: once cases remain again, another preset is chosen or the box is unticked.
+	 * Add it reports: once cases remain again, another preset is chosen or the box is unticked. Its
+	 * copy in the polite line goes with it (the same sentence, §5.3), so the line never says what no
+	 * longer holds and the next "Now ticked" is written into an empty line; a stop order's message
+	 * there is left alone.
 	 */
 	$effect.pre(() => {
 		const now = { drawn: !plan.gate, done, preset: plan.preset, others: !!othersOn };
@@ -144,11 +148,20 @@
 			planOpen = true;
 			if (planEl) planEl.open = true;
 		}
-		if (before && (!now.done || now.preset !== before.preset || !now.others)) ticked = false;
+		if (before && (!now.done || now.preset !== before.preset || !now.others)) {
+			ticked = false;
+			if (untrack(() => status) === ADD_CASES_WORDS.nowTicked) status = '';
+		}
 	});
+	/** The frame that writes "Now ticked" into the polite line (addCases), until it is written. */
+	let frame = 0;
+	$effect(() => () => cancelAnimationFrame(frame));
 
-	/** Solve all's reason drawn: one that lasts, outside a gate (§5.3 item 5). */
-	const reasonShown = $derived(!plan.gate && !!solveAll.reason && !solveAll.passing);
+	/**
+	 * Solve all's reason drawn: one that lasts, under a gate too (§5.3 item 5; §7 Names and marks:
+	 * a lasting reason is visible text, §6.2).
+	 */
+	const reasonShown = $derived(!!solveAll.reason && !solveAll.passing);
 
 	/** The move button of `pumpId` in `dir` (found by data attributes: ids are any string). */
 	function stopButton(pumpId: string, dir: 'up' | 'down'): HTMLButtonElement | undefined {
@@ -187,18 +200,26 @@
 	/**
 	 * Add the cases; then the focus is on the block's Solve all (4d's), so an Add that ticked "Also
 	 * show …" says so in the block's polite line as well as on screen (§5.3): the focus would not
-	 * pass the line. The line is emptied first, so the same words twice are said twice.
+	 * pass the line. The line is emptied at the press and the words written two frames later, so it
+	 * is drawn empty before it speaks (§7 Live regions; S1's rule, §15 item 24): emptied and filled
+	 * in one task, the accessibility tree would see no change. They are not written once "Now
+	 * ticked" has gone again, or once a stop order's move has written its own message.
 	 */
 	async function addCases() {
 		if (plan.gate || plan.refusal || !plan.add.length) return;
 		const wasOn = !!othersOn;
+		cancelAnimationFrame(frame);
 		status = '';
 		onadd?.();
 		await tick();
 		solveAllButton?.focus();
 		if (!wasOn && othersOn) {
 			ticked = true;
-			status = ADD_CASES_WORDS.nowTicked;
+			frame = requestAnimationFrame(() => {
+				frame = requestAnimationFrame(() => {
+					if (ticked && !status) status = ADD_CASES_WORDS.nowTicked;
+				});
+			});
 		}
 	}
 	function solveAllCases(event: MouseEvent) {
@@ -382,8 +403,8 @@
 		<p id="{id}-refusal" class="hint">{plan.refusal}</p>
 	{/if}
 	{#if plan.showSolveAll}
-		<!-- 5. Solve all's reason while it lasts, visible; else its passing reason or what it does,
-			visually hidden. Either is its description. -->
+		<!-- 5. Solve all's reason while it lasts, visible, under a gate too (§7 Names and marks);
+			else its passing reason or what it does, visually hidden. Either is its description. -->
 		<p id="{id}-solve-all" class={reasonShown ? 'hint' : 'sr-only'}>
 			{solveAll.reason || solveAll.hint}
 		</p>

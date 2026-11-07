@@ -24,6 +24,12 @@ export interface SectionNav {
 	register(section: SectionTarget): () => void;
 	/** Focus the nav's current button ("Back to the sections", §5.4 The way back). */
 	back(): void;
+	/**
+	 * Go to a section drawn as its nav button does: scroll its target to the top and focus it
+	 * (§5.4 A press). The "Go to" buttons beside notes that point elsewhere use it (§6.2: "Go to
+	 * the pump chart"), so none touches the URL fragment (D3).
+	 */
+	go(key: SectionKey): void;
 }
 
 const KEY = Symbol('pumps-section-nav');

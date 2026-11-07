@@ -367,6 +367,16 @@
 	);
 	/** The boxes ticked by slot: the user's, else the group suggested for the pump viewed. */
 	const groupSlots = $derived(ws.pumpGroup ?? defaultGroup(suggestions, viewed?.key ?? null));
+	/**
+	 * The pump on the pump chart, while the members are the group suggested for it (no choice of
+	 * the user's yet, and a group found holds it): the card's suggestion line names it
+	 * (pumps-results-layout.md §5.3 Members, F29).
+	 */
+	const suggestedFor = $derived(
+		!ws.pumpGroup && viewed && suggestions.some((s) => s.pumpIds.includes(viewed.key))
+			? (groupPumps.find((p) => p.id === viewed.key)?.name ?? viewed.name)
+			: null
+	);
 	// Their ids are reserved while shown ticked, the default group's too (ws.reservedIds).
 	$effect(() => {
 		ws.pumpGroupShown = groupSlots;
@@ -900,6 +910,9 @@
 		},
 		back() {
 			nav?.focusCurrent();
+		},
+		go(key) {
+			nav?.go(key);
 		}
 	});
 	registerSection(
@@ -1054,6 +1067,7 @@
 			slots={groupSlots}
 			onslots={(next) => (ws.pumpGroup = next)}
 			{suggestions}
+			{suggestedFor}
 			bind:open={ws.pumpGroupOpen}
 			curve={groupState}
 			onretry={() => ws.store.loadGroupCurve(groupMembers, { retry: true })}

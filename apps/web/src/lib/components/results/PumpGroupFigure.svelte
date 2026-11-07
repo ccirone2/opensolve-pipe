@@ -1,14 +1,20 @@
 <!--
 	The Pumps together card's "Group chart" section (CLAUDE.md D21; proposal pump-groups.md §6, §7;
-	pumps-results-layout.md §5.1, §5.3, §9 S2): the figure, its caption the image's title; the
-	canvas (the head panel only: each member's curve and point, the group curve, the group system
-	curve, the other cases' rings and curves); the legend under it; the actions (Show data table,
-	Download image) under the legend; "Read along the curves"; the other cases' controls
-	(PumpGroupOthers); each request's state with its Cancel or retry; the notes; how each curve is
-	computed; and, after that reference, the data region (§5.1: so a table never pushes a note away
-	from its chart). Presentation only: PumpGroupChart gives every value and PumpsView makes every
-	request. S2 moves the actions and the data region here; the strip, the notes' order and the
-	other cases under their own heading are S3's.
+	pumps-results-layout.md §5.1, §5.3, §9 S2, S3), in the pump chart's anatomy: the figure, its
+	caption the image's title; the canvas (the head panel only: each member's curve and point, the
+	group curve, the group system curve, the other cases' rings and curves), `aria-busy` while any
+	of its curves loads; "Read along the curves" and its readout as pairs; the strip (the group
+	system curve's live line with its button, then the lines about the curves' coverage, plain);
+	the actions (Show data table, Download image, a lasting reason shown); the legend, its marker
+	entries two-up where they fit; the notes about the values, the duty checks first (✓ when they
+	agree); the reference, three disclosures ("How to read this chart" with the axes, the group
+	system curve and each pump's own system curve, then how each curve is computed); and, after
+	it, the data region (§5.1: so a table never pushes a note away from its chart): each pump's
+	point, the duty sentence in two (the duty check, then the system duty check, each with its
+	Details), the shown case's curves, then the other cases' tables. The group curve's line and the
+	refusal head Station (PumpGroupStation) since S3. Last, the other cases under their h5
+	(PumpGroupOthers): the switch, the cases, their own live line and the ring notes, cut.
+	Presentation only: PumpGroupChart gives every value and PumpsView makes every request.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
@@ -61,7 +67,7 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import IssueDetail from './IssueDetail.svelte';
 	import PumpGroupOthers from './PumpGroupOthers.svelte';
-	import { registerSection } from './section-nav.svelte';
+	import { registerSection, useSectionNav } from './section-nav.svelte';
 
 	/** Why the pumps are not a station, for one issue: the issue, and its words with names. */
 	interface Refusal {
@@ -97,10 +103,8 @@
 		/** The notes under the chart (groupNotes), and the same for a count of labels left out. */
 		notes: GroupNotes;
 		notesWith: (leftOut: number) => GroupNotes;
-		/** Why the pumps are not a station, or their group curve not defined, in words. */
+		/** Why the pumps are not a station, or their group curve not defined: the image's reasons. */
 		refusals: readonly Refusal[];
-		/** Refused only for an active PRV or PSV inside: a station, its group curve not defined. */
-		undefinedThere: boolean;
 		/** The members' names, in the station's order once known; and its arrangement. */
 		memberNames: readonly string[];
 		arrangement: string | null;
@@ -117,8 +121,6 @@
 		caseName?: string;
 		/** The results are out of date. */
 		stale?: boolean;
-		/** Open an element's results and trace. */
-		oninspect?: (componentId: string) => void;
 		/** What an image names and whether one can be made (as the pump chart's). */
 		image?: ChartImageSource;
 		/** The group curve, the group system curve and the other cases' duties being computed. */
@@ -127,8 +129,6 @@
 		othersLoading: boolean;
 		/** Some case on the chart was cancelled by the user or failed: "Compute them again". */
 		othersRetry: boolean;
-		onretry?: () => void;
-		oncancel?: () => void;
 		onretrysystem?: () => void;
 		oncancelsystem?: () => void;
 		/** The other cases with values, each in its state, while the card shows a station. */
@@ -142,6 +142,8 @@
 		onretryothers?: () => void;
 		/** Why "Compute them again" is unavailable ('' when it can run). */
 		othersRetryReason: string;
+		/** Running combinations is drawn: the other cases' "Go to Running combinations" goes there. */
+		combinations?: boolean;
 	}
 
 	let {
@@ -157,7 +159,6 @@
 		notes,
 		notesWith,
 		refusals,
-		undefinedThere,
 		memberNames,
 		arrangement,
 		table,
@@ -167,14 +168,11 @@
 		nameOf,
 		caseName,
 		stale = false,
-		oninspect,
 		image,
 		loading,
 		systemLoading,
 		othersLoading,
 		othersRetry,
-		onretry,
-		oncancel,
 		onretrysystem,
 		oncancelsystem,
 		others,
@@ -184,14 +182,15 @@
 		othersProgress,
 		oncancelothers,
 		onretryothers,
-		othersRetryReason
+		othersRetryReason,
+		combinations = false
 	}: Props = $props();
 	const id = $props.id();
 
 	/**
-	 * The section nav's "Group chart" (§5.4): its mark, a refusal (the group curve's or the group
-	 * system curve's), else a request that failed (either curve, or a case's station duty on the
-	 * chart). In S2 the refusal and the group curve's line are drawn here; S3 moves them to Station.
+	 * The section nav's "Group chart" (§5.4): its mark, the group system curve's refusal, else a
+	 * request drawn here that failed (the group system curve, or a case's station duty on the
+	 * chart). The group curve's refusal and line head Station since S3, and mark it there.
 	 */
 	let heading: HTMLElement | undefined = $state();
 	registerSection(
@@ -199,13 +198,14 @@
 		() => heading,
 		() =>
 			sectionMark({
-				refused: notes.curve?.kind === 'refused' || notes.systemCurve?.kind === 'refused',
+				refused: notes.systemCurve?.kind === 'refused',
 				failed:
-					notes.curve?.kind === 'error' ||
 					notes.systemCurve?.kind === 'error' ||
 					others.some((o) => o.onChart && o.state === 'error')
 			})
 	);
+	/** The section nav, for "Go to the pump chart" (§6.2); none in the card's own tests. */
+	const nav = useSectionNav();
 
 	const caption = $derived(
 		`${groupCaption(memberNames, arrangement)}${caseName ? `, ${caseName}` : ''}${stale ? ' (out of date)' : ''}`
@@ -249,8 +249,10 @@
 		moved ? Math.min(reading!.index, readout.length - 1) : dutyIndex >= 0 ? dutyIndex : 0
 	);
 	const readSample = $derived(readout[readIndex] ?? null);
+	/** What the readout adds at the duty's sample, after the station's flow. */
+	const DUTY_RISE = " (the duty's rise)";
 	const readText = $derived(
-		readSample ? `${readSample.text}${readSample.duty ? " (the duty's rise)" : ''}` : ''
+		readSample ? `${readSample.text}${readSample.duty ? DUTY_RISE : ''}` : ''
 	);
 	/** Marked on the chart once the user reads along (the duty's points are drawn already). */
 	const mark = $derived<GroupReadoutMark | null>(moved ? (readSample?.mark ?? null) : null);
@@ -261,31 +263,15 @@
 
 	/** "Read along the curves": focus returns here from "Back to the duty", which then goes. */
 	let readSlider: HTMLInputElement | undefined = $state();
-	let cancelButton: HTMLButtonElement | undefined = $state();
-	let retryButton: HTMLButtonElement | undefined = $state();
 	let systemCancelButton: HTMLButtonElement | undefined = $state();
 	let systemRetryButton: HTMLButtonElement | undefined = $state();
-	let othersCancelButton: HTMLButtonElement | undefined = $state();
-	let othersRetryButton: HTMLButtonElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let noCanvas = $state(false);
 	let loadFailed = $state(false);
 	const tableShown = $derived(showTable || noCanvas || loadFailed);
 
-	// From Cancel to the button that computes the curve again (or the figure), and back.
-	$effect.pre(() => {
-		if (loading) return;
-		const cancel = untrack(() => cancelButton);
-		if (!cancel || document.activeElement !== cancel) return;
-		void tick().then(() => (retryButton ?? figure)?.focus());
-	});
-	$effect.pre(() => {
-		if (!loading) return;
-		const retry = untrack(() => retryButton);
-		if (!retry || document.activeElement !== retry) return;
-		void tick().then(() => (cancelButton ?? figure)?.focus());
-	});
-	// The same for the group system curve's Cancel and retry.
+	// From the group system curve's Cancel to the button that computes it again (or the figure),
+	// and back (the group curve's handovers are Station's since S3, unchanged).
 	$effect.pre(() => {
 		if (systemLoading) return;
 		const cancel = untrack(() => systemCancelButton);
@@ -298,21 +284,8 @@
 		if (!retry || document.activeElement !== retry) return;
 		void tick().then(() => (systemCancelButton ?? figure)?.focus());
 	});
-	// The same for the other cases' Cancel and "Compute them again" (slice 4d). "Compute them
-	// again" also goes without a progress line, when it is pressed while a calculation runs (the
-	// Pumps view gives none then: nothing is computed for the other cases until it ends).
-	$effect.pre(() => {
-		if (othersLoading) return;
-		const cancel = untrack(() => othersCancelButton);
-		if (!cancel || document.activeElement !== cancel) return;
-		void tick().then(() => (othersRetryButton ?? figure)?.focus());
-	});
-	$effect.pre(() => {
-		if (othersRetry && !othersLoading) return;
-		const retry = untrack(() => othersRetryButton);
-		if (!retry || document.activeElement !== retry) return;
-		void tick().then(() => (othersCancelButton ?? figure)?.focus());
-	});
+	// The other cases' Cancel and "Compute them again" hand the focus over in PumpGroupOthers, the
+	// figure their fallback too.
 
 	/** The chart chunk, kept once loaded (the image never waits for it again). */
 	let chartModule: typeof import('./chart-setup') | null = null;
@@ -394,7 +367,65 @@
 									? 'The chart is being drawn.'
 									: '')
 	);
+	/**
+	 * A reason that lasts while the results stand (the image's own `unavailable`) is shown beside
+	 * Download image; the passing ones (a curve being computed, the chart being drawn) stay hidden
+	 * and in its title, so nothing flashes on every redraw (§5.3 Actions, §15 item 27).
+	 */
+	const imageLasting = $derived(!!image?.unavailable);
 	let makingImage = false;
+
+	/** The group system curve's request: being computed, failed or cancelled (not computed). */
+	const systemRequest = $derived(
+		notes.systemCurve?.kind === 'loading' ||
+			notes.systemCurve?.kind === 'error' ||
+			notes.systemCurve?.kind === 'cancelled'
+			? notes.systemCurve
+			: null
+	);
+	/**
+	 * The strip's live line is drawn empty before its progress is said (§7 Live regions, F17; S1's
+	 * rule, §15 item 24), as Station's: a polite line inserted already speaking is not announced.
+	 */
+	let lineDrawn = $state(false);
+	$effect(() => {
+		let frame = requestAnimationFrame(() => {
+			frame = requestAnimationFrame(() => (lineDrawn = true));
+		});
+		return () => cancelAnimationFrame(frame);
+	});
+	const systemLine = $derived(
+		systemRequest?.kind === 'loading' && !lineDrawn ? null : systemRequest
+	);
+	/**
+	 * The lines about the curves' coverage, plain, after the request's line (§5.3 The strip; §5.2:
+	 * no mark on a fact): points without a flow or a rise, a case with no duty, a solve that did
+	 * not converge, no group system curve, one member only.
+	 */
+	const coverage = $derived(
+		[
+			notes.curve && !['loading', 'error', 'cancelled', 'refused'].includes(notes.curve.kind)
+				? notes.curve.text
+				: null,
+			notes.systemCurve && !systemRequest ? notes.systemCurve.text : null
+		].filter((line): line is string => !!line)
+	);
+	/** The strip has nothing to show: it takes no room (its live line stays, empty). */
+	const stripIdle = $derived(!systemLine && !coverage.length);
+	/** The duty checks agree: each its ✓ (§5.2: a check that agrees; none otherwise). */
+	const dutyAgrees = $derived(!!shown?.dutyCheck?.agrees);
+	const systemDutyAgrees = $derived(!!systemShown?.systemDutyCheck?.agrees);
+	/**
+	 * "How to read this chart": what it holds, said in its summary (ui-guide: a disclosure says
+	 * what it holds), the group system curve's note only while there is one.
+	 */
+	const readingHolds = $derived(
+		notes.system
+			? "the axes, the group system curve, each pump's own system curve"
+			: "the axes, each pump's own system curve"
+	);
+	/** A marker entry of the legend is a member's (two-up from 18 rem; the others from 26 rem). */
+	const memberEntry = (key: string) => key.startsWith('point-');
 
 	/** The chart drawn again at a fixed size with its caption and notes, as a PNG. */
 	async function downloadImage() {
@@ -428,14 +459,6 @@
 	}
 </script>
 
-{#snippet words(list: Words)}
-	{#each list as word, i (i)}{#if typeof word === 'string'}{word}{:else if oninspect}<button
-				type="button"
-				class="inline min-h-0 px-0.5 text-blue-800 underline underline-offset-2"
-				onclick={() => oninspect(word.id)}>{word.name}</button
-			>{:else}{word.name}{/if}{/each}
-{/snippet}
-
 <!-- A plain div with its heading, not a landmark (§7); tabindex −1, the section nav's target. -->
 <div class="space-y-2 border-t border-slate-200 pt-3" data-group-chart>
 	<h4
@@ -446,74 +469,28 @@
 	>
 		Group chart
 	</h4>
-	<figure
-		bind:this={figure}
-		class="space-y-2"
-		aria-labelledby="{id}-caption"
-		aria-busy={loading || systemLoading || othersLoading}
-		tabindex="-1"
-	>
-		<figcaption id="{id}-caption" class="text-sm font-medium">{caption}</figcaption>
+	<!--
+		One anatomy (§5.1, §5.3 Group chart), as the pump chart's: the caption, the canvas, the
+		reading, the strip, the actions, the legend, the notes, the reference, the data region.
+		`aria-busy` is the canvas's, the part that is redrawn, so no live line below has a busy
+		ancestor (§5.3 markup rules, §7).
+	-->
+	<figure bind:this={figure} class="space-y-2" aria-labelledby="{id}-caption" tabindex="-1">
+		<!-- Its names wrap, one with no space too (§5.3): the caption is the chart's title. -->
+		<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">{caption}</figcaption>
 		{#if loadFailed}
 			<p class="text-sm text-slate-700" role="alert">
 				{STALE_CHUNK_MESSAGE} The tables below list its points.
 			</p>
 		{:else if !noCanvas}
-			<div class="relative w-full" style:height="{heightRem}rem" role="img" aria-label={summary}>
+			<div
+				class="relative w-full"
+				style:height="{heightRem}rem"
+				role="img"
+				aria-label={summary}
+				aria-busy={loading || systemLoading || othersLoading}
+			>
 				<canvas bind:this={canvas} aria-hidden="true"></canvas>
-			</div>
-			<!-- The legend under the chart, so the plot keeps the panel's height on a phone. -->
-			<ul class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-800" aria-label="Legend">
-				{#each legend as item (item.key)}
-					<li class="flex items-center gap-1.5">
-						{#if item.kind === 'line'}
-							<svg width="24" height="8" aria-hidden="true" class="shrink-0"
-								><line
-									x1="0"
-									y1="4"
-									x2="24"
-									y2="4"
-									stroke={item.color}
-									stroke-width="2"
-									stroke-dasharray={item.dash?.join(' ') || undefined}
-								/></svg
-							>
-						{:else}
-							<span aria-hidden="true" style:color={item.color}>{item.symbol}</span>
-						{/if}
-						{item.label}
-					</li>
-				{/each}
-			</ul>
-			<!-- The actions under the legend (§5.1 item 6, §9 S2; F3: they sat at the card's foot,
-				after Running combinations): the data table opens after the reference, below. -->
-			<div class="flex flex-wrap items-center gap-x-3" data-group-actions>
-				<button
-					type="button"
-					class="btn btn-quiet px-2 text-blue-800"
-					aria-expanded={tableShown}
-					aria-controls="{id}-data"
-					onclick={() => (showTable = !showTable)}
-				>
-					{tableShown ? 'Hide data table' : 'Show data table'}
-				</button>
-				{#if image}
-					<button
-						type="button"
-						class="btn btn-quiet px-2 text-blue-800"
-						data-chart-image
-						aria-label="Download image of the pumps together: {memberNames.join(', ')}{caseName
-							? `, ${caseName}`
-							: ''}"
-						aria-disabled={!!imageReason}
-						aria-describedby={imageReason ? `${id}-image-reason` : undefined}
-						title={imageReason || undefined}
-						onclick={() => void downloadImage()}
-					>
-						<Icon name="download" class="size-4" /> Download image
-					</button>
-					{#if imageReason}<span id="{id}-image-reason" class="sr-only">{imageReason}</span>{/if}
-				{/if}
 			</div>
 		{:else}
 			<p class="text-sm text-slate-700">
@@ -521,8 +498,9 @@
 			</p>
 		{/if}
 		{#if readSample}
-			<!-- Read along the curves: the group curve's samples, each read from the response. -->
-			<div class="space-y-1">
+			<!-- Read along the curves: the group curve's samples, each read from the response. A
+				container: the readout's pairs go two-up from 26 rem, one per line below (§5.5). -->
+			<div class="@container space-y-1">
 				<div class="flex flex-wrap items-center gap-x-3">
 					<label for="{id}-read" class="text-xs font-medium text-slate-700"
 						>Read along the curves</label
@@ -558,101 +536,68 @@
 						>
 					{/if}
 				</div>
-				<p class="text-xs text-slate-700 tabular-nums" data-group-readout>{readText}</p>
+				<!-- One paragraph, not live: each pump and value a pair, from the sample's parts, the
+					separators visually hidden, so its text is the slider's value text (§5.3 Reading),
+					" (the duty's rise)" with it at the duty's sample, with a flow or without one. -->
+				<p
+					class="grid grid-cols-1 gap-x-4 text-sm tabular-nums @min-[26rem]:grid-cols-2"
+					data-group-readout
+				>
+					<span class="col-span-full font-medium">{readSample.parts.at}:</span>
+					{#if readSample.parts.none}<span class="col-span-full"
+							>{readSample.parts.none}{readSample.duty ? DUTY_RISE : ''}</span
+						>{:else}{#each readSample.parts.pairs as pair, i (i)}<span class="min-w-0"
+								>{#if i}<span class="sr-only">,&nbsp;</span>{/if}<span
+									class="wrap-break-word text-slate-600">{pair.name}</span
+								>
+								<span class="font-medium whitespace-nowrap">{pair.value}</span
+								>{#if readSample.duty && i === readSample.parts.pairs.length - 1}<span
+										>{DUTY_RISE}</span
+									>{/if}</span
+							>{/each}{/if}
+				</p>
 				<p id="{id}-read-hint" class="hint">
 					Steps over the group curve's samples, each pump's flow and the station's as computed at
 					that rise (nothing between samples is read).
 				</p>
 			</div>
 		{/if}
-		{#if onothers && stationShown}
-			<!-- Other cases' station duties (slice 4d): which cases, and whether they are asked for. -->
-			<PumpGroupOthers {others} {othersOn} {onothers} {onotherstick} {caseName} />
-		{/if}
-		<!-- One live region for every progress line (never computed at once). -->
-		<div role="status" class="text-xs text-slate-600">
-			{#if notes.curve?.kind === 'loading'}
-				<span id="{id}-curve-state">{notes.curve.text}</span>
-			{:else if notes.systemCurve?.kind === 'loading'}
-				<span id="{id}-system-state">{notes.systemCurve.text}</span>
-			{:else if othersLoading && othersProgress}
-				<span
-					>Computing the other cases' station duties: {Math.min(
-						othersProgress.done + 1,
-						othersProgress.total
-					)} of {othersProgress.total}…</span
-				>
-			{/if}
-		</div>
-		{#if notes.curve?.kind === 'loading' && oncancel}
-			<button
-				bind:this={cancelButton}
-				type="button"
-				class="btn btn-quiet px-2 text-blue-800"
-				aria-label="Cancel the group curve"
-				onclick={oncancel}>Cancel</button
-			>
-		{:else if notes.curve?.kind === 'error' || notes.curve?.kind === 'cancelled'}
+		<!--
+			The strip (§5.3 The strip): the group system curve's request, one row: an always-present
+			polite line, empty when idle and never role=status, drawn empty before its first progress,
+			its mark at its first line, its button after it and described by it; then the lines about
+			the curves' coverage, plain. Out of sight while it has nothing to say, so it takes no room,
+			its line still in the accessibility tree.
+		-->
+		<div class={['space-y-1', stripIdle && 'sr-only']} data-group-strip>
 			<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-				<p
-					id="{id}-curve-state"
-					class={['text-xs', notes.curve.kind === 'error' ? 'text-red-800' : 'text-slate-600']}
+				<span
+					id="{id}-system-state"
+					data-group-system-state
+					aria-live="polite"
+					aria-atomic="true"
+					class={[
+						'inline-flex items-start gap-1.5 text-xs',
+						systemLine?.kind === 'error' ? 'text-red-800' : 'text-slate-700'
+					]}
+					>{#if systemLine?.kind === 'loading'}<Icon
+							name="spinner"
+							class="mt-px size-3.5 shrink-0 text-slate-500 motion-safe:animate-spin"
+						/>{:else if systemLine?.kind === 'error'}<Icon
+							name="octagon"
+							class="mt-px size-3.5 shrink-0 text-red-700"
+						/>{/if}{systemLine?.text ?? ''}</span
 				>
-					{notes.curve.text}
-				</p>
-				{#if onretry}
+				{#if systemRequest?.kind === 'loading' && oncancelsystem}
 					<button
-						bind:this={retryButton}
+						bind:this={systemCancelButton}
 						type="button"
 						class="btn btn-quiet px-2 text-blue-800"
-						aria-describedby="{id}-curve-state"
-						onclick={onretry}
+						aria-label="Cancel the group system curve"
+						aria-describedby="{id}-system-state"
+						onclick={oncancelsystem}>Cancel</button
 					>
-						{notes.curve.kind === 'error' ? 'Try again' : 'Compute the group curve'}
-					</button>
-				{/if}
-			</div>
-		{:else if notes.curve?.kind === 'refused'}
-			<div class="space-y-1 text-sm" data-group-refusal>
-				<p class="font-medium">{notes.curve.text}</p>
-				<ul
-					class="list-disc space-y-1 pl-5"
-					aria-label={undefinedThere
-						? 'Why the group curve is not defined'
-						: 'Why they do not form a station'}
-				>
-					{#each refusals as refusal, i (i)}
-						<li>
-							{@render words(refusal.words)}
-							<IssueDetail detail={refusal.issue.message} />
-						</li>
-					{/each}
-				</ul>
-			</div>
-		{:else if notes.curve}
-			<p class="text-xs text-slate-700">{notes.curve.text}</p>
-		{/if}
-		<!-- The group system curve's state: asked for after the group curve's answer. -->
-		{#if notes.systemCurve?.kind === 'loading' && oncancelsystem}
-			<button
-				bind:this={systemCancelButton}
-				type="button"
-				class="btn btn-quiet px-2 text-blue-800"
-				aria-label="Cancel the group system curve"
-				onclick={oncancelsystem}>Cancel</button
-			>
-		{:else if notes.systemCurve?.kind === 'error' || notes.systemCurve?.kind === 'cancelled'}
-			<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-				<p
-					id="{id}-system-state"
-					class={[
-						'text-xs',
-						notes.systemCurve.kind === 'error' ? 'text-red-800' : 'text-slate-600'
-					]}
-				>
-					{notes.systemCurve.text}
-				</p>
-				{#if onretrysystem}
+				{:else if (systemRequest?.kind === 'error' || systemRequest?.kind === 'cancelled') && onretrysystem}
 					<button
 						bind:this={systemRetryButton}
 						type="button"
@@ -660,87 +605,183 @@
 						aria-describedby="{id}-system-state"
 						onclick={onretrysystem}
 					>
-						{notes.systemCurve.kind === 'error'
+						{systemRequest.kind === 'error'
 							? 'Try the group system curve again'
 							: 'Compute the group system curve'}
 					</button>
 				{/if}
 			</div>
-		{:else if notes.systemCurve}
-			<p class="text-xs text-slate-700">{notes.systemCurve.text}</p>
-		{/if}
-		<!-- The other cases' station duties (slice 4d): Cancel while computed, else again. -->
-		{#if othersLoading && !loading && !systemLoading && oncancelothers}
-			<button
-				bind:this={othersCancelButton}
-				type="button"
-				class="btn btn-quiet px-2 text-blue-800"
-				aria-label="Cancel the other cases' station duties"
-				onclick={oncancelothers}>Cancel</button
-			>
-		{:else if othersRetry && !othersLoading}
-			<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-				<p id="{id}-others-state" class="text-xs text-slate-600">
-					Not every other case's station duty was computed: see Running combinations.
-				</p>
-				{#if onretryothers}
-					<button
-						bind:this={othersRetryButton}
-						type="button"
-						class="btn btn-quiet px-2 text-blue-800"
-						aria-disabled={!!othersRetryReason}
-						aria-describedby={othersRetryReason
-							? `${id}-others-retry-reason ${id}-others-state`
-							: `${id}-others-state`}
-						title={othersRetryReason || undefined}
-						onclick={() => {
-							if (!othersRetryReason) onretryothers?.();
-						}}>Compute them again</button
-					>
-					{#if othersRetryReason}<span id="{id}-others-retry-reason" class="sr-only"
-							>{othersRetryReason}</span
-						>{/if}
+			{#each coverage as line, i (i)}
+				<p class="text-xs text-slate-700">{line}</p>
+			{/each}
+		</div>
+		{#if !loadFailed && !noCanvas}
+			<!-- The actions right after the strip, as on the pump chart (§5.1 item 6; F3: they sat at
+				the card's foot), then the legend: a departure from §5.1's order (legend, then actions),
+				since with the reading and the strip above it the condenser's legend put Show data table
+				676 px below the canvas at 1280×800, over §5.7 row 3's 600. The data table opens after
+				the reference, below; the names told apart from the pump chart's by a hidden suffix. -->
+			<div class="flex flex-wrap items-center gap-x-3 gap-y-1" data-group-actions>
+				<button
+					type="button"
+					class="btn btn-quiet px-2 text-blue-800"
+					aria-expanded={tableShown}
+					aria-controls="{id}-data"
+					onclick={() => (showTable = !showTable)}
+				>
+					<!-- The space outside the hidden suffix, so every name computation keeps it. -->
+					{tableShown ? 'Hide data table' : 'Show data table'}
+					<span class="sr-only">of the group chart</span>
+				</button>
+				{#if image}
+					<!-- Download image and its reason, one item (§5.3 Actions, §15 item 27): a lasting
+						reason beside the button where the row has room, under it where not, never under
+						Show data table. -->
+					<div class="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+						<button
+							type="button"
+							class="btn btn-quiet px-2 text-blue-800"
+							data-chart-image
+							aria-label="Download image of the pumps together: {memberNames.join(', ')}{caseName
+								? `, ${caseName}`
+								: ''}"
+							aria-disabled={!!imageReason}
+							aria-describedby={imageReason ? `${id}-image-reason` : undefined}
+							title={(!imageLasting && imageReason) || undefined}
+							onclick={() => void downloadImage()}
+						>
+							<Icon name="download" class="size-4" /> Download image
+						</button>
+						{#if imageReason}<span
+								id="{id}-image-reason"
+								class={imageLasting ? 'text-xs text-slate-700' : 'sr-only'}>{imageReason}</span
+							>{/if}
+					</div>
 				{/if}
 			</div>
-		{/if}
-		{#if notes.frame}<p class="text-xs text-slate-700">{notes.frame}</p>{/if}
-		{#if notes.system}<p class="text-xs text-slate-700">{notes.system}</p>{/if}
-		<p class="text-xs text-slate-600">{notes.axes}</p>
-		{#each notes.duty as note, i (i)}
-			<p class="text-xs text-slate-600">
-				{note}{#if i === 0 && shown?.dutyCheck && !shown.dutyCheck.agrees}<IssueDetail
-						detail={shown.dutyCheck.message}
-					/>{/if}
-			</p>
-		{/each}
-		{#each notes.systemDuty as note, i (i)}
-			<p class="text-xs text-slate-600">
-				{note}{#if i === 0 && systemShown?.systemDutyCheck && !systemShown.systemDutyCheck.agrees}<IssueDetail
-						detail={systemShown.systemDutyCheck.message}
-					/>{/if}
-			</p>
-		{/each}
-		<!-- Keyed by index, never by words: a pump's name need not be unique. -->
-		{#each notes.others as note, i (i)}
-			<p class="text-xs text-slate-600">{note}</p>
-		{/each}
-		{#each notes.members as note, i (i)}
-			<p class="text-xs text-slate-600">{note}</p>
-		{/each}
-		{#if notes.dashed}<p class="text-xs text-slate-600">{notes.dashed}</p>{/if}
-		<p class="text-xs text-slate-600">{notes.systemCurves}</p>
-		{#if shown}
-			<details class="group text-xs">
-				<summary
-					class="inline-flex min-h-11 cursor-pointer list-none items-center gap-1 font-medium text-blue-800 [&::-webkit-details-marker]:hidden"
+			<!-- The legend after the reading, the strip and the actions, so the readout sits under its
+				canvas (§6.1, F12, F27): a container, its marker entries two-up where they fit (the
+				members' from 18 rem, every one's from 26 rem), its lines one per row; each entry's
+				words wrap in their cell, a name with no space too, never over the next (§5.3). -->
+			<div class="@container">
+				<ul
+					class="grid grid-cols-1 gap-x-3.5 gap-y-1 text-xs text-slate-800 @min-[18rem]:grid-cols-2"
+					aria-label="Legend"
 				>
+					{#each legend as item (item.key)}
+						<li
+							class={[
+								'flex min-w-0 items-start gap-1.5',
+								item.kind === 'line'
+									? 'col-span-full'
+									: !memberEntry(item.key) && '@min-[18rem]:col-span-full @min-[26rem]:col-span-1'
+							]}
+						>
+							{#if item.kind === 'line'}
+								<svg width="24" height="8" aria-hidden="true" class="mt-1 shrink-0"
+									><line
+										x1="0"
+										y1="4"
+										x2="24"
+										y2="4"
+										stroke={item.color}
+										stroke-width="2"
+										stroke-dasharray={item.dash?.join(' ') || undefined}
+									/></svg
+								>
+							{:else}
+								<span aria-hidden="true" style:color={item.color}>{item.symbol}</span>
+							{/if}
+							<span class="min-w-0 wrap-break-word">{item.label}</span>
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+		<!--
+			Notes about the values (§5.3), groupNotes' words: the duty checks first, each with a ✓ when
+			it agrees (an element of its own before its sentence, §5.2 Placement) and none otherwise,
+			its Details and "Several steady states can exist …" when it disagrees; then the frame, the
+			members' notes and the dashed note.
+		-->
+		<div class="space-y-1" data-group-notes>
+			{#each notes.duty as note, i (i)}
+				{#if i === 0 && dutyAgrees}
+					<div class="flex items-start gap-1.5" data-group-check>
+						<Icon name="check" class="mt-px size-3.5 shrink-0 text-emerald-700" />
+						<p class="text-xs text-slate-700">{note}</p>
+					</div>
+				{:else}
+					<p class="text-xs text-slate-700">
+						{note}{#if i === 0 && shown?.dutyCheck && !shown.dutyCheck.agrees}<IssueDetail
+								detail={shown.dutyCheck.message}
+								subject="the duty check"
+							/>{/if}
+					</p>
+				{/if}
+			{/each}
+			{#each notes.systemDuty as note, i (i)}
+				{#if i === 0 && systemDutyAgrees}
+					<div class="flex items-start gap-1.5" data-group-check>
+						<Icon name="check" class="mt-px size-3.5 shrink-0 text-emerald-700" />
+						<p class="text-xs text-slate-700">{note}</p>
+					</div>
+				{:else}
+					<p class="text-xs text-slate-700">
+						{note}{#if i === 0 && systemShown?.systemDutyCheck && !systemShown.systemDutyCheck.agrees}<IssueDetail
+								detail={systemShown.systemDutyCheck.message}
+								subject="the system duty check"
+							/>{/if}
+					</p>
+				{/if}
+			{/each}
+			{#if notes.frame}<p class="text-xs text-slate-700">{notes.frame}</p>{/if}
+			<!-- Keyed by index, never by words: a pump's name need not be unique. -->
+			{#each notes.members as note, i (i)}
+				<p class="text-xs text-slate-700">{note}</p>
+			{/each}
+			{#if notes.dashed}<p class="text-xs text-slate-700">{notes.dashed}</p>{/if}
+		</div>
+		<!--
+			The reference (§5.3), three native disclosures, closed, each saying what it holds: how to
+			read this chart (the axes, the group system curve, each pump's own system curve, with the
+			way to the pump chart), then how each curve is computed.
+		-->
+		<details class="group" data-group-reading>
+			<summary class="more-summary">
+				<Icon
+					name="right"
+					class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+				/>
+				<span class="min-w-0 flex-1"
+					>How to read this chart<span class="font-normal text-slate-600">: {readingHolds}</span
+					></span
+				>
+			</summary>
+			<div class="space-y-1 pb-1">
+				<p class="text-xs text-slate-700">{notes.axes}</p>
+				{#if notes.system}<p class="text-xs text-slate-700">{notes.system}</p>{/if}
+				<p class="text-xs text-slate-700">{notes.systemCurves}</p>
+				{#if nav?.shown}
+					<!-- A button, never a link: the URL fragment is the project (D3, §6.2). -->
+					<button
+						type="button"
+						class="btn btn-quiet px-2 text-blue-800"
+						onclick={() => nav.go('pump-chart')}>Go to the pump chart</button
+					>
+				{/if}
+			</div>
+		</details>
+		{#if shown}
+			<details class="group">
+				<summary class="more-summary">
 					<Icon
 						name="right"
-						class="size-3 shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+						class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
 					/>
 					{systemShown ? 'How the group curve is computed' : 'How this curve is computed'}
 				</summary>
-				<div class="space-y-1 text-slate-700">
+				<div class="space-y-1 pb-1 text-xs text-slate-700">
 					<p class="font-medium">
 						{groupMethodsHeading(shown)}
 					</p>
@@ -757,17 +798,15 @@
 			</details>
 		{/if}
 		{#if systemShown}
-			<details class="group text-xs">
-				<summary
-					class="inline-flex min-h-11 cursor-pointer list-none items-center gap-1 font-medium text-blue-800 [&::-webkit-details-marker]:hidden"
-				>
+			<details class="group">
+				<summary class="more-summary">
 					<Icon
 						name="right"
-						class="size-3 shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+						class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
 					/>
 					How the group system curve is computed
 				</summary>
-				<div class="space-y-1 text-slate-700">
+				<div class="space-y-1 pb-1 text-xs text-slate-700">
 					<p class="font-medium">
 						{groupMethodsHeading(systemShown)}
 					</p>
@@ -834,7 +873,9 @@
 					</table>
 				</div>
 				{#if stationShown?.duty && data.station}
-					<p class="text-sm">
+					<!-- The duty sentence split in two (§5.3 The data region), each check with its own
+						Details: the duty and the duty check, then the system duty check. -->
+					<p class="text-sm" data-group-duty>
 						<span aria-hidden="true">{STATION_SYMBOL}</span> Group duty (station's flow):
 						<span class="tabular-nums">{fmt(data.station.flow)} {data.flowUnit}</span> at a rise of
 						<span class="tabular-nums">{fmt(data.station.point.y)} {data.headUnit}</span>; {ARRANGEMENT_WORDS[
@@ -845,18 +886,126 @@
 								? ''
 								: `; ${dutyCheckWords(shown, nameOf, prefs)}`}.<IssueDetail
 								detail={shown.dutyCheck.message}
-							/>
-						{/if}
-						{#if systemShown?.systemDutyCheck}
-							System duty check: {systemDutyCheckState(systemShown)}.<IssueDetail
-								detail={systemShown.systemDutyCheck.message}
+								subject="the duty check"
 							/>
 						{/if}
 					</p>
+					{#if systemShown?.systemDutyCheck}
+						<p class="text-sm" data-group-system-duty>
+							System duty check: {systemDutyCheckState(systemShown)}.<IssueDetail
+								detail={systemShown.systemDutyCheck.message}
+								subject="the system duty check"
+							/>
+						</p>
+					{/if}
+				{/if}
+				{#if samples.length}
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<div
+						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+						role="region"
+						aria-labelledby="{id}-samples-caption"
+						tabindex="0"
+					>
+						<table class="w-full text-sm">
+							<caption
+								id="{id}-samples-caption"
+								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
+							>
+								Group curve (station's flow at each rise)
+							</caption>
+							<thead class="sticky top-0 bg-slate-50">
+								<tr>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Rise ({data.headUnit})</th
+									>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Flow ({data.flowUnit})</th
+									>
+									{#each shown!.station.memberIds as memberId (memberId)}
+										<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
+											>{nameOf(memberId)} flow ({data.flowUnit})</th
+										>
+										<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
+											>{nameOf(memberId)} head ({data.headUnit})</th
+										>
+										<th scope="col" class="px-2 py-1 text-left font-medium whitespace-nowrap"
+											>{nameOf(memberId)} state</th
+										>
+									{/each}
+									<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each samples as sample, i (i)}
+									<tr class="border-t border-slate-100">
+										<td class="px-2 py-1 text-right tabular-nums">{sample.rise}</td>
+										<td class="px-2 py-1 text-right tabular-nums">{sample.flow}</td>
+										{#each sample.members as m, k (k)}
+											<td class="px-2 py-1 text-right tabular-nums">{m.flow}</td>
+											<td class="px-2 py-1 text-right tabular-nums">{m.head}</td>
+											<td class="px-2 py-1 text-xs whitespace-nowrap text-slate-600">{m.state}</td>
+										{/each}
+										<td class="px-2 py-1 text-xs text-slate-600"
+											>{[sample.duty ? "The duty's rise (the duty check)." : '', sample.note]
+												.filter(Boolean)
+												.join(' ')}</td
+										>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+				{#if systemRows.length}
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<div
+						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+						role="region"
+						aria-labelledby="{id}-system-caption"
+						tabindex="0"
+					>
+						<table class="w-full text-sm">
+							<caption
+								id="{id}-system-caption"
+								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
+							>
+								Group system curve (rise the rest of the network needs at each station's flow)
+							</caption>
+							<thead class="sticky top-0 bg-slate-50">
+								<tr>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Flow ({data.flowUnit})</th
+									>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Rise ({data.headUnit})</th
+									>
+									<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each systemRows as row, i (i)}
+									<tr class="border-t border-slate-100">
+										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+										<td class="px-2 py-1 text-right tabular-nums">{row.rise}</td>
+										<td class="px-2 py-1 text-xs text-slate-600"
+											>{[row.duty ? "The duty's flow (the system duty check)." : '', row.note]
+												.filter(Boolean)
+												.join(' ')}{#if row.detail}<IssueDetail
+													detail={row.detail}
+													subject="the point at {row.flow} {data.flowUnit}"
+												/>{/if}</td
+										>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
 				{/if}
 				{#if othersOn && others.length}
-					<!-- The other cases' station duties (slice 4d): the rings, and why a case has none;
-						none while they are not asked for (the notes' one line says so). -->
+					<!-- The other cases' tables last, after the shown case's (§5.3 The data region, F33):
+						their station duties (slice 4d), the rings and why a case has none (none while
+						they are not asked for: the one line says so), then their own group curves. -->
 					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 					<div
 						class="relative overflow-auto rounded-md border border-slate-200 bg-white"
@@ -1000,107 +1149,29 @@
 						</table>
 					</div>
 				{/if}
-				{#if samples.length}
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-samples-caption"
-						tabindex="0"
-					>
-						<table class="w-full text-sm">
-							<caption
-								id="{id}-samples-caption"
-								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
-							>
-								Group curve (station's flow at each rise)
-							</caption>
-							<thead class="sticky top-0 bg-slate-50">
-								<tr>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Rise ({data.headUnit})</th
-									>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Flow ({data.flowUnit})</th
-									>
-									{#each shown!.station.memberIds as memberId (memberId)}
-										<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
-											>{nameOf(memberId)} flow ({data.flowUnit})</th
-										>
-										<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
-											>{nameOf(memberId)} head ({data.headUnit})</th
-										>
-										<th scope="col" class="px-2 py-1 text-left font-medium whitespace-nowrap"
-											>{nameOf(memberId)} state</th
-										>
-									{/each}
-									<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each samples as sample, i (i)}
-									<tr class="border-t border-slate-100">
-										<td class="px-2 py-1 text-right tabular-nums">{sample.rise}</td>
-										<td class="px-2 py-1 text-right tabular-nums">{sample.flow}</td>
-										{#each sample.members as m, k (k)}
-											<td class="px-2 py-1 text-right tabular-nums">{m.flow}</td>
-											<td class="px-2 py-1 text-right tabular-nums">{m.head}</td>
-											<td class="px-2 py-1 text-xs whitespace-nowrap text-slate-600">{m.state}</td>
-										{/each}
-										<td class="px-2 py-1 text-xs text-slate-600"
-											>{[sample.duty ? "The duty's rise (the duty check)." : '', sample.note]
-												.filter(Boolean)
-												.join(' ')}</td
-										>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				{/if}
-				{#if systemRows.length}
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-system-caption"
-						tabindex="0"
-					>
-						<table class="w-full text-sm">
-							<caption
-								id="{id}-system-caption"
-								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
-							>
-								Group system curve (rise the rest of the network needs at each station's flow)
-							</caption>
-							<thead class="sticky top-0 bg-slate-50">
-								<tr>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Flow ({data.flowUnit})</th
-									>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Rise ({data.headUnit})</th
-									>
-									<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each systemRows as row, i (i)}
-									<tr class="border-t border-slate-100">
-										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
-										<td class="px-2 py-1 text-right tabular-nums">{row.rise}</td>
-										<td class="px-2 py-1 text-xs text-slate-600"
-											>{[row.duty ? "The duty's flow (the system duty check)." : '', row.note]
-												.filter(Boolean)
-												.join(' ')}{#if row.detail}<IssueDetail detail={row.detail} />{/if}</td
-										>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
-				{/if}
 			</div>
+		{/if}
+		{#if (onothers && stationShown) || notes.others.length}
+			<!-- The other cases on the group chart, under their h5, the figure's last part (§5.1 item
+				10, §5.3): the switch, the cases, their live line and the ring notes, cut. -->
+			<PumpGroupOthers
+				{others}
+				{othersOn}
+				{onothers}
+				{onotherstick}
+				{caseName}
+				station={!!stationShown}
+				parts={notes.otherParts}
+				{othersLoading}
+				curvesLoading={loading || systemLoading}
+				{othersProgress}
+				{oncancelothers}
+				{othersRetry}
+				{onretryothers}
+				{othersRetryReason}
+				{combinations}
+				{figure}
+			/>
 		{/if}
 	</figure>
 </div>

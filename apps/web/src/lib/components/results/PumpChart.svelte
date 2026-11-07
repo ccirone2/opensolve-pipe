@@ -797,12 +797,18 @@
 			</p>
 		{/if}
 		{#if valued.checks.length}
-			<!-- The design checks' limits drawn (D19), never a verdict: Checks has those. -->
+			<!-- The design checks' limits drawn (D19), never a verdict: Checks has those. The limits
+				a list named by its label, as the group chart's ring list is named by its lead
+				(pumps-results-layout.md §5.3, S3), so the notes are no wall: §5.7 row 7's longest run
+				(S1's 9 paragraphs in the one-off, §15 item 43). The closing sentence after the list. -->
 			<div class="space-y-1 pt-1" data-pump-checks>
-				<p class="text-xs font-medium text-slate-700">Design-check limits drawn</p>
-				{#each valued.checks as note (note)}
-					<p class="text-xs text-slate-700">{note}</p>
-				{/each}
+				<p id="{id}-limits" class="text-xs font-medium text-slate-700">Design-check limits drawn</p>
+				<ul class="space-y-1" aria-labelledby="{id}-limits">
+					{#each valued.checks.slice(0, -1) as note (note)}
+						<li><p class="text-xs text-slate-700">{note}</p></li>
+					{/each}
+				</ul>
+				<p class="text-xs text-slate-700">{valued.checks.at(-1)}</p>
 				{#if onchecks}
 					<button type="button" class="btn btn-quiet px-2 text-blue-800" onclick={onchecks}
 						>Go to Checks</button

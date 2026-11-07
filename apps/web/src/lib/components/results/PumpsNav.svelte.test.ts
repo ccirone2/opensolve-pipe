@@ -14,7 +14,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Project, PumpGroupCurveResponse, SolveResponse } from '$lib/api/types';
+import { NetworkError, NotAStationError } from '$lib/api/client';
+import type { Project, PumpGroupCurveResponse, SolveResponse, TopologyIssue } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
 import { outOfSight } from '$lib/testing/helpers';
@@ -817,6 +818,74 @@ describe('the section nav in the Pumps view', () => {
 			'This solve did not converge: its values are not a solution, so the card shows none.'
 		);
 		expect(labels()).toEqual(['Per pump', 'Pump chart', 'Pumps together']);
+	});
+
+	it('marks Station with the group curve’s refusal, which heads it since S3; "Go to the pump chart" in "How to read this chart" goes there (pumps-results-layout.md §5.3, §6.2)', async () => {
+		const c = named('refused');
+		const body = c.groupCurve.body as { message: string; issues: TopologyIssue[] };
+		const solver: Solver = {
+			// No flags, so the refusal is Station's worst mark (a warning would outrank it, §5.4).
+			solve: async () => {
+				const solved = structuredClone(c.solve);
+				solved.solvedState.flags = [];
+				return solved;
+			},
+			groupCurve: async () => {
+				throw new NotAStationError(body.message, [body.message], body.issues);
+			}
+		};
+		const ws = testWorkspace(structuredClone(c.project), { solver });
+		render(WorkspaceView, { workspace: ws });
+		await ws.solve();
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(toggle());
+		// Nothing is suggested here: the user ticks the pumps.
+		for (const box of within(card()).getAllByRole('checkbox') as HTMLInputElement[]) {
+			if (!box.checked) await fireEvent.click(box);
+		}
+		await within(card()).findByText(/^These pumps do not form a station/);
+		await waitFor(() => expect(names()).toContain('Station, has a refusal'));
+		// The group chart's own requests neither failed nor were refused: no mark there.
+		expect(names()).toContain('Group chart');
+		expect(names().filter((n) => n.startsWith('Group chart'))).toEqual(['Group chart']);
+		// "Go to the pump chart": a button in the reference, focusing the pump chart's heading
+		// as the nav's own button does, never touching the link (D3).
+		const reading = card().querySelector('[data-group-reading]')!;
+		await fireEvent.click(reading.querySelector('summary')!);
+		const scrolled = stubScroll();
+		const hash = location.hash;
+		await fireEvent.click(
+			within(reading as HTMLElement).getByRole('button', { name: 'Go to the pump chart' })
+		);
+		const heading = results().getByRole('heading', { name: 'Pump chart' });
+		expect(document.activeElement).toBe(heading);
+		expect(scrolled.mock.contexts.at(-1)).toBe(heading);
+		expect(location.hash).toBe(hash);
+	});
+
+	it('marks Station, not Group chart, when the group curve’s request fails: its line heads Station since S3 (pumps-results-layout.md §5.3, §5.4 Marks; S3 review MUT-01)', async () => {
+		const c = named('parallel-ideal');
+		const solver: Solver = {
+			// No flags, so the failure is Station's worst mark (a warning would outrank it, §5.4).
+			solve: async () => {
+				const solved = structuredClone(c.solve);
+				solved.solvedState.flags = [];
+				return solved;
+			},
+			groupCurve: async () => {
+				throw new NetworkError('The server is busy.', 503, 'SERVER_BUSY');
+			}
+		};
+		const ws = testWorkspace(structuredClone(c.project), { solver });
+		render(WorkspaceView, { workspace: ws });
+		await ws.solve();
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(toggle());
+		await within(card()).findByText('The group curve could not be computed: The server is busy.');
+		await waitFor(() => expect(names()).toContain('Station, a request failed'));
+		// The group chart's own requests did not fail (its group system curve is asked for only
+		// after the group curve's answer): no mark there.
+		expect(names().filter((n) => n.startsWith('Group chart'))).toEqual(['Group chart']);
 	});
 
 	it('ends each card with "Back to the sections", visually hidden until focused, which focuses the nav’s current button', async () => {

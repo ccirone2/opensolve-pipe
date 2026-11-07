@@ -315,6 +315,45 @@ describe('Read along the curves', () => {
 		expect(gap.mark.points).toEqual([]);
 	});
 
+	it('gives each sample in parts, which joined are its text (pumps-results-layout.md §5.3 Reading)', () => {
+		// The screen lays the readout out as pairs; its text, the slider's value text and the e2e
+		// suite's exact reading (pump-groups.e2e.ts) are the join, word for word.
+		const join = (r: ReturnType<typeof groupReadout>[number]) =>
+			`${r.parts.at}: ${r.parts.none ?? r.parts.pairs.map((p) => `${p.name} ${p.value}`).join(', ')}`;
+		for (const name of ['parallel-ideal', 'parallel-crane', 'series', 'dead-headed']) {
+			const c = named(name);
+			const response = groupOf(c)!;
+			const readout = groupReadout(response, nameOf(c), prefsOf(c));
+			expect(readout.length).toBeGreaterThan(0);
+			for (const r of readout) {
+				expect(join(r)).toBe(r.text);
+				expect(r.parts.at).toMatch(/^At a rise of [\d.e-]+ (m|ft)$/);
+				// One pair per member in the station's order, then the station's, named "group".
+				expect(r.parts.none).toBeNull();
+				expect(r.parts.pairs.map((p) => p.name)).toEqual([
+					...response.station.memberIds.map(nameOf(c)),
+					'group'
+				]);
+			}
+		}
+		// A rise without a flow: no pair, its words in their place.
+		const c = named('series');
+		const response = structuredClone(groupOf(c)!);
+		Object.assign(
+			response.points.find((p) => p.isDuty)!,
+			{
+				flow: null,
+				members: [],
+				converged: false,
+				reason: 'not_converged'
+			}
+		);
+		const gap = groupReadout(response, nameOf(c), prefsOf(c)).find((r) => r.duty)!;
+		expect(gap.parts.pairs).toEqual([]);
+		expect(gap.parts.none).toBe('no flow solved here; the data table says why.');
+		expect(join(gap)).toBe(gap.text);
+	});
+
 	it('marks the chart only on screen, never in the image', () => {
 		const c = named('parallel-ideal');
 		const { data } = card(c);

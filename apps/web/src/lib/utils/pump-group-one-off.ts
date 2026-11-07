@@ -778,6 +778,70 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 	return { columns, groups };
 }
 
+/**
+ * Running combinations' lead (proposal pumps-results-layout.md §5.3, §6.2), counted over its
+ * groups: "{n} cases: {v} with current results ({k | none} physically invalid, {w | none} with
+ * warnings), {m | none} out of date, {f | none} without results."
+ */
+export interface CombinationsLead {
+	/** n: every case. */
+	cases: number;
+	/** v: the cases with current results (values, not out of date). */
+	current: number;
+	/** k: of the v, those in which a member has a flag of severity `invalid`. */
+	invalid: number;
+	/** w: of the v, those in which a member has a warning flag and none an invalid one. */
+	warnings: number;
+	/** m: the cases whose results are out of date (values, out of date: the extremes' notCounted). */
+	outOfDate: number;
+	/** f: the cases without results (failed, not reached, not solved, not converged). */
+	without: number;
+	/**
+	 * Its mark (§5.2): the worst severity among the v, `invalid` (the red octagon, "Physically
+	 * invalid") over `warning` (the amber alert, "Warning"); null when k and w are both none.
+	 */
+	mark: 'invalid' | 'warning' | null;
+	text: string;
+}
+
+/** The lead's mark's accessible name (§5.2 Marks), by its severity. */
+export const LEAD_MARK_NAMES: Readonly<Record<'invalid' | 'warning', string>> = {
+	invalid: 'Physically invalid',
+	warning: 'Warning'
+};
+
+/**
+ * Running combinations' lead (pumps-results-layout.md §5.3, §9 S5), from its table: the cases with
+ * current results counted as the extremes count them (values, not out of date), those of them in
+ * which a member is invalid or, else, has a warning flag (an info flag counts in neither, and a
+ * design check is never a flag: D19), then those out of date and those without values, so v + m +
+ * f = n. Each count but n and v is "none" at zero.
+ */
+export function combinationsLead(table: CombinationsTable): CombinationsLead {
+	const groups = table.groups;
+	const current = groups.filter((g) => g.values && !g.stale);
+	const invalid = current.filter((g) => g.rows.some((r) => r.invalid)).length;
+	const warnings = current.filter(
+		(g) =>
+			!g.rows.some((r) => r.invalid) &&
+			g.rows.some((r) => r.flags.some((f) => f.severity === 'warning'))
+	).length;
+	const outOfDate = groups.filter((g) => g.values && g.stale).length;
+	const without = groups.filter((g) => !g.values).length;
+	const none = (k: number) => (k ? String(k) : 'none');
+	const n = groups.length;
+	return {
+		cases: n,
+		current: current.length,
+		invalid,
+		warnings,
+		outOfDate,
+		without,
+		mark: invalid ? 'invalid' : warnings ? 'warning' : null,
+		text: `${n} ${n === 1 ? 'case' : 'cases'}: ${current.length} with current results (${none(invalid)} physically invalid, ${none(warnings)} with warnings), ${none(outOfDate)} out of date, ${none(without)} without results.`
+	};
+}
+
 export interface ExtremeLine {
 	/** The member's id and the measure: "PA:operatingFlow" (a name need not be unique). */
 	key: string;
@@ -790,43 +854,85 @@ export interface ExtremeLine {
 }
 
 /**
+ * One cell of the extremes table (pumps-results-layout.md §5.3, §9 S5): its line's value split
+ * after the amount, so `${amount} ${rest}` is the line's `value` ("no case gives one" alone, with
+ * no amount, where no current case gives one).
+ */
+export interface ExtremeCell {
+	/** Its line's key: "PA:operatingFlow". */
+	key: string;
+	/** "40.75 L/s"; null for "no case gives one". */
+	amount: string | null;
+	/** "in Pump PB off; beyond its curve data (over 5 of 5 cases)", or "no case gives one". */
+	rest: string;
+	/** The case it is in has a flag of severity `invalid` for that pump. */
+	invalid: boolean;
+}
+
+/**
+ * The extremes as a table (§5.3; the owner's answer 1, §12): a column per measure, its header the
+ * measure's words ("Largest flow"), and a row per member in component order, named as the lines
+ * name it, a cell per measure. Each row's name and each column's words make that cell's line's
+ * `term`.
+ */
+export interface ExtremesTable {
+	/** "Largest flow", "Largest shaft power", "Smallest NPSH margin" (each measure's `what`). */
+	columns: { key: string; label: string }[];
+	rows: { id: string; name: string; cells: ExtremeCell[] }[];
+}
+
+/** The extremes over the current cases: the lines, the same values as a table, and the cases not counted. */
+export interface CombinationExtremes {
+	lines: ExtremeLine[];
+	table: ExtremesTable;
+	notCounted: string[];
+}
+
+/** The extremes' measures, in their columns' order. */
+const EXTREME_MEASURES = [
+	{ what: 'largest flow', key: 'operatingFlow', category: 'flow', largest: true },
+	{ what: 'largest shaft power', key: 'shaftPower', category: 'power', largest: true },
+	{ what: 'smallest NPSH margin', key: 'npshMargin', category: 'head', largest: false }
+] as const;
+
+/**
  * Per member, its largest flow, its largest shaft power and its smallest NPSH margin over the
  * cases with current values (at least two; none otherwise), each with its case (the first in
  * table order; "and k other cases" on equal doubles), "beyond its curve data" and "physically
  * invalid" where they apply there, and how many cases give a value. Out-of-date cases are not
- * counted and are named (`notCounted`).
+ * counted and are named (`notCounted`). The same values as lines (term and value) and as a table
+ * (a row per member, a cell per measure: pumps-results-layout.md §5.3, §9 S5), each line made from
+ * its cell, so the two never differ.
  */
-export function combinationExtremes(input: CombinationsInput): {
-	lines: ExtremeLine[];
-	notCounted: string[];
-} {
+export function combinationExtremes(input: CombinationsInput): CombinationExtremes {
 	const f = new Formatter(input.prefs);
+	const columns = EXTREME_MEASURES.map((m) => ({
+		key: m.key,
+		label: `${m.what.charAt(0).toUpperCase()}${m.what.slice(1)}`
+	}));
 	const current = input.cases.filter((c) => hasValues(c.response) && !c.stale);
 	const notCounted = input.cases.filter((c) => hasValues(c.response) && c.stale).map((c) => c.name);
-	if (current.length < 2) return { lines: [], notCounted: [] };
+	if (current.length < 2) return { lines: [], table: { columns, rows: [] }, notCounted: [] };
 	const order = new Map(input.project.components.map((c, i) => [c.id, i]));
 	const members = [...input.members].sort(
 		(a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity)
 	);
 	const total = current.length;
 	const labels = memberLabels(members);
-	const measures = [
-		{ what: 'largest flow', key: 'operatingFlow', category: 'flow', largest: true },
-		{ what: 'largest shaft power', key: 'shaftPower', category: 'power', largest: true },
-		{ what: 'smallest NPSH margin', key: 'npshMargin', category: 'head', largest: false }
-	] as const;
 	const lines: ExtremeLine[] = [];
+	const rows: ExtremesTable['rows'] = [];
 	for (const m of members) {
-		for (const measure of measures) {
+		const name = labels.get(m.id)?.name ?? m.name;
+		const cells: ExtremeCell[] = [];
+		for (const measure of EXTREME_MEASURES) {
 			const key = `${m.id}:${measure.key}`;
-			const term = `${labels.get(m.id)?.name ?? m.name}, ${measure.what}`;
 			const found = current.flatMap((c) => {
 				const r = c.response!.solvedState.pumpResults[m.id];
 				const v = r ? r[measure.key] : null;
 				return typeof v === 'number' && Number.isFinite(v) ? [{ c, r: r!, v }] : [];
 			});
 			if (!found.length) {
-				lines.push({ key, term, value: 'no case gives one', invalid: false });
+				cells.push({ key, amount: null, rest: 'no case gives one', invalid: false });
 				continue;
 			}
 			const best = found.reduce(
@@ -849,13 +955,22 @@ export function combinationExtremes(input: CombinationsInput): {
 				...(invalid ? ['physically invalid'] : [])
 			];
 			const missing = total - found.length;
-			lines.push({
+			cells.push({
 				key,
-				term,
-				value: `${f.value(best, measure.category)} in ${where}${qualifiers.length ? `; ${qualifiers.join('; ')}` : ''} (over ${found.length} of ${total} cases${missing ? `; no value in ${missing}` : ''})`,
+				amount: f.value(best, measure.category),
+				rest: `in ${where}${qualifiers.length ? `; ${qualifiers.join('; ')}` : ''} (over ${found.length} of ${total} cases${missing ? `; no value in ${missing}` : ''})`,
 				invalid
 			});
 		}
+		for (const [i, cell] of cells.entries()) {
+			lines.push({
+				key: cell.key,
+				term: `${name}, ${EXTREME_MEASURES[i]!.what}`,
+				value: cell.amount === null ? cell.rest : `${cell.amount} ${cell.rest}`,
+				invalid: cell.invalid
+			});
+		}
+		rows.push({ id: m.id, name, cells });
 	}
-	return { lines, notCounted };
+	return { lines, table: { columns, rows }, notCounted };
 }

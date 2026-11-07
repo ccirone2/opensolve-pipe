@@ -2358,6 +2358,204 @@ async function addCasesPart(page: Page, view: string, where: string) {
 	).toEqual(['Add', 'Solve all', 'Pump lineups table…']);
 }
 
+// ---- S5: Running combinations' lead and the extremes as a table (§5.3, §9 S5, §10 S5) ----------
+
+/** Running combinations' lead in each view with scenarios and a station shown (§5.3, §6.2). */
+const COMBINATIONS_LEAD: Readonly<Record<string, { text: string; mark: string | null }>> = {
+	// The proposal's own example (§5.3): S7's Pump P1 has a warning flag.
+	'2-lineups': {
+		text: '9 cases: 9 with current results (none physically invalid, 1 with warnings), none out of date, none without results.',
+		mark: 'Warning'
+	},
+	// The condenser's cases with pumps off run the others beyond their curves (§10 New tests).
+	'3-condenser': {
+		text: '7 cases: 7 with current results (4 physically invalid, none with warnings), none out of date, none without results.',
+		mark: 'Physically invalid'
+	}
+};
+const EXTREMES_COLUMNS = ['Pump', 'Largest flow', 'Largest shaft power', 'Smallest NPSH margin'];
+
+/**
+ * The extremes table as drawn (§5.3 the extremes): its form (a table from 26 rem of its box, a
+ * list below), its box, its headers and rows, each cell's text and line header, the icons in its
+ * cells and in Running combinations' value cells, and the lead with its mark.
+ */
+function readExtremes() {
+	const section = document.querySelector('[data-pumps-together] [data-group-combinations]');
+	const box = section?.querySelector<HTMLElement>('[data-extremes]');
+	const table = box?.querySelector('table');
+	if (!section || !box || !table) return null;
+	const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+	const OCTAGON = 'M8 3h8l5 5v8l-5 5H8l-5-5V8z';
+	const TRIANGLE = 'M12 3 2 20h20z';
+	const shapes = (el: Element) =>
+		[...el.querySelectorAll('svg')].map((svg) => svg.querySelector('path')!.getAttribute('d'));
+	const thead = table.querySelector('thead')!;
+	const rows = [...table.querySelectorAll('tbody tr')].map((tr) => {
+		const th = tr.querySelector('th')!;
+		const cells = [...tr.querySelectorAll('td')] as HTMLElement[];
+		return {
+			name: th.textContent ?? '',
+			nameShown: th.scrollWidth <= th.clientWidth + 1,
+			nameDisplay: getComputedStyle(th).display,
+			nameWeight: getComputedStyle(th).fontWeight,
+			cells: cells.map((td) => ({
+				label: td.dataset.label ?? '',
+				text: td.textContent ?? '',
+				display: getComputedStyle(td).display,
+				before: getComputedStyle(td, '::before').content,
+				octagons: shapes(td).filter((d) => d === OCTAGON).length,
+				triangles: shapes(td).filter((d) => d === TRIANGLE).length,
+				others: shapes(td).filter((d) => d !== OCTAGON).length
+			}))
+		};
+	});
+	const combos = [...section.querySelectorAll('[data-running-combinations] td')].filter(
+		(td) => (td as HTMLElement).dataset.label !== 'Flags'
+	);
+	const lead = section.querySelector('[data-combinations-lead]');
+	const mark = section.querySelector('[data-combinations-mark]');
+	const container = box.parentElement!;
+	return {
+		width: Math.round(box.getBoundingClientRect().width),
+		list: box.getBoundingClientRect().width < 26 * rem,
+		display: getComputedStyle(table).display,
+		sideways: box.scrollWidth > box.clientWidth + 1,
+		tabindex: box.getAttribute('tabindex'),
+		containerType: getComputedStyle(container).containerType,
+		containerWidth: Math.round(container.getBoundingClientRect().width),
+		frame: getComputedStyle(box).borderTopWidth,
+		height: Math.round(container.getBoundingClientRect().height),
+		headClipped:
+			getComputedStyle(thead).position === 'absolute' && thead.getBoundingClientRect().width <= 1,
+		caption: table.querySelector('caption')?.textContent ?? '',
+		columns: [...thead.querySelectorAll('th')].map((th) => th.textContent ?? ''),
+		rows,
+		combos: combos.map((td) => ({
+			marked: td.textContent!.includes('physically invalid:'),
+			octagons: shapes(td).filter((d) => d === OCTAGON).length,
+			triangles: shapes(td).filter((d) => d === TRIANGLE).length
+		})),
+		lead: lead?.textContent ?? null,
+		leadTag: lead?.tagName ?? null,
+		mark: mark
+			? {
+					role: mark.getAttribute('role'),
+					name: mark.getAttribute('aria-label'),
+					beforeLead: mark.nextElementSibling === lead,
+					shape:
+						shapes(mark)[0] === OCTAGON
+							? 'octagon'
+							: shapes(mark)[0] === TRIANGLE
+								? 'triangle'
+								: 'other'
+				}
+			: null
+	};
+}
+
+/**
+ * S5's first half at the size shown (soft): Running combinations' lead and its mark (§5.3: named
+ * by the worst severity, the red octagon or the amber alert); the extremes a table from 26 rem of
+ * its box and a list below, with the same roles, headers and data-labels, each line headed by its
+ * data-label as ::before content and each cell's text its words (the same as in the table form:
+ * at 1280×800 the box's container is narrowed to a list and read again); the box never scrolls
+ * sideways and has no Tab stop; every pump name shown to its end; the red octagon in exactly the
+ * cells whose words say "physically invalid", and in Running combinations' marked cells, and no
+ * triangle in any (§5.2, §6.4 item 15); axe's table rules over the extremes (§9 S5 Proof).
+ */
+async function extremesPart(page: Page, view: string, where: string) {
+	const soft = expect.configure({ soft: true });
+	const m = await page.evaluate(readExtremes);
+	if (!m) return;
+	console.log(
+		`${where}: the extremes a ${m.list ? 'list' : 'table'} in a ${m.width} px box, ${m.height} px with their h5; lead "${m.lead}" (${m.mark?.name ?? 'no mark'})`
+	);
+	const expected = COMBINATIONS_LEAD[view];
+	if (expected) {
+		soft(m.lead, `Running combinations' lead, ${where}`).toBe(expected.text);
+		soft(m.mark?.name ?? null, `the lead's mark, ${where}`).toBe(expected.mark);
+	}
+	soft(m.leadTag, `the lead a paragraph, ${where}`).toBe('P');
+	if (m.mark) {
+		soft(m.mark.role, `the lead's mark an image, ${where}`).toBe('img');
+		soft(m.mark.beforeLead, `the lead's mark its own element before its <p>, ${where}`).toBe(true);
+		soft(m.mark.shape, `the lead's mark's shape, ${where}`).toBe(
+			m.mark.name === 'Physically invalid' ? 'octagon' : 'triangle'
+		);
+	}
+	soft(m.caption, `the extremes' caption, ${where}`).toBe('Extremes over these cases');
+	soft(m.columns, `the extremes' column headers, ${where}`).toEqual(EXTREMES_COLUMNS);
+	soft(m.rows.length, `a row per member, ${where}`).toBeGreaterThan(1);
+	soft(m.sideways, `the extremes' box scrolls sideways, ${where}`).toBe(false);
+	soft(m.tabindex, `the extremes' box a Tab stop (S7's), ${where}`).toBeNull();
+	soft(m.containerType, `the extremes' container, ${where}`).toBe('inline-size');
+	soft(m.containerWidth, `the container the box's width, ${where}`).toBe(m.width);
+	soft(m.display, `the extremes' form, ${where}`).toBe(m.list ? 'block' : 'table');
+	soft(m.headClipped, `the header row visually hidden in the list only, ${where}`).toBe(m.list);
+	soft(m.frame, `the box's frame, ${where}`).toBe(m.list ? '0px' : '1px');
+	for (const row of m.rows) {
+		soft(row.nameShown, `"${row.name}" shown to its end, ${where}`).toBe(true);
+		soft(
+			row.cells.map((c) => c.label),
+			`"${row.name}"'s cells under the measures, ${where}`
+		).toEqual(EXTREMES_COLUMNS.slice(1));
+		if (m.list) {
+			soft(row.nameDisplay, `"${row.name}" heads its block, ${where}`).toBe('block');
+			soft(row.nameWeight, `"${row.name}" in semibold, ${where}`).toBe('600');
+		}
+		for (const cell of row.cells) {
+			const what = `"${row.name}", ${cell.label}, ${where}`;
+			soft(cell.text.trim(), `${what}: its words`).not.toBe('');
+			soft(cell.text.includes(cell.label), `${what}: its header outside its text`).toBe(false);
+			soft(cell.display, `${what}: its form`).toBe(m.list ? 'block' : 'table-cell');
+			soft(cell.before, `${what}: its line header`).toBe(m.list ? `"${cell.label}"` : 'none');
+			const invalid = cell.text.includes('; physically invalid');
+			soft(cell.octagons, `${what}: the octagon`).toBe(invalid ? 1 : 0);
+			soft(cell.others, `${what}: another icon`).toBe(0);
+			soft(cell.triangles, `${what}: a triangle`).toBe(0);
+		}
+	}
+	for (const [i, cell] of m.combos.entries()) {
+		soft(cell.octagons, `Running combinations' value cell ${i}: the octagon, ${where}`).toBe(
+			cell.marked ? 1 : 0
+		);
+		soft(cell.triangles, `Running combinations' value cell ${i}: a triangle, ${where}`).toBe(0);
+	}
+	const axe = await new AxeBuilder({ page })
+		.include('[data-pumps-together] [data-extremes]')
+		.withRules(['td-has-header', 'th-has-data-cells', 'scope-attr-valid', 'td-headers-attr'])
+		.analyze();
+	soft(
+		axe.violations.map((v) => `${v.id} (${v.nodes.length})`),
+		`axe's table rules over the extremes, ${where}`
+	).toEqual([]);
+	soft(
+		axe.passes.length,
+		`axe's table rules that passed over the extremes, ${where}`
+	).toBeGreaterThan(0);
+
+	// From 26 rem a table: its container narrowed to a list below 26 rem reads the same words in
+	// every cell, each line headed by its data-label (§10 S5: the same as at 1280×800).
+	if (!m.list) {
+		const container = page.locator('[data-pumps-together] [data-combination-extremes]');
+		await container.evaluate((el) => (el.style.width = '20rem'));
+		const narrowed = await page.evaluate(readExtremes);
+		await container.evaluate((el) => (el.style.width = ''));
+		soft(narrowed?.list, `the extremes narrowed to 20 rem a list, ${where}`).toBe(true);
+		soft(narrowed?.display, `the extremes narrowed, its form, ${where}`).toBe('block');
+		soft(
+			narrowed?.rows.map((r) => [r.name, ...r.cells.map((c) => c.text)]),
+			`the extremes narrowed to a list: every cell's words as in the table, ${where}`
+		).toEqual(m.rows.map((r) => [r.name, ...r.cells.map((c) => c.text)]));
+		soft(
+			narrowed?.rows.flatMap((r) => r.cells.map((c) => c.before)),
+			`the extremes narrowed: each line headed by its data-label, ${where}`
+		).toEqual(m.rows.flatMap((r) => r.cells.map((c) => `"${c.label}"`)));
+		soft(narrowed?.sideways, `the extremes narrowed scroll sideways, ${where}`).toBe(false);
+	}
+}
+
 /**
  * Check and measure the view at the project's size and, on the phone, at 320×640 too (reflow at
  * 400 % zoom; pump-lineups.e2e.ts resizes the same way). Then axe with every disclosure open at
@@ -2373,6 +2571,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await cardPart(page, view, `${view} at ${size}`, data);
 	await navPart(page, `${view} at ${size}`);
 	await addCasesPart(page, view, `${view} at ${size}`);
+	await extremesPart(page, view, `${view} at ${size}`);
 	if (info.project.name !== 'mobile') {
 		await axeClean(page, `${view} at ${size}`);
 		await pageHolds(page, `${view} at ${size}, every disclosure open`);
@@ -2388,6 +2587,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await cardPart(page, view, `${view} at 320x640`, narrow);
 	await navPart(page, `${view} at 320x640`);
 	await addCasesPart(page, view, `${view} at 320x640`);
+	await extremesPart(page, view, `${view} at 320x640`);
 	await axeClean(page, `${view} at 320x640`);
 	await pageHolds(page, `${view} at 320x640, every disclosure open`);
 	await page.setViewportSize(viewport);
@@ -3072,6 +3272,20 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		expect
 			.soft(await groupTableSideways(page), `the group table's box scrolls sideways, ${where}`)
 			.toBe(false);
+		// The extremes (§9 S5): the long pump name a row header shown to its end, the long case
+		// name in their cells, and their box not scrolling sideways, at 1280×800 a table.
+		const extremes = await page.evaluate(readExtremes);
+		expect.soft(extremes, `the extremes drawn, ${where}`).not.toBeNull();
+		expect.soft(extremes?.rows[0]?.name, `the extremes' first row, ${where}`).toBe(LONG_PUMP);
+		expect
+			.soft(
+				extremes?.rows.some((r) => r.cells.some((c) => c.text.includes(LONG_CASE))),
+				`the long case's name in an extremes' cell, ${where}`
+			)
+			.toBe(true);
+		if (size.width === 1280)
+			expect.soft(extremes?.list, `the extremes a table, ${where}`).toBe(false);
+		await extremesPart(page, '', where);
 		// Each line of a long name ends inside the card, outside a box that scrolls (the data
 		// tables, and the group table at 640 px and over, whose name column wraps at 12 rem).
 		const past = await card.evaluate(

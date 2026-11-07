@@ -38,11 +38,13 @@ import { refusalWords, wordsText } from './pump-groups';
 import {
 	chartKeys,
 	combinationExtremes,
+	combinationsLead,
 	DUTY_CLAIM_RULE,
 	DUTY_CLAIM_WORDS,
 	dutyClaim,
 	groupCurveDrawn,
 	insideOf,
+	LEAD_MARK_NAMES,
 	MAX_GROUP_CASES,
 	offName,
 	OTHER_CURVE_WORDS,
@@ -821,6 +823,160 @@ describe('Running combinations', () => {
 	});
 });
 
+describe('Running combinations’ lead (pumps-results-layout.md §5.3, §9 S5)', () => {
+	const members = [
+		{ id: 'PA', name: 'Pump PA', slot: 0 },
+		{ id: 'PB', name: 'Pump PB', slot: 1 }
+	];
+	/** Every case of a fixture project, the base shown, each with its fixture solve. */
+	function everyCase(c: FixtureCase, ids: readonly string[] = c.memberIds): CombinationsInput {
+		const scenarios = Object.keys(c.scenarioCases ?? {});
+		return {
+			members: ids.map((id, slot) => ({
+				id,
+				name: c.project.components.find((x) => x.id === id)!.name,
+				slot
+			})),
+			cases: [null, ...scenarios].map((id) => ({
+				key: id ?? '',
+				name: id ? c.project.scenarios!.find((x) => x.id === id)!.name : 'Base case',
+				shown: id === null,
+				status: 'solved' as const,
+				response: id ? c.scenarioCases![id]!.solve : c.solve,
+				stale: false,
+				station: null
+			})),
+			prefs: c.project.settings.units,
+			project: c.project
+		};
+	}
+	/** The severities of a solve's flags on the members, read from the solve (not the table). */
+	const severities = (response: SolveResponse, ids: readonly string[]) =>
+		new Set(
+			(response.solvedState.flags as Flag[])
+				.filter((f) => f.componentId && ids.includes(f.componentId))
+				.map((f) => f.severity)
+		);
+
+	it('words the lineups fixture as the proposal does: 9 current, 1 with warnings, its mark the warning', () => {
+		const lineupsCase = named('lineups');
+		const lead = combinationsLead(runningCombinations(everyCase(lineupsCase)));
+		expect(lead.text).toBe(
+			'9 cases: 9 with current results (none physically invalid, 1 with warnings), none out of date, none without results.'
+		);
+		expect(lead.mark).toBe('warning');
+		expect(LEAD_MARK_NAMES[lead.mark!]).toBe('Warning');
+	});
+
+	it('counts each case once: current, then of those invalid or else with warnings; out of date; without results; v + m + f = n', () => {
+		const dead = named('one-off-dead-headed');
+		const base = everyCase(oneOff);
+		const notConverged = structuredClone(scenarioCase('S3').solve);
+		notConverged.solvedState.converged = false;
+		const input: CombinationsInput = {
+			...base,
+			cases: [
+				// Current: no member flag.
+				base.cases[0]!,
+				// Current: PA has warnings (PUMP_OUTSIDE_CURVE), none invalid.
+				base.cases[2]!,
+				// Current: PB invalid (PUMP_FLOW_REVERSAL) and PA warnings: counted as invalid only.
+				{ ...base.cases[1]!, key: 'X1', name: 'Held', response: dead.solve },
+				// Out of date: its warnings are not counted (the extremes' rule, §5.3).
+				{ ...base.cases[2]!, key: 'X2', name: 'Stale', stale: true },
+				// Without results: failed, not solved, and a solve that did not converge.
+				{ ...base.cases[3]!, status: 'failed', response: null },
+				{ ...base.cases[4]!, status: 'not_solved', response: null },
+				{ ...base.cases[3]!, key: 'X3', status: 'not_converged', response: notConverged }
+			]
+		};
+		// What each case holds, read from its solve: the table's groups count the same.
+		expect([...severities(oneOff.solve, ['PA', 'PB'])]).toEqual([]);
+		expect([...severities(scenarioCase('S2').solve, ['PA', 'PB'])]).toEqual(['warning']);
+		expect(severities(dead.solve, ['PA', 'PB'])).toEqual(new Set(['warning', 'invalid']));
+		const lead = combinationsLead(runningCombinations(input));
+		expect(lead).toEqual({
+			cases: 7,
+			current: 3,
+			invalid: 1,
+			warnings: 1,
+			outOfDate: 1,
+			without: 3,
+			mark: 'invalid',
+			text: '7 cases: 3 with current results (1 physically invalid, 1 with warnings), 1 out of date, 3 without results.'
+		});
+		expect(lead.current + lead.outOfDate + lead.without).toBe(lead.cases);
+		expect(LEAD_MARK_NAMES[lead.mark!]).toBe('Physically invalid');
+	});
+
+	it('says "none" for each count at zero, and has no mark without an invalid or a warning flag', () => {
+		const base = everyCase(oneOff);
+		// The cases with no member flag: the base, Pump PA off, the tank and both off.
+		const clean = { ...base, cases: base.cases.filter((c) => c.key !== 'S2') };
+		const lead = combinationsLead(runningCombinations(clean));
+		expect(lead.text).toBe(
+			'4 cases: 4 with current results (none physically invalid, none with warnings), none out of date, none without results.'
+		);
+		expect(lead.mark).toBeNull();
+		// No current case at all: v is a number, never "none" (§6.2).
+		const failed = combinationsLead(
+			runningCombinations({
+				...base,
+				cases: base.cases.slice(0, 2).map((c) => ({ ...c, status: 'failed', response: null }))
+			})
+		);
+		expect(failed.text).toBe(
+			'2 cases: 0 with current results (none physically invalid, none with warnings), none out of date, 2 without results.'
+		);
+		expect(failed.mark).toBeNull();
+	});
+
+	it('counts an info flag in neither, and marks a warning when no current case is invalid', () => {
+		const base = everyCase(oneOff);
+		const info = structuredClone(oneOff.solve);
+		info.solvedState.flags = [
+			...info.solvedState.flags,
+			// Synthetic: an info flag on a member.
+			{
+				code: 'PUMP_OUTSIDE_CURVE',
+				severity: 'info',
+				message: 'synthetic info',
+				componentId: 'PA'
+			} as Flag
+		];
+		const lead = combinationsLead(
+			runningCombinations({
+				...base,
+				cases: [{ ...base.cases[0]!, response: info }, base.cases[2]!]
+			})
+		);
+		expect(lead.invalid).toBe(0);
+		expect(lead.warnings).toBe(1);
+		expect(lead.mark).toBe('warning');
+		expect(lead.text).toBe(
+			'2 cases: 2 with current results (none physically invalid, 1 with warnings), none out of date, none without results.'
+		);
+		// An invalid flag only in a case out of date: neither counted nor marked.
+		const dead = named('one-off-dead-headed');
+		const stale = combinationsLead(
+			runningCombinations({
+				...base,
+				members,
+				cases: [base.cases[0]!, { ...base.cases[1]!, response: dead.solve, stale: true }]
+			})
+		);
+		expect([stale.invalid, stale.warnings, stale.outOfDate, stale.mark]).toEqual([0, 0, 1, null]);
+	});
+
+	it('says "1 case" for one', () => {
+		const base = everyCase(oneOff);
+		const lead = combinationsLead(runningCombinations({ ...base, cases: [base.cases[0]!] }));
+		expect(lead.text).toBe(
+			'1 case: 1 with current results (none physically invalid, none with warnings), none out of date, none without results.'
+		);
+	});
+});
+
 describe('the extremes over the cases', () => {
 	const prefs = oneOff.project.settings.units;
 	const members = [
@@ -978,6 +1134,158 @@ describe('the extremes over the cases', () => {
 			'0 L/s in Base case and 1 other case; physically invalid (over 2 of 2 cases)'
 		);
 		expect(pbHeld.invalid).toBe(true);
+	});
+});
+
+describe('the extremes as a table (pumps-results-layout.md §5.3, §9 S5)', () => {
+	const prefs = oneOff.project.settings.units;
+	const members = [
+		{ id: 'PA', name: 'Pump PA', slot: 0 },
+		{ id: 'PB', name: 'Pump PB', slot: 1 }
+	];
+	const all = (ids: (string | null)[] = [null, 'S1', 'S2', 'S3', 'S4']): CombinationsInput => ({
+		members,
+		cases: ids.map((id) => ({
+			key: id ?? '',
+			name: id ? oneOff.project.scenarios!.find((s) => s.id === id)!.name : 'Base case',
+			shown: id === null,
+			status: 'solved' as const,
+			response: id ? scenarioCase(id).solve : oneOff.solve,
+			stale: false,
+			station: null
+		})),
+		prefs,
+		project: oneOff.project
+	});
+	const dead = named('one-off-dead-headed');
+	/** The dead-headed base twice (synthetic): Pump PB held at zero flow, physically invalid. */
+	const held: CombinationsInput = {
+		members,
+		cases: ['Base case', 'Copy'].map((name, i) => ({
+			key: String(i),
+			name,
+			shown: i === 0,
+			status: 'solved' as const,
+			response: dead.solve,
+			stale: false,
+			station: null
+		})),
+		prefs,
+		project: dead.project
+	};
+	const twins = { ...all(), members: members.map((m) => ({ ...m, name: 'Booster pump' })) };
+	const lower = (label: string) => `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+
+	it('has a column per measure, its words the measure’s, and a row per member in component order', () => {
+		const { table } = combinationExtremes(all());
+		expect(table.columns).toEqual([
+			{ key: 'operatingFlow', label: 'Largest flow' },
+			{ key: 'shaftPower', label: 'Largest shaft power' },
+			{ key: 'npshMargin', label: 'Smallest NPSH margin' }
+		]);
+		expect(table.rows.map((r) => [r.id, r.name])).toEqual([
+			['PA', 'Pump PA'],
+			['PB', 'Pump PB']
+		]);
+		// Named as the lines name them: the twins told apart by their ids.
+		expect(combinationExtremes(twins).table.rows.map((r) => r.name)).toEqual([
+			'Booster pump (PA)',
+			'Booster pump (PB)'
+		]);
+		// Component order, whatever the members' order.
+		const reversed = combinationExtremes({ ...all(), members: [...members].reverse() });
+		expect(reversed.table.rows.map((r) => r.id)).toEqual(['PA', 'PB']);
+	});
+
+	it('splits each value after its amount: the value on its own, then the rest', () => {
+		const { table } = combinationExtremes(all());
+		expect(table.rows[0]!.cells[0]).toEqual({
+			key: 'PA:operatingFlow',
+			amount: '40.75 L/s',
+			rest: 'in Pump PB off; beyond its curve data (over 5 of 5 cases)',
+			invalid: false
+		});
+		const { table: invalid } = combinationExtremes(held);
+		expect(invalid.rows[1]!.cells[0]).toEqual({
+			key: 'PB:operatingFlow',
+			amount: '0 L/s',
+			rest: 'in Base case and 1 other case; physically invalid (over 2 of 2 cases)',
+			invalid: true
+		});
+		// "no case gives one" fills its cell alone, with no amount.
+		const { table: none } = combinationExtremes({
+			...held,
+			cases: [held.cases[0]!, { ...held.cases[1]!, response: dead.scenarioCases!.S1!.solve }]
+		});
+		expect(none.rows[1]!.cells[2]).toEqual({
+			key: 'PB:npshMargin',
+			amount: null,
+			rest: 'no case gives one',
+			invalid: false
+		});
+	});
+
+	it('is its lines cell by cell: each row’s name and column’s words the term, `${amount} ${rest}` the value', () => {
+		const inputs: [string, CombinationsInput][] = [
+			['every case', all()],
+			['two of one name', twins],
+			['held at zero flow', held],
+			[
+				'no case gives one',
+				{
+					...held,
+					cases: [held.cases[0]!, { ...held.cases[1]!, response: dead.scenarioCases!.S1!.solve }]
+				}
+			],
+			[
+				'one out of date',
+				{ ...all(), cases: all().cases.map((c, i) => ({ ...c, stale: i === 2 })) }
+			]
+		];
+		let cells = 0;
+		let empty = 0;
+		let marked = 0;
+		for (const [what, input] of inputs) {
+			const { lines, table } = combinationExtremes(input);
+			expect(lines, what).toHaveLength(table.rows.length * table.columns.length);
+			for (const [i, row] of table.rows.entries()) {
+				expect(row.cells, what).toHaveLength(table.columns.length);
+				for (const [j, cell] of row.cells.entries()) {
+					const line = lines[i * table.columns.length + j]!;
+					expect(cell.key, what).toBe(line.key);
+					expect(cell.key, what).toBe(`${row.id}:${table.columns[j]!.key}`);
+					expect(`${row.name}, ${lower(table.columns[j]!.label)}`, what).toBe(line.term);
+					expect(cell.amount === null ? cell.rest : `${cell.amount} ${cell.rest}`, what).toBe(
+						line.value
+					);
+					expect(cell.invalid, what).toBe(line.invalid);
+					if (cell.amount === null) {
+						expect(cell.rest, what).toBe('no case gives one');
+						expect(cell.invalid, what).toBe(false);
+						empty++;
+					} else {
+						// The amount is the value with its unit, the rest starts with its case.
+						expect(cell.amount, what).toMatch(/^-?[\d.]+ \S+$/);
+						expect(cell.rest, what).toMatch(/^in /);
+					}
+					if (cell.invalid) marked++;
+					cells++;
+				}
+			}
+		}
+		// Every kind of cell was compared: with an amount, without one, and marked invalid.
+		expect([cells > 0, empty > 0, marked > 0]).toEqual([true, true, true]);
+	});
+
+	it('has no rows with fewer than two current cases, its columns kept', () => {
+		const one = combinationExtremes(all([null]));
+		expect(one.lines).toEqual([]);
+		expect(one.table.rows).toEqual([]);
+		expect(one.table.columns.map((c) => c.label)).toEqual([
+			'Largest flow',
+			'Largest shaft power',
+			'Smallest NPSH margin'
+		]);
 	});
 });
 

@@ -267,7 +267,9 @@ describe('one pump off on the Pumps together card', () => {
 		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
 		// drawn once all four are, is S3's (in case order it was S4's).
 		await waitFor(() =>
-			expect(within(card()).getByRole('img')).toHaveAccessibleName(/4 · Delivery tank 5 m higher/)
+			expect(within(within(card()).getByRole('figure')).getByRole('img')).toHaveAccessibleName(
+				/4 · Delivery tank 5 m higher/
+			)
 		);
 		// Every case out of date, then S3 shown with its curves answered (its group system curve
 		// asked as the case shown).
@@ -514,7 +516,9 @@ describe('one pump off on the Pumps together card', () => {
 		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
 		// drawn once all four are, is S3's (in case order it was S4's).
 		await waitFor(() =>
-			expect(within(card()).getByRole('img')).toHaveAccessibleName(/4 · Delivery tank 5 m higher/)
+			expect(within(within(card()).getByRole('figure')).getByRole('img')).toHaveAccessibleName(
+				/4 · Delivery tank 5 m higher/
+			)
 		);
 		expect(calls.map((c) => [c.scenarioId, c.curve])).toEqual([
 			[null, 'group'],
@@ -748,7 +752,7 @@ describe('one pump off on the Pumps together card', () => {
 		await fireEvent.click(
 			within(card()).getByRole('checkbox', { name: "Also show the other cases' station duties" })
 		);
-		const img = () => within(card()).getByRole('img');
+		const img = () => within(within(card()).getByRole('figure')).getByRole('img');
 		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
 		// drawn once all four are, is S3's (in case order it was S4's).
 		await waitFor(() => expect(img()).toHaveAccessibleName(/4 · Delivery tank 5 m higher/));
@@ -944,15 +948,40 @@ describe('one pump off on the Pumps together card', () => {
 		]);
 		await fireEvent.click(within(block()).getByRole('button', { name: 'Solve all (2)' }));
 		await waitFor(() => expect(solves).toEqual([null, 'S1', 'S2']));
-		const extremes = await within(card()).findByLabelText('Extremes over these cases');
-		expect([...extremes.querySelectorAll('dt')].map((dt) => dt.textContent)).toEqual([
-			'Booster pump (PA), largest flow:',
-			'Booster pump (PA), largest shaft power:',
-			'Booster pump (PA), smallest NPSH margin:',
-			'Booster pump (PB), largest flow:',
-			'Booster pump (PB), largest shaft power:',
-			'Booster pump (PB), smallest NPSH margin:'
+		// The extremes a table (pumps-results-layout.md §5.3, §10 S5): the six pump and measure
+		// pairs the dl's terms named, pinned by the row headers (the twins still told apart by
+		// their ids), the column headers, and each row's cells under the three measures, none empty.
+		const extremes = await within(card()).findByRole('table', {
+			name: 'Extremes over these cases'
+		});
+		expect(
+			within(extremes)
+				.getAllByRole('rowheader')
+				.map((h) => h.textContent)
+		).toEqual(['Booster pump (PA)', 'Booster pump (PB)']);
+		expect(
+			within(extremes)
+				.getAllByRole('columnheader')
+				.map((h) => h.textContent)
+		).toEqual(['Pump', 'Largest flow', 'Largest shaft power', 'Smallest NPSH margin']);
+		const extremeRows = within(extremes)
+			.getAllByRole('row')
+			.filter((r) => within(r).queryByRole('rowheader'));
+		expect(
+			extremeRows.map((r) =>
+				within(r)
+					.getAllByRole('cell')
+					.map((c) => c.dataset.label)
+			)
+		).toEqual([
+			['Largest flow', 'Largest shaft power', 'Smallest NPSH margin'],
+			['Largest flow', 'Largest shaft power', 'Smallest NPSH margin']
 		]);
+		for (const row of extremeRows) {
+			for (const cell of within(row).getAllByRole('cell')) {
+				expect(cell.textContent!.trim()).not.toBe('');
+			}
+		}
 		// Running combinations: each case's two member rows have headers of their own (the slot's
 		// symbol is hidden from screen readers, so the names alone tell them apart).
 		const table = within(card()).getByRole('table', { name: 'Running combinations' });

@@ -26,7 +26,8 @@
  * - lineupPlan and withLineupCases (§7, slice L1b): what the Pumps together card's "Add cases"
  *   block makes, By number running (one case per number of the station's pumps running, the
  *   pumps that stop first by the stop order switched off) or Each pump off (4d's cases), from
- *   the base case's solve, with its gates, words, preview, refusals, notice and undo label; the
+ *   the base case's solve, with its gates, words, preview, refusals, notice and undo label (and,
+ *   since the Pumps tab's S4, its plan's summary and which pump each id is); the
  *   stop order (defaultStopOrder, effectiveStopOrder, movedStopOrder: page state, derived and
  *   clamped to the pumps on, decision 26) and its words.
  * - lineupChartPriority (§4.6): the order the group chart takes other cases in, one lineup of
@@ -420,6 +421,18 @@ function namedByLabel(
  * No tier lists only some of the pumps off in a group, or calls a pump that is on off (§5).
  */
 export function lineupName(project: Project, scenario: Scenario): string | null {
+	return lineupNameParts(project, scenario)?.text ?? null;
+}
+
+/**
+ * lineupName's words, and the pumps they write by id rather than by label (tier 1's ids, or every
+ * pump tier 2 writes), in the order written: Add cases' id line says which pump each id is
+ * (pumps-results-layout.md §5.3, §6.2). Tiers 3 and 4 write no pump.
+ */
+function lineupNameParts(
+	project: Project,
+	scenario: Scenario
+): { text: string; ids: string[] } | null {
 	const named = new Set(pumpStatusChanges(project, scenario).map((c) => c.id));
 	if (!named.size) return null;
 	const status = caseStatus(project, scenario);
@@ -450,23 +463,30 @@ export function lineupName(project: Project, scenario: Scenario): string | null 
 	const byId = (id: string) => id;
 	const fits = (text: string) => text.length <= room;
 
+	/** The ids a part writes when it is written by ids: a group's pumps off, or the pump. */
+	const idsOf = (part: NamePart) => (part.kind === 'pump' ? [part.id] : [...part.off]);
+
 	// 1. Per part: a group by its labels when its longest possible part fits.
+	const tier1Ids: string[] = [];
 	const tier1 = parts
 		.map((part) => {
 			if (part.kind === 'pump') {
-				return pumpText(part, fits(pumpText({ ...part, status: 'off' }, label)) ? label : byId);
+				const byLabel = fits(pumpText({ ...part, status: 'off' }, label));
+				if (!byLabel) tier1Ids.push(...idsOf(part));
+				return pumpText(part, byLabel ? label : byId);
 			}
-			const longest = groupText({ ...part, off: part.pumpIds }, label);
-			return groupText(part, fits(longest) ? label : byId);
+			const byLabel = fits(groupText({ ...part, off: part.pumpIds }, label));
+			if (!byLabel) tier1Ids.push(...idsOf(part));
+			return groupText(part, byLabel ? label : byId);
 		})
 		.join('; ');
-	if (fits(tier1)) return `${tier1}${suffix}`;
+	if (fits(tier1)) return { text: `${tier1}${suffix}`, ids: tier1Ids };
 
 	// 2. Every part by ids.
 	const tier2 = parts
 		.map((part) => (part.kind === 'pump' ? pumpText(part, byId) : groupText(part, byId)))
 		.join('; ');
-	if (fits(tier2)) return `${tier2}${suffix}`;
+	if (fits(tier2)) return { text: `${tier2}${suffix}`, ids: parts.flatMap(idsOf) };
 
 	// 3. Counts per part; the pumps named on their own as one part.
 	const groups = parts.filter((p): p is Extract<NamePart, { kind: 'group' }> => p.kind === 'group');
@@ -486,7 +506,7 @@ export function lineupName(project: Project, scenario: Scenario): string | null 
 		}),
 		...(ownText ? [ownText] : [])
 	].join('; ');
-	if (fits(tier3)) return `${tier3}${suffix}`;
+	if (fits(tier3)) return { text: `${tier3}${suffix}`, ids: [] };
 
 	// 4. One count.
 	const total = groups.reduce((n, g) => n + g.pumpIds.length, 0) + own.length;
@@ -494,7 +514,7 @@ export function lineupName(project: Project, scenario: Scenario): string | null 
 	const tier4 = off
 		? `${total - off} of ${total} pumps running (${off} off)`
 		: `${total} of ${total} pumps running`;
-	return `${tier4}${suffix}`;
+	return { text: `${tier4}${suffix}`, ids: [] };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -735,6 +755,18 @@ export const LINEUP_BLOCK_WORDS = {
 	cases: 'Cases:'
 } as const;
 
+/**
+ * Add cases' own words since the Pumps tab's S4 (pumps-results-layout.md §5.3, §6.2), beside D24's,
+ * which are unchanged (§6.3): the tag beside its heading, the plan disclosure's lead, and the line
+ * after an Add that ticked "Also show the other cases' station duties", which the block's polite
+ * line says too, since the focus moves on to its Solve all (D24 §7.8).
+ */
+export const ADD_CASES_WORDS = {
+	tag: 'Changes the project',
+	planLead: 'The plan',
+	nowTicked: "Now ticked: “Also show the other cases' station duties” (Group chart)."
+} as const;
+
 /** The preset control's options (§7.3). */
 export const LINEUP_PRESET_LABELS: Readonly<Record<LineupPreset, string>> = {
 	running: 'By number running',
@@ -926,6 +958,19 @@ export interface LineupPlan {
 	idle: readonly string[];
 	/** Which group the names count, when the members are not one parallel group of the frame (§7.7). */
 	frame: string | null;
+	/**
+	 * Which pump each id is, where the stop order or the names write pumps by id and some such
+	 * pump's name does not hold its id: "In the names, P6 is Condenser water pump CWP-6, …"
+	 * (pumps-results-layout.md §5.3, §6.2), in the order the plan first writes them (the stop
+	 * order, then the names); null otherwise and under Each pump off, whose names are 4d's.
+	 */
+	ids: string | null;
+	/**
+	 * The plan disclosure's summary after its lead, "The plan: " (pumps-results-layout.md §5.3,
+	 * §6.2): "{n} cases {by number running|with each pump off}: {k} to add", or ": all {n} made",
+	 * or ": {e} made, {b} not made (the base case's state)"; null under a gate.
+	 */
+	summary: string | null;
 	/** Why the add is refused: nothing to add, or past the scenario limit (null: it can be made). */
 	refusal: string | null;
 	/** "Add 3 cases"; "Add cases" when there is nothing to add. */
@@ -994,6 +1039,29 @@ function frameWords(project: Project, members: readonly string[], label: Namer):
 }
 
 /**
+ * Which pump each id is (pumps-results-layout.md §5.3, §6.2): the pumps the stop order's summary
+ * (stopOrderSummary's rule) and the planned cases' names (lineupName's tiers) write by id, in the
+ * order the plan first writes them, each with its name; drawn only when some such pump's name does
+ * not hold its id ("Condenser water pump CWP-6" for P6), so that the line tells something.
+ */
+function idWords(
+	project: Project,
+	order: readonly string[],
+	wanted: readonly { ids: readonly string[] }[],
+	label: Namer
+): string | null {
+	const ids = [
+		...new Set([
+			...order.filter((id) => !namedByLabel(project, id, label)),
+			...wanted.flatMap((w) => w.ids)
+		])
+	];
+	const name = (id: string) => componentById(project, id)?.name ?? id;
+	if (!ids.some((id) => !name(id).includes(id))) return null;
+	return `In the names, ${andList(ids.map((id) => `${id} is ${name(id)}`))}.`;
+}
+
+/**
  * What the Add cases block would make now (§7.4), or why it is not offered (§7.2, gates in 4d's
  * order: a parallel station; the base case shown; its results current; two members or more on;
  * one carrying flow). Every term is read from the base case's current results: a member is on
@@ -1030,6 +1098,8 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 		existing: [],
 		idle: [],
 		frame: null,
+		ids: null,
+		summary: null,
 		refusal: null,
 		label: 'Add cases',
 		undoLabel: LINEUP_UNDO_LABELS[preset],
@@ -1094,8 +1164,8 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 		);
 	}
 
-	// The cases wanted, in plan order: the pumps each stops and its name.
-	const wanted: { stopped: string[]; name: string }[] = [];
+	// The cases wanted, in plan order: the pumps each stops, its name and the pumps it names by id.
+	const wanted: { stopped: string[]; name: string; ids: readonly string[] }[] = [];
 	const ordered = (ids: Iterable<string>) => {
 		const set = new Set(ids);
 		return members.filter((id) => set.has(id));
@@ -1110,7 +1180,8 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 		const order = effectiveStopOrder(input.savedOrder, on);
 		for (let k = on.length - 1; k >= 1; k--) {
 			const stopped = ordered(order.slice(0, on.length - k));
-			wanted.push({ stopped, name: lineupName(project, caseOf(stopped)) ?? '' });
+			const named = lineupNameParts(project, caseOf(stopped));
+			wanted.push({ stopped, name: named?.text ?? '', ids: named?.ids ?? [] });
 		}
 		stopView = {
 			order,
@@ -1130,7 +1201,8 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 			const plain = componentById(project, id)?.name ?? id;
 			wanted.push({
 				stopped: [id],
-				name: offName(plain, ownLabels.get(id)?.shared ? id : undefined)
+				name: offName(plain, ownLabels.get(id)?.shared ? id : undefined),
+				ids: []
 			});
 		}
 	}
@@ -1212,6 +1284,19 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 					"In a case's name, running means switched on; Running combinations shows whether each pump carries flow. Other sets of the same number of pumps are not made: change the stop order and add again to compare them."
 				].join(' ');
 
+	// The plan disclosure's summary (pumps-results-layout.md §5.3): what it holds, and how much of it
+	// is made. Folded (every planned case made) it reads ": all {n} made".
+	const baseState = cases.filter((c) => c.kind === 'base_state').length;
+	const kind = preset === 'running' ? 'by number running' : 'with each pump off';
+	const made = !add.length
+		? baseState
+			? `${existing.length} made, ${baseState} not made (the base case's state)`
+			: cases.length === 1
+				? '1 made'
+				: `all ${cases.length} made`
+		: `${add.length} to add`;
+	const summary = `${cases.length} ${plural(cases.length, 'case', 'cases')} ${kind}: ${made}`;
+
 	return {
 		preset,
 		gate: null,
@@ -1225,6 +1310,8 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 		existing,
 		idle,
 		frame: preset === 'running' ? frameWords(project, members, label) : null,
+		ids: stopView ? idWords(project, stopView.order, wanted, label) : null,
+		summary,
 		refusal,
 		label: add.length ? `Add ${add.length} ${plural(add.length, 'case', 'cases')}` : 'Add cases',
 		undoLabel: LINEUP_UNDO_LABELS[preset],

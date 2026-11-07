@@ -889,7 +889,8 @@ test('add cases by number running: the stop order moved, three cases added and s
 
 	// 3. The stop order: P1 to the first place, then one place later; by keyboard on desktop
 	// (the focus asserted after every press), by taps on a phone.
-	const summary = block.locator('details > summary');
+	// The stop order's own disclosure, inside the plan's since S4 (pumps-results-layout.md §5.3).
+	const summary = block.locator('[data-stop-order] > summary');
 	await expect(summary).toHaveText(
 		'Stop order: Pump P4 first, then Pump P3 and Pump P2; Pump P1 stays on in every case'
 	);

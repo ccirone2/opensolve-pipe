@@ -123,7 +123,8 @@ const labelsOf = (list: HTMLElement) =>
 		.map((li) => li.querySelector('div > span:first-child')!.textContent);
 const stopItems = () => labelsOf(inBlock().getByRole('list', { name: 'Stop order' }));
 const stopStatus = () => block().querySelector('[data-stop-status]')!.textContent;
-const details = () => block().querySelector('details')!;
+/** The stop order's own disclosure (inside the plan's since S4, pumps-results-layout.md §5.3). */
+const details = () => block().querySelector<HTMLDetailsElement>('[data-stop-order]')!;
 
 /** Solve the base, show the Pumps view and open the card; its two curves answered. */
 async function openCard(
@@ -204,7 +205,7 @@ describe('the Add cases block in the workspace', () => {
 			'Makes one scenario per pump running in the base case (Pump P1, Pump P2, Pump P3 and Pump P4): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.'
 		);
 		expect(cases()).toEqual(['Pump P1 off', 'Pump P2 off', 'Pump P3 off', 'Pump P4 off']);
-		expect(block().querySelector('details')).toBeNull();
+		expect(block().querySelector('[data-stop-order]')).toBeNull();
 		expect(block().textContent).not.toContain('have the same pump curve and speed');
 		expect(inBlock().getByRole('button', { name: 'Add 4 cases' })).toBeVisible();
 		await fireEvent.click(inBlock().getByRole('radio', { name: 'By number running' }));
@@ -635,7 +636,7 @@ describe('the Add cases block, drawn alone', () => {
 				{ exact: false }
 			)
 		).toBeVisible();
-		const summary = document.querySelector('details > summary')!;
+		const summary = document.querySelector('[data-stop-order] > summary')!;
 		expect(summary).toHaveTextContent('Stop order: Pump PB stops; Pump PA stays on in every case');
 		await fireEvent.click(summary);
 		expect(labelsOf(alone().getByRole('list', { name: 'Stop order' }))).toEqual([
@@ -719,4 +720,406 @@ describe('the Add cases block, drawn alone', () => {
 		await fireEvent.click(alone().getByRole('button', { name: 'Stop Pump P1 later' }));
 		expect(onmove).toHaveBeenCalledTimes(1);
 	});
+});
+
+// ---- The Pumps tab's S4: one structure, the fold, the new lines (pumps-results-layout.md) -----
+
+describe('Add cases in one structure (pumps-results-layout.md §5.3, §9 S4, §10 S4)', () => {
+	const lasting = runnable;
+	const canRun = {
+		count: 3,
+		canRun: true,
+		reason: '',
+		hint: 'Solves each case whose results are missing or out of date, one after another: up to 3 solves.'
+	};
+	const running = {
+		count: 3,
+		canRun: false,
+		reason: 'Solve all is running; Cancel in the header stops it.',
+		hint: canRun.hint,
+		passing: true
+	};
+	const region = () => screen.getByRole('region', { name: 'Add cases' });
+	const plan = () => region().querySelector<HTMLDetailsElement>('[data-lineup-plan]');
+	const solveAlls = () => alone().queryAllByRole('button', { name: /^Solve all/ });
+	/** The fixture's three lineups as scenarios S1 to S3: every case By number running made. */
+	const made = (count: number) =>
+		withScenarios(withoutScenarios(), lineups.project.scenarios!.slice(0, count));
+	const eighteen: Scenario[] = Array.from({ length: 18 }, (_, i) => ({
+		id: `S${i + 1}`,
+		name: `Case ${i + 1}`,
+		overrides: []
+	}));
+	/**
+	 * The panel's parts in order, each by what it is: its header row, the segments, the plan, the
+	 * row, the refusal, Solve all's reason (shown or hidden), "Now ticked", the table button, and the
+	 * polite line (§5.3 items 1 to 6).
+	 */
+	function parts() {
+		return [...region().children].map((el) => {
+			if (el.querySelector(':scope > h4')) return 'header';
+			if (el.querySelector('[role="radiogroup"]')) return 'segments';
+			if (el.matches('[data-lineup-plan]')) return 'plan';
+			if (el.querySelector('button') && el.tagName === 'DIV') return 'row';
+			if (el.id.endsWith('-refusal')) return 'refusal';
+			if (el.id.endsWith('-solve-all'))
+				return el.classList.contains('sr-only') ? 'hidden' : 'reason';
+			if (el.matches('[data-now-ticked]')) return 'ticked';
+			if (el.tagName === 'BUTTON') return 'table';
+			if (el.matches('[data-stop-status]')) return 'status';
+			return el.tagName;
+		});
+	}
+
+	it('draws a framed panel: its h4 at 14 px with the tag "Changes the project" beside it, a sibling, and the label at 12 px', () => {
+		draw(planOn(lineups), { ontable: vi.fn() });
+		expect(region()).toHaveClass('rounded-lg', 'border', 'border-slate-300', 'bg-slate-50', 'p-3');
+		// Every line in it wraps an unbroken name inside the frame (§5.5; a 40-character name).
+		expect(region()).toHaveClass('wrap-break-word');
+		const h4 = alone().getByRole('heading', { name: 'Add cases', level: 4 });
+		expect(h4).toHaveClass('text-sm', 'font-semibold');
+		// The region is named by the h4 alone; the tag is its sibling in the header row (§5.3).
+		expect(region()).toHaveAccessibleName('Add cases');
+		const tag = alone().getByText('Changes the project', { exact: true });
+		expect(tag.parentElement).toBe(h4.parentElement);
+		expect([...h4.parentElement!.children]).toEqual([h4, tag]);
+		expect(h4.parentElement).toHaveClass('flex', 'flex-wrap', 'items-center');
+		expect(tag).toHaveClass('text-xs', 'text-slate-600');
+		expect(tag).not.toHaveClass('border');
+		// "Cases to add" at 12 px (a field label inside a section, §5.2), outside any disclosure.
+		const label = alone().getByText('Cases to add', { exact: true });
+		expect(label).toHaveClass('label');
+		const wrapper = label.closest('.field')!.parentElement!;
+		expect(wrapper.classList.contains('[&_.label]:text-xs')).toBe(true);
+		expect(label.closest('details')).toBeNull();
+		expect(alone().getByRole('radiogroup', { name: 'Cases to add' }).closest('details')).toBeNull();
+	});
+
+	it('keeps one structure in every state: the segments, the plan, one row with the one Solve all, the refusal, the reason, the table button', async () => {
+		const ontable = vi.fn();
+		const states: [string, ReturnType<typeof planOn>, typeof runnable, string[]][] = [
+			[
+				'cases to add',
+				planOn(lineups),
+				canRun,
+				['header', 'segments', 'plan', 'row', 'hidden', 'table', 'status']
+			],
+			[
+				'every case made',
+				planOn(lineups, { project: made(3) }),
+				lasting,
+				['header', 'segments', 'plan', 'row', 'refusal', 'reason', 'table', 'status']
+			],
+			[
+				'refused past the limit',
+				planOn(lineups, { project: withScenarios(withoutScenarios(), eighteen) }),
+				canRun,
+				['header', 'segments', 'plan', 'row', 'refusal', 'hidden', 'table', 'status']
+			],
+			[
+				'Each pump off, a run in progress',
+				planOn(lineups, { preset: 'each' }),
+				running,
+				['header', 'segments', 'plan', 'row', 'hidden', 'table', 'status']
+			],
+			[
+				'only the base case’s state',
+				planOn(closedLeg),
+				lasting,
+				['header', 'segments', 'plan', 'row', 'refusal', 'reason', 'table', 'status']
+			]
+		];
+		const [, first, firstSolve] = states[0]!;
+		const view = draw(first, { ontable, solveAll: firstSolve });
+		const nodes = {
+			solveAll: solveAlls()[0],
+			segment: alone().getByRole('radio', { name: 'Each pump off' }),
+			plan: plan(),
+			add: alone().getByRole('button', { name: /^Add / })
+		};
+		for (const [what, p, solveAll, order] of states) {
+			await view.rerender({ plan: p, solveAll, ontable });
+			expect(parts(), what).toEqual(order);
+			// Solve all exactly once, in the one row, beside Add.
+			expect(solveAlls(), what).toHaveLength(1);
+			expect(solveAlls()[0]!.parentElement, what).toBe(
+				alone().getByRole('button', { name: /^Add / }).parentElement
+			);
+			// The same elements in every state: no control is drawn again elsewhere (A11Y-04).
+			expect(solveAlls()[0], what).toBe(nodes.solveAll);
+			expect(alone().getByRole('radio', { name: 'Each pump off' }), what).toBe(nodes.segment);
+			expect(plan(), what).toBe(nodes.plan);
+			expect(alone().getByRole('button', { name: /^Add / }), what).toBe(nodes.add);
+		}
+	});
+
+	it('under a gate shows only its sentence, Solve all for gates 4 to 6 (one) and the table button; no plan', async () => {
+		const ontable = vi.fn();
+		const series = (solvedCase('series').groupCurve.body as PumpGroupCurveResponse).station;
+		/** The base solve with some pumps' results changed (synthetic): gates 5 and 6. */
+		const solved = (change: (r: SolveResponse['solvedState']['pumpResults'][string]) => void) => {
+			const response = structuredClone(lineups.solve);
+			for (const [id, r] of Object.entries(response.solvedState.pumpResults)) {
+				if (['P1', 'P2', 'P3', 'P4'].includes(id)) change(r);
+			}
+			return { response, stale: false };
+		};
+		const gates: [Partial<LineupPlanInput>, number][] = [
+			[{ station: series }, 0],
+			[{ station: { ...stationOf(lineups), arrangement: 'mixed' } }, 0],
+			[{ project: lineups.project, shownCase: 'S1' }, 0],
+			[{ base: { response: lineups.solve, stale: true } }, 1],
+			[{ base: solved((r) => (r.status = 'off')) }, 1],
+			[{ base: solved((r) => (r.operatingFlow = 0)) }, 1]
+		];
+		const view = draw(planOn(lineups, gates[0]![0]), { ontable });
+		for (const [values, count] of gates) {
+			const p = planOn(lineups, values);
+			expect(p.gate).not.toBeNull();
+			expect(p.showSolveAll).toBe(count === 1);
+			await view.rerender({ plan: p, solveAll: lasting, ontable });
+			expect(solveAlls()).toHaveLength(count);
+			expect(plan()).toBeNull();
+			expect(alone().queryByRole('radiogroup')).toBeNull();
+			expect(alone().getAllByRole('button').at(-1)).toHaveAccessibleName('Pump lineups table…');
+			// A gate's Solve all keeps its reason visually hidden, as before S4 (§5.3: "as today").
+			if (count) {
+				expect(region().querySelector('[id$="-solve-all"]')).toHaveClass('sr-only');
+				expect(solveAlls()[0]).toHaveAttribute('title', lasting.reason);
+			}
+		}
+	});
+
+	it('the fold: drawn closed only when every planned case exists; open otherwise; opens itself when cases come to remain; never closed by code', async () => {
+		const view = draw(planOn(lineups, { project: made(3) }));
+		// Drawn with every case made: folded, its summary saying so.
+		expect(plan()!.open).toBe(false);
+		expect(plan()!.querySelector('summary')).toHaveTextContent(
+			'The plan: 3 cases by number running: all 3 made'
+		);
+		// A scenario deleted: a case remains, so it opens itself.
+		await view.rerender({ plan: planOn(lineups, { project: made(2) }), solveAll: lasting });
+		expect(plan()!.open).toBe(true);
+		expect(plan()!.querySelector('summary')).toHaveTextContent(
+			'The plan: 3 cases by number running: 1 to add'
+		);
+		// Every case made again (the user's own Add): it stays as the user left it, open.
+		await view.rerender({ plan: planOn(lineups, { project: made(3) }), solveAll: lasting });
+		expect(plan()!.open).toBe(true);
+		// Closed by the user, then made: it stays closed; another preset with cases to add opens it.
+		await fireEvent.click(plan()!.querySelector('summary')!);
+		expect(plan()!.open).toBe(false);
+		await view.rerender({ plan: planOn(lineups, { project: made(3) }), solveAll: lasting });
+		expect(plan()!.open).toBe(false);
+		await view.rerender({
+			plan: planOn(lineups, { project: made(3), preset: 'each' }),
+			solveAll: lasting
+		});
+		expect(plan()!.open).toBe(true);
+		// S1 ("3 of 4 running (Pump P4 off)") is the same case as "Pump P4 off" (sameCase).
+		expect(plan()!.querySelector('summary')).toHaveTextContent(
+			'The plan: 4 cases with each pump off: 3 to add'
+		);
+		// A gate, then lifted: drawn again by the rule (closed with every case made, else open).
+		const stale = { base: { response: lineups.solve, stale: true } };
+		await view.rerender({
+			plan: planOn(lineups, { ...stale, project: made(3) }),
+			solveAll: lasting
+		});
+		expect(plan()).toBeNull();
+		await view.rerender({ plan: planOn(lineups, { project: made(3) }), solveAll: lasting });
+		expect(plan()!.open).toBe(false);
+		await view.rerender({ plan: planOn(lineups, { ...stale }), solveAll: lasting });
+		await view.rerender({ plan: planOn(lineups), solveAll: lasting });
+		expect(plan()!.open).toBe(true);
+	});
+
+	it('is open, not folded, for a plan refused at the limit or one of base-state cases only (nothing made)', () => {
+		draw(planOn(lineups, { project: withScenarios(withoutScenarios(), eighteen) }));
+		expect(plan()!.open).toBe(true);
+		expect(plan()!.querySelector('summary')).toHaveTextContent(
+			'The plan: 3 cases by number running: 3 to add'
+		);
+		document.body.innerHTML = '';
+		draw(planOn(closedLeg));
+		expect(plan()!.open).toBe(true);
+		expect(plan()!.querySelector('summary')).toHaveTextContent(
+			"The plan: 1 case by number running: 0 made, 1 not made (the base case's state)"
+		);
+	});
+
+	it('holds in the plan, in D24 §7.11’s order: About, the sentence, the stop order, the cases, the names line and which pump each id is', async () => {
+		// The lineups' pumps renamed past the names' budget, each name without its id: the names
+		// write ids, and the plan says which pump each is (§6.2).
+		const project = withoutScenarios();
+		const long = ['north', 'south', 'east', 'west'];
+		for (const c of project.components) {
+			if (c.type === 'pump')
+				c.name = `Condenser water pump of the ${long[Number(c.id[1]) - 1]} loop`;
+		}
+		const p = planOn(lineups, { project, memberIds: ['P2', 'P3'] });
+		expect(p.cases.map((c) => c.name)).toEqual(['3 of 4 running (P3 off)']);
+		draw(p);
+		const inside = [...plan()!.querySelector(':scope > div')!.children].map((el) =>
+			el.matches('[data-stop-order]')
+				? 'stop order'
+				: el.tagName === 'UL'
+					? 'cases'
+					: el.textContent!.trim()
+		);
+		expect(inside).toEqual([
+			p.about,
+			p.sentence,
+			'stop order',
+			'Cases:',
+			'cases',
+			'Names count every pump of the group Condenser water pump of the north loop, Condenser water pump of the south loop, Condenser water pump of the east loop and Condenser water pump of the west loop.',
+			'In the names, P3 is Condenser water pump of the east loop and P2 is Condenser water pump of the south loop.'
+		]);
+		expect(plan()!.querySelector('[data-stop-order] > summary')).toHaveTextContent(
+			'Stop order: P3 stops; P2 stays on in every case'
+		);
+		const ids = alone().getByText(/^In the names, /);
+		expect(ids).toBeVisible();
+		await fireEvent.click(plan()!.querySelector(':scope > summary')!);
+		expect(ids).not.toBeVisible();
+	});
+
+	it('summarises the plan, its lead in medium weight and its words regular', () => {
+		draw(planOn(lineups));
+		const summary = plan()!.querySelector(':scope > summary')!;
+		expect(summary).toHaveClass('more-summary');
+		expect(summary.textContent!.replace(/\s+/g, ' ').trim()).toBe(
+			'The plan: 3 cases by number running: 3 to add'
+		);
+		const clause = summary.querySelector('span > span')!;
+		expect(clause.textContent).toBe(': 3 cases by number running: 3 to add');
+		expect(clause).toHaveClass('font-normal', 'text-slate-600');
+		// Its chevron turns without motion when reduced motion is asked for (§5.3 markup rules), and
+		// is the plan's own: the stop order's turns with the stop order alone (named groups).
+		const chevrons = [...region().querySelectorAll('summary svg')];
+		expect(chevrons).toHaveLength(2);
+		expect(chevrons[0]).toHaveClass('motion-reduce:transition-none', 'group-open/plan:rotate-90');
+		expect(chevrons[1]).toHaveClass('motion-reduce:transition-none', 'group-open/stop:rotate-90');
+	});
+
+	it('shows Solve all’s reason while it lasts, the button’s description; one that passes stays hidden and in its title', async () => {
+		const view = draw(planOn(lineups, { project: made(3) }), { solveAll: lasting });
+		const button = solveAlls()[0]!;
+		const reason = () => region().querySelector<HTMLElement>('[id$="-solve-all"]')!;
+		expect(reason()).toHaveTextContent("Every case's results are current.");
+		expect(reason()).toHaveClass('hint');
+		expect(reason()).not.toHaveClass('sr-only');
+		expect(reason()).toBeVisible();
+		expect(button).toHaveAccessibleDescription("Every case's results are current.");
+		expect(button).not.toHaveAttribute('title');
+		// After the refusal, as §5.3 orders them.
+		const refusal = region().querySelector('[id$="-refusal"]')!;
+		expect(refusal.nextElementSibling).toBe(reason());
+		// A run in progress: its reason passes, so it is not drawn but described and the title.
+		await view.rerender({ plan: planOn(lineups, { project: made(3) }), solveAll: running });
+		expect(reason()).toHaveClass('sr-only');
+		expect(button).toHaveAccessibleDescription(running.reason);
+		expect(button).toHaveAttribute('title', running.reason);
+		// It can run: what it does, visually hidden.
+		await view.rerender({ plan: planOn(lineups), solveAll: canRun });
+		expect(reason()).toHaveClass('sr-only');
+		expect(button).toHaveAccessibleDescription(canRun.hint);
+		expect(button).not.toHaveAttribute('title');
+	});
+
+	it('keeps the focus on the chosen segment after a preset change with the plan open', async () => {
+		let preset: 'running' | 'each' = 'running';
+		const props = () => ({
+			plan: planOn(lineups, { preset }),
+			solveAll: canRun,
+			onpreset: (next: 'running' | 'each') => (preset = next)
+		});
+		const view = render(PumpLineupsBlock, props());
+		expect(plan()!.open).toBe(true);
+		const each = alone().getByRole('radio', { name: 'Each pump off' });
+		each.focus();
+		await fireEvent.click(each);
+		expect(preset).toBe('each');
+		await view.rerender(props());
+		expect(alone().getByRole('radio', { name: 'Each pump off' })).toBe(each);
+		expect(each).toBeChecked();
+		expect(each).toHaveFocus();
+		expect(plan()!.open).toBe(true);
+		expect(plan()!.querySelector('summary')).toHaveTextContent(
+			'The plan: 4 cases with each pump off: 4 to add'
+		);
+	});
+});
+
+describe('Add cases in the workspace since S4 (pumps-results-layout.md §5.3, §10 S4)', () => {
+	const plan = () => block().querySelector<HTMLDetailsElement>('[data-lineup-plan]')!;
+	const ticked = () => block().querySelector('[data-now-ticked]');
+	const NOW_TICKED = "Now ticked: “Also show the other cases' station duties” (Group chart).";
+
+	it('after an Add that ticked “Also show …”: “Now ticked” on screen and in the polite line, the focus on Solve all, the plan as the user left it', async () => {
+		const { ws, calls } = setup(withoutScenarios());
+		await openCard(ws, calls);
+		expect(ws.pumpGroupOthers).toBe(false);
+		// Cases to add: the plan open; the user closes it.
+		expect(plan().open).toBe(true);
+		expect(plan().querySelector('summary')).toHaveTextContent(
+			'The plan: 3 cases by number running: 3 to add'
+		);
+		await fireEvent.click(plan().querySelector('summary')!);
+		expect(plan().open).toBe(false);
+		expect(ticked()).toBeNull();
+		await press('Add 3 cases');
+		const solveAll = inBlock().getByRole('button', { name: 'Solve all (3)' });
+		await waitFor(() => expect(solveAll).toHaveFocus());
+		expect(ws.pumpGroupOthers).toBe(true);
+		// The line, visible, and the same words in the block's polite line, which the focus on
+		// Solve all would not pass.
+		await waitFor(() => expect(stopStatus()).toBe(NOW_TICKED));
+		expect(ticked()).toHaveTextContent(NOW_TICKED);
+		expect(ticked()).toBeVisible();
+		expect(block().querySelector('[data-stop-status]')).toHaveAttribute('aria-live', 'polite');
+		// Every case made: the plan stays as the user left it (closed), its summary saying so.
+		expect(plan().open).toBe(false);
+		expect(plan().querySelector('summary')).toHaveTextContent(
+			'The plan: 3 cases by number running: all 3 made'
+		);
+		// The box unticked: the line goes, and does not come back when it is ticked again.
+		const box = within(card()).getByRole('checkbox', {
+			name: "Also show the other cases' station duties"
+		});
+		await fireEvent.click(box);
+		await waitFor(() => expect(ticked()).toBeNull());
+		await fireEvent.click(box);
+		expect(ws.pumpGroupOthers).toBe(true);
+		expect(ticked()).toBeNull();
+	}, 20_000);
+
+	it('after Undo the plan opens itself; an Add with the plan open leaves it open; an Add with “Also show …” already ticked says nothing', async () => {
+		const { ws, calls } = setup(withoutScenarios());
+		await openCard(ws, calls);
+		await fireEvent.click(plan().querySelector('summary')!);
+		await press('Add 3 cases');
+		await waitFor(() => expect(stopStatus()).toBe(NOW_TICKED));
+		expect(plan().open).toBe(false);
+		// Undo: cases remain again, so the plan opens itself, and "Now ticked" goes with its Add.
+		expect(ws.undo()).toBe(true);
+		await waitFor(() => expect(plan().open).toBe(true));
+		expect(ticked()).toBeNull();
+		// "Also show …" is still ticked (page state): this Add ticks nothing, so nothing is said.
+		expect(ws.pumpGroupOthers).toBe(true);
+		const before = stopStatus();
+		await press('Add 3 cases');
+		await waitFor(() =>
+			expect(inBlock().getByRole('button', { name: 'Solve all (3)' })).toHaveFocus()
+		);
+		expect(ticked()).toBeNull();
+		expect(stopStatus()).toBe('');
+		expect(before).toBe(NOW_TICKED);
+		// The user's own Add left the plan open: it stays open.
+		expect(plan().open).toBe(true);
+		expect(plan().querySelector('summary')).toHaveTextContent(
+			'The plan: 3 cases by number running: all 3 made'
+		);
+	}, 20_000);
 });

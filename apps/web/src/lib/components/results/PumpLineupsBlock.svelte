@@ -1,13 +1,25 @@
 <!--
-	Add cases (CLAUDE.md D24, proposal pump-lineups.md §7): the Pumps together card's block under
-	the group table, in the place of 4d's "One pump off" (CLAUDE.md D21 slice 4d). Presentation only:
-	the caller (PumpsView) computes the plan (pump-lineups.ts lineupPlan) and makes every change.
+	Add cases (CLAUDE.md D24, proposal pump-lineups.md §7): the Pumps together card's block, in the
+	place of 4d's "One pump off" (CLAUDE.md D21 slice 4d), after the group chart since the Pumps
+	tab's S2. Presentation only: the caller (PumpsView) computes the plan (pump-lineups.ts
+	lineupPlan) and makes every change.
 
-	While a gate holds (§7.2), only its sentence and, for gates 4 to 6, Solve all. Otherwise, in
-	order: the preset ("Cases to add": By number running or Each pump off, page state), what it makes
-	(About), the interchangeability sentence and the stop order (By number running only), the cases
-	it would make (each with its kind in words), which group the names count, then Add with its
-	refusal and Solve all with the Scenarios menu's reasons (4d's).
+	The Pumps tab's S4 (pumps-results-layout.md §5.3, §9 S4): a framed, tinted panel, the one part
+	of the card that changes the project, its h4 (14 px) with the plain tag "Changes the project"
+	beside it, a sibling, so the region is named by the h4 alone. While a gate holds (§7.2), only its
+	sentence, Solve all for gates 4 to 6, and the table button. Otherwise one structure in every
+	state, so no control in use moves from one branch of the markup to another, in D24 §7.11's
+	order: the preset ("Cases to add", label 12 px; By number running or Each pump off, page state);
+	one native disclosure, the plan, holding what it makes (About), the interchangeability sentence
+	and the stop order (By number running only), the cases it would make (each with its kind in
+	words), which group the names count and which pump each id is; one row with Add and the one
+	Solve all (the Scenarios menu's reasons, 4d's); Add's refusal; Solve all's reason while it
+	lasts (one that passes, while a solve runs, stays visually hidden and in `title`); after an Add
+	that ticked it, "Now ticked: …", said by the polite line too.
+
+	The fold (§5.3): the plan is drawn closed only when every planned case exists (nothing to add,
+	some made), open otherwise, and opens itself when cases come to remain (another preset, a
+	scenario deleted, an Undo); it never closes itself, so after the user's own Add it stays as left.
 
 	The stop order (§7.5) is a native disclosure, closed by default, whose summary says what it
 	holds: an ordered list with two icon buttons per pump (Stop … earlier, Stop … later; at an end
@@ -29,6 +41,12 @@
 		reason: string;
 		/** What it does, when it can run. */
 		hint: string;
+		/**
+		 * The reason passes (a solve, Solve all or a goal seek runs): visually hidden and the
+		 * button's `title`, so nothing flashes; a reason that lasts is shown (pumps-results-layout.md
+		 * §5.3, ui-guide).
+		 */
+		passing?: boolean;
 	}
 
 	export interface LineupsBlockProps {
@@ -43,6 +61,11 @@
 		ondefaultorder?: () => void;
 		/** Add the cases (one undo step); the focus then moves to the block's Solve all. */
 		onadd?: () => void;
+		/**
+		 * "Also show the other cases' station duties" is ticked (page state, ws.pumpGroupOthers): an
+		 * Add that ticks it says so ("Now ticked: …", pumps-results-layout.md §5.3).
+		 */
+		othersOn?: boolean;
 		/** Solve every case not yet solved (the Scenarios menu's Solve all). */
 		onsolveall?: () => void;
 		/**
@@ -57,9 +80,11 @@
 	import { tick } from 'svelte';
 	import { LINEUP_TABLE_WORDS } from '$lib/utils/lineup-table';
 	import {
+		ADD_CASES_WORDS,
 		LINEUP_BLOCK_WORDS,
 		LINEUP_PRESET_LABELS,
-		STOP_ORDER_WORDS
+		STOP_ORDER_WORDS,
+		type LineupPreset as Preset
 	} from '$lib/utils/pump-lineups';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import SegmentedField from '$lib/components/ui/SegmentedField.svelte';
@@ -72,6 +97,7 @@
 		onmove,
 		ondefaultorder,
 		onadd,
+		othersOn,
 		onsolveall,
 		ontable
 	}: LineupsBlockProps = $props();
@@ -87,8 +113,42 @@
 	let heading: HTMLElement | undefined = $state();
 	registerSection('add-cases', () => heading);
 	let solveAllButton: HTMLButtonElement | undefined = $state();
-	/** The stop order's status line (polite): what the last move or Default order did. */
+	/**
+	 * The block's polite line: what the last move or Default order did, or "Now ticked: …" after
+	 * an Add that ticked "Also show …" (pumps-results-layout.md §5.3, §7 Live regions).
+	 */
 	let status = $state('');
+
+	/** Every planned case exists (nothing to add, some made): the plan is drawn folded (§5.3). */
+	const done = $derived(plan.add.length === 0 && plan.existing.length > 0);
+	/** The plan disclosure's open state: the user's, but for the fold rule's two moves below. */
+	let planOpen = $state(false);
+	let planEl: HTMLDetailsElement | undefined = $state();
+	/** The last Add ticked "Also show the other cases' station duties" (§5.3 "Now ticked"). */
+	let ticked = $state(false);
+	/** What the plan was at the last run of the rule below (not reactive). */
+	let seen: { drawn: boolean; done: boolean; preset: Preset; others: boolean } | null = null;
+	/**
+	 * The fold rule (§5.3), before the DOM is updated so the disclosure is drawn as it says: drawn
+	 * (the block mounted, or a gate lifted), it is closed only when every planned case exists; when
+	 * cases come to remain, it opens itself; it is never closed here. "Now ticked" goes with the
+	 * Add it reports: once cases remain again, another preset is chosen or the box is unticked.
+	 */
+	$effect.pre(() => {
+		const now = { drawn: !plan.gate, done, preset: plan.preset, others: !!othersOn };
+		const before = seen;
+		seen = now;
+		if (now.drawn && !before?.drawn) planOpen = !now.done;
+		else if (now.drawn && before?.done && !now.done) {
+			// The element too: a user's close reaches `planOpen` only with the queued toggle event.
+			planOpen = true;
+			if (planEl) planEl.open = true;
+		}
+		if (before && (!now.done || now.preset !== before.preset || !now.others)) ticked = false;
+	});
+
+	/** Solve all's reason drawn: one that lasts, outside a gate (§5.3 item 5). */
+	const reasonShown = $derived(!plan.gate && !!solveAll.reason && !solveAll.passing);
 
 	/** The move button of `pumpId` in `dir` (found by data attributes: ids are any string). */
 	function stopButton(pumpId: string, dir: 'up' | 'down'): HTMLButtonElement | undefined {
@@ -124,114 +184,172 @@
 		stopButton(first.id, 'down')?.focus();
 	}
 
-	/** Add the cases; then the focus is on the block's Solve all (4d's). */
-	function addCases() {
+	/**
+	 * Add the cases; then the focus is on the block's Solve all (4d's), so an Add that ticked "Also
+	 * show …" says so in the block's polite line as well as on screen (§5.3): the focus would not
+	 * pass the line. The line is emptied first, so the same words twice are said twice.
+	 */
+	async function addCases() {
 		if (plan.gate || plan.refusal || !plan.add.length) return;
+		const wasOn = !!othersOn;
+		status = '';
 		onadd?.();
-		void tick().then(() => solveAllButton?.focus());
+		await tick();
+		solveAllButton?.focus();
+		if (!wasOn && othersOn) {
+			ticked = true;
+			status = ADD_CASES_WORDS.nowTicked;
+		}
 	}
 	function solveAllCases(event: MouseEvent) {
 		if (solveAll.canRun && event.detail <= 1) onsolveall?.();
 	}
 </script>
 
-<section bind:this={section} class="space-y-2" aria-labelledby="{id}-heading" data-add-cases>
-	<!-- tabindex −1: the section nav's "Add cases" focuses it (pumps-results-layout.md §5.4). -->
-	<h4
-		bind:this={heading}
-		id="{id}-heading"
-		class="scroll-mt-[calc(var(--pumps-nav-h,0px)-var(--pumps-nav-pad,0px)+0.5rem)] text-xs font-semibold"
-		tabindex="-1"
-	>
-		{LINEUP_BLOCK_WORDS.heading}
-	</h4>
+<!-- The panel (pumps-results-layout.md §5.3): framed and tinted, the card's one part that changes
+	the project; its header row holds the h4 and, as its sibling, the tag. Every line in it wraps an
+	unbroken name inside the frame (a pump's name in the sentence, a case's in the refusal). The
+	part before the visually hidden polite line keeps no gap after it, so the frame's padding is
+	the same at its foot as at its head. -->
+<section
+	bind:this={section}
+	class="space-y-2 rounded-lg border border-slate-300 bg-slate-50 p-3 wrap-break-word [&>:has(+[data-stop-status])]:mb-0"
+	aria-labelledby="{id}-heading"
+	data-add-cases
+>
+	<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+		<!-- tabindex −1: the section nav's "Add cases" focuses it (pumps-results-layout.md §5.4). -->
+		<h4
+			bind:this={heading}
+			id="{id}-heading"
+			class="scroll-mt-[calc(var(--pumps-nav-h,0px)-var(--pumps-nav-pad,0px)+0.5rem)] text-sm font-semibold text-slate-900"
+			tabindex="-1"
+		>
+			{LINEUP_BLOCK_WORDS.heading}
+		</h4>
+		<span class="text-xs text-slate-600" data-add-cases-tag>{ADD_CASES_WORDS.tag}</span>
+	</div>
 	{#if plan.gate}
 		<p class="text-xs text-slate-700">{plan.gate}</p>
 	{:else}
-		<SegmentedField
-			label={LINEUP_BLOCK_WORDS.preset}
-			value={plan.preset}
-			options={presets}
-			shared
-			onchange={(preset) => onpreset?.(preset)}
-		/>
-		{#if plan.about}<p class="text-xs text-slate-700">{plan.about}</p>{/if}
-		{#if plan.sentence}<p class="text-xs text-slate-600">{plan.sentence}</p>{/if}
-		{#if plan.stopOrder}
-			{@const order = plan.stopOrder}
-			<details class="group text-xs">
-				<summary
-					class="flex min-h-11 cursor-pointer list-none items-center gap-1 font-medium break-words text-blue-800 [&::-webkit-details-marker]:hidden"
+		<!-- 1. The segments, outside any disclosure; their label 12 px, under its 14 px h4 (§5.2). -->
+		<div class="[&_.label]:text-xs">
+			<SegmentedField
+				label={LINEUP_BLOCK_WORDS.preset}
+				value={plan.preset}
+				options={presets}
+				shared
+				onchange={(preset) => onpreset?.(preset)}
+			/>
+		</div>
+		<!-- 2. The plan: everything the preset would make, one native disclosure that says what it
+			holds, folded once every case exists (§5.3 The fold). -->
+		<details bind:this={planEl} bind:open={planOpen} class="group/plan" data-lineup-plan>
+			<summary class="more-summary hover:bg-slate-100">
+				<Icon
+					name="right"
+					class="size-4 shrink-0 text-slate-500 transition-transform group-open/plan:rotate-90 motion-reduce:transition-none"
+				/>
+				<span class="min-w-0 flex-1"
+					>{ADD_CASES_WORDS.planLead}<span class="font-normal text-slate-600">: {plan.summary}</span
+					></span
 				>
-					<Icon name="right" class="size-3 shrink-0 transition-transform group-open:rotate-90" />
-					<span class="min-w-0">{order.summary}</span>
-				</summary>
-				<div class="space-y-1">
-					<p class="text-slate-600">{STOP_ORDER_WORDS.hint}</p>
-					<ol
-						aria-label={STOP_ORDER_WORDS.list}
-						class="list-decimal divide-y divide-slate-200 pl-6 tabular-nums"
-					>
-						{#each order.items as item, i (item.id)}
-							<li>
-								<div class="flex min-h-11 items-center gap-1">
-									<span class="min-w-0 flex-1 break-words"
-										>{item.label}<span class="text-slate-600">{item.note}</span></span
-									>
-									<button
-										type="button"
-										class="btn btn-quiet btn-icon min-w-11"
-										data-stop-id={item.id}
-										data-dir="up"
-										aria-disabled={i === 0}
-										aria-describedby={i === 0 ? `${id}-at-first` : undefined}
-										onclick={() => void move(item.id, 'up')}
-									>
-										<Icon name="up" class="size-4" /><span class="sr-only"
-											>{STOP_ORDER_WORDS.earlier(item.label)}</span
-										>
-									</button>
-									<button
-										type="button"
-										class="btn btn-quiet btn-icon min-w-11"
-										data-stop-id={item.id}
-										data-dir="down"
-										aria-disabled={i === order.items.length - 1}
-										aria-describedby={i === order.items.length - 1 ? `${id}-at-last` : undefined}
-										onclick={() => void move(item.id, 'down')}
-									>
-										<Icon name="down" class="size-4" /><span class="sr-only"
-											>{STOP_ORDER_WORDS.later(item.label)}</span
-										>
-									</button>
-								</div>
-							</li>
-						{/each}
-					</ol>
-					<span id="{id}-at-first" class="sr-only">{STOP_ORDER_WORDS.atFirst}</span>
-					<span id="{id}-at-last" class="sr-only">{STOP_ORDER_WORDS.atLast}</span>
-					{#if !order.isDefault}
-						<button
-							type="button"
-							class="btn btn-quiet"
-							aria-describedby="{id}-default"
-							onclick={() => void defaultOrder()}>{STOP_ORDER_WORDS.reset}</button
+			</summary>
+			<div class="space-y-2 pb-1">
+				{#if plan.about}<p class="text-xs text-slate-700">{plan.about}</p>{/if}
+				{#if plan.sentence}<p class="text-xs text-slate-600">{plan.sentence}</p>{/if}
+				{#if plan.stopOrder}
+					{@const order = plan.stopOrder}
+					<details class="group/stop text-xs" data-stop-order>
+						<summary
+							class="flex min-h-11 cursor-pointer list-none items-center gap-1 rounded-md font-medium break-words text-blue-800 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
 						>
-						<span id="{id}-default" class="sr-only">{STOP_ORDER_WORDS.resetHint}</span>
-					{/if}
-				</div>
-			</details>
-		{/if}
-		{#if plan.cases.length}
-			<p id="{id}-cases" class="text-xs font-medium text-slate-700">{LINEUP_BLOCK_WORDS.cases}</p>
-			<!-- Keyed by index, never by words: a name need not be unique. -->
-			<ul aria-labelledby="{id}-cases" class="list-disc space-y-0.5 pl-5 text-xs text-slate-700">
-				{#each plan.cases as item, i (i)}<li class="break-words">{item.words}</li>{/each}
-			</ul>
-		{/if}
-		{#if plan.frame}<p class="text-xs text-slate-600">{plan.frame}</p>{/if}
+							<Icon
+								name="right"
+								class="size-3 shrink-0 transition-transform group-open/stop:rotate-90 motion-reduce:transition-none"
+							/>
+							<span class="min-w-0">{order.summary}</span>
+						</summary>
+						<div class="space-y-1">
+							<p class="text-slate-600">{STOP_ORDER_WORDS.hint}</p>
+							<ol
+								aria-label={STOP_ORDER_WORDS.list}
+								class="list-decimal divide-y divide-slate-200 pl-6 tabular-nums"
+							>
+								{#each order.items as item, i (item.id)}
+									<li>
+										<div class="flex min-h-11 items-center gap-1">
+											<span class="min-w-0 flex-1 break-words"
+												>{item.label}<span class="text-slate-600">{item.note}</span></span
+											>
+											<button
+												type="button"
+												class="btn btn-quiet btn-icon min-w-11"
+												data-stop-id={item.id}
+												data-dir="up"
+												aria-disabled={i === 0}
+												aria-describedby={i === 0 ? `${id}-at-first` : undefined}
+												onclick={() => void move(item.id, 'up')}
+											>
+												<Icon name="up" class="size-4" /><span class="sr-only"
+													>{STOP_ORDER_WORDS.earlier(item.label)}</span
+												>
+											</button>
+											<button
+												type="button"
+												class="btn btn-quiet btn-icon min-w-11"
+												data-stop-id={item.id}
+												data-dir="down"
+												aria-disabled={i === order.items.length - 1}
+												aria-describedby={i === order.items.length - 1
+													? `${id}-at-last`
+													: undefined}
+												onclick={() => void move(item.id, 'down')}
+											>
+												<Icon name="down" class="size-4" /><span class="sr-only"
+													>{STOP_ORDER_WORDS.later(item.label)}</span
+												>
+											</button>
+										</div>
+									</li>
+								{/each}
+							</ol>
+							<span id="{id}-at-first" class="sr-only">{STOP_ORDER_WORDS.atFirst}</span>
+							<span id="{id}-at-last" class="sr-only">{STOP_ORDER_WORDS.atLast}</span>
+							{#if !order.isDefault}
+								<button
+									type="button"
+									class="btn btn-quiet"
+									aria-describedby="{id}-default"
+									onclick={() => void defaultOrder()}>{STOP_ORDER_WORDS.reset}</button
+								>
+								<span id="{id}-default" class="sr-only">{STOP_ORDER_WORDS.resetHint}</span>
+							{/if}
+						</div>
+					</details>
+				{/if}
+				{#if plan.cases.length}
+					<p id="{id}-cases" class="text-xs font-medium text-slate-700">
+						{LINEUP_BLOCK_WORDS.cases}
+					</p>
+					<!-- Keyed by index, never by words: a name need not be unique. -->
+					<ul
+						aria-labelledby="{id}-cases"
+						class="list-disc space-y-0.5 pl-5 text-xs text-slate-700"
+					>
+						{#each plan.cases as item, i (i)}<li class="break-words">{item.words}</li>{/each}
+					</ul>
+				{/if}
+				{#if plan.frame}<p class="text-xs text-slate-600">{plan.frame}</p>{/if}
+				{#if plan.ids}<p class="text-xs break-words text-slate-600" data-lineup-ids>
+						{plan.ids}
+					</p>{/if}
+			</div>
+		</details>
 	{/if}
 	{#if !plan.gate || plan.showSolveAll}
+		<!-- 3. One row: Add and the one Solve all, in every state, so the focus Add hands to Solve
+			all stays on the same button through the run and after (D24 §7.8). -->
 		<div class="flex flex-wrap items-center gap-2">
 			{#if !plan.gate}
 				<button
@@ -239,7 +357,7 @@
 					class="btn"
 					aria-disabled={!!plan.refusal}
 					aria-describedby={plan.refusal ? `${id}-refusal` : undefined}
-					onclick={addCases}>{plan.label}</button
+					onclick={() => void addCases()}>{plan.label}</button
 				>
 			{/if}
 			{#if plan.showSolveAll}
@@ -249,21 +367,32 @@
 					class="btn"
 					aria-disabled={!solveAll.canRun}
 					aria-describedby="{id}-solve-all"
-					title={solveAll.reason || undefined}
+					title={!reasonShown && solveAll.reason ? solveAll.reason : undefined}
 					onclick={solveAllCases}
 				>
 					<Icon name="play" class="size-4" /> Solve all{solveAll.count
 						? ` (${solveAll.count})`
 						: ''}
 				</button>
-				<span id="{id}-solve-all" class="sr-only">{solveAll.reason || solveAll.hint}</span>
 			{/if}
 		</div>
 	{/if}
+	<!-- 4. Add's refusal, visible: with every planned case made it is D24's own line, naming them. -->
 	{#if !plan.gate && plan.refusal}
 		<p id="{id}-refusal" class="hint">{plan.refusal}</p>
 	{/if}
+	{#if plan.showSolveAll}
+		<!-- 5. Solve all's reason while it lasts, visible; else its passing reason or what it does,
+			visually hidden. Either is its description. -->
+		<p id="{id}-solve-all" class={reasonShown ? 'hint' : 'sr-only'}>
+			{solveAll.reason || solveAll.hint}
+		</p>
+	{/if}
+	{#if ticked && othersOn && !plan.gate}
+		<p class="hint" data-now-ticked>{ADD_CASES_WORDS.nowTicked}</p>
+	{/if}
 	{#if ontable}
+		<!-- 6. At its foot whenever it is drawn, gates included (D24 slice L2, §8.1). -->
 		<button type="button" class="btn btn-quiet text-blue-800" onclick={() => ontable?.()}
 			>{LINEUP_TABLE_WORDS.cardButton}</button
 		>

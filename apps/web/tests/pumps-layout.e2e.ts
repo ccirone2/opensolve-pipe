@@ -2178,6 +2178,186 @@ async function cardPart(
 	}
 }
 
+// ---- S4: Add cases (§9 S4) --------------------------------------------------------------------
+
+/**
+ * §5.5 and §6.4 item 7 (D24's measured block re-measured): Add cases folded, every planned case
+ * made and the plan closed, at most this tall: S4's measurement + 10 %, the lineups' 354 / 370 px
+ * and the condenser's 378 / 410 px (its "Now ticked" line drawn after its Add), at 1280×800 /
+ * 390×844. Before S4 the block was 624 px in the condenser after its Add (§2.1), and D24 measured
+ * it closed at 440 and 504 px.
+ */
+const ADD_CASES_FOLDED: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+	'2-lineups': { '1280x800': 389, '390x844': 407 },
+	'3-condenser': { '1280x800': 415, '390x844': 451 }
+};
+
+/** Add cases as laid out (viewport px): its parts, its text lines, and the plan folded. */
+function readAddCases(b: Element) {
+	const R = Math.round;
+	const r = b.getBoundingClientRect();
+	const cs = getComputedStyle(b);
+	const inner = {
+		left: r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft),
+		right: r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight)
+	};
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const mid = (e: Element) => {
+		const x = e.getBoundingClientRect();
+		return x.top + x.height / 2;
+	};
+	const h4 = b.querySelector('h4')!;
+	const tag = b.querySelector('[data-add-cases-tag]');
+	const label = b.querySelector('.label');
+	const group = b.querySelector('[role="radiogroup"]');
+	const segments = group
+		? [...group.querySelectorAll('label')].map((l) => l.getBoundingClientRect())
+		: [];
+	const plan = b.querySelector<HTMLDetailsElement>('[data-lineup-plan]');
+	const solveAlls = [...b.querySelectorAll('button')].filter((x) =>
+		/^Solve all/.test(squash(x.textContent))
+	);
+	const row = solveAlls[0]?.parentElement ?? null;
+	// Every line of text in sight inside the panel's padding: a long name wraps there (§5.5).
+	const past: string[] = [];
+	const walker = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+	for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+		const el = n.parentElement!;
+		if (!n.data.trim() || !el.checkVisibility() || el.closest('.sr-only')) continue;
+		const range = document.createRange();
+		range.selectNodeContents(n);
+		for (const box of range.getClientRects()) {
+			if (box.width > 0 && (box.right > inner.right + 0.5 || box.left < inner.left - 0.5)) {
+				past.push(
+					`${el.tagName.toLowerCase()} "${n.data.trim().slice(0, 40)}" ${R(box.left)} to ${R(box.right)} in ${R(inner.left)} to ${R(inner.right)}`
+				);
+			}
+		}
+	}
+	// The scroller and the nav, for where a press of the nav's "Add cases" leaves the row.
+	let scroller: HTMLElement | null = null;
+	for (let e = b.parentElement; e; e = e.parentElement) {
+		if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) {
+			scroller = e;
+			break;
+		}
+	}
+	const navHeight = document.querySelector('[data-pumps-nav]')?.getBoundingClientRect().height ?? 0;
+	// Folded (§5.3 The fold): the plan closed, as it is drawn once every planned case exists.
+	const fold = () => ({
+		height: R(b.getBoundingClientRect().height),
+		// A press lands the h4 0.5 rem under the pinned nav (§5.4): is the row then in the pane?
+		rowInSight:
+			!!row &&
+			!!scroller &&
+			row.getBoundingClientRect().bottom - h4.getBoundingClientRect().top + navHeight + 8 <=
+				scroller.clientHeight
+	});
+	let folded: ReturnType<typeof fold> | null = null;
+	if (plan) {
+		const was = plan.open;
+		plan.open = false;
+		folded = fold();
+		plan.open = was;
+	}
+	// The frame's padding at its foot, under its last part in sight, and at its head (§5.3).
+	const shown = [...b.children].filter(
+		(c) => !c.classList.contains('sr-only') && c.getBoundingClientRect().height > 1
+	);
+	const pad = {
+		head: R(shown[0]!.getBoundingClientRect().top - r.top),
+		foot: R(r.bottom - shown.at(-1)!.getBoundingClientRect().bottom)
+	};
+	return {
+		height: R(r.height),
+		pad,
+		planOpen: plan?.open ?? null,
+		summary: squash(plan?.querySelector(':scope > summary')?.textContent),
+		h4: getComputedStyle(h4).fontSize,
+		tag: tag ? getComputedStyle(tag).fontSize : null,
+		tagBesideH4:
+			!!tag && Math.abs(mid(tag) - mid(h4)) < 4 && tag.parentElement === h4.parentElement,
+		label: label ? getComputedStyle(label).fontSize : null,
+		segmentsOneRow: segments.length === 2 && Math.abs(segments[0]!.top - segments[1]!.top) < 1,
+		group: group ? R(group.getBoundingClientRect().height) : null,
+		solveAll: solveAlls.length,
+		past,
+		folded
+	};
+}
+
+/**
+ * Add cases' part of S4 at the size shown, with the card open (soft, so a run reports every
+ * check): the panel's type (the h4 14 px, its label and tag 12 px, the tag beside the h4), its
+ * segments one row of 44 px (§5.5), one Solve all, every line inside the frame, the plan's
+ * folded height (§5.7 via ADD_CASES_FOLDED) with the row in sight after the nav's press (§2.2),
+ * and its Tab order (§7 item 24): the segments, the plan's summary and what it holds, Add,
+ * Solve all, the table button.
+ */
+async function addCasesPart(page: Page, view: string, where: string) {
+	const soft = expect.configure({ soft: true });
+	const size = sizeOf(page);
+	const block = page.locator('[data-pumps-together] [data-add-cases]');
+	if (!(await block.count())) return;
+	const m = await block.evaluate(readAddCases);
+	console.log(
+		`${where}: Add cases ${m.height} px (the plan ${m.planOpen ? 'open' : 'closed'}), folded ${m.folded?.height} px, the row ${m.folded?.rowInSight ? 'in sight' : 'out of sight'} after the nav's press; "${m.summary}"`
+	);
+	soft(m.h4, `Add cases' h4, ${where}`).toBe('14px');
+	soft(m.label, `"Cases to add", ${where}`).toBe('12px');
+	soft(m.tag, `"Changes the project", ${where}`).toBe('12px');
+	soft(m.tagBesideH4, `the tag beside the h4, ${where}`).toBe(true);
+	soft(m.segmentsOneRow, `the segments one row, ${where}`).toBe(true);
+	soft(m.group, `the segments' height, ${where}`).toBeGreaterThanOrEqual(44);
+	soft(m.solveAll, `Solve all in the block, ${where}`).toBe(1);
+	soft(m.past, `lines past Add cases' frame, ${where}`).toEqual([]);
+	soft(m.pad.foot, `the frame's padding at its foot as at its head, ${where}`).toBe(m.pad.head);
+	soft(m.folded, `the plan drawn, ${where}`).not.toBeNull();
+	const budget = ADD_CASES_FOLDED[view]?.[size];
+	if (budget !== undefined && m.folded) {
+		soft(m.folded.height, `Add cases folded, ${where}`).toBeLessThanOrEqual(budget);
+		soft(m.folded.rowInSight, `Add and Solve all in sight after the nav's press, ${where}`).toBe(
+			true
+		);
+	}
+
+	// §7 item 24: the Tab order through the block, from its segments.
+	const checked = block.locator('[role="radiogroup"] input:checked');
+	await checked.focus();
+	const stops: { name: string; inPlan: boolean; inBlock: boolean; summary: boolean }[] = [];
+	for (let i = 0; i < 60; i++) {
+		const at = await page.evaluate(() => {
+			const a = document.activeElement as HTMLElement;
+			const b = document.querySelector('[data-pumps-together] [data-add-cases]')!;
+			return {
+				name: (a.getAttribute('aria-label') ?? a.textContent ?? (a as HTMLInputElement).value ?? '')
+					.replace(/\s+/g, ' ')
+					.trim(),
+				inPlan: !!a.closest('[data-lineup-plan]'),
+				inBlock: b.contains(a),
+				summary: a.tagName === 'SUMMARY'
+			};
+		});
+		if (!at.inBlock) break;
+		stops.push(at);
+		await page.keyboard.press('Tab');
+	}
+	const names = stops.map((t) => t.name);
+	soft(stops[0]?.inPlan, `the segments first, outside the plan, ${where}`).toBe(false);
+	soft(
+		stops[1]?.summary && /^The plan: /.test(stops[1].name),
+		`then the plan's summary, ${where}`
+	).toBe(true);
+	soft(
+		stops.slice(1, -3).every((t) => t.inPlan),
+		`then what the plan holds, ${where}: ${names.join(' | ')}`
+	).toBe(true);
+	soft(
+		names.slice(-3).map((n) => n.replace(/ \(\d+\)$/, '').replace(/^Add (\d+ )?cases?$/, 'Add')),
+		`then the row and the table button, ${where}`
+	).toEqual(['Add', 'Solve all', 'Pump lineups table…']);
+}
+
 /**
  * Check and measure the view at the project's size and, on the phone, at 320×640 too (reflow at
  * 400 % zoom; pump-lineups.e2e.ts resizes the same way). Then axe with every disclosure open at
@@ -2192,6 +2372,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	const data = await measure(page, info, `${view}-${size}`, extra);
 	await cardPart(page, view, `${view} at ${size}`, data);
 	await navPart(page, `${view} at ${size}`);
+	await addCasesPart(page, view, `${view} at ${size}`);
 	if (info.project.name !== 'mobile') {
 		await axeClean(page, `${view} at ${size}`);
 		await pageHolds(page, `${view} at ${size}, every disclosure open`);
@@ -2206,6 +2387,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	const narrow = await measure(page, info, `${view}-320x640`, extra);
 	await cardPart(page, view, `${view} at 320x640`, narrow);
 	await navPart(page, `${view} at 320x640`);
+	await addCasesPart(page, view, `${view} at 320x640`);
 	await axeClean(page, `${view} at 320x640`);
 	await pageHolds(page, `${view} at 320x640, every disclosure open`);
 	await page.setViewportSize(viewport);
@@ -2924,4 +3106,155 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		expect.soft(past, `a long name's line past the card's edge, ${where}`).toEqual([]);
 	}
 	await page.setViewportSize(viewport);
+});
+
+// ---- S4: Add cases in one structure (§5.3, §9 S4, §10 S4) --------------------------------------
+
+/** A second 40-character unbroken pump name: with two, the lineups' names write ids (§6.2). */
+const LONG_PUMP_2 = 'CondenserWaterPrimaryLoopPumpNorthSide02';
+const NOW_TICKED = "Now ticked: “Also show the other cases' station duties” (Group chart).";
+
+test('Add cases in one structure: the plan, its fold and its new lines, one Solve all and the focus kept on it after Add, long names inside the frame at each size; axe clean with the plan and the stop order open (§5.3, §9 S4, §10 S4)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(420_000);
+	// The lineups without their scenarios, two pumps renamed past the names' budget.
+	const project = projectOf('lineups');
+	delete project.scenarios;
+	project.components.find((c) => c.id === 'P1')!.name = LONG_PUMP;
+	project.components.find((c) => c.id === 'P2')!.name = LONG_PUMP_2;
+	const counter = solveCounter(page);
+	await open(page, project);
+	await solveConverged(page);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const toggle = card.getByRole('button', { name: /^Pumps together/ });
+	const block = card.getByRole('region', { name: 'Add cases' });
+	const plan = block.locator('[data-lineup-plan]');
+	const summary = plan.locator(':scope > summary');
+	const ids = block.locator('[data-lineup-ids]');
+	const solveAlls = block.getByRole('button', { name: /^Solve all/ });
+
+	// 1. Cases to add: the plan drawn open, its summary saying what it holds; the names write ids,
+	// so it says which pump each id is, in the stop order.
+	await expect(plan).toHaveAttribute('open', '');
+	await expect(summary).toHaveText('The plan: 3 cases by number running: 3 to add');
+	await expect(block.getByRole('list', { name: 'Cases:' }).getByRole('listitem')).toHaveText([
+		'3 of 4 running (P4 off)',
+		'2 of 4 running (P3, P4 off)',
+		'1 of 4 running (P2, P3, P4 off)'
+	]);
+	await expect(ids).toHaveText(
+		`In the names, P4 is Pump P4, P3 is Pump P3, P2 is ${LONG_PUMP_2} and P1 is ${LONG_PUMP}.`
+	);
+	await expect(ids).toBeVisible();
+	await expect(solveAlls).toHaveCount(1);
+	// The stop order opened too: every line the block draws ends inside its frame, the long names
+	// in the sentence, the stop order and the id line among them.
+	await block.locator('[data-stop-order] > summary').click();
+	await expect(block.getByRole('list', { name: 'Stop order' })).toBeVisible();
+	await expect(block.getByRole('list', { name: 'Stop order' })).toContainText(LONG_PUMP);
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `Add cases with long names at ${sizeOf(page)}`;
+		const m = await block.evaluate(readAddCases);
+		console.log(
+			`${where}: ${m.height} px, folded ${m.folded?.height} px; past ${JSON.stringify(m.past)}`
+		);
+		expect.soft(m.past, `lines past Add cases' frame, ${where}`).toEqual([]);
+		expect.soft(await cutInCard(page), `names cut short in the card, ${where}`).toEqual([]);
+		expect.soft(m.solveAll, `Solve all in the block, ${where}`).toBe(1);
+		expect.soft(m.tagBesideH4, `the tag beside the h4, ${where}`).toBe(true);
+		expect.soft(m.segmentsOneRow, `the segments one row, ${where}`).toBe(true);
+		expect.soft(m.pad.foot, `the frame's padding at its foot, ${where}`).toBe(m.pad.head);
+	}
+	await page.setViewportSize(viewport);
+	await settle(page, 1000);
+	// axe over the whole tab with the plan and the stop order open (every disclosure is).
+	await axeClean(page, `Add cases, the plan and the stop order open, at ${sizeOf(page)}`);
+
+	// 2. Add, by the keyboard on desktop and a tap on a phone: the focus on the block's Solve all
+	// (D24 §7.8), "Now ticked" on screen and in the block's polite line, which the focus would not
+	// pass; the plan as the user left it, open; the refusal naming the cases made.
+	const add = block.getByRole('button', { name: 'Add 3 cases' });
+	if (isMobile) {
+		await add.tap();
+	} else {
+		await add.focus();
+		await page.keyboard.press('Enter');
+	}
+	const solveAll = block.getByRole('button', { name: 'Solve all (3)' });
+	await expect(solveAll).toBeFocused();
+	await expect(block.locator('[data-now-ticked]')).toHaveText(NOW_TICKED);
+	await expect(block.locator('[data-now-ticked]')).toBeVisible();
+	await expect(block.locator('[data-stop-status]')).toHaveText(NOW_TICKED);
+	await expect(block.locator('[data-stop-status]')).toHaveAttribute('aria-live', 'polite');
+	await expect(
+		card.getByRole('checkbox', { name: "Also show the other cases' station duties" })
+	).toBeChecked();
+	await expect(plan).toHaveAttribute('open', '');
+	await expect(summary).toHaveText('The plan: 3 cases by number running: all 3 made');
+	const refusal = block.getByText(
+		'Every case by number running already exists: «3 of 4 running (P4 off)», «2 of 4 running (P3, P4 off)» and «1 of 4 running (P2, P3, P4 off)».',
+		{ exact: true }
+	);
+	await expect(refusal).toBeVisible();
+	await expect(solveAlls).toHaveCount(1);
+
+	// 3. Solve all: the three cases solved; the button keeps the focus, in place, and its reason,
+	// which lasts, is then on screen and its description (§5.3 item 5).
+	const start = counter.n;
+	if (isMobile) await solveAll.tap();
+	else await page.keyboard.press('Enter');
+	await expect.poll(() => counter.n - start, { timeout: 180_000 }).toBe(3);
+	const after = block.getByRole('button', { name: 'Solve all', exact: true });
+	await expect(after).toHaveAttribute('aria-disabled', 'true', { timeout: 120_000 });
+	await expect(after).toBeFocused();
+	const reason = block.getByText("Every case's results are current.", { exact: true });
+	await expect(reason).toBeVisible();
+	await expect(after).toHaveAccessibleDescription("Every case's results are current.");
+	await expect(solveAlls).toHaveCount(1);
+	await settle(page);
+
+	// 4. The card closed and opened: the block is drawn again with every case made, so the plan is
+	// folded (§5.3 The fold): the segments, its summary, the row, the refusal, the reason and the
+	// table button.
+	await toggle.click();
+	await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+	await toggle.click();
+	await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+	await settle(page);
+	await expect(plan).not.toHaveAttribute('open');
+	await expect(summary).toHaveText('The plan: 3 cases by number running: all 3 made');
+	await expect(ids).toBeHidden();
+	await expect(refusal).toBeVisible();
+	await expect(reason).toBeVisible();
+	await expect(block.getByRole('radiogroup', { name: 'Cases to add' })).toBeVisible();
+	await expect(block.getByRole('button', { name: 'Pump lineups table…' })).toBeVisible();
+	const folded = await block.evaluate(readAddCases);
+	console.log(`Add cases folded at ${sizeOf(page)}: ${folded.height} px`);
+	expect.soft(folded.planOpen, 'the plan drawn folded').toBe(false);
+	expect.soft(folded.past, `lines past Add cases' frame, folded`).toEqual([]);
+
+	// 5. Another preset: cases remain, so the plan opens itself; the focus stays on the segment
+	// chosen (one structure: no control is drawn again elsewhere).
+	const each = block.getByRole('radio', { name: 'Each pump off' });
+	if (isMobile) {
+		await each.tap();
+	} else {
+		await block.getByRole('radio', { name: 'By number running' }).focus();
+		await page.keyboard.press('ArrowRight');
+	}
+	await expect(each).toBeChecked();
+	await expect(each).toBeFocused();
+	await expect(plan).toHaveAttribute('open', '');
+	// S1, "3 of 4 running (P4 off)", is the same case as Each pump off's P4 off (D24 §7.4).
+	await expect(summary).toHaveText('The plan: 4 cases with each pump off: 3 to add');
+	await expect(ids).toHaveCount(0);
+	await expect(solveAlls).toHaveCount(1);
+	await noSidewaysScroll(page, `Add cases, Each pump off, at ${sizeOf(page)}`);
 });

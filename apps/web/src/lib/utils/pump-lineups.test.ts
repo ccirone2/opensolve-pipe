@@ -39,6 +39,7 @@ import { condenserWaterExample, pumpTransferExample } from './examples';
 import { chartKeys, offName } from './pump-group-one-off';
 import { suggestGroups } from './pump-groups';
 import {
+	ADD_CASES_WORDS,
 	addedNotice,
 	carriesFlow,
 	defaultStopOrder,
@@ -1818,6 +1819,113 @@ describe('lineupPlan: By number running (§7.4)', () => {
 			'Added 2 cases by number running: «A, B» and «C». Solve all solves every case not yet solved; Undo removes them.'
 		);
 		expect(lineupNotice('each', ['Pump PA off'])).toBe(addedNotice(['Pump PA off']));
+	});
+});
+
+describe('lineupPlan: the plan’s summary and which pump each id is (pumps-results-layout.md §5.3, §6.2, S4)', () => {
+	/** The fixture's three lineups as scenarios S1 to S3, the cases By number running makes. */
+	const made = (count: number) =>
+		withScenarios(withoutScenarios(lineups.project), lineups.project.scenarios!.slice(0, count));
+
+	it('says what the plan holds and how much of it is made: to add, all made, some not made', () => {
+		// To add: every case, or what is left.
+		expect(planOn(lineups).summary).toBe('3 cases by number running: 3 to add');
+		expect(planOn(lineups, { preset: 'each' }).summary).toBe(
+			'4 cases with each pump off: 4 to add'
+		);
+		expect(planOn(lineups, { project: made(2) }).summary).toBe(
+			'3 cases by number running: 1 to add'
+		);
+		// All made: the folded plan's words (nothing to add, every case a scenario).
+		const all = planOn(lineups, { project: made(3) });
+		expect(all.add).toEqual([]);
+		expect(all.existing).toHaveLength(3);
+		expect(all.summary).toBe('3 cases by number running: all 3 made');
+		// One case, made: its count, not "all 1".
+		const two = withCases(station(2), scenario(off('P2'), '1 of 2 running (Pump P2 off)'));
+		expect(planOf(two).summary).toBe('1 case by number running: 1 made');
+		// A case that is the base case's state is not made, and said so.
+		expect(planOn(closedLeg).summary).toBe(
+			"1 case by number running: 0 made, 1 not made (the base case's state)"
+		);
+		const idle = { P4: { status: 'no_flow', operatingFlow: 0 } } as const;
+		const four = station(4);
+		expect(planOf(four, {}, idle).summary).toBe('3 cases by number running: 2 to add');
+		const someMade = withCases(
+			four,
+			scenario(off('P3', 'P4'), 'two off', 'S1'),
+			scenario(off('P2', 'P3', 'P4'), 'three off', 'S2')
+		);
+		const plan = planOf(someMade, {}, idle);
+		expect(plan.cases.map((c) => c.kind)).toEqual(['base_state', 'existing', 'existing']);
+		expect(plan.summary).toBe(
+			"3 cases by number running: 2 made, 1 not made (the base case's state)"
+		);
+	});
+
+	it('names which pump each id is where the plan writes pumps by id: the condenser example, in the stop order', () => {
+		const condenser = withScenarios(condenserWaterExample(), []);
+		const plan = planOf(condenser);
+		expect(plan.cases.map((c) => c.name)).toEqual([
+			'5 of 6 running (P6 off)',
+			'4 of 6 running (P5, P6 off)',
+			'3 of 6 running (P4, P5, P6 off)',
+			'2 of 6 running (P3, P4, P5, P6 off)',
+			'1 of 6 running (P2, P3, P4, P5, P6 off)'
+		]);
+		expect(plan.ids).toBe(
+			'In the names, P6 is Condenser water pump CWP-6, P5 is Condenser water pump CWP-5, P4 is Condenser water pump CWP-4, P3 is Condenser water pump CWP-3, P2 is Condenser water pump CWP-2 and P1 is Condenser water pump CWP-1.'
+		);
+		// The stop order moved: the line follows it, as its summary does.
+		const moved = planOf(condenser, { savedOrder: ['P1', 'P6', 'P5', 'P4', 'P3', 'P2'] });
+		expect(moved.stopOrder!.summary).toBe(
+			'Stop order: P1 first, then P6, P5, P4 and P3; P2 stays on in every case'
+		);
+		expect(moved.ids).toMatch(/^In the names, P1 is Condenser water pump CWP-1, P6 is /);
+		expect(moved.ids).toMatch(/ and P2 is Condenser water pump CWP-2\.$/);
+		// A pump off in the base is in no stop order, and its id is in the names: it comes last.
+		const p6Off = baseStatus(condenser, 'P6', 'off');
+		const offPlan = planOf(p6Off);
+		expect(offPlan.cases[0]!.name).toBe('4 of 6 running (P5, P6 off)');
+		expect(offPlan.ids).toBe(
+			'In the names, P5 is Condenser water pump CWP-5, P4 is Condenser water pump CWP-4, P3 is Condenser water pump CWP-3, P2 is Condenser water pump CWP-2, P1 is Condenser water pump CWP-1 and P6 is Condenser water pump CWP-6.'
+		);
+	});
+
+	it('draws no id line where the names use labels, where every id is in its pump’s name, under Each pump off and under a gate', () => {
+		// The names by labels ("3 of 4 running (Pump P4 off)"): nothing written by id.
+		expect(planOn(lineups).ids).toBeNull();
+		// By ids, each name holding its id ("Condenser water pump P1 of the north loop"): the line
+		// would tell nothing.
+		const named = (id: string) => `Condenser water pump ${id} of the north loop`;
+		const long = station(4, { names: pumpIds(4).map(named) });
+		const byIds = planOf(long);
+		expect(byIds.cases[0]!.name).toBe('3 of 4 running (P4 off)');
+		expect(byIds.stopOrder!.summary).toBe(
+			'Stop order: P4 first, then P3 and P2; P1 stays on in every case'
+		);
+		expect(byIds.ids).toBeNull();
+		// One name without its id: every id written is said.
+		const one = renamedPump(long, 'P2', 'Condenser water pump of the north loop, second');
+		expect(planOf(one).ids).toBe(
+			'In the names, P4 is Condenser water pump P4 of the north loop, P3 is Condenser water pump P3 of the north loop, P2 is Condenser water pump of the north loop, second and P1 is Condenser water pump P1 of the north loop.'
+		);
+		// Each pump off: 4d's names, by the pumps' names.
+		const condenser = withScenarios(condenserWaterExample(), []);
+		expect(planOf(condenser, { preset: 'each' }).ids).toBeNull();
+		// A gate: no plan, no summary.
+		const stale = planOn(lineups, { base: { response: lineups.solve, stale: true } });
+		expect(stale.gate).not.toBeNull();
+		expect(stale.summary).toBeNull();
+		expect(stale.ids).toBeNull();
+	});
+
+	it('has Add cases’ own words (§6.2), beside D24’s, which are unchanged', () => {
+		expect(ADD_CASES_WORDS).toEqual({
+			tag: 'Changes the project',
+			planLead: 'The plan',
+			nowTicked: "Now ticked: “Also show the other cases' station duties” (Group chart)."
+		});
 	});
 });
 

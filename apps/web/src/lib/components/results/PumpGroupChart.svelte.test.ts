@@ -1994,9 +1994,19 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(add).toHaveAccessibleDescription(
 			'Every case with one pump off already exists: Pump PA off and Pump PB off.'
 		);
+		// Every case made: the plan is drawn folded, its summary saying so; opened before the preview
+		// is read (pumps-results-layout.md §5.3 The fold, §10 S4).
+		const folded = block().querySelector<HTMLDetailsElement>('[data-lineup-plan]')!;
+		expect(folded.open).toBe(false);
+		expect(folded.querySelector('summary')).toHaveTextContent(
+			'The plan: 2 cases with each pump off: all 2 made'
+		);
+		await fireEvent.click(folded.querySelector('summary')!);
+		expect(folded.open).toBe(true);
 		// §7.12: "{name} has its case already: {found.name}." becomes the preview item
 		// "{offName}: already a scenario, «{other}» ({id})", in §7.7's short form: the names are equal.
 		expect(block()).toHaveTextContent('Pump PA off: already a scenario (S1)');
+		expect(within(block()).getByText('Pump PA off: already a scenario (S1)')).toBeVisible();
 		await fireEvent.click(add);
 		expect(onadd).not.toHaveBeenCalled();
 	});
@@ -2670,9 +2680,9 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			['H5', 'Extremes over these cases (current results)']
 		]);
 		const heading = (name: string) => within(card).getByRole('heading', { name, level: 4 });
-		/** A section: its h4's wrapper (the block's own section for Add cases). */
+		/** A section: its h4's wrapper, or for Add cases the block itself, its framed panel (§9 S4). */
 		const section = (name: string) =>
-			name === 'Add cases' ? block().parentElement! : heading(name).parentElement!;
+			name === 'Add cases' ? block() : heading(name).parentElement!;
 		const follows = (a: Node, b: Node) =>
 			!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 		const order = ['Station', 'Group chart', 'Add cases', 'Running combinations'];
@@ -2685,8 +2695,10 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			if (i > 0) expect(follows(section(order[i - 1]!), s)).toBe(true);
 			expect(s.contains(heading(name))).toBe(true);
 			expect(s.querySelector('h4')).toBe(heading(name));
-			// The type scale (§5.2): a rule above each section.
-			expect(s).toHaveClass('border-t', 'pt-3');
+			// The type scale (§5.2): a rule above each section; Add cases a framed, tinted panel
+			// instead, the card's one part that changes the project (§5.3, §9 S4).
+			if (name === 'Add cases') expect(s).toHaveClass('border', 'rounded-lg', 'bg-slate-50', 'p-3');
+			else expect(s).toHaveClass('border-t', 'pt-3');
 		}
 		// Each part in its section, after its heading.
 		const inSection = (name: string, el: Element) => {
@@ -2699,9 +2711,14 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		);
 		inSection('Station', within(card).getByLabelText('The station'));
 		inSection('Group chart', within(card).getByRole('figure'));
-		// The block (its own region, its h4 first in it) is the whole of its section.
-		expect([...section('Add cases').children]).toEqual([block()]);
-		expect(block().firstElementChild).toBe(heading('Add cases'));
+		// The block (its own region) is a section of the card's body, as the others are, in place of
+		// S2's wrapper (§15 item 54); its header row first in it: the h4, then its tag, a sibling,
+		// so the region is named by the h4 alone (§5.3, §9 S4).
+		expect(block().parentElement).toBe(section('Station').parentElement);
+		expect([...block().firstElementChild!.children]).toEqual([
+			heading('Add cases'),
+			within(block()).getByText('Changes the project', { exact: true })
+		]);
 		inSection(
 			'Running combinations',
 			within(card).getByRole('table', { name: 'Running combinations' })
@@ -2716,7 +2733,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			'text-base',
 			'font-semibold'
 		);
-		for (const name of ['Station', 'Group chart', 'Running combinations']) {
+		for (const name of ['Station', 'Group chart', 'Add cases', 'Running combinations']) {
 			expect(heading(name)).toHaveClass('text-sm', 'font-semibold');
 			// The section nav's targets (§5.4): headings that take the focus, never a Tab stop.
 			expect(heading(name)).toHaveAttribute('tabindex', '-1');

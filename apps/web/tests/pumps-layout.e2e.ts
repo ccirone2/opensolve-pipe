@@ -2374,6 +2374,15 @@ const COMBINATIONS_LEAD: Readonly<Record<string, { text: string; mark: string | 
 	}
 };
 const EXTREMES_COLUMNS = ['Pump', 'Largest flow', 'Largest shaft power', 'Smallest NPSH margin'];
+/**
+ * §5.7 row 9: the condenser's extremes with their h5 (the h5, the box and "Not counted"), at most
+ * this: S5's measurement + 10 %, 725 px at 1280×800 (the mock's table 711 px and the h5) and 893 at
+ * 390×844 (the mock's list 834 px), so 797 and 982. At 320×640 no budget (§5.7).
+ */
+const EXTREMES_HEIGHT: Readonly<Record<string, number>> = {
+	'1280x800': 797,
+	'390x844': 982
+};
 
 /**
  * The extremes table as drawn (§5.3 the extremes): its form (a table from 26 rem of its box, a
@@ -2410,8 +2419,9 @@ function readExtremes() {
 			}))
 		};
 	});
+	// Its value cells: every cell but the flag lines' (S5's second half: no Flags column).
 	const combos = [...section.querySelectorAll('[data-running-combinations] td')].filter(
-		(td) => (td as HTMLElement).dataset.label !== 'Flags'
+		(td) => !td.querySelector('[data-label="Flags"]')
 	);
 	const lead = section.querySelector('[data-combinations-lead]');
 	const mark = section.querySelector('[data-combinations-mark]');
@@ -2471,6 +2481,13 @@ async function extremesPart(page: Page, view: string, where: string) {
 	console.log(
 		`${where}: the extremes a ${m.list ? 'list' : 'table'} in a ${m.width} px box, ${m.height} px with their h5; lead "${m.lead}" (${m.mark?.name ?? 'no mark'})`
 	);
+	// §5.7 row 9: the condenser's extremes' height (S5).
+	const heightBudget = view === '3-condenser' ? EXTREMES_HEIGHT[sizeOf(page)] : undefined;
+	if (heightBudget !== undefined) {
+		soft(m.height, `the extremes' height with their h5, ${where}`).toBeLessThanOrEqual(
+			heightBudget
+		);
+	}
 	const expected = COMBINATIONS_LEAD[view];
 	if (expected) {
 		soft(m.lead, `Running combinations' lead, ${where}`).toBe(expected.text);
@@ -2556,6 +2573,243 @@ async function extremesPart(page: Page, view: string, where: string) {
 	}
 }
 
+// ---- S5: Running combinations' order, lines and names (§5.3, §9 S5, §10 S5) ------------------
+
+/**
+ * §5.7 row 11: the open card, the condenser's after Add cases at 1280×800, at most this: S5's
+ * measurement + 10 %, 9,547 px (S4's 7,418; §5.7 estimated about 5,650), so 10,501. Running
+ * combinations makes the difference: each flagged pump's flags now visible under its row (the
+ * condenser's 10 flagged rows hold 36 flags), and the names wrapping at 12 rem in 42 rows.
+ */
+const OPEN_CARD_1280 = 10_501;
+
+/**
+ * Running combinations as laid out (viewport px): its box and form; each case's group, its
+ * heading's lines, its members' names and its flag lines, each read against the box's visible
+ * width with the box at its start and scrolled to its end (the lines, names and flag lines are
+ * sticky, §5.3); the cases of "Cases on this chart", ticked or not, which list them in the chart's
+ * order (D24 §4.6); and "Other cases' station duties" while drawn (a list below 640 px, §9 S5).
+ */
+function readCombinations() {
+	const card = document.querySelector('[data-pumps-together]');
+	const box = card?.querySelector<HTMLElement>('[data-running-combinations]');
+	if (!card || !box) return null;
+	const table = box.querySelector('table')!;
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	/** An element's words without its aria-hidden marks (a slot's symbol, a ring). */
+	const words = (el: Element) => {
+		const copy = el.cloneNode(true) as Element;
+		for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+		return squash(copy.textContent);
+	};
+	const seen = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			r.width > 1 &&
+			r.height > 1
+		);
+	};
+	const shownWhole = (el: Element) => el.scrollWidth <= el.clientWidth + 1;
+	const b = box.getBoundingClientRect();
+	const left = b.left + box.clientLeft;
+	const right = left + box.clientWidth;
+	const inView = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return r.left >= left - 0.5 && r.right <= right + 0.5;
+	};
+	const read = () =>
+		[...table.querySelectorAll(':scope > tbody')].map((tbody) => {
+			const heading = tbody.querySelector('th[scope="rowgroup"]')!;
+			return {
+				lines: [...heading.children].map((line) => ({
+					text: squash(line.textContent),
+					position: getComputedStyle(line).position,
+					inView: inView(line),
+					shown: shownWhole(line)
+				})),
+				members: [...tbody.querySelectorAll('th[scope="row"]')].map((th) => {
+					const name = th.firstElementChild!;
+					return {
+						name: words(name),
+						button: name.tagName === 'BUTTON',
+						inView: inView(name),
+						shown: shownWhole(name) && [...name.children].every(shownWhole)
+					};
+				}),
+				notes: [...tbody.querySelectorAll<HTMLElement>('[data-row-notes]')].map((note) => ({
+					id: note.dataset.rowNotes ?? '',
+					label: note.dataset.label ?? '',
+					text: squash(note.textContent),
+					inView: inView(note),
+					said: [...note.querySelectorAll('li')].map((li) => ({
+						seen: seen(li),
+						inView: inView(li)
+					}))
+				}))
+			};
+		});
+	const atStart = read();
+	const sideways = box.scrollWidth > box.clientWidth + 1;
+	box.scrollLeft = box.scrollWidth;
+	const atEnd = read();
+	box.scrollLeft = 0;
+	const fieldset = [...card.querySelectorAll('fieldset')].find(
+		(f) => squash(f.querySelector('legend')?.textContent) === 'Cases on this chart'
+	);
+	const tag = fieldset?.querySelector(':scope > div > span');
+	const duties = card.querySelector<HTMLElement>('[data-other-duties]');
+	const dutiesTable = duties?.querySelector('table');
+	const dutiesHead = dutiesTable?.querySelector('thead');
+	return {
+		containerType: getComputedStyle(box).containerType,
+		sideways,
+		list: getComputedStyle(table).display === 'block',
+		height: Math.round(b.height),
+		columns: [...table.querySelectorAll('thead th')].map((th) => squash(th.textContent)),
+		nones: [...table.querySelectorAll('td')].filter((td) => squash(td.textContent) === 'None')
+			.length,
+		titles: table.querySelectorAll('[title]').length,
+		atStart,
+		atEnd,
+		chartOrder:
+			fieldset && tag
+				? [
+						words(tag),
+						...[...fieldset.querySelectorAll('label > span.min-w-0')].map((s) => words(s))
+					]
+				: null,
+		duties:
+			duties && dutiesTable && dutiesHead && seen(duties)
+				? {
+						display: getComputedStyle(dutiesTable).display,
+						sideways: duties.scrollWidth > duties.clientWidth + 1,
+						headClipped:
+							getComputedStyle(dutiesHead).position === 'absolute' &&
+							dutiesHead.getBoundingClientRect().width <= 1,
+						names: [...dutiesTable.querySelectorAll('tbody th')].map((th) => ({
+							name: words(th),
+							shown: shownWhole(th)
+						})),
+						cells: [...dutiesTable.querySelectorAll<HTMLElement>('tbody td[data-label]')].map(
+							(td) => ({
+								label: td.dataset.label ?? '',
+								text: squash(td.textContent),
+								before: getComputedStyle(td, '::before').content
+							})
+						)
+					}
+				: null
+	};
+}
+
+/**
+ * S5's second half at the size shown (soft): Running combinations' order, lines and names (§5.3,
+ * §9 S5). The box an inline-size container; the case shown first, then the cases in the chart's
+ * order, ticked or not; each line of a group's heading sticky (in the table) and in view at the
+ * box's start and end, shown to its end; no Flags column and no "None"; a flag line under each
+ * flagged pump, its text visible inside the box's visible width; names shown to their end, trace
+ * buttons in the shown case's group only; the list below 640 px with no sideways scroll; "Other
+ * cases' station duties" a list below 640 px. And §5.7 row 11, the condenser's open card.
+ */
+async function combinationsPart(
+	page: Page,
+	view: string,
+	where: string,
+	data: Awaited<ReturnType<typeof measure>> | null
+) {
+	const soft = expect.configure({ soft: true });
+	const m = await page.evaluate(readCombinations);
+	const size = sizeOf(page);
+	if (data?.card?.open) {
+		console.log(`${where}: the open card ${data.card.height} px`);
+		if (view === '3-condenser' && size === '1280x800') {
+			soft(data.card.height, `the open card's height, ${where}`).toBeLessThanOrEqual(
+				OPEN_CARD_1280
+			);
+		}
+	}
+	if (!m) return;
+	const flagLines = m.atStart.reduce((n, g) => n + g.notes.length, 0);
+	console.log(
+		`${where}: Running combinations a ${m.list ? 'list' : 'table'}, ${m.height} px, ${m.atStart.length} cases, ${flagLines} flag lines${m.sideways ? ', scrolls sideways' : ''}`
+	);
+	soft(m.containerType, `Running combinations' box a container, ${where}`).toBe('inline-size');
+	soft(m.list, `Running combinations a list below 640 px only, ${where}`).toBe(
+		page.viewportSize()!.width < 640
+	);
+	if (m.list) soft(m.sideways, `Running combinations' list scrolls sideways, ${where}`).toBe(false);
+	soft(m.columns, `no Flags column, ${where}`).not.toContain('Flags');
+	soft(m.nones, `"None" in Running combinations, ${where}`).toBe(0);
+	soft(m.titles, `a tooltip in Running combinations, ${where}`).toBe(0);
+	// The order (§5.3): the case shown, then the chart's, ticked or not.
+	const cases = m.atStart.map((g) => g.lines[0]?.text.replace(/ · ring \d+$/, '') ?? '');
+	if (m.chartOrder) {
+		soft(
+			cases.slice(0, m.chartOrder.length),
+			`Running combinations in the chart's order, ${where}`
+		).toEqual(m.chartOrder);
+	}
+	soft(cases[0], `the case shown first, ${where}`).toMatch(/ \(shown\)/);
+	for (const [label, groups] of [
+		['at its start', m.atStart],
+		['scrolled to its end', m.atEnd]
+	] as const) {
+		for (const [g, group] of groups.entries()) {
+			const what = `"${cases[g]}" ${label}, ${where}`;
+			for (const line of group.lines) {
+				soft(line.position, `${what}: "${line.text.slice(0, 40)}" sticky`).toBe(
+					m.list ? 'static' : 'sticky'
+				);
+				soft(line.inView, `${what}: "${line.text.slice(0, 40)}" in the box's view`).toBe(true);
+				soft(line.shown, `${what}: "${line.text.slice(0, 40)}" shown to its end`).toBe(true);
+			}
+			for (const member of group.members) {
+				soft(member.button, `${what}: "${member.name}" a trace button`).toBe(g === 0);
+				soft(member.inView, `${what}: "${member.name}" in the box's view`).toBe(true);
+				soft(member.shown, `${what}: "${member.name}" shown to its end`).toBe(true);
+			}
+			for (const note of group.notes) {
+				soft(note.label, `${what}: a flag line's label`).toBe('Flags');
+				soft(
+					group.members.some((member) => note.text.startsWith(`${member.name}, flags:`)),
+					`${what}: the flag line of ${note.id} named by its pump`
+				).toBe(true);
+				soft(note.inView, `${what}: the flag line of ${note.id} in the box's view`).toBe(true);
+				soft(note.said.length, `${what}: the flag line of ${note.id}'s flags`).toBeGreaterThan(0);
+				for (const said of note.said) {
+					soft(said.seen, `${what}: a flag of ${note.id} visible`).toBe(true);
+					soft(said.inView, `${what}: a flag of ${note.id} inside the box's view`).toBe(true);
+				}
+			}
+		}
+	}
+	if (m.duties) {
+		const list = page.viewportSize()!.width < 640;
+		soft(m.duties.display, `"Other cases' station duties" a list below 640 px only, ${where}`).toBe(
+			list ? 'block' : 'table'
+		);
+		soft(m.duties.headClipped, `its header row visually hidden in the list only, ${where}`).toBe(
+			list
+		);
+		if (list) soft(m.duties.sideways, `its list scrolls sideways, ${where}`).toBe(false);
+		for (const name of m.duties.names) {
+			soft(name.shown, `"${name.name}" shown to its end in its duties, ${where}`).toBe(true);
+		}
+		soft(m.duties.cells.length, `"Other cases' station duties"' cells, ${where}`).toBeGreaterThan(
+			0
+		);
+		for (const cell of m.duties.cells) {
+			soft(cell.before, `a duty's line header (${cell.label}), ${where}`).toBe(
+				list ? `"${cell.label}"` : 'none'
+			);
+			soft(cell.text.includes(cell.label), `a duty's header outside its text, ${where}`).toBe(
+				false
+			);
+		}
+	}
+}
+
 /**
  * Check and measure the view at the project's size and, on the phone, at 320×640 too (reflow at
  * 400 % zoom; pump-lineups.e2e.ts resizes the same way). Then axe with every disclosure open at
@@ -2572,6 +2826,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await navPart(page, `${view} at ${size}`);
 	await addCasesPart(page, view, `${view} at ${size}`);
 	await extremesPart(page, view, `${view} at ${size}`);
+	await combinationsPart(page, view, `${view} at ${size}`, data);
 	if (info.project.name !== 'mobile') {
 		await axeClean(page, `${view} at ${size}`);
 		await pageHolds(page, `${view} at ${size}, every disclosure open`);
@@ -2588,6 +2843,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await navPart(page, `${view} at 320x640`);
 	await addCasesPart(page, view, `${view} at 320x640`);
 	await extremesPart(page, view, `${view} at 320x640`);
+	await combinationsPart(page, view, `${view} at 320x640`, narrow);
 	await axeClean(page, `${view} at 320x640`);
 	await pageHolds(page, `${view} at 320x640, every disclosure open`);
 	await page.setViewportSize(viewport);
@@ -3286,6 +3542,22 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		if (size.width === 1280)
 			expect.soft(extremes?.list, `the extremes a table, ${where}`).toBe(false);
 		await extremesPart(page, '', where);
+		// Running combinations (§9 S5): the long pump name in every case's rows and the long case
+		// name in its heading, each shown to its end in the box's view, sticky in the table.
+		await combinationsPart(page, '', where, null);
+		const named = await page.evaluate(readCombinations);
+		expect
+			.soft(
+				named?.atStart.filter((g) => g.members.some((m) => m.name === LONG_PUMP)).length,
+				`the long pump name in each case's rows, ${where}`
+			)
+			.toBe(named?.atStart.filter((g) => g.members.length).length);
+		expect
+			.soft(
+				named?.atStart.some((g) => g.lines[0]?.text.startsWith(LONG_CASE)),
+				`the long case name heading its case, ${where}`
+			)
+			.toBe(true);
 		// Each line of a long name ends inside the card, outside a box that scrolls (the data
 		// tables, and the group table at 640 px and over, whose name column wraps at 12 rem).
 		const past = await card.evaluate(

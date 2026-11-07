@@ -579,7 +579,12 @@ function otherCurveState(
 export interface CombinationsInput {
 	/** The card's members, with their slots. */
 	members: readonly { id: string; name: string; slot: number }[];
-	/** Every case: the shown first, then the others in case order. */
+	/**
+	 * Every case, in the table's order (pumps-results-layout.md §5.3, §9 S5): the case shown, then
+	 * the other cases with values in lineupChartPriority's order (the chart's, whether a case is
+	 * ticked or not), then the cases without values in case order. The extremes name the first of
+	 * equal cases in this order.
+	 */
 	cases: readonly {
 		key: string;
 		name: string;
@@ -611,6 +616,11 @@ export interface CombinationRow {
 
 export interface CombinationGroup {
 	key: string;
+	/**
+	 * The case shown: only its members' names are trace buttons, since a trace opens for the case
+	 * shown (pumps-results-layout.md §5.3 Pump names; §13 Later).
+	 */
+	shown: boolean;
 	/** "Pump PA off (out of date) · ring 1". */
 	heading: string;
 	/**
@@ -680,11 +690,11 @@ function checksWords(response: SolveResponse, pumpId: string): string {
 }
 
 /**
- * Every case's members, one row group per case (the shown first), one row per member in the
- * stored project's component order, its row header the member's name with its id where another
- * member has that name (memberLabels: the slot's symbol is hidden from screen readers, so two
- * members of one name would otherwise give two rows the same header); the group table's cell
- * rules on that case's own solve.
+ * Every case's members, one row group per case in the input's order (the shown first,
+ * pumps-results-layout.md §5.3), one row per member in the stored project's component order, its
+ * row header the member's name with its id where another member has that name (memberLabels: the
+ * slot's symbol is hidden from screen readers, so two members of one name would otherwise give
+ * two rows the same header); the group table's cell rules on that case's own solve.
  */
 export function runningCombinations(input: CombinationsInput): CombinationsTable {
 	const f = new Formatter(input.prefs);
@@ -723,6 +733,7 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 		if (!values) {
 			return {
 				key: c.key,
+				shown: c.shown,
 				heading,
 				lineup: null,
 				detail:
@@ -767,6 +778,7 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 		});
 		return {
 			key: c.key,
+			shown: c.shown,
 			heading,
 			lineup: lineupLine(members, response, (id) => labels.get(id)?.name ?? id),
 			detail: c.station,

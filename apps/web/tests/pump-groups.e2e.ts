@@ -734,7 +734,12 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 	await expect(paWithoutPb.locator('[data-label="Inside curve data"]')).toHaveText(
 		'No: beyond its data'
 	);
-	await expect(paWithoutPb.locator('[data-label="Flags"]')).toContainText('Warning');
+	// Its flags in the flag line following its row (pumps-results-layout.md §5.3 Flags, §10 S5),
+	// no longer a Flags cell in it.
+	await expect(paWithoutPb.locator('[data-label="Flags"]')).toHaveCount(0);
+	await expect(
+		paWithoutPb.locator('xpath=following-sibling::*[1]').locator('[data-label="Flags"]')
+	).toContainText('Warning');
 	// The extremes: PA's largest flow with PB off, a table since pumps-results-layout.md S5 (§10
 	// S5): PA's row by its header, the cell under "Largest flow" by its data-label, the pattern
 	// anchored at the cell's start; on a phone the same roles and data-labels, the line's header

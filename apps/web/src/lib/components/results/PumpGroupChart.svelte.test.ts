@@ -2836,21 +2836,42 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		]);
 		const held = groups[3]!;
 		const rows = within(held).getAllByRole('row');
-		expect(rows).toHaveLength(3);
-		const pb = rows[2]!;
+		// The heading's row and a row per member, each flagged member's followed by its flag line
+		// (pumps-results-layout.md §5.3 Flags, §10 S5): in Held both are flagged, Pump PA with
+		// warnings and Pump PB invalid.
+		const flagged = runningCombinations(input).groups[2]!.rows.filter((r) => r.flags.length);
+		expect(flagged.map((r) => r.id)).toEqual(['PA', 'PB']);
+		expect(rows).toHaveLength(3 + flagged.length);
+		// Pump PB's row by its row header, not by its index.
+		const pb = rows.find((r) => within(r).queryByRole('rowheader', { name: 'Pump PB' }))!;
 		expect(within(pb).getByRole('rowheader')).toHaveTextContent('Pump PB');
-		// A long name wraps on a phone (the list has no sideways scroll; the e2e measures it).
-		expect(within(pb).getByRole('rowheader')).toHaveClass(
-			'max-sm:whitespace-normal',
-			'max-sm:break-words'
+		// A long name wraps, at 12 rem in the table and anywhere on a phone (the list has no
+		// sideways scroll; the e2e measures it): the name's own box wraps, the row header no longer
+		// keeps it on one line (§15 item 92, the group table's).
+		const name = within(pb).getByRole('rowheader').firstElementChild!;
+		expect(name).toHaveTextContent('Pump PB');
+		expect(name).toHaveClass(
+			'w-max',
+			'max-w-48',
+			'wrap-break-word',
+			'max-sm:w-auto',
+			'max-sm:max-w-none',
+			'max-sm:wrap-anywhere'
 		);
+		expect(within(pb).getByRole('rowheader')).not.toHaveClass('whitespace-nowrap');
+		expect(name).not.toHaveClass('whitespace-nowrap');
 		const cells = within(pb).getAllByRole('cell');
 		expect(cells[0]).toHaveTextContent('No flow (system head above shutoff)');
 		// Speed next (Pump PB at another speed), then the flow, marked.
 		expect(cells[1]).toHaveAttribute('data-label', 'Speed (%)');
 		expect(cells[2]).toHaveAttribute('data-label', 'Flow (L/s)');
 		expect(cells[2]).toHaveTextContent('physically invalid:');
-		expect(cells.at(-1)).toHaveTextContent('Invalid');
+		// No Flags column: the flag line follows the pump's row (§10 S5).
+		expect(cells.map((cell) => cell.dataset.label)).not.toContain('Flags');
+		const line = pb.nextElementSibling!.querySelector('[data-row-notes]')!;
+		expect(line).toHaveAttribute('data-row-notes', 'PB');
+		expect(line).toHaveAttribute('data-label', 'Flags');
+		expect(line).toHaveTextContent('Invalid');
 		// Not marked where the pump has no invalid flag.
 		const pa = within(groups[1]!).getAllByRole('row')[1]!;
 		expect(within(pa).getAllByRole('cell')[2]).toHaveAttribute('data-label', 'Flow (L/s)');
@@ -3108,11 +3129,11 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			}
 		}
 		// Running combinations' marked cells take the same octagon, keeping their visually hidden
-		// "physically invalid:"; no value cell draws the triangle (the Flags cell's warnings do).
+		// "physically invalid:"; no value cell draws the triangle (the flag lines' warnings do).
 		const combos = screen.getByRole('table', { name: 'Running combinations' });
 		const valueCells = within(combos)
 			.getAllByRole('cell')
-			.filter((cell) => cell.dataset.label !== 'Flags');
+			.filter((cell) => !cell.querySelector('[data-label="Flags"]'));
 		const markedCells = valueCells.filter((cell) =>
 			cell.textContent!.includes('physically invalid:')
 		);
@@ -3125,6 +3146,127 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				expect(within(cell).getByText('physically invalid:')).toHaveClass('sr-only');
 			}
 		}
+	});
+
+	it('Running combinations’ lines and names: a size container, each heading line sticky at its visible width, a flag line under each flagged pump’s row (no Flags column, no “None”), trace buttons in the shown case’s group only (pumps-results-layout.md §5.3, §9 S5)', async () => {
+		const dead = named('one-off-dead-headed') as unknown as OneOffCase;
+		const input = combinationsOf([
+			solvedCase('', 'Base case', c.solve, {
+				station: 'Station 55.15 L/s at a rise of 27.38 m'
+			}),
+			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve, { ring: 2 }),
+			solvedCase('S9', 'Held (synthetic)', dead.solve),
+			solvedCase('S5', 'Failed case', null)
+		]);
+		const table = runningCombinations(input);
+		const flagText = (flag: Flag) => `${flag.code}: ${flag.message}`;
+		const squash = (text: string | null) => (text ?? '').replace(/\s+/g, ' ').trim();
+		const oninspect = vi.fn();
+		render(PumpGroupChart, base({ combinations: table, flagText, oninspect }));
+		const region = screen.getByRole('region', { name: 'Running combinations' });
+		// A size container (§5.5), so a heading line and a flag line are the box's visible width.
+		expect(region).toHaveClass('@container', 'scroll-shadow-x', 'overflow-auto', 'relative');
+		const combos = within(region).getByRole('table', { name: 'Running combinations' });
+		const columns = within(combos).getAllByRole('columnheader');
+		expect(columns.map((h) => h.textContent!.trim())).not.toContain('Flags');
+		// No Flags column, so no "None" on screen or in a phone's list (§5.3 Phones).
+		expect(within(combos).queryByText('None')).toBeNull();
+		expect(combos.querySelector('[title]')).toBeNull();
+		const groups = within(combos).getAllByRole('rowgroup').slice(1);
+		expect(groups).toHaveLength(table.groups.length);
+		let flaggedRows = 0;
+		let plainRows = 0;
+		for (const [g, group] of table.groups.entries()) {
+			const body = groups[g]!;
+			// The heading: one cell across the row, each line sticky at the box's visible width
+			// and wrapping there, a list's line on a phone (§5.3 Group heading lines).
+			const heading = within(body)
+				.getAllByRole('rowheader')
+				.find((h) => h.getAttribute('scope') === 'rowgroup')!;
+			expect(heading).toHaveAttribute('colspan', String(columns.length));
+			const lines = [...heading.children];
+			expect(lines.map((l) => l.textContent)).toEqual(
+				[group.heading, group.lineup, group.detail].filter((t) => t !== null)
+			);
+			for (const l of lines) {
+				expect(l).toHaveClass(
+					'sticky',
+					'left-0',
+					'block',
+					'w-[100cqw]',
+					'wrap-break-word',
+					'max-sm:static',
+					'max-sm:w-auto'
+				);
+			}
+			const rows = within(body).getAllByRole('row');
+			// The heading's row, a row per member, and a flag line after each flagged one's.
+			expect(rows).toHaveLength(
+				1 + group.rows.length + group.rows.filter((r) => r.flags.length).length
+			);
+			// Trace buttons in the shown case's group only: a trace opens for the case shown
+			// (§5.3 Pump names), so another case's names are plain row headers.
+			expect(within(body).queryAllByRole('button')).toHaveLength(
+				group.shown ? group.rows.length : 0
+			);
+			for (const member of group.rows) {
+				const row = rows.find((r) => within(r).queryByRole('rowheader', { name: member.name }))!;
+				const header = within(row).getByRole('rowheader');
+				if (group.shown) {
+					const button = within(header).getByRole('button', { name: member.name });
+					expect(button).toHaveClass('w-max', 'max-w-48', 'wrap-break-word', 'min-h-11');
+					await fireEvent.click(button);
+					expect(oninspect).toHaveBeenLastCalledWith(member.id);
+				} else {
+					expect(within(header).queryByRole('button')).toBeNull();
+				}
+				const next = row.nextElementSibling;
+				if (!member.flags.length) {
+					expect(next?.querySelector('[data-row-notes]') ?? null).toBeNull();
+					plainRows++;
+					continue;
+				}
+				flaggedRows++;
+				// The flag line (§5.3 Flags), as the group table's: one cell across the row,
+				// sticky at the box's visible width, named by its pump first (visually hidden),
+				// then each flag's pill and its text, visible, read once; the flags a list, an
+				// item each (no run of paragraphs where no trace button parts the rows, §5.7).
+				const note = next!.querySelector<HTMLElement>(`[data-row-notes="${member.id}"]`)!;
+				expect(note).toHaveAttribute('data-label', 'Flags');
+				expect(note).toHaveClass('sticky', 'left-0', 'w-[100cqw]', 'max-sm:static');
+				expect(note.closest('td')).toHaveAttribute('colspan', String(columns.length));
+				expect(next).toHaveClass('max-sm:block');
+				expect(note.querySelector('.sr-only')!.textContent).toBe(`${member.name}, flags:`);
+				expect(squash(note.textContent).startsWith(`${member.name}, flags:`)).toBe(true);
+				expect(note.querySelector('p')).toBeNull();
+				const said = [...note.querySelectorAll(':scope > ul > li')];
+				expect(said).toHaveLength(member.flags.length);
+				for (const [i, flag] of member.flags.entries()) {
+					const pill = said[i]!.querySelector('span')!;
+					const word = { invalid: 'Invalid', warning: 'Warning', info: 'Info' }[flag.severity];
+					expect(pill.textContent).toBe(word);
+					expect(pill).toHaveClass(
+						...{
+							invalid: ['border-red-300', 'bg-red-50', 'text-red-900'],
+							warning: ['border-amber-300', 'bg-amber-50', 'text-amber-900'],
+							info: ['border-slate-300', 'bg-slate-50', 'text-slate-700']
+						}[flag.severity]
+					);
+					expect(squash(said[i]!.textContent)).toBe(`${word} ${flagText(flag)}`);
+					expect(outOfSight(said[i]!)).toBe(false);
+					expect(note.textContent!.split(flagText(flag))).toHaveLength(2);
+				}
+			}
+		}
+		// Both forms drawn: flagged pumps (Held's both, Pump PB off's Pump PA) and pumps without.
+		expect([flaggedRows > 0, plainRows > 0]).toEqual([true, true]);
+		expect(oninspect).toHaveBeenCalledTimes(table.groups[0]!.rows.length);
+		// Without oninspect (this card's own tests), no trace button anywhere.
+		cleanup();
+		render(PumpGroupChart, base({ combinations: table, flagText }));
+		expect(
+			within(screen.getByRole('region', { name: 'Running combinations' })).queryAllByRole('button')
+		).toHaveLength(0);
 	});
 
 	it('the figure: the rings in the legend and the name, the data table’s rows, no image while computed', async () => {
@@ -3352,6 +3494,42 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			.filter((r) => r.textContent!.includes(NAMES.S5!));
 		expect(unticked).toHaveLength(1);
 		expect(unticked[0]!.querySelector('td')!.getAttribute('colspan')).toBe('4');
+		// Below 640 px a list (pumps-results-layout.md §5.5, §9 S5), as "Other cases' group
+		// curves": the roles explicit, the header row visually hidden, a block per case headed by
+		// its name (wrapping anywhere), each value after its column's words as ::before content,
+		// so a cell's text is the same at every width; a case without a ring its words alone.
+		expect(table).toHaveAttribute('role', 'table');
+		expect(table).toHaveClass('max-sm:block');
+		expect(table.querySelector('thead')).toHaveClass('max-sm:sr-only');
+		const headers = within(table)
+			.getAllByRole('columnheader')
+			.map((h) => h.textContent!.replace(/\s+/g, ' ').trim());
+		let ringed = 0;
+		for (const row of within(table).getAllByRole('row').slice(1)) {
+			expect(row).toHaveClass('max-sm:flex', 'max-sm:flex-wrap');
+			expect(within(row).getByRole('rowheader')).toHaveClass(
+				'max-sm:block',
+				'max-sm:w-full',
+				'max-sm:wrap-anywhere'
+			);
+			const cells = within(row).getAllByRole('cell');
+			if (cells.length === 1) {
+				expect(cells[0]).not.toHaveAttribute('data-label');
+				expect(cells[0]).toHaveClass('max-sm:block');
+				continue;
+			}
+			ringed++;
+			expect(cells.map((cell) => cell.dataset.label)).toEqual(headers.slice(1));
+			// A number beside its column's words, a pair; a cell of words the whole line, its
+			// column's words before them in the same run of text.
+			for (const [i, cell] of cells.entries()) {
+				expect(cell).toHaveClass('max-sm:before:content-[attr(data-label)]');
+				expect(cell).toHaveClass(i < 2 ? 'max-sm:flex' : 'max-sm:block');
+				if (i >= 2) expect(cell).toHaveClass('max-sm:w-full', 'max-sm:before:mr-1');
+				expect(cell.textContent).not.toContain(cell.dataset.label);
+			}
+		}
+		expect(ringed).toBe(6);
 		// 4d's table, without curve states: no such column.
 		cleanup();
 		await renderDrawn(family('', { without: true }).props);

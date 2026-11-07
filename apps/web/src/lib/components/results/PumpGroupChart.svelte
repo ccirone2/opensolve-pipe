@@ -570,7 +570,7 @@
 				{/if}
 				{#if combinations && stationShown}
 					<!-- 4. Running combinations (slice 4d), with the extremes over the cases. -->
-					<PumpGroupCombinations {combinations} {extremes} {flagText} />
+					<PumpGroupCombinations {combinations} {extremes} {flagText} {oninspect} />
 				{/if}
 			{:else}
 				<p class="text-sm text-slate-700">Tick the pumps to see together.</p>

@@ -13,6 +13,14 @@
 	box that reads as a list below 26 rem (each line's header its cell's data-label, as ::before
 	content, so a cell's text is the same at every width). Running combinations' marked cells take
 	the same octagon (§6.4 item 15).
+
+	S5's order, lines and names (§5.3, §9 S5): the cases in the table's order (PumpsView's: the case
+	shown, then the chart's lineupChartPriority order, then the cases without values), which no
+	untick and no "Also show …" moves; the box a size container (§5.5), so each line of a group's
+	heading is sticky at the box's visible width and wraps in view; a flag line under each flagged
+	pump's row in place of the Flags column, as the group table's (§15 item 92), so a phone's list
+	has no "Flags None" line; the names wrap at 12 rem, trace buttons in the shown case's group
+	only, since a trace opens for the case shown.
 -->
 <script lang="ts">
 	import type { Flag } from '$lib/api/types';
@@ -24,7 +32,7 @@
 		type CombinationExtremes,
 		type CombinationsTable
 	} from '$lib/utils/pump-group-one-off';
-	import { SEVERITY_LABELS } from '$lib/utils/results';
+	import { flagTone, SEVERITY_LABELS } from '$lib/utils/results';
 	import { sectionMark } from '$lib/utils/section-nav';
 	import FlagIcon from './FlagIcon.svelte';
 	import { registerSection } from './section-nav.svelte';
@@ -36,10 +44,20 @@
 		extremes?: CombinationExtremes | null;
 		/** A flag's words (names, display units). */
 		flagText: (flag: Flag) => string;
+		/** Open an element's results and trace: from the shown case's group only (§5.3 Pump names). */
+		oninspect?: (componentId: string) => void;
 	}
 
-	let { combinations, extremes = null, flagText }: Props = $props();
+	let { combinations, extremes = null, flagText, oninspect }: Props = $props();
 	const id = $props.id();
+
+	/**
+	 * A line of a group's heading (§5.3 Group heading lines): sticky at the box's visible width
+	 * (the box a size container, §5.5), so it wraps in view rather than at the table's width, an
+	 * unbroken name inside it; a list's line below 640 px.
+	 */
+	const GROUP_LINE =
+		'sticky left-0 block w-[100cqw] px-2 wrap-break-word max-sm:static max-sm:w-auto';
 
 	/** The lead (§5.3, §9 S5): the cases counted, its mark the worst severity among the current. */
 	const lead = $derived(combinationsLead(combinations));
@@ -177,10 +195,12 @@
 			{/if}
 		</div>
 	{/if}
-	<!-- Running combinations (slice 4d): every case's members; a list below 640 px. -->
+	<!-- Running combinations (slice 4d): every case's members, in the table's order (§5.3); a list
+		below 640 px. A size container, so its group lines and flag lines are the box's visible width
+		(§5.5); positioned, so the flag lines' hidden words (absolutely placed) scroll with it. -->
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
-		class="scroll-shadow-x relative max-w-full overflow-auto rounded-md border border-slate-200 bg-white"
+		class="scroll-shadow-x @container relative max-w-full overflow-auto rounded-md border border-slate-200 bg-white"
 		role="region"
 		aria-labelledby="{id}-combinations-caption"
 		tabindex="0"
@@ -215,11 +235,6 @@
 								>{/if}
 						</th>
 					{/each}
-					<th
-						role="columnheader"
-						scope="col"
-						class="border-b border-slate-300 px-2 py-1 text-left align-bottom font-medium">Flags</th
-					>
 				</tr>
 			</thead>
 			{#each combinations.groups as group (group.key)}
@@ -230,16 +245,19 @@
 						<th
 							role="rowheader"
 							scope="rowgroup"
-							colspan={combinations.columns.length + 2}
+							colspan={combinations.columns.length + 1}
 							class={[
-								'border-b border-slate-200 px-2 py-1 text-left font-normal break-words max-sm:block',
+								'border-b border-slate-200 px-0 py-1 text-left font-normal max-sm:block',
 								group.stale ? 'bg-amber-50/60' : 'bg-slate-50/60'
 							]}
 						>
-							<span class="block font-medium">{group.heading}</span>
-							{#if group.lineup}<span class="block text-xs text-slate-700">{group.lineup}</span
+							<!-- Each line sticky at the box's visible width, so it wraps in view (§5.3). -->
+							<span class={[GROUP_LINE, 'font-medium']}>{group.heading}</span>
+							{#if group.lineup}<span class={[GROUP_LINE, 'text-xs text-slate-700']}
+									>{group.lineup}</span
 								>{/if}
-							{#if group.detail}<span class="block text-xs text-slate-600">{group.detail}</span
+							{#if group.detail}<span class={[GROUP_LINE, 'text-xs text-slate-600']}
+									>{group.detail}</span
 								>{/if}
 						</th>
 					</tr>
@@ -249,17 +267,38 @@
 							role="row"
 							class="max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5"
 						>
+							<!-- The sticky name wraps at 12 rem, as the group table's (§15 item 92; ui-guide):
+								its own width is its one line, up to 12 rem, so the column is that wide. A
+								trace button only in the shown case's group, since a trace opens for the case
+								shown (§5.3 Pump names; §13 Later); plain words in every other. Below 640 px
+								it takes the line's width and wraps anywhere, a name with no space too. -->
 							<th
 								role="rowheader"
 								scope="row"
 								class={[
-									'sticky left-0 z-10 border-r border-b border-slate-200 px-2 py-1 text-left font-medium whitespace-nowrap',
-									'max-sm:static max-sm:block max-sm:w-full max-sm:border-0 max-sm:px-0 max-sm:break-words max-sm:whitespace-normal',
+									'sticky left-0 z-10 border-r border-b border-slate-200 px-1 py-0.5 text-left font-normal',
+									'max-sm:static max-sm:-mx-1 max-sm:block max-sm:w-full max-sm:border-0',
 									group.stale ? 'bg-amber-50' : 'bg-white'
 								]}
-								><span aria-hidden="true" style:color={row.style.color}>{row.style.symbol}</span>
-								{row.name}</th
 							>
+								{#if group.shown && oninspect}
+									<button
+										type="button"
+										class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 text-left font-medium wrap-break-word text-blue-800 underline underline-offset-2 max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
+										onclick={() => oninspect(row.id)}
+									>
+										<span aria-hidden="true" class="no-underline" style:color={row.style.color}
+											>{row.style.symbol}</span
+										><span class="min-w-0">{row.name}</span>
+									</button>
+								{:else}
+									<span
+										class="flex w-max max-w-48 items-center gap-1 px-1 py-0.5 font-medium wrap-break-word max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
+										><span aria-hidden="true" style:color={row.style.color}>{row.style.symbol}</span
+										><span class="min-w-0">{row.name}</span></span
+									>
+								{/if}
+							</th>
 							{#each combinations.columns as column (column.key)}
 								{@const cell = row.cells[column.key] ?? '—'}
 								{@const marked =
@@ -284,29 +323,51 @@
 										>{:else}{cell}{/if}</td
 								>
 							{/each}
-							<td
-								role="cell"
-								data-label="Flags"
-								class={[
-									'border-b border-slate-200 px-2 py-1',
-									group.stale && 'bg-amber-50/60',
-									'max-sm:flex max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:bg-transparent max-sm:p-0',
-									'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]'
-								]}
-							>
-								<span class="flex flex-wrap gap-1">
-									{#each row.flags as flag, i (i)}
-										<span
-											class="inline-flex items-center gap-1 rounded-full border border-slate-300 px-1.5 py-0.5 text-xs whitespace-nowrap"
-											title={flagText(flag)}
-											><FlagIcon severity={flag.severity} class="size-3.5" />{SEVERITY_LABELS[
-												flag.severity
-											]}<span class="sr-only">: {flagText(flag)}</span></span
-										>
-									{:else}<span class="text-xs text-slate-600">None</span>{/each}
-								</span>
-							</td>
 						</tr>
+						{#if row.flags.length}
+							<!-- The flag line (§5.3 Flags), as the group table's (§15 item 92): under the
+								pump's row at the box's visible width, after its values on a phone, named by
+								its pump for table navigation, each flag's pill and its text visible and read
+								once (no hidden copy, no title). A pump without flags has none, so a phone's
+								list has no "Flags None" line. Its flags a list, one item each: no control
+								parts one case's lines from the next outside the shown case's group, and a
+								paragraph per flag read there as one wall of notes (§5.7 row 7). -->
+							<!-- svelte-ignore a11y_no_redundant_roles -->
+							<tr role="row" class="max-sm:block">
+								<td
+									role="cell"
+									colspan={combinations.columns.length + 1}
+									class={[
+										'border-b border-slate-200 p-0 max-sm:block max-sm:border-0',
+										group.stale && 'bg-amber-50/60 max-sm:bg-transparent'
+									]}
+								>
+									<div
+										class="sticky left-0 w-[100cqw] px-2 pt-1 pb-1.5 max-sm:static max-sm:w-auto"
+										data-row-notes={row.id}
+										data-label="Flags"
+									>
+										<span class="sr-only">{row.name}, flags:</span>
+										<ul class="space-y-1">
+											{#each row.flags as flag, i (i)}
+												<li class="text-xs text-slate-700">
+													<span
+														class={[
+															'mr-1 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 align-middle font-medium whitespace-nowrap',
+															flagTone(flag.severity)
+														]}
+														><FlagIcon severity={flag.severity} class="size-3.5" />{SEVERITY_LABELS[
+															flag.severity
+														]}</span
+													>
+													{flagText(flag)}
+												</li>
+											{/each}
+										</ul>
+									</div>
+								</td>
+							</tr>
+						{/if}
 					{/each}
 				</tbody>
 			{/each}

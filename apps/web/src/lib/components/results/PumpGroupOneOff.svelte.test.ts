@@ -791,8 +791,9 @@ describe('one pump off on the Pumps together card', () => {
 			'Yes: the same rest of the network',
 			"No: the rest of the network differs from this case's; its own group system curve is not drawn"
 		]);
-		// Running combinations: every case, the shown first, with its station line and ring (the
-		// cases in case order, D24 §7.10; the rings numbered in the chart's order, §7.9).
+		// Running combinations: every case, the shown first, with its station line and ring, then
+		// the other cases in the chart's order (pumps-results-layout.md §5.3, §10 S5: D24 §4.6's,
+		// so the rings, numbered in it, §7.9, read 1 to 4).
 		const combos = within(card()).getByRole('table', { name: 'Running combinations' });
 		const headings = within(combos)
 			.getAllByRole('rowheader')
@@ -801,9 +802,9 @@ describe('one pump off on the Pumps together card', () => {
 		expect(headings).toEqual([
 			'Base case (shown)',
 			'Pump PA off · ring 1',
+			'Both pumps off · ring 2',
 			'Pump PB off · ring 3',
-			'Delivery tank 5 m higher · ring 4',
-			'Both pumps off · ring 2'
+			'Delivery tank 5 m higher · ring 4'
 		]);
 	});
 
@@ -854,7 +855,8 @@ describe('one pump off on the Pumps together card', () => {
 			'○ 2 · Pump PB off',
 			'○ 3 · Delivery tank 5 m higher'
 		]);
-		// Running combinations keeps case order (§7.10), each case with its ring's number.
+		// Running combinations keeps the chart's order (pumps-results-layout.md §5.3, §10 S5), each
+		// case with its ring's number: the unticked case keeps its place, as in the list above.
 		const combos = within(card()).getByRole('table', { name: 'Running combinations' });
 		const headings = within(combos)
 			.getAllByRole('rowheader')
@@ -863,10 +865,93 @@ describe('one pump off on the Pumps together card', () => {
 		expect(headings).toEqual([
 			'Base case (shown)',
 			'Pump PA off · ring 1',
+			'Both pumps off',
 			'Pump PB off · ring 2',
-			'Delivery tank 5 m higher · ring 3',
-			'Both pumps off'
+			'Delivery tank 5 m higher · ring 3'
 		]);
+	}, 20_000);
+
+	it('Running combinations: the case shown, the cases with values in the chart’s order, then those without in case order, whatever is ticked; names trace buttons in the shown case’s group only (pumps-results-layout.md §5.3, §10 S5)', async () => {
+		// S1 and S2 fail to solve: no values. S3 a tank level (no lineup) and S4 both off (0
+		// running), so the chart's order (D24 §4.6) puts S4 before S3; in case order S1 to S4.
+		const { ws, calls } = setup(structuredClone(oneOff.project), {
+			solve: async (_p, _o, request) => {
+				const id = request?.scenarioId;
+				if (id === 'S1' || id === 'S2') {
+					throw new ValidationError(
+						'Invalid input: 1 problem(s).',
+						['body.project.scenarios.0.overrides.0: made-up rule'],
+						400,
+						'VALIDATION_ERROR'
+					);
+				}
+				return structuredClone(((id && oneOff.scenarioCases[id]) || oneOff).solve);
+			}
+		});
+		await ws.store.solveAll();
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await waitFor(() => expect(calls.filter((c) => c.scenarioId === null)).toHaveLength(2));
+		const table = () => within(card()).getByRole('table', { name: 'Running combinations' });
+		const headings = () =>
+			within(table())
+				.getAllByRole('rowheader')
+				.filter((h) => h.getAttribute('scope') === 'rowgroup')
+				.map((h) => h.firstElementChild!.textContent);
+		// "Also show …" off: no rings, the order already the chart's.
+		expect(ws.pumpGroupOthers).toBe(false);
+		expect(headings()).toEqual([
+			'Base case (shown)',
+			'Both pumps off',
+			'Delivery tank 5 m higher',
+			'Pump PA off',
+			'Pump PB off'
+		]);
+		// Its lead counts the two without results (§5.3 the lead).
+		expect(card().querySelector('[data-combinations-lead]')!.textContent).toMatch(
+			/^5 cases: 3 with current results \(.+\), none out of date, 2 without results\.$/
+		);
+		// On: the rings numbered in the same order; no case moves.
+		await fireEvent.click(
+			within(card()).getByRole('checkbox', { name: "Also show the other cases' station duties" })
+		);
+		await waitFor(() =>
+			expect(headings()).toEqual([
+				'Base case (shown)',
+				'Both pumps off · ring 1',
+				'Delivery tank 5 m higher · ring 2',
+				'Pump PA off',
+				'Pump PB off'
+			])
+		);
+		// Unticked under "Cases on this chart": its ring goes, its place stays.
+		await fireEvent.click(
+			within(within(card()).getByRole('group', { name: 'Cases on this chart' })).getByRole(
+				'checkbox',
+				{ name: /Both pumps off/ }
+			)
+		);
+		await waitFor(() =>
+			expect(headings()).toEqual([
+				'Base case (shown)',
+				'Both pumps off',
+				'Delivery tank 5 m higher · ring 1',
+				'Pump PA off',
+				'Pump PB off'
+			])
+		);
+		// Names: trace buttons in the shown case's group only (§5.3 Pump names), each opening
+		// that pump's trace for the case shown; plain row headers in every other group.
+		const groups = within(table()).getAllByRole('rowgroup').slice(1);
+		// Each named by its pump alone (its slot's symbol hidden), one per member.
+		expect(within(groups[0]!).getAllByRole('button')).toEqual([
+			within(groups[0]!).getByRole('button', { name: 'Pump PA' }),
+			within(groups[0]!).getByRole('button', { name: 'Pump PB' })
+		]);
+		for (const group of groups.slice(1)) expect(within(group).queryAllByRole('button')).toEqual([]);
+		await fireEvent.click(within(groups[0]!).getByRole('button', { name: 'Pump PB' }));
+		expect(ws.inspected).toEqual({ kind: 'component', id: 'PB' });
+		expect(within(groups[1]!).getAllByRole('rowheader', { name: 'Pump PB' })).toHaveLength(1);
 	}, 20_000);
 
 	it('in a scenario: made from the base case only, and the base’s duty beyond this curve', async () => {

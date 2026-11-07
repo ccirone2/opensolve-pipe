@@ -864,7 +864,7 @@ describe('Add cases in one structure (pumps-results-layout.md §5.3, §9 S4, §1
 		}
 	});
 
-	it('under a gate shows only its sentence, Solve all for gates 4 to 6 (one) and the table button; no plan', async () => {
+	it('under a gate shows only its sentence, Solve all for gates 4 to 6 (one) with its lasting reason, and the table button; no plan', async () => {
 		const ontable = vi.fn();
 		const series = (solvedCase('series').groupCurve.body as PumpGroupCurveResponse).station;
 		/** The base solve with some pumps' results changed (synthetic): gates 5 and 6. */
@@ -1208,19 +1208,22 @@ describe('Add cases in the workspace since S4 (pumps-results-layout.md §5.3, §
 		// the block's own frames), and at the first task after the press.
 		const frames: string[] = [];
 		let sampling = true;
+		/** The sampler's next frame, cancelled when sampling stops, so none runs after cleanup. */
+		let next: number;
 		const sample = () => {
 			frames.push(stopStatus() ?? '');
-			if (sampling) requestAnimationFrame(sample);
+			if (sampling) next = requestAnimationFrame(sample);
 		};
 		let firstTask: string | null = null;
 		setTimeout(() => (firstTask = stopStatus()), 0);
-		requestAnimationFrame(sample);
+		next = requestAnimationFrame(sample);
 		await press('Add 3 cases');
 		expect(ws.pumpGroupOthers).toBe(true);
 		expect(ticked()).toHaveTextContent(NOW_TICKED);
 		await waitFor(() => expect(stopStatus()).toBe(NOW_TICKED));
 		await waitFor(() => expect(frames.at(-1)).toBe(NOW_TICKED));
 		sampling = false;
+		cancelAnimationFrame(next);
 		// Empty in the press's own task and at its first frame, then the words, nothing else.
 		expect(firstTask).toBe('');
 		expect(frames[0]).toBe('');

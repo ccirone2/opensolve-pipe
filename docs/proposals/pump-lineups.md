@@ -657,7 +657,7 @@ In 4d's order. The words of gates 1, 2, 3 and 6 change.
 | 5 | Fewer than two on | 4d's: `Needs two or more of these pumps switched on in the base case: {A and B} {is/are} off.` |
 | 6 | None carries flow | `No pump of the group carries flow in the base case, so switching pumps off changes nothing.` The test is §3.5's: no member is on with its flow above the floor. |
 
-While a gate holds, only its sentence, Solve all (gates 4 to 6) and, from slice L2 on, the "Pump lineups table…" button (§8.1) show.
+While a gate holds, only its sentence, Solve all (gates 4 to 6) and, from slice L2 on, the "Pump lineups table…" button (§8.1) show (since `pumps-results-layout.md` S4, Solve all with its lasting reason visible, as outside a gate; its §6.4 item 7, §15 item 116).
 
 ### 7.3 The preset control
 

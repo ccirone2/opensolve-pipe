@@ -1107,14 +1107,30 @@ describe('one pump off on the Pumps together card', () => {
 		const ours = () => within(block()).getByRole('button', { name: /^Solve all/ });
 		const menu = () => screen.queryByRole('group', { name: 'Case' });
 		const theirs = () => within(menu()!).getByRole('button', { name: 'Solve all' });
-		const same = async (words: string) => {
+		/**
+		 * The block's reason, drawn as the state asks (pumps-results-layout.md §5.3 item 5, §6.2): a
+		 * lasting one visible text, no title; a passing one (a solve or Solve all runs) visually
+		 * hidden and the button's title (S4 review MUT-01: PumpsView's `passing`).
+		 */
+		const reason = () => block().querySelector<HTMLElement>('[id$="-solve-all"]')!;
+		const same = async (words: string, form: 'lasting' | 'passing') => {
 			if (!menu()) await fireEvent.click(screen.getByRole('button', { name: /^Scenarios/ }));
 			await waitFor(() => expect(theirs()).toHaveAccessibleDescription(words));
 			expect(ours()).toHaveAccessibleDescription(words);
 			expect(ours()).toHaveAttribute('aria-disabled', 'true');
+			expect(reason()).toHaveTextContent(words);
+			if (form === 'lasting') {
+				expect(reason(), words).not.toHaveClass('sr-only');
+				expect(reason(), words).toHaveClass('hint');
+				expect(ours(), words).not.toHaveAttribute('title');
+			} else {
+				expect(reason(), words).toHaveClass('sr-only');
+				expect(ours(), words).toHaveAttribute('title', words);
+			}
 		};
 		await same(
-			'Every case is solved except Delivery tank 5 m higher, which has an error to fix first.'
+			'Every case is solved except Delivery tank 5 m higher, which has an error to fix first.',
+			'lasting'
 		);
 		// Fixed: every case current.
 		ws.store.update(
@@ -1125,18 +1141,18 @@ describe('one pump off on the Pumps together card', () => {
 				),
 			'delete scenario'
 		);
-		await same("Every case's results are current.");
+		await same("Every case's results are current.", 'lasting');
 		// A solve of another case than the one shown, in flight: both name that case.
 		held = deferred<void>();
 		const release = held.resolve;
 		ws.setCase('S1');
 		const solving = ws.solve();
 		ws.setCase(null);
-		await same('A solve of Pump PA off is running; Cancel in the header stops it.');
+		await same('A solve of Pump PA off is running; Cancel in the header stops it.', 'passing');
 		held = null;
 		release();
 		await solving;
-		await same("Every case's results are current.");
+		await same("Every case's results are current.", 'lasting');
 		// A Solve all run, held on the one case it solves.
 		ws.store.update(
 			(p) => withScenarios(p, [...scenariosOf(p), { id: 'S5', name: 'Copy', overrides: [] }]),
@@ -1145,11 +1161,11 @@ describe('one pump off on the Pumps together card', () => {
 		held = deferred<void>();
 		const end = held.resolve;
 		const run = ws.solveAll();
-		await same('Solve all is running; Cancel in the header stops it.');
+		await same('Solve all is running; Cancel in the header stops it.', 'passing');
 		held = null;
 		end();
 		await run;
-		await same("Every case's results are current.");
+		await same("Every case's results are current.", 'lasting');
 		// Six states, each awaited: the budget of the card's other long tests.
 	}, 20_000);
 });

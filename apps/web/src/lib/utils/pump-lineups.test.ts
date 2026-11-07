@@ -1892,6 +1892,28 @@ describe('lineupPlan: the plan’s summary and which pump each id is (pumps-resu
 		);
 	});
 
+	it('names the pumps a tier-2 name writes by id, and none the stop order writes by its labels: two groups that fit by labels one by one, not joined', () => {
+		// Two stations of two, every pump a member and on. The third case names both groups: each
+		// fits by its labels alone (tier 1's test) but not the two joined, so the name falls to
+		// tier 2 and writes every pump off by id. The stop order's summary fits by labels, so it
+		// writes no pump by id, and P1, stopped by no case, is written by id nowhere.
+		const north = ['Chilled water pump north no. 1', 'Chilled water pump north no. 2'];
+		const south = ['Chilled water pump south no. 1', 'Chilled water pump south no. 2'];
+		const two = stations({ ids: ['P1', 'P2'], names: north }, { ids: ['Q1', 'Q2'], names: south });
+		const plan = planOf(two);
+		expect(plan.cases.map((c) => c.name)).toEqual([
+			'1 of 2 running (Chilled water pump south no. 2 off)',
+			'0 of 2 running (Chilled water pump south no. 1, Chilled water pump south no. 2 off)',
+			'1 of 2 running (P2 off); 0 of 2 running (Q1, Q2 off)'
+		]);
+		expect(plan.stopOrder!.summary).toBe(
+			'Stop order: Chilled water pump south no. 2 first, then Chilled water pump south no. 1 and Chilled water pump north no. 2; Chilled water pump north no. 1 stays on in every case'
+		);
+		expect(plan.ids).toBe(
+			'In the names, P2 is Chilled water pump north no. 2, Q1 is Chilled water pump south no. 1 and Q2 is Chilled water pump south no. 2.'
+		);
+	});
+
 	it('draws no id line where the names use labels, where every id is in its pump’s name, under Each pump off and under a gate', () => {
 		// The names by labels ("3 of 4 running (Pump P4 off)"): nothing written by id.
 		expect(planOn(lineups).ids).toBeNull();

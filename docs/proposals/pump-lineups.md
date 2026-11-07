@@ -624,7 +624,7 @@ Branch `web/pump-lineups`, in two verified steps (decision 23). Each step runs e
 ### 7.1 Where it sits, and what stays from 4d
 
 The block replaces 4d's "One pump off" section in `PumpGroupChart.svelte` (`:1097-1145`), in the same place:
-- under the group table and its footer, above Running combinations;
+- under the group table and its footer, above Running combinations (since `pumps-results-layout.md` S2, after the group chart, still above Running combinations; its §6.4 item 1);
 - drawn while the card shows a station (`stationShown`).
 
 It is extracted to `components/results/PumpLineupsBlock.svelte` (PumpGroupChart is 1,589 lines). It is presentation only: PumpsView computes the plan and makes every change.

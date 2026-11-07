@@ -42,7 +42,9 @@ import {
  * projects are the shared fixture's
  * (apps/api/tests/fixtures/pump_groups_input.py); every expected number is read from the
  * intercepted response of the real API and compared in display units, to the rounding the table
- * shows. No sideways scroll; the image is a PNG.
+ * shows. No sideways scroll; the image is a PNG. Since pumps-results-layout.md S2 (§7 Proof, §9)
+ * each axe scan covers the whole Pumps tab, with every disclosure opened and none closed, and
+ * runs `heading-order` and `landmark-unique` too.
  */
 
 interface FixtureCase {
@@ -140,6 +142,51 @@ async function noSidewaysScroll(page: Page) {
 	const scroller = await resultsScroller(page);
 	expect(scroller).not.toBeNull();
 	expect(scroller!.scrollWidth).toBeLessThanOrEqual(scroller!.clientWidth);
+}
+
+/** The Pumps tabpanel, axe's scope (proposal pumps-results-layout.md §7 Proof). */
+const PUMPS_TAB = '[role="tabpanel"][id$="-panel-pumps"]';
+
+/**
+ * Open every disclosure in the Pumps tab, as a user would and as `axeClean` in
+ * tests/pumps-layout.e2e.ts does (proposal pumps-results-layout.md §7 Proof, §9 S2): press only
+ * closed summaries a user can see (`details:not([open]) > summary`), found anew each round since
+ * an opened one can hold more, so none that opened itself is closed; then none is left.
+ */
+async function openEveryDisclosure(page: Page) {
+	const closed = page.locator(`${PUMPS_TAB} details:not([open]) > summary`);
+	const firstShown = () =>
+		closed.evaluateAll((all) =>
+			all.findIndex((s) => {
+				const r = s.getBoundingClientRect();
+				return s.checkVisibility() && r.width > 1 && r.height > 1;
+			})
+		);
+	for (let round = 0; round < 60; round++) {
+		const index = await firstShown();
+		if (index < 0) break;
+		await closed.nth(index).click();
+	}
+	expect(await firstShown(), 'a closed disclosure left in the Pumps tab').toBe(-1);
+}
+
+/**
+ * axe over the whole Pumps tabpanel (§7 Proof): the suite's WCAG 2.0 to 2.2 A and AA tags, then
+ * `heading-order` and `landmark-unique`, which those tags leave out. Some rule must pass, so an
+ * empty scope cannot.
+ */
+async function axeCleanTab(page: Page) {
+	const scan = await new AxeBuilder({ page })
+		.include(PUMPS_TAB)
+		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+		.analyze();
+	expect(scan.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
+	expect(scan.passes.length).toBeGreaterThan(0);
+	const outline = await new AxeBuilder({ page })
+		.include(PUMPS_TAB)
+		.withRules(['heading-order', 'landmark-unique'])
+		.analyze();
+	expect(outline.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
 }
 
 test('two pumps in parallel: the station, each share and loss on its way, the PNG', async ({
@@ -734,13 +781,9 @@ test('the Pumps together card with its cases passes axe, everything open', async
 		'2 · Pump PB off (station duty)'
 	);
 	await card.getByRole('button', { name: 'Show data table' }).click();
-	for (const summary of await card.locator('details > summary').all()) await summary.click();
+	await openEveryDisclosure(page);
 	await expect(card.getByRole('table', { name: "Other cases' station duties" })).toBeVisible();
-	const scan = await new AxeBuilder({ page })
-		.include('[data-pumps-together]')
-		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-		.analyze();
-	expect(scan.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
+	await axeCleanTab(page);
 });
 
 // ---- D24 slice L1b: the Add cases block, By number running -----------------------------------
@@ -898,20 +941,12 @@ test('add cases by number running: the stop order moved, three cases added and s
 	}
 	await expect(legend.getByText(/ \(station duty\)$/)).toHaveCount(3);
 
-	// 7. No sideways scroll; axe clean with every disclosure of the card open.
+	// 7. No sideways scroll; axe clean over the whole Pumps tab, every disclosure open.
 	await noSidewaysScroll(page);
-	for (const details of await card.locator('details').all()) {
-		if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) {
-			await details.locator('summary').first().click();
-		}
-	}
+	await openEveryDisclosure(page);
 	await expect(block.getByRole('list', { name: 'Stop order' })).toBeVisible();
 	await noSidewaysScroll(page);
-	const scan = await new AxeBuilder({ page })
-		.include('[data-pumps-together]')
-		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-		.analyze();
-	expect(scan.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
+	await axeCleanTab(page);
 });
 
 // ---- D24 slice L3: the curve family -----------------------------------------------------------
@@ -1023,16 +1058,8 @@ test('the curve family: after adding cases by number running, each lineup’s ow
 	expect(png.toString('latin1', 12, 16)).toBe('IHDR');
 	expect(png.readUInt32BE(16)).toBe(1600);
 
-	// 4. Axe clean with every disclosure of the card open and the data table shown.
-	for (const details of await card.locator('details').all()) {
-		if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) {
-			await details.locator('summary').first().click();
-		}
-	}
+	// 4. Axe clean over the whole Pumps tab, every disclosure open and the data table shown.
+	await openEveryDisclosure(page);
 	await noSidewaysScroll(page);
-	const scan = await new AxeBuilder({ page })
-		.include('[data-pumps-together]')
-		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-		.analyze();
-	expect(scan.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
+	await axeCleanTab(page);
 });

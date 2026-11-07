@@ -110,6 +110,11 @@
 		 * export.md §5.5): without it, no Download image is offered.
 		 */
 		image?: ChartImageSource;
+		/**
+		 * The canvas, or what stands in its place (bindable): the Pumps tab's section nav pins only
+		 * once it has scrolled out (proposal pumps-results-layout.md §5.4 Place).
+		 */
+		canvasArea?: HTMLElement | null;
 	}
 
 	let {
@@ -131,7 +136,8 @@
 		onoverlay,
 		overlayProgress = null,
 		oncanceloverlay,
-		image
+		image,
+		canvasArea = $bindable(null)
 	}: Props = $props();
 	const id = $props.id();
 
@@ -578,11 +584,12 @@
 		Pump and system curves: {name}{caseName ? `, ${caseName}` : ''}
 	</figcaption>
 	{#if loadFailed}
-		<p class="text-sm text-slate-700" role="alert">
+		<p bind:this={canvasArea} class="text-sm text-slate-700" role="alert">
 			{STALE_CHUNK_MESSAGE} The table below lists its points.
 		</p>
 	{:else if !unavailable}
 		<div
+			bind:this={canvasArea}
 			class="relative w-full"
 			style:height="{heightRem}rem"
 			role="img"
@@ -663,7 +670,7 @@
 			</div>
 		{/if}
 	{:else}
-		<p class="text-sm text-slate-700">
+		<p bind:this={canvasArea} class="text-sm text-slate-700">
 			The chart cannot be drawn in this browser. The table below lists its points.
 		</p>
 	{/if}

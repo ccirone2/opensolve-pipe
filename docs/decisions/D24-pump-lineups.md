@@ -70,7 +70,7 @@ A rename leaves a case current (`hydraulicFingerprint` leaves out names). So the
 
 ### The Add cases block (slice L1)
 
-`components/results/PumpLineupsBlock.svelte`, presentation only, sits in the place of 4d's "One pump off" under the group table: an h4 "Add cases" naming its region. `PumpsView.svelte` computes `lineupPlan` and makes every change.
+`components/results/PumpLineupsBlock.svelte`, presentation only, sits in the place of 4d's "One pump off", under the group table until the Pumps tab's slice S2 and after the group chart since, still above Running combinations (`proposals/pumps-results-layout.md` §6.4 item 1, §15 item 54): an h4 "Add cases" naming its region, the section nav's "Add cases" target (tabindex −1). `PumpsView.svelte` computes `lineupPlan` and makes every change.
 - **Carrying flow** (decision 14): a pump not `off` whose |operatingFlow| is above `DUTY_CHECK_FLOOR` (10⁻⁶ m³/s), whatever its state word (`carriesFlow`). The API reports a pump on behind a closed valve as `running` at exactly zero flow. A pump on and not carrying flow is idle.
 - **Gates**, in 4d's order; while one holds, only its sentence shows, with Solve all for gates 4 to 6: pumps in series; a mixed station; a scenario shown ("Cases are made from the base case: …"); the base case out of date; fewer than two members on; no member carrying flow.
 - **The presets**, "Cases to add": By number running (the default) and Each pump off.

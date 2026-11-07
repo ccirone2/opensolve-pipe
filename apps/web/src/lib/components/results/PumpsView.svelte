@@ -30,6 +30,13 @@
 	compared with the case shown inside the station, both as solved (sameInside, its fingerprints
 	kept as the rest's are), and its members switched on counted, so the card can draw a ring's own
 	group curve while the shown case's is drawn; this case's count labels its own curve.
+
+	The section nav (proposal pumps-results-layout.md §5.4, §9 S2), with the Pumps together card:
+	the tab's first child, one button per section drawn. Each section registers its target here
+	(section-nav.svelte.ts) with its mark: Per pump's flags, the pump chart's failed requests, and
+	in the card the station's flags, the group chart's refusal and failed requests, and Running
+	combinations' current cases. The nav is pinned only once the pump chart's canvas has scrolled
+	out (PumpChart's `canvasArea`), in the Results pane's `scroller`, while the view is `active`.
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
@@ -95,10 +102,14 @@
 		type LineupPreset
 	} from '$lib/utils/pump-lineups';
 	import type { CaseId } from '$lib/utils/scenarios';
+	import { flagSeverities, sectionMark } from '$lib/utils/section-nav';
+	import BackToSections from './BackToSections.svelte';
 	import PumpChart from './PumpChart.svelte';
 	import PumpGroupChart from './PumpGroupChart.svelte';
 	import type { LineupsBlockProps } from './PumpLineupsBlock.svelte';
+	import PumpsNav from './PumpsNav.svelte';
 	import ResultsTable from './ResultsTable.svelte';
+	import { provideSectionNav, registerSection, type SectionTarget } from './section-nav.svelte';
 
 	interface Props {
 		solved: SolvedState;
@@ -107,9 +118,23 @@
 		sortRequest?: (TableSort & { id: number }) | null;
 		/** Show another Results view with the focus on its tab (the pump chart's Go to Checks). */
 		onview?: (view: ResultsView) => void;
+		/** The view is shown (ResultsPanel keeps visited views mounted, hidden): the nav's observers run. */
+		active?: boolean;
+		/** The Results pane's scroller, in which the section nav pins. */
+		scroller?: HTMLElement | null;
+		/** The section nav pinned (its height in px), or not (null): the scroller's scroll padding. */
+		onpinned?: (height: number | null) => void;
 	}
 
-	let { solved, changed = new Set(), sortRequest = null, onview }: Props = $props();
+	let {
+		solved,
+		changed = new Set(),
+		sortRequest = null,
+		onview,
+		active = true,
+		scroller = null,
+		onpinned
+	}: Props = $props();
 	const ws = useWorkspace();
 	const uid = $props.id();
 	const table = $derived(
@@ -834,16 +859,104 @@
 	});
 	const combinations = $derived(combinationsInput ? runningCombinations(combinationsInput) : null);
 	const extremes = $derived(combinationsInput ? combinationExtremes(combinationsInput) : null);
+
+	// ---- The section nav (pumps-results-layout.md §5.4) ----------------------------------------
+
+	/** Shown with the Pumps together card: two pumps or more with results (§5.3 item 0). */
+	const navShown = $derived(pumps.length > 1);
+	/** The sections drawn, in document order: one button each. */
+	let sections = $state.raw<SectionTarget[]>([]);
+	let nav: PumpsNav | undefined = $state();
+	/**
+	 * The nav's height in px (the tab's `--pumps-nav-h`), and while it is pinned the scroller's
+	 * scroll padding for it (`--pumps-nav-pad`: its height and 0.5 rem, ResultsPanel's). A scroll
+	 * to a target honours both the scroller's padding and the target's margin, so a target's margin
+	 * is what the padding does not already hold: below the pump chart the nav's height and 0.5 rem
+	 * while it is static (it pins as the target comes up), nothing more while pinned; above it (Per
+	 * pump, Pump chart, where the nav unpins) 0.5 rem less the padding. Each lands 0.5 rem under
+	 * the nav, or under the pane's top (§5.4 A press).
+	 */
+	let navHeight = $state(0);
+	let navPinned = $state<number | null>(null);
+	/** The pump chart's canvas, or what stands in its place: the nav pins once it is out. */
+	let pumpCanvas = $state<HTMLElement | null>(null);
+	let perPumpHeading: HTMLElement | undefined = $state();
+	let pumpChartHeading: HTMLElement | undefined = $state();
+	const inDocumentOrder = (a: SectionTarget, b: SectionTarget) =>
+		a.target === b.target
+			? 0
+			: a.target.compareDocumentPosition(b.target) & Node.DOCUMENT_POSITION_FOLLOWING
+				? -1
+				: 1;
+	provideSectionNav({
+		get shown() {
+			return navShown;
+		},
+		register(section) {
+			sections = [...sections.filter((s) => s.key !== section.key), section].sort(inDocumentOrder);
+			return () => {
+				sections = sections.filter((s) => s !== section);
+			};
+		},
+		back() {
+			nav?.focusCurrent();
+		}
+	});
+	registerSection(
+		'per-pump',
+		() => perPumpHeading,
+		() => sectionMark(flagSeverities(table.rows.flatMap((row) => row.flags)))
+	);
+	registerSection(
+		'pump-chart',
+		() => pumpChartHeading,
+		() =>
+			sectionMark({
+				failed:
+					system?.status === 'error' || overlayStates.some((state) => state?.status === 'error')
+			})
+	);
 </script>
 
-<div class="space-y-4">
+<div
+	class="space-y-4"
+	style:--pumps-nav-h={navShown ? `${navHeight}px` : undefined}
+	style:--pumps-nav-pad={navShown
+		? navPinned === null
+			? '0px'
+			: `calc(${navPinned}px + 0.5rem)`
+		: undefined}
+>
+	{#if navShown}
+		<!-- The section nav (§5.4): the tab's first child, static here, pinned once the pump
+			canvas has scrolled out. -->
+		<PumpsNav
+			bind:this={nav}
+			bind:height={navHeight}
+			{sections}
+			{scroller}
+			canvas={pumpCanvas}
+			{active}
+			onpinned={(height) => {
+				navPinned = height;
+				onpinned?.(height);
+			}}
+		/>
+	{/if}
 	<!--
 		Results per pump (proposal pumps-results-layout.md §5.3 item 1): the table and its note under
 		a visible heading, the title every other section has (tabindex −1, the section nav's target
 		from S2); the table keeps its visually hidden caption, its name. A plain div, not a landmark.
 	-->
 	<div class="space-y-2" data-pump-table>
-		<h3 id="{uid}-per-pump" class="text-base font-semibold" tabindex="-1">Results per pump</h3>
+		<h3
+			bind:this={perPumpHeading}
+			id="{uid}-per-pump"
+			class="scroll-mt-[calc(0.5rem-var(--pumps-nav-pad,0px))] text-base font-semibold"
+			tabindex="-1"
+		>
+			Results per pump
+		</h3>
 		<ResultsTable
 			{table}
 			{sortRequest}
@@ -873,7 +986,12 @@
 			-->
 			<div class="@container">
 				<div class="flex flex-col gap-x-3 gap-y-1 @min-[26rem]:flex-row @min-[26rem]:items-center">
-					<h3 id="{uid}-pump-chart" class="shrink-0 text-base font-semibold" tabindex="-1">
+					<h3
+						bind:this={pumpChartHeading}
+						id="{uid}-pump-chart"
+						class="shrink-0 scroll-mt-[calc(0.5rem-var(--pumps-nav-pad,0px))] text-base font-semibold"
+						tabindex="-1"
+					>
 						Pump chart
 					</h3>
 					{#if pumps.length > 1}
@@ -902,6 +1020,7 @@
 			</div>
 			{#key viewed.key}
 				<PumpChart
+					bind:canvasArea={pumpCanvas}
 					{result}
 					name={viewed.name}
 					prefs={ws.displayUnits}
@@ -925,6 +1044,8 @@
 					{image}
 				/>
 			{/key}
+			<!-- The card's last control (§5.3 item 2): the nav one Tab and a press away. -->
+			<BackToSections />
 		</div>
 	{/if}
 	{#if pumps.length > 1}

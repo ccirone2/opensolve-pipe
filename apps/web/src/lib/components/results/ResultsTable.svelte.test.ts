@@ -731,3 +731,215 @@ describe('S6 review: the sort a phone chooses, a sort whose column goes, the chu
 		);
 	});
 });
+
+describe('S6, the second check: a pressed heading keeps its words where they were, and a tap is a press until its click (pumps-results-layout.md §9 S6; S6-FIX-1, S6-FIX-2)', () => {
+	afterEach(() => vi.restoreAllMocks());
+
+	/**
+	 * A box laid out as a browser would, by columns 100 px wide (jsdom lays nothing out): its sticky
+	 * first column 150 px wide and its heading row 40 px high; a heading's words 60 px wide at its
+	 * column's right in a numeric column, at its left in another, less the box's scroll; a sorted
+	 * heading's button 20 px wider for its arrow and gap, on its words' left in a numeric column
+	 * (flex-row-reverse), on their right in another. A column the sort adds (Case) is a column too.
+	 */
+	function layout(box: HTMLElement, width = 300) {
+		const rect = (left: number, top: number, w: number, h: number) =>
+			({
+				left,
+				top,
+				width: w,
+				height: h,
+				right: left + w,
+				bottom: top + h,
+				x: left,
+				y: top,
+				toJSON: () => ({})
+			}) as DOMRect;
+		Object.defineProperty(box, 'clientWidth', { configurable: true, get: () => width });
+		Object.defineProperty(box, 'clientHeight', { configurable: true, get: () => 200 });
+		const original = Element.prototype.getBoundingClientRect;
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: Element
+		) {
+			if (this === box) return rect(0, 0, width, 200);
+			const th = this.closest('thead th');
+			if (!th || !box.contains(th)) return original.call(this);
+			const i = [...th.parentElement!.children].indexOf(th);
+			const left = i === 0 ? 0 : 150 + 100 * (i - 1) - box.scrollLeft;
+			if (this === th) return rect(left, 0, i === 0 ? 150 : 100, 40);
+			const button = this.closest('button');
+			if (!button) return original.call(this);
+			const numeric = button.classList.contains('flex-row-reverse');
+			const words = numeric && i > 0 ? left + 32 : left + 8;
+			if (this !== button) return rect(words, 4, 60, 32);
+			const arrow = button.querySelector('svg') ? 20 : 0;
+			return rect(words - 4 - (numeric ? arrow : 0), 2, 68 + arrow, 36);
+		});
+	}
+	const tableBox = () => screen.getByRole('table').parentElement!;
+	const headingButton = (name: RegExp) =>
+		within(screen.getByRole('columnheader', { name })).getByRole('button');
+	const wordsLeft = (name: RegExp) =>
+		headingButton(name).firstElementChild!.getBoundingClientRect().left;
+
+	it('a numeric heading pressed three times at one point, its box scrolled from its start: the box keeps its scroll, the heading’s words where they were (S6-FIX-1)', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const box = tableBox();
+		layout(box);
+		box.scrollLeft = 60;
+		const heading = screen.getByRole('columnheader', { name: /^Head/ });
+		const before = wordsLeft(/^Head/);
+		for (const sort of ['ascending', 'descending', null]) {
+			await fireEvent.click(headingButton(/^Head/));
+			await tick();
+			if (sort) expect(heading).toHaveAttribute('aria-sort', sort);
+			else expect(heading).not.toHaveAttribute('aria-sort');
+			// The arrow grows the button on its words' left: the box does not scroll for it.
+			expect(box.scrollLeft, `pressed to ${sort ?? 'clear'}`).toBe(60);
+			expect(wordsLeft(/^Head/)).toBe(before);
+		}
+	});
+
+	it('a numeric heading pressed in a table of row groups: the box scrolls by the Case column the sort adds before it, and back as the sort clears, the words where they were (S6-FIX-1; LAYOUT-S6-2 kept)', async () => {
+		const groups: RowGroup[] = [
+			{ key: 'S0', label: 'Case 0' },
+			{ key: 'S1', label: 'Case 1' }
+		];
+		const rows: Row[] = groups.flatMap((g, i) =>
+			['PA', 'PB'].map((key, j) => ({
+				key,
+				group: g.key,
+				element: { kind: 'component' as const, id: key },
+				name: `Pump ${key}`,
+				detail: '',
+				cells: { flow: String(20 + j + i), head: String(40 - j - i) },
+				flags: []
+			}))
+		);
+		render(ResultsTable, {
+			table: { ...unflagged(), groups, rows },
+			caption: 'Running combinations',
+			first: 'Pump',
+			groupColumn: 'Case'
+		});
+		const box = tableBox();
+		layout(box);
+		box.scrollLeft = 60;
+		const heading = screen.getByRole('columnheader', { name: /^Head/ });
+		const before = wordsLeft(/^Head/);
+		for (const [sort, scroll] of [
+			['ascending', 160],
+			['descending', 160],
+			[null, 60]
+		] as const) {
+			await fireEvent.click(headingButton(/^Head/));
+			await tick();
+			if (sort) expect(heading).toHaveAttribute('aria-sort', sort);
+			else expect(heading).not.toHaveAttribute('aria-sort');
+			expect(
+				screen.queryByRole('columnheader', { name: 'Case' }) !== null,
+				`the Case column, ${sort ?? 'cleared'}`
+			).toBe(!!sort);
+			expect(box.scrollLeft, `pressed to ${sort ?? 'clear'}`).toBe(scroll);
+			expect(wordsLeft(/^Head/)).toBe(before);
+		}
+	});
+
+	it('a numeric heading whole in view whose arrow would fall under the sticky column: the box scrolls back just enough to show the button whole, its ring clear; a press after that moves nothing (S6-FIX-1 with LAYOUT-S6-2)', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const box = tableBox();
+		layout(box);
+		// Head's button from 278 − 120 = 158 to 226: whole, 8 px clear of the sticky column (150).
+		box.scrollLeft = 120;
+		const before = wordsLeft(/^Head/);
+		await fireEvent.click(headingButton(/^Head/));
+		await tick();
+		// Its arrow and gap (20 px) on its words' left: from 138, back to 150 + 4 (its ring).
+		expect(box.scrollLeft).toBe(120 - (150 + 4 - (278 - 20 - 120)));
+		expect(headingButton(/^Head/).getBoundingClientRect().left).toBe(154);
+		expect(wordsLeft(/^Head/)).toBe(before + 16);
+		await fireEvent.click(headingButton(/^Head/));
+		await tick();
+		expect(screen.getByRole('columnheader', { name: /^Head/ })).toHaveAttribute(
+			'aria-sort',
+			'descending'
+		);
+		expect(box.scrollLeft).toBe(104);
+	});
+
+	/**
+	 * A tap as Chromium sends it from a touch screen: pointerdown and pointerup, then the
+	 * compatibility mousedown that moves the focus, then the click; a mouse press as it sends it,
+	 * the focus at its mousedown, before its pointerup.
+	 */
+	async function tap(target: HTMLElement) {
+		await fireEvent.pointerDown(target, { pointerType: 'touch' });
+		await fireEvent.pointerUp(target, { pointerType: 'touch' });
+		target.focus();
+		await fireEvent.click(target);
+		await tick();
+	}
+
+	it('a tap on a heading with a few pixels showing beside the sticky column, or at the box’s right edge, sorts and scrolls nothing; the keyboard’s focus is kept clear after it (S6-FIX-2)', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const box = tableBox();
+		// Flow's button from 178 − 91 = 87 to 155: 5 px of it right of the sticky column (150).
+		layout(box);
+		box.scrollLeft = 91;
+		const flow = headingButton(/^Flow/);
+		await tap(flow);
+		expect(screen.getByRole('columnheader', { name: /^Flow/ })).toHaveAttribute(
+			'aria-sort',
+			'ascending'
+		);
+		expect(document.activeElement).toBe(flow);
+		expect(box.scrollLeft).toBe(91);
+		flow.blur();
+
+		// Head's button from 278 to 346 in a box 282 px wide: 4 px of it at the box's right edge.
+		cleanup();
+		vi.restoreAllMocks();
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const narrow = tableBox();
+		layout(narrow, 282);
+		narrow.scrollLeft = 0;
+		const head = headingButton(/^Head/);
+		await tap(head);
+		expect(screen.getByRole('columnheader', { name: /^Head/ })).toHaveAttribute(
+			'aria-sort',
+			'ascending'
+		);
+		expect(narrow.scrollLeft).toBe(0);
+
+		// The press over, the keyboard's focus on Flow, under the sticky column, is scrolled clear of
+		// it by its overlap and 4 px (its ring): the box keeps that rule for the keyboard.
+		narrow.scrollLeft = 40;
+		head.blur();
+		await fireEvent.keyDown(head, { key: 'ArrowLeft' });
+		headingButton(/^Flow/).focus();
+		expect(narrow.scrollLeft).toBe(40 - (150 + 4 - (178 - 40)));
+	});
+
+	it('a press with no click after it ends at its pointercancel (a touch that scrolls), a key pressed, or soon after it is lifted: the keyboard’s focus is kept clear then (S6-FIX-2)', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const box = tableBox();
+		layout(box);
+		const flow = headingButton(/^Flow/);
+		const kept = (how: string) => {
+			box.scrollLeft = 91;
+			flow.blur();
+			flow.focus();
+			expect(box.scrollLeft, how).toBe(91 - (150 + 4 - (178 - 91)));
+		};
+		await fireEvent.pointerDown(flow, { pointerType: 'touch' });
+		await fireEvent.pointerCancel(flow, { pointerType: 'touch' });
+		kept('after a pointercancel');
+		await fireEvent.pointerDown(flow);
+		await fireEvent.keyDown(flow, { key: 'Tab' });
+		kept('after a key pressed');
+		await fireEvent.pointerDown(flow);
+		await fireEvent.pointerUp(flow);
+		await new Promise((done) => setTimeout(done, 700));
+		kept('soon after a pointerup with no click');
+	});
+});

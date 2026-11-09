@@ -4989,6 +4989,253 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 	}
 });
 
+// ---- S6, the second check: a pressed heading's words stay put; a tap is a press ---------------
+
+/**
+ * Heading `i` of a results table's heading row (its sort buttons in order), the box placed so the
+ * heading lies whole in its view, 8 px clear of the box's right edge and 32 px clear of the sticky
+ * column (room for the arrow and gap a sort adds on a numeric heading's left, 20 px, and its ring,
+ * 4 px, so the box need not scroll to show them), as far from the box's start as that allows and
+ * at least 24 px from it, so a press that scrolled the box back by the arrow's 20 px would show
+ * (S6-FIX-1). `placed` is false where no such place is.
+ */
+function placeHeading(el: Element, i: number) {
+	const box = el as HTMLElement;
+	const button = box.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[i]!;
+	const name = (button.textContent ?? '').replace(/\s+/g, ' ').trim();
+	const numeric = button.classList.contains('flex-row-reverse');
+	box.scrollLeft = 0;
+	const fixed = box.querySelector('thead th')!.getBoundingClientRect().right;
+	const b = box.getBoundingClientRect();
+	const right = b.left + box.clientLeft + box.clientWidth;
+	const r = button.getBoundingClientRect();
+	const hi = Math.min(box.scrollWidth - box.clientWidth, Math.floor(r.left - fixed - 32));
+	const lo = Math.max(24, Math.ceil(r.right - right + 8));
+	if (hi < lo) return { name, numeric, placed: false };
+	box.scrollLeft = hi;
+	return { name, numeric, placed: true };
+}
+
+/**
+ * What a press on heading `i` may move (S6-FIX-1): the left of its words (the button's first
+ * child, its label and unit, whose size no sort changes), its column's width, its sort, and the
+ * edges of each value's cell in the first row of values, by its column's label, in their order.
+ * `own` is the pressed column's label. `hit` says whether the point at the button's centre is the
+ * button's (no pinned nav over it); `whole`, whether the button, its arrow with it, lies whole in
+ * the box's view right of the sticky column (LAYOUT-S6-2).
+ */
+function readPress(el: Element, i: number) {
+	const button = el.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[i]!;
+	const th = button.closest('th')!;
+	const row = el.querySelector('tbody tr:has(> td[data-label])')!;
+	const tds = [...row.querySelectorAll<HTMLElement>(':scope > td[data-label]')];
+	const cells: Record<string, [number, number]> = {};
+	for (const td of tds) {
+		const r = td.getBoundingClientRect();
+		cells[td.dataset.label!] = [r.left, r.right];
+	}
+	const own = (row.children[[...th.parentElement!.children].indexOf(th)] as HTMLElement).dataset
+		.label!;
+	const b = button.getBoundingClientRect();
+	const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+	const box = el as HTMLElement;
+	const fixed = box.querySelector('thead th')!.getBoundingClientRect().right;
+	const right = box.getBoundingClientRect().left + box.clientLeft + box.clientWidth;
+	return {
+		words: button.firstElementChild!.getBoundingClientRect().left,
+		width: th.getBoundingClientRect().width,
+		sort: th.getAttribute('aria-sort'),
+		cells,
+		order: tds.map((td) => td.dataset.label!),
+		own,
+		hit: !!at && button.contains(at),
+		whole: b.left >= fixed - 0.5 && b.right <= right + 0.5
+	};
+}
+
+/**
+ * A press read against the table before the first press: the heading's words keep their x; only
+ * the pressed column may change width, by its arrow and gap (20 px) at most, and then it grows
+ * away from its words, so the columns before it move back by as much and those after it stay;
+ * every other column stays (S6-FIX-1). The Case column a sort adds is in neither reading's place.
+ */
+function pressMoves(
+	before: ReturnType<typeof readPress>,
+	after: ReturnType<typeof readPress>,
+	what: string
+): string[] {
+	const out: string[] = [];
+	const words = after.words - before.words;
+	if (Math.abs(words) > 0.5) out.push(`${what}: its words moved ${words.toFixed(1)} px`);
+	const grew = after.width - before.width;
+	if (grew < -0.5 || grew > 20.5) out.push(`${what}: its column grew ${grew.toFixed(1)} px`);
+	const at = before.order.indexOf(before.own);
+	before.order.forEach((label, k) => {
+		const [then, now] = [before.cells[label]!, after.cells[label]];
+		if (!now) return;
+		const [edge, shift] = k < at ? [0, -grew] : k === at ? [1, 0] : [0, 0];
+		const moved = now[edge]! - then[edge]! - shift;
+		if (Math.abs(moved) > 0.5) {
+			out.push(`${what}: "${label}" ${edge ? 'right' : 'left'} edge moved ${moved.toFixed(1)} px`);
+		}
+	});
+	return out;
+}
+
+/** Clear a results table's sort from a script (its sorted heading's button pressed until none). */
+async function clearSort(box: Locator) {
+	for (let k = 0; k < 3; k++) {
+		const sorted = box.locator('thead th[aria-sort] button');
+		if (!(await sorted.count())) return;
+		await sorted.evaluate((b) => (b as HTMLElement).click());
+	}
+}
+
+test('S6, the second check: a numeric heading pressed three times at one point, its box scrolled from its start, keeps its words and every other column in place, but for its own column’s growth by its arrow (Links, Nodes and the Pumps tab’s three tables; S6-FIX-1)', async ({
+	page
+}, info) => {
+	test.skip(
+		info.project.name === 'mobile',
+		'the headings show from 640 px; a phone sorts by Sort by'
+	);
+	test.setTimeout(480_000);
+	const moved: string[] = [];
+	const pressed: Record<string, number> = {};
+	const pressEach = async (label: string, box: Locator) => {
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await clearSort(box);
+		const n = await box.locator('thead button[data-sort-key]').count();
+		pressed[label] = 0;
+		for (let i = 1; i < n; i++) {
+			const place = await box.evaluate(placeHeading, i);
+			if (!place.numeric || !place.placed) continue;
+			await frames(page);
+			const before = await box.evaluate(readPress, i);
+			if (!before.hit) {
+				moved.push(`${label}, "${place.name}": its button's centre covered`);
+				continue;
+			}
+			pressed[label]++;
+			const b = (await box.locator('thead button[data-sort-key]').nth(i).boundingBox())!;
+			for (const sort of ['ascending', 'descending', null]) {
+				await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+				await frames(page);
+				const after = await box.evaluate(readPress, i);
+				const what = `${label}, "${place.name}" pressed to ${sort ?? 'clear'}`;
+				if (after.sort !== sort) {
+					moved.push(`${what}: aria-sort ${after.sort}`);
+					break;
+				}
+				moved.push(...pressMoves(before, after, what));
+				if (!after.whole) moved.push(`${what}: the button not whole in the box's view`);
+			}
+			await clearSort(box);
+		}
+	};
+
+	await open(page, exampleProject('gravity-branch')!);
+	await solveConverged(page);
+	await showPane(page, 'Results');
+	const links = await resultsView(page, 'Links');
+	await pressEach(
+		'Links',
+		links.getByRole('table', { name: 'Results per pipe connection' }).locator('xpath=..')
+	);
+	const nodes = await resultsView(page, 'Nodes');
+	await pressEach('Nodes', nodes.getByRole('table').first().locator('xpath=..'));
+
+	await condenser(page);
+	const tab = await pumpsTab(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	await pressEach(
+		'Results per pump',
+		tab.getByRole('table', { name: 'Results per pump' }).locator('xpath=..')
+	);
+	await pressEach('the group table', card.locator('[data-group-table]').getByRole('region'));
+	await pressEach(
+		'Running combinations',
+		card.locator('[data-running-combinations]').getByRole('region')
+	);
+	expect.soft(moved, 'what a press on a numeric heading moved').toEqual([]);
+	// Each table's headings pressed where its box scrolls from its start: at least two in each.
+	for (const [label, n] of Object.entries(pressed)) {
+		expect.soft(n, `${label}: numeric headings pressed`).toBeGreaterThanOrEqual(2);
+	}
+	expect(Object.keys(pressed)).toHaveLength(5);
+});
+
+test.describe('a touch screen from 640 px', () => {
+	test.use({ hasTouch: true });
+
+	test('S6, the second check: a tap on a heading with 6 px of it showing, beside the sticky column or at the box’s right edge, sorts by it and moves nothing under the finger (Links; S6-FIX-2)', async ({
+		page
+	}, info) => {
+		test.skip(
+			info.project.name === 'mobile',
+			'the headings show from 640 px; a phone sorts by Sort by'
+		);
+		test.setTimeout(240_000);
+		await open(page, exampleProject('gravity-branch')!);
+		await solveConverged(page);
+		await showPane(page, 'Results');
+		const links = await resultsView(page, 'Links');
+		const box = links
+			.getByRole('table', { name: 'Results per pipe connection' })
+			.locator('xpath=..');
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		const n = await box.locator('thead button[data-sort-key]').count();
+		const lost: string[] = [];
+		let tapped = 0;
+		for (let i = 1; i < n; i++) {
+			for (const edge of ['left', 'right'] as const) {
+				await clearSort(box);
+				await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+				// 6 px of the button in view, right of the sticky column or left of the box's edge.
+				const p = await box.evaluate(
+					(el, [i, edge]) => {
+						const b = el as HTMLElement;
+						const button = b.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[
+							i as number
+						]!;
+						b.scrollLeft = 0;
+						const fixed = b.querySelector('thead th')!.getBoundingClientRect().right;
+						const right = b.getBoundingClientRect().left + b.clientLeft + b.clientWidth;
+						const r0 = button.getBoundingClientRect();
+						const want = edge === 'left' ? r0.right - fixed - 6 : r0.left + 6 - right;
+						if (want < 0 || want > b.scrollWidth - b.clientWidth) return null;
+						b.scrollLeft = want;
+						const r = button.getBoundingClientRect();
+						const [lo, hi] = [Math.max(fixed, r.left), Math.min(right, r.right)];
+						return {
+							name: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+							shown: hi - lo,
+							x: (lo + hi) / 2,
+							y: r.top + r.height / 2
+						};
+					},
+					[i, edge] as const
+				);
+				if (!p) continue;
+				await frames(page);
+				const before = await box.evaluate(readPress, i);
+				tapped++;
+				await page.touchscreen.tap(p.x, p.y);
+				await frames(page);
+				await frames(page);
+				const after = await box.evaluate(readPress, i);
+				const what = `"${p.name}", ${p.shown.toFixed(1)} px of it showing at the ${edge}`;
+				if (after.sort !== 'ascending') lost.push(`${what}: aria-sort ${after.sort}`);
+				const words = after.words - before.words;
+				if (Math.abs(words) > 0.5) lost.push(`${what}: its words moved ${words.toFixed(1)} px`);
+			}
+		}
+		await clearSort(box);
+		expect.soft(lost, 'a tap on a heading partly in view').toEqual([]);
+		// Each side tapped: Links' six headings after the name give both at 1280×800.
+		expect(tapped).toBeGreaterThanOrEqual(6);
+	});
+});
+
 // ---- S5 review: a measure no case gives, the trace's focus, a stale group on a phone ----------
 
 /**

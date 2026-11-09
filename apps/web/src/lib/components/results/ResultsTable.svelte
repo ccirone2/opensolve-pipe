@@ -257,15 +257,24 @@
 	 * A heading pressed keeps its place in the box: a sort that flattens row groups adds the group
 	 * column before it (and clearing the sort takes it away), so the box scrolls by what the
 	 * heading moved, and a second press at the same place reverses the order (pumps-results-layout.md
-	 * §9 S6b; S6 review LAYOUT-S6-2; ui-guide, a press moves nothing under the pointer).
+	 * §9 S6b; S6 review LAYOUT-S6-2; ui-guide, a press moves nothing under the pointer). What it
+	 * measures is the heading's words (its label and unit), which no sort resizes: the button grows
+	 * by its arrow, on its words' left in a numeric column, so its own edge moved with no column
+	 * moving (S6 second check S6-FIX-1). A column the arrow widens grows away from its words. A
+	 * button whole in view before the press stays whole, its arrow with it: where the arrow would
+	 * fall under the sticky column or past the box's edge, the box scrolls just enough to show it,
+	 * its ring clear (LAYOUT-S6-2). A heading pressed where it was partly hidden is left there.
 	 */
 	async function pressHeading(key: string, button: HTMLElement) {
-		const before = button.getBoundingClientRect().left;
+		const words = button.firstElementChild ?? button;
+		const before = words.getBoundingClientRect().left;
+		const whole = wholeInBox(button);
 		toggleSort(key);
 		await tick();
-		if (!box || !button.isConnected) return;
-		const moved = button.getBoundingClientRect().left - before;
+		if (!box || !words.isConnected) return;
+		const moved = words.getBoundingClientRect().left - before;
 		if (Math.abs(moved) > 0.5) box.scrollLeft += moved;
+		if (whole && !phone.current && !wholeInBox(button)) clearSideways(button);
 	}
 
 	/**
@@ -380,44 +389,87 @@
 	 * a control already in that view where it is), the box scrolls it clear of them, its ring too.
 	 * By the keyboard or a script, never by a press (a press moves nothing under the pointer).
 	 * Below 640 px the box does not scroll.
+	 *
+	 * A press lasts from its pointerdown to the click that follows it, not to its pointerup: a tap
+	 * on a touch screen moves the focus after its pointerup, with its compatibility mousedown (S6
+	 * second check S6-FIX-2). One with no click ends at a pointercancel (a touch that scrolls), a
+	 * context menu, a key pressed (whose focus is the keyboard's) or half a second after its
+	 * pointerup.
 	 */
 	let box: HTMLElement | undefined = $state();
 	let fixedHead: HTMLElement | undefined = $state();
 	let headRow: HTMLElement | undefined = $state();
 
 	let pressing = false;
+	let endPress: (() => void) | undefined;
+	const PRESS_ENDS = ['click', 'auxclick', 'contextmenu', 'pointercancel', 'keydown'] as const;
 	function pressStart() {
+		endPress?.();
 		pressing = true;
-		const end = () => (pressing = false);
-		window.addEventListener('pointerup', end, { once: true, capture: true });
-		window.addEventListener('pointercancel', end, { once: true, capture: true });
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const lifted = () => {
+			clearTimeout(timer);
+			timer = setTimeout(end, 500);
+		};
+		const end = () => {
+			pressing = false;
+			clearTimeout(timer);
+			for (const type of PRESS_ENDS) window.removeEventListener(type, end, true);
+			window.removeEventListener('pointerup', lifted, true);
+			endPress = undefined;
+		};
+		for (const type of PRESS_ENDS) window.addEventListener(type, end, true);
+		window.addEventListener('pointerup', lifted, true);
+		endPress = end;
+	}
+	$effect(() => () => endPress?.());
+
+	/** The box's view across: from the sticky column's right edge to the box's inner right edge. */
+	function across(): [number, number] | null {
+		if (!box || !fixedHead) return null;
+		const b = box.getBoundingClientRect();
+		return [fixedHead.getBoundingClientRect().right, b.left + box.clientLeft + box.clientWidth];
+	}
+	/** Whether a control lies whole in that view, or is itself held in the sticky column. */
+	function wholeInBox(el: HTMLElement): boolean {
+		const view = across();
+		if (!view || inColumn(el)) return true;
+		const r = el.getBoundingClientRect();
+		return r.left >= view[0] - 0.5 && r.right <= view[1] + 0.5;
+	}
+	/**
+	 * Itself held at the box's start (the first column, a flag line, a details line): never moved
+	 * sideways.
+	 */
+	function inColumn(el: HTMLElement): boolean {
+		const held = el.closest('.left-0');
+		return !!held && !!box?.contains(held);
+	}
+	/** The box scrolled sideways so a control is clear of the sticky column and the box's edge. */
+	function clearSideways(el: HTMLElement) {
+		const view = across();
+		if (!box || !view || inColumn(el)) return;
+		const r = el.getBoundingClientRect();
+		// Clear by 4 px, the focus ring's (2 px at a 2 px offset).
+		const [clearLeft, right] = [view[0] + 4, view[1]];
+		if (r.left < clearLeft) box.scrollLeft -= clearLeft - r.left;
+		else if (r.right > right - 4)
+			box.scrollLeft += Math.min(r.right - right + 4, r.left - clearLeft);
 	}
 	function keepClear(event: FocusEvent) {
 		const el = event.target as HTMLElement;
 		if (pressing || phone.current || !box || !fixedHead || !headRow || el === box) return;
+		clearSideways(el);
+		// In the heading row: not moved down or up.
+		if (headRow.contains(el)) return;
 		const r = el.getBoundingClientRect();
 		const b = box.getBoundingClientRect();
-		const [left, top] = [b.left + box.clientLeft, b.top + box.clientTop];
-		const [right, bottom] = [left + box.clientWidth, top + box.clientHeight];
-		// Clear by 4 px, the focus ring's (2 px at a 2 px offset).
-		const clearLeft = fixedHead.getBoundingClientRect().right + 4;
+		const bottom = b.top + box.clientTop + box.clientHeight;
 		// The heading row's cells are what sticks (its row keeps its place in the table).
 		const clearTop = fixedHead.getBoundingClientRect().bottom + 4;
-		// Itself held at the box's start (the first column, a flag line, a details line), or in
-		// the heading row: not moved that way.
-		const held = el.closest('.left-0');
-		const inColumn = !!held && box.contains(held);
-		const inHeadings = headRow.contains(el);
-		if (!inColumn) {
-			if (r.left < clearLeft) box.scrollLeft -= clearLeft - r.left;
-			else if (r.right > right - 4)
-				box.scrollLeft += Math.min(r.right - right + 4, r.left - clearLeft);
-		}
-		if (!inHeadings) {
-			if (r.top < clearTop) box.scrollTop -= clearTop - r.top;
-			else if (r.bottom > bottom - 4)
-				box.scrollTop += Math.min(r.bottom - bottom + 4, r.top - clearTop);
-		}
+		if (r.top < clearTop) box.scrollTop -= clearTop - r.top;
+		else if (r.bottom > bottom - 4)
+			box.scrollTop += Math.min(r.bottom - bottom + 4, r.top - clearTop);
 	}
 
 	// The fixed first column: a divider and a shadow on its right edge.

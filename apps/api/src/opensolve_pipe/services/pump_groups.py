@@ -1451,7 +1451,7 @@ def _duty_check(duty: PumpGroupDuty, point: _Point) -> PumpGroupDutyCheck:
         message = (
             f"at the duty's rise {duty.head:.6g} m the station solved alone reaches another "
             f"steady state than the solve: {'; '.join(parts)} (more than 0.5 % or 1e-6 m³/s "
-            "apart). The station has more than one steady state at this rise (CLAUDE.md D13); "
+            "apart). The station has more than one steady state at this rise; "
             "the group curve is the branch through the one the station alone reaches"
         )
     return PumpGroupDutyCheck(agrees=agrees, flow=point.flow, members=members, message=message)
@@ -1491,13 +1491,13 @@ def _system_duty_check(
             f"undetermined ({first}): the station alone sets the level there, so the solve's rise "
             f"{duty.head:.6g} m is one of many; the group system curve's point is another steady "
             f"state, found from another start, with a rise of {point.head:.6g} m (more than 0.5 % "
-            "or 0.01 m apart; CLAUDE.md D13)"
+            "or 0.01 m apart)"
         )
     else:
         message = (
             f"the rest of the network {forced} needs a rise of {point.head:.6g} m against the "
             f"solve's {duty.head:.6g} m (more than 0.5 % or 0.01 m apart): the rest of the "
-            "network has more than one steady state at this flow (CLAUDE.md D13); the group "
+            "network has more than one steady state at this flow; the group "
             "system curve is the one its solve reaches"
         )
     return PumpGroupSystemDutyCheck(agrees=agrees, head=point.head, message=message)
@@ -2036,7 +2036,7 @@ def methods_section(
             "below it, each from the converged point next to it toward the duty, so the curve "
             "is the branch through the duty; a point that does not converge from there is "
             "solved again from the initial state. "
-            "Where a station has several steady states at a rise (CLAUDE.md D13), a point is "
+            "Where a station has several steady states at a rise, a point is "
             "the one its solve reaches from there."
         )
     if check is not None:

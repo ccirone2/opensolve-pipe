@@ -279,7 +279,8 @@ test('the station: its answer before the group table, each flagged pump’s flag
 		await expect(line).toHaveAttribute('data-label', 'Flags');
 		// Named by its pump first (visually hidden), then each flag's pill and its text, visible.
 		await expect(line).toHaveText(new RegExp(`^${name}, flags:\\s*Warning\\s+\\S`));
-		const flags = line.locator('p');
+		// A list, an item per flag (S6a: one pattern with Running combinations, §15 item 149).
+		const flags = line.locator('li');
 		const count = solved.flags.filter((f) => f.componentId === id).length;
 		await expect(flags).toHaveCount(count);
 		const whole = squash((await line.textContent()) ?? '');

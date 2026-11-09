@@ -1173,7 +1173,8 @@ describe('the members, the station and the group chart’s reading (pumps-result
 			// Named by its pump first (visually hidden), then each flag: its pill, its text.
 			expect(squash(note.textContent).startsWith(`${pump.name}, flags:`)).toBe(true);
 			expect(note.querySelector('.sr-only')!.textContent).toBe(`${pump.name}, flags:`);
-			const lines = [...note.querySelectorAll('p')];
+			// A list, an item per flag (S6a, one pattern with Running combinations, §15 item 149).
+			const lines = [...note.querySelectorAll('li')];
 			expect(lines).toHaveLength(pump.flags.length);
 			for (const [i, flag] of pump.flags.entries()) {
 				const pill = lines[i]!.querySelector('span')!;
@@ -1193,6 +1194,10 @@ describe('the members, the station and the group chart’s reading (pumps-result
 				expect(squash(lines[i]!.textContent)).toBe(`${word} ${flagText(flag)}`);
 				expect(lines[i]).toHaveClass('text-xs');
 				expect(outOfSight(lines[i]!)).toBe(false);
+				// The sentence its own element, in sight (S5 review MUT-01).
+				const sentence = lines[i]!.querySelector('[data-flag-text]')!;
+				expect(sentence).toHaveTextContent(flagText(flag));
+				expect(outOfSight(sentence)).toBe(false);
 				expect(note.textContent!.split(flagText(flag))).toHaveLength(2);
 			}
 		}
@@ -4072,4 +4077,135 @@ describe('every footer line of the group chart on screen, word for word (pumps-r
 			}
 		});
 	}
+});
+
+describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station, §9 S6a)', () => {
+	afterEach(() => localStorage.clear());
+	const squash = (text: string | null) => (text ?? '').replace(/\s+/g, ' ').trim();
+	const region = (name = 'The pumps in the group') => screen.getByRole('region', { name });
+	/** The table's body rows: each pump by its name, each flag line as "flags of {id}". */
+	const order = (name?: string) =>
+		within(within(region(name)).getAllByRole('rowgroup')[1]!)
+			.getAllByRole('row')
+			.map((r) => {
+				const header = within(r).queryByRole('rowheader');
+				// The name's own span: its slot symbol (aria-hidden) before it.
+				if (header) return squash(header.querySelector('span.min-w-0')!.textContent);
+				return `flags of ${r.querySelector('[data-row-notes]')!.getAttribute('data-row-notes')}`;
+			});
+	const heading = (name: RegExp) => within(region()).getByRole('columnheader', { name });
+
+	it('its title visible, naming its box (a region and a Tab stop) and its table; FlagLine, not FlagBadge', () => {
+		const c = named('ladder');
+		render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		const station = screen.getByRole('heading', { name: 'Station', level: 4 }).parentElement!;
+		const title = within(station).getByText('The pumps in the group', { selector: 'p' });
+		expect(title.tagName).toBe('P');
+		expect(outOfSight(title)).toBe(false);
+		expect(region()).toHaveAttribute('aria-labelledby', title.id);
+		expect(region()).toHaveAttribute('tabindex', '0');
+		expect(within(region()).getByRole('table', { name: 'The pumps in the group' })).toBeVisible();
+		// The title before the controls, the controls before the box.
+		const fields = within(station).getByRole('button', { name: /^Fields/ });
+		expect(title.compareDocumentPosition(fields) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(
+			fields.compareDocumentPosition(region()) & Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+		// The pills drawn by FlagLine: no FlagBadge's tooltip or hidden copy of a flag's words.
+		for (const line of region().querySelectorAll('[data-row-notes]')) {
+			expect(line.querySelector('[title]')).toBeNull();
+			expect([...line.querySelectorAll('.sr-only')].map((e) => e.textContent)).toEqual([
+				`${squash(line.closest('tr')!.previousElementSibling!.querySelector('th span.min-w-0')!.textContent)}, flags:`
+			]);
+		}
+		// Each name its slot symbol (aria-hidden) and its trace button, wrapping at 12 rem.
+		const header = within(region()).getByRole('rowheader', { name: 'Pump P2' });
+		const button = within(header).getByRole('button', { name: 'Pump P2' });
+		expect(button).toHaveClass('w-max', 'max-w-48', 'wrap-break-word', 'max-sm:wrap-anywhere');
+		expect(button.querySelector('[aria-hidden="true"]')!.textContent).not.toBe('');
+		expect(header).not.toHaveClass('sm:min-w-[11rem]');
+	});
+
+	it('sorts by any column from its heading, ascending, descending, then the table’s order, each flag line under its pump', async () => {
+		const c = named('ladder');
+		render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		const original = order();
+		expect(original).toEqual(['Pump P1', 'Pump P2', 'flags of P2', 'Pump P3', 'flags of P3']);
+		// The headings keep their names, a sort button inside each.
+		const flow = heading(/^Flow/);
+		expect(squash(flow.textContent)).toBe('Flow L/s');
+		await fireEvent.click(within(flow).getByRole('button', { name: 'Flow L/s' }));
+		expect(flow).toHaveAttribute('aria-sort', 'ascending');
+		// The fixture's flows: P3 16.34, P2 30.47, P1 52.66 L/s.
+		expect(order()).toEqual(['Pump P3', 'flags of P3', 'Pump P2', 'flags of P2', 'Pump P1']);
+		await fireEvent.click(within(flow).getByRole('button'));
+		expect(flow).toHaveAttribute('aria-sort', 'descending');
+		expect(order()).toEqual(['Pump P1', 'Pump P2', 'flags of P2', 'Pump P3', 'flags of P3']);
+		await fireEvent.click(within(flow).getByRole('button'));
+		expect(flow).not.toHaveAttribute('aria-sort');
+		expect(order()).toEqual(original);
+		// By name, from the first column's heading.
+		const pump = heading(/^Pump$/);
+		await fireEvent.click(within(pump).getByRole('button', { name: 'Pump' }));
+		await fireEvent.click(within(pump).getByRole('button', { name: 'Pump' }));
+		expect(pump).toHaveAttribute('aria-sort', 'descending');
+		expect(order()).toEqual(['Pump P3', 'flags of P3', 'Pump P2', 'flags of P2', 'Pump P1']);
+		// A phone's "Sort by" (the same sort): every column, its unit named.
+		const field = within(
+			screen.getByRole('heading', { name: 'Station', level: 4 }).parentElement!
+		).getByRole('combobox', { name: 'Sort by' });
+		expect([...(field as HTMLSelectElement).options].map((o) => o.text)).toEqual(
+			expect.arrayContaining(['Table order', 'Pump', 'State', 'Flow (L/s)', 'Share (%)'])
+		);
+		await fireEvent.change(field, { target: { value: 'flow' } });
+		expect(flow).toHaveAttribute('aria-sort', 'ascending');
+		expect(order()).toEqual(['Pump P3', 'flags of P3', 'Pump P2', 'flags of P2', 'Pump P1']);
+	});
+
+	it('Flagged only keeps each flagged pump with its flag line, and gives every pump back', async () => {
+		const c = named('ladder');
+		render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		const toggle = screen.getByRole('checkbox', { name: 'Flagged only (2 of 3)' });
+		expect(outOfSight(toggle.closest('label')!)).toBe(false);
+		await fireEvent.click(toggle);
+		expect(order()).toEqual(['Pump P2', 'flags of P2', 'Pump P3', 'flags of P3']);
+		for (const id of ['P2', 'P3']) {
+			const line = region().querySelector(`[data-row-notes="${id}"]`)!;
+			expect(line).toHaveAttribute('data-label', 'Flags');
+			for (const sentence of line.querySelectorAll('[data-flag-text]')) {
+				expect(outOfSight(sentence)).toBe(false);
+				expect(sentence.textContent).not.toBe('');
+			}
+		}
+		await fireEvent.click(toggle);
+		expect(order()).toEqual(['Pump P1', 'Pump P2', 'flags of P2', 'Pump P3', 'flags of P3']);
+		// Not offered where every pump has a flag (nothing to filter) or none has.
+		cleanup();
+		render(PumpGroupChart, props(named('parallel-crane'), { oninspect: () => {} }));
+		expect(screen.queryByRole('checkbox', { name: /^Flagged only/ })).toBeNull();
+	});
+
+	it('Fields hides a column, remembered for the group table whatever the case shown', async () => {
+		const c = named('ladder');
+		const view = render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		await fireEvent.click(screen.getByRole('button', { name: /^Fields/ }));
+		const menu = screen.getByRole('group', { name: 'Fields shown in The pumps in the group' });
+		await fireEvent.click(within(menu).getByRole('checkbox', { name: /^Shaft power/ }));
+		expect(within(region()).queryByRole('columnheader', { name: /^Shaft power/ })).toBeNull();
+		expect(screen.getByRole('button', { name: /^Fields/ })).toHaveTextContent(/of/);
+		// The flag line still spans the row: the name and every column shown.
+		const columns = within(region()).getAllByRole('columnheader').length;
+		for (const line of region().querySelectorAll('[data-row-notes]')) {
+			expect(line.closest('td')).toHaveAttribute('colspan', String(columns));
+		}
+		expect(localStorage.getItem('opensolve-pipe:results-fields:The pumps in the group')).toBe(
+			'["shaftPower"]'
+		);
+		// Another case shown: its name in the title, the same fields.
+		await view.rerender(props(c, { oninspect: () => {}, caseName: 'Winter' }));
+		await tick();
+		const winter = region('The pumps in the group, Winter');
+		expect(within(winter).queryByRole('columnheader', { name: /^Shaft power/ })).toBeNull();
+		expect(within(winter).getByRole('columnheader', { name: /^Flow/ })).toBeInTheDocument();
+	});
 });

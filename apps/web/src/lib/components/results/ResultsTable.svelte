@@ -21,18 +21,28 @@
 	On phones (below 640 px) the same table reads as a list, as the Summary does (owner,
 	2026-10-31; proposal build-density.md §14): each row a block headed by the element's name, its
 	values as label and value pairs that wrap, its flags under them; the column headings stay for
-	screen readers, and a "Sort by" field and a direction button sort it by any column. The table
-	keeps explicit ARIA roles, so CSS that unmakes its layout never unmakes its semantics. A value
-	the row has none of ("—") is left out of a phone's row.
+	screen readers, and a "Sort by" field and a direction button sort it by any column (the
+	headings' sort buttons, out of sight there, leave the Tab order: pumps-results-layout.md §9
+	S6a). The table keeps explicit ARIA roles, so CSS that unmakes its layout never unmakes its
+	semantics. A value the row has none of ("—") is left out of a phone's row.
 
 	Fields (owner, 2026-10-31; proposal build-density.md §15): a menu of the table's columns, each a
 	checkbox, chooses which are shown, in the table and in the phone's list; the element's name
 	always is. The choice is remembered in this browser per table (localStorage: a per-viewer
 	convenience, never project data, never in the link); "Show all" forgets it.
+
+	A table in a card that reads no workspace (proposal pumps-results-layout.md §5.3 Station, §9
+	S6a: the Pumps together card's group table, and Running combinations in S6b) draws its own
+	flag line (`flagLine`: each flag's pill and its text, visible and read once, in place of the
+	FlagBadges, whose words are a tooltip and hidden text) and its own row header's content
+	(`name`: the slot symbol, a trace button only where one fits, the name wrapping at 12 rem);
+	its box may be a named region and a Tab stop (`labelledby`), as the card's boxes are, so the
+	keyboard can scroll it sideways. Every other table draws as before.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
+	import { mediaQuery } from '$lib/utils/media.svelte';
 	import {
 		NAME_SORT_KEY,
 		sortableColumn,
@@ -58,6 +68,26 @@
 		hasDetail?: (row: Row) => boolean;
 		/** A sort to apply (a new `id` applies it again), e.g. from the Summary's links. */
 		sortRequest?: (TableSort & { id: number }) | null;
+		/**
+		 * A flagged row's flags, drawn on the line under it in place of the FlagBadges (which read
+		 * the workspace): the Pumps together card's pills and their visible text (proposal
+		 * pumps-results-layout.md §5.3 Station, §9 S6a). The line is then `data-label="Flags"`.
+		 */
+		flagLine?: Snippet<[Row]>;
+		/**
+		 * A row header's content in place of the name's button (or words): the card's tables, whose
+		 * names carry their slot symbol and wrap at 12 rem (§5.3; ui-guide). The column then takes
+		 * its width from the name, not ResultsTable's 11 to 16 rem.
+		 */
+		name?: Snippet<[Row]>;
+		/**
+		 * The id of the element naming the box: the box is then a region by that name and a Tab
+		 * stop, so the keyboard can scroll it (the card's tables, §15 item 92; S7 makes that
+		 * conditional on overflow).
+		 */
+		labelledby?: string;
+		/** Where the Fields choice is remembered, when the caption changes (it names the case). */
+		fieldsKey?: string;
 	}
 
 	let {
@@ -68,14 +98,18 @@
 		detail,
 		detailLabel = 'Details',
 		hasDetail = () => true,
-		sortRequest = null
+		sortRequest = null,
+		flagLine,
+		name,
+		labelledby,
+		fieldsKey
 	}: Props = $props();
 
 	const id = $props.id();
 	let expanded = $state<string[]>([]);
 
 	/** The columns hidden in this browser for this table (by its caption), read and written safely. */
-	const storageKey = $derived(`opensolve-pipe:results-fields:${caption}`);
+	const storageKey = $derived(`opensolve-pipe:results-fields:${fieldsKey ?? caption}`);
 	function readHidden(key: string): string[] {
 		try {
 			const value: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
@@ -148,6 +182,14 @@
 		)
 	);
 
+	/**
+	 * Below 640 px the headings are visually hidden (the list) and "Sort by" sorts: their buttons
+	 * leave the Tab order there, since a focus on one would be unseen (WCAG 2.4.7) and, under the
+	 * Pumps tab's pinned nav, covered (WCAG 2.4.11; proposal pumps-results-layout.md §9 S6a). They
+	 * stay buttons for a screen reader, whose table navigation reads them.
+	 */
+	const phone = mediaQuery('(max-width: 639px)');
+
 	/** Ascending, then descending, then the table's own order. */
 	function toggleSort(key: string) {
 		sort =
@@ -205,6 +247,7 @@
 				'inline-flex min-h-11 items-end gap-1 rounded px-1 font-medium hover:bg-slate-200/70',
 				numeric ? 'flex-row-reverse text-right' : 'text-left'
 			]}
+			tabindex={phone.current ? -1 : undefined}
 			onclick={() => toggleSort(key)}
 		>
 			<span>
@@ -358,9 +401,18 @@
 	{/if}
 </div>
 
-<!-- A size container, so the lines under a row can be exactly as wide as the visible box. -->
+<!-- A size container, so the lines under a row can be exactly as wide as the visible box. Named by
+	`labelledby`, a region and a Tab stop, positioned so the flag lines' hidden words (absolutely
+	placed) scroll with it (§15 item 92). -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
-	class="scroll-shadow-x @container max-h-[max(16rem,calc(100dvh-12rem))] max-w-full overflow-auto overscroll-x-contain rounded-lg border border-slate-200 max-sm:max-h-none max-sm:overflow-visible"
+	class={[
+		'scroll-shadow-x @container max-h-[max(16rem,calc(100dvh-12rem))] max-w-full overflow-auto overscroll-x-contain rounded-lg border border-slate-200 max-sm:max-h-none max-sm:overflow-visible',
+		labelledby && 'relative'
+	]}
+	role={labelledby ? 'region' : undefined}
+	aria-labelledby={labelledby}
+	tabindex={labelledby ? 0 : undefined}
 >
 	<!-- Explicit roles: below 640 px CSS lays the table out as a list (see the header comment). -->
 	<!-- svelte-ignore a11y_no_redundant_roles -->
@@ -417,11 +469,14 @@
 						class={[
 							FIXED,
 							divider,
-							'z-10 bg-white px-1 py-0.5 text-left align-top font-normal sm:w-auto sm:max-w-[16rem] sm:min-w-[11rem]',
+							'z-10 bg-white px-1 py-0.5 text-left align-top font-normal sm:w-auto',
+							!name && 'sm:max-w-[16rem] sm:min-w-[11rem]',
 							'max-sm:static max-sm:-mx-1 max-sm:block max-sm:w-full max-sm:border-0 max-sm:shadow-none'
 						]}
 					>
-						{#if onselect}
+						{#if name}
+							{@render name(row)}
+						{:else if onselect}
 							<button
 								type="button"
 								class="flex min-h-11 w-full flex-col items-start justify-center rounded px-1 text-left hover:bg-slate-100"
@@ -469,13 +524,23 @@
 					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<tr role="row" class="max-sm:block">
 						<td role="cell" colspan={columns} class="p-0 max-sm:block">
+							<!-- With `flagLine`, the card's flag line (§5.3 Station): its own block of flags
+								at the box's visible width, labelled Flags, after the row's values on a
+								phone; else the badges in a wrapping row. -->
 							<div
-								class="sticky left-0 flex w-[100cqw] flex-wrap items-center gap-1 px-2 pb-1 max-sm:static max-sm:w-auto"
+								class={flagLine
+									? 'sticky left-0 w-[100cqw] px-2 pt-1 pb-1.5 max-sm:static max-sm:w-auto'
+									: 'sticky left-0 flex w-[100cqw] flex-wrap items-center gap-1 px-2 pb-1 max-sm:static max-sm:w-auto'}
 								data-row-notes={row.key}
+								data-label={flagLine ? 'Flags' : undefined}
 							>
-								{#each row.flags as flag, i (i)}
-									<FlagBadge {flag} />
-								{/each}
+								{#if flagLine}
+									{#if row.flags.length}{@render flagLine(row)}{/if}
+								{:else}
+									{#each row.flags as flag, i (i)}
+										<FlagBadge {flag} />
+									{/each}
+								{/if}
 								{#if expandable}
 									<button
 										type="button"

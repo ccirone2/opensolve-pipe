@@ -1943,7 +1943,9 @@ async function cutInCard(page: Page): Promise<string[]> {
  */
 async function groupTableSideways(page: Page): Promise<boolean> {
 	return page.evaluate(() => {
-		const box = document.querySelector<HTMLElement>('[data-pumps-together] [data-group-table]');
+		const box = document.querySelector<HTMLElement>(
+			'[data-pumps-together] [data-group-table] [role="region"]'
+		);
 		return !!box && window.innerWidth < 640 && box.scrollWidth > box.clientWidth + 1;
 	});
 }
@@ -2998,6 +3000,222 @@ async function combinationsPart(
 	}
 }
 
+// ---- S6a: the group table a ResultsTable (§9 S6a) ----------------------------------------------
+
+/**
+ * The group table as the page draws it (§5.3 Station, §9 S6a): its title, its box (a region named
+ * by the title), its controls and its rows, each read against the box's visible rectangle.
+ */
+function readGroupTable() {
+	const block = document.querySelector<HTMLElement>('[data-pumps-together] [data-group-table]');
+	if (!block) return null;
+	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+	// In sight at a size of its own: not hidden, and inside no visually hidden box (sr-only's 1 px
+	// box, at any breakpoint: a phone's table headings), which clips it whatever its own size.
+	const seen = (el: Element | null) => {
+		if (!el) return false;
+		const r = el.getBoundingClientRect();
+		for (let a: Element | null = el; a; a = a.parentElement) {
+			const b = a.getBoundingClientRect();
+			if (getComputedStyle(a).overflow === 'hidden' && (b.width <= 1 || b.height <= 1)) {
+				return false;
+			}
+		}
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			r.width > 1 &&
+			r.height > 1
+		);
+	};
+	const rect = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+	};
+	const title = block.querySelector('p');
+	const box = block.querySelector<HTMLElement>('[role="region"]');
+	const table = box?.querySelector('table');
+	const select = block.querySelector<HTMLSelectElement>('select[aria-label="Sort by"]');
+	const fields = [...block.querySelectorAll('button')].find((b) =>
+		squash(b.textContent).startsWith('Fields')
+	);
+	const flagged = [...block.querySelectorAll('label')].find((l) =>
+		squash(l.textContent).startsWith('Flagged only')
+	);
+	const group = block.querySelector('[role="group"][aria-label^="Fields shown in"]');
+	const containers: string[] = [];
+	for (let e = group?.parentElement ?? null; e; e = e.parentElement) {
+		const type = getComputedStyle(e).containerType;
+		if (type !== 'normal') containers.push(`<${e.tagName.toLowerCase()}> ${type}`);
+	}
+	// A select's text box against its longest option (MENULIST_INNER is added by the caller).
+	let sortRoom: { name: string; text: number; room: number } | null = null;
+	if (select && seen(select)) {
+		const css = getComputedStyle(select);
+		const context = document.createElement('canvas').getContext('2d')!;
+		context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+		const longest = [...select.options].reduce(
+			(widest, option) => {
+				const width = context.measureText(option.text).width;
+				return width > widest.width ? { name: option.text, width } : widest;
+			},
+			{ name: '', width: 0 }
+		);
+		sortRoom = {
+			name: longest.name,
+			text: Math.ceil(longest.width),
+			room: Math.floor(
+				select.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+			)
+		};
+	}
+	const headings = [...(table?.querySelectorAll('thead th') ?? [])];
+	const rows = [...(table?.querySelectorAll('tbody > tr') ?? [])];
+	return {
+		title: title ? { id: title.id, text: squash(title.textContent), seen: seen(title) } : null,
+		box: box
+			? {
+					labelledby: box.getAttribute('aria-labelledby'),
+					tabindex: box.getAttribute('tabindex'),
+					rect: rect(box),
+					sideways: box.scrollWidth > box.clientWidth + 1,
+					caption: squash(table?.querySelector('caption')?.textContent)
+				}
+			: null,
+		list: !!table && getComputedStyle(table).display === 'block',
+		// Each heading, whether it is a sort button, and whether its column shows a value in some
+		// row: ResultsTable sorts a column only then (a column of "—" alone has no button).
+		headingButtons: headings.map((h, k) => {
+			const b = h.querySelector('button');
+			const valued =
+				k === 0 ||
+				rows.some((r) => {
+					const cell = r.querySelectorAll(':scope > td')[k - 1];
+					return !!cell && squash(cell.textContent) !== '—';
+				});
+			return { name: squash(h.textContent), button: !!b, valued, seen: seen(b ?? h) };
+		}),
+		select: select ? { seen: seen(select), top: rect(select).top } : null,
+		sortRoom,
+		fields: fields ? { seen: seen(fields), top: rect(fields).top } : null,
+		flagged: flagged ? { seen: seen(flagged), top: rect(flagged).top } : null,
+		group: !!group,
+		containers,
+		titles: block.querySelectorAll('[title]').length,
+		members: rows
+			.filter((r) => r.querySelector('th[scope="row"]'))
+			.map((r) => {
+				const th = r.querySelector('th')!;
+				const name = th.querySelector('span.min-w-0');
+				return {
+					name: squash(name?.textContent),
+					seen: seen(name),
+					whole: !!name && name.scrollWidth <= name.clientWidth + 1,
+					button: !!th.querySelector('button')
+				};
+			}),
+		lines: [...(table?.querySelectorAll('[data-row-notes]') ?? [])].map((line) => {
+			const row = line.closest('tr')!.previousElementSibling;
+			const whole = squash(line.textContent);
+			return {
+				id: line.getAttribute('data-row-notes'),
+				label: line.getAttribute('data-label'),
+				after: squash(row?.querySelector('th span.min-w-0')?.textContent),
+				hidden: [...line.querySelectorAll('.sr-only')].map((e) => squash(e.textContent)),
+				said: [...line.querySelectorAll('li')].map((li) => {
+					const text = li.querySelector('[data-flag-text]');
+					const words = squash(text?.textContent);
+					return {
+						words,
+						seen: seen(text),
+						rect: text ? rect(text) : null,
+						once: !!words && whole.split(words).length === 2
+					};
+				})
+			};
+		})
+	};
+}
+
+/**
+ * The group table's part of S6a at the size shown, the card open (soft): a ResultsTable (§9 S6a)
+ * with its title in sight naming its box (a region and a Tab stop) and its table; Fields in sight
+ * at every size, its group under no container (§5.5); the heading buttons in sight from 640 px,
+ * a list with "Sort by" in sight below it, sharing a line with Fields and showing its longest
+ * field to its end (§15 item 17); each name in sight and shown to its end; each flag line
+ * labelled Flags under its pump's row, named by its pump, each flag's sentence in sight, read once
+ * and inside the box's visible width, with no FlagBadge (no tooltip, no hidden copy).
+ */
+async function groupTablePart(page: Page, where: string) {
+	const soft = expect.configure({ soft: true });
+	const m = await page.evaluate(readGroupTable);
+	if (!m) {
+		console.log(`${where}: no group table (the card closed or no member ticked)`);
+		return;
+	}
+	const phone = (page.viewportSize()?.width ?? 1280) < 640;
+	console.log(
+		`${where}: the group table a ${m.list ? 'list' : 'table'}, ${m.members.length} pumps, ${m.lines.length} flag lines, ${Math.round((m.box?.rect.bottom ?? 0) - (m.box?.rect.top ?? 0))} px${m.sortRoom ? `, Sort by ${m.sortRoom.room} px for "${m.sortRoom.name}" (${m.sortRoom.text})` : ''}`
+	);
+	soft(m.title?.text ?? '', `the group table's title, ${where}`).toMatch(
+		/^The pumps in the group(, .+)?$/
+	);
+	soft(m.title?.seen, `the group table's title in sight, ${where}`).toBe(true);
+	soft(m.box?.labelledby, `the group table's box named by its title, ${where}`).toBe(m.title?.id);
+	soft(m.box?.tabindex, `the group table's box a Tab stop, ${where}`).toBe('0');
+	soft(m.box?.caption, `the group table named as its title, ${where}`).toBe(m.title?.text);
+	soft(m.list, `the group table a list below 640 px only, ${where}`).toBe(phone);
+	soft(m.fields?.seen, `Fields in sight, ${where}`).toBe(true);
+	soft(m.group, `the Fields group drawn, ${where}`).toBe(true);
+	soft(m.containers, `containers above the group table's Fields, ${where}`).toEqual([]);
+	soft(m.titles, `a tooltip in the group table, ${where}`).toBe(0);
+	soft(m.headingButtons.length, `the group table's headings, ${where}`).toBeGreaterThan(2);
+	for (const h of m.headingButtons) {
+		// A sort button over every column that shows a value (ResultsTable's sortableColumn).
+		soft(h.button, `the heading "${h.name}" a sort button, ${where}`).toBe(h.valued);
+		// From 640 px the headings sort; below it the list's "Sort by" does, the headings hidden.
+		soft(h.seen, `the heading "${h.name}" in sight, ${where}`).toBe(!phone);
+	}
+	if (phone) {
+		soft(m.select?.seen, `"Sort by" in sight, ${where}`).toBe(true);
+		soft(
+			Math.abs((m.select?.top ?? 0) - (m.fields?.top ?? 99)) < 12,
+			`"Sort by" and Fields on one line, ${where}`
+		).toBe(true);
+		if (m.sortRoom) {
+			soft(
+				m.sortRoom.room - MENULIST_INNER,
+				`room in "Sort by" for "${m.sortRoom.name}", ${where}`
+			).toBeGreaterThanOrEqual(m.sortRoom.text);
+		}
+	} else {
+		soft(m.select?.seen ?? false, `"Sort by" out of sight from 640 px, ${where}`).toBe(false);
+	}
+	if (m.flagged) soft(m.flagged.seen, `Flagged only in sight, ${where}`).toBe(true);
+	for (const member of m.members) {
+		soft(member.seen, `the name "${member.name}" in sight, ${where}`).toBe(true);
+		soft(member.whole, `the name "${member.name}" shown to its end, ${where}`).toBe(true);
+		soft(member.button, `the name "${member.name}" a trace button, ${where}`).toBe(true);
+	}
+	for (const line of m.lines) {
+		const what = `the flag line of ${line.id}, ${where}`;
+		soft(line.label, `${what}: labelled`).toBe('Flags');
+		soft(line.hidden, `${what}: named by its pump`).toEqual([`${line.after}, flags:`]);
+		soft(line.said.length, `${what}: its flags`).toBeGreaterThan(0);
+		for (const flag of line.said) {
+			const said = `${what}: "${flag.words.slice(0, 40)}"`;
+			soft(flag.seen, `${said} in sight`).toBe(true);
+			soft(flag.once, `${said} read once`).toBe(true);
+			if (flag.rect && m.box) {
+				soft(
+					flag.rect.left >= m.box.rect.left - 0.5 && flag.rect.right <= m.box.rect.right + 0.5,
+					`${said} inside the box's visible width`
+				).toBe(true);
+			}
+		}
+	}
+	if (phone) soft(m.box?.sideways, `the group table's box scrolls sideways, ${where}`).toBe(false);
+}
+
 /**
  * Check and measure the view at the project's size and, on the phone, at 320×640 too (reflow at
  * 400 % zoom; pump-lineups.e2e.ts resizes the same way). Then axe with every disclosure open at
@@ -3011,6 +3229,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await pumpChartPart(page, `${view} at ${size}`);
 	const data = await measure(page, info, `${view}-${size}`, extra);
 	await cardPart(page, view, `${view} at ${size}`, data);
+	await groupTablePart(page, `${view} at ${size}`);
 	await navPart(page, `${view} at ${size}`);
 	await addCasesPart(page, view, `${view} at ${size}`);
 	await extremesPart(page, view, `${view} at ${size}`);
@@ -3028,6 +3247,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await pumpChartPart(page, `${view} at 320x640`);
 	const narrow = await measure(page, info, `${view}-320x640`, extra);
 	await cardPart(page, view, `${view} at 320x640`, narrow);
+	await groupTablePart(page, `${view} at 320x640`);
 	await navPart(page, `${view} at 320x640`);
 	await addCasesPart(page, view, `${view} at 320x640`);
 	await extremesPart(page, view, `${view} at 320x640`);
@@ -3716,6 +3936,9 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		expect
 			.soft(await groupTableSideways(page), `the group table's box scrolls sideways, ${where}`)
 			.toBe(false);
+		// The group table a ResultsTable (§9 S6a): the long name in sight to its end, a trace
+		// button; its title, controls and flag lines as in every view.
+		await groupTablePart(page, where);
 		// The extremes (§9 S5): the long pump name a row header shown to its end, the long case
 		// name in their cells, and their box not scrolling sideways, at 1280×800 a table.
 		const extremes = await page.evaluate(readExtremes);
@@ -3780,6 +4003,143 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		expect.soft(past, `a long name's line past the card's edge, ${where}`).toEqual([]);
 	}
 	await page.setViewportSize(viewport);
+});
+
+// ---- S6a: the group table's sort, Fields and Flagged only in the browser ------------------------
+
+test('the group table sorts, chooses its fields and shows the flagged pumps only, each flag line under its pump; on a phone its Fields sheet spans the screen from its foot, over the pinned nav (§9 S6a, §5.5; build-density.md §14 to §18)', async ({
+	page
+}, info) => {
+	test.setTimeout(240_000);
+	// The ladder (pump-groups-input.json): Pump P1 without a flag, P2 and P3 with a warning each.
+	await open(page, projectOf('ladder'));
+	await solveConverged(page);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const block = card.locator('[data-group-table]');
+	const region = card.getByRole('region', { name: 'The pumps in the group' });
+	await expect(region.getByRole('rowheader')).toHaveCount(3);
+	const phone = info.project.name === 'mobile';
+	const names = () => region.locator('tbody th[scope="row"] span.min-w-0').allTextContents();
+	/** Each flag line, the pump whose row it follows and whether its sentences are in sight. */
+	const lines = () =>
+		region.locator('[data-row-notes]').evaluateAll((all) =>
+			all.map((line) => ({
+				id: line.getAttribute('data-row-notes'),
+				after: line
+					.closest('tr')!
+					.previousElementSibling?.querySelector('th span.min-w-0')
+					?.textContent?.trim(),
+				seen: [...line.querySelectorAll('[data-flag-text]')].every((t) => {
+					const r = t.getBoundingClientRect();
+					return t.checkVisibility() && r.width > 1 && r.height > 1;
+				})
+			}))
+		);
+	// Its title, controls, names and flag lines in sight, each as in every view; here with
+	// Flagged only offered and two flag lines drawn.
+	await groupTablePart(page, `the ladder at ${sizeOf(page)}`);
+	// The record (PUMPS_LAYOUT_RECORD): the table with its flag lines, and the Fields sheet below.
+	const shot = async (name: string) => {
+		if (!RECORD) return;
+		await page.waitForTimeout(300);
+		await page.screenshot({
+			path: path.join(RECORD, 'segments', `ladder-${sizeOf(page)}-${name}.png`),
+			scale: 'css'
+		});
+	};
+	if (RECORD) mkdirSync(path.join(RECORD, 'segments'), { recursive: true });
+	await block.scrollIntoViewIfNeeded();
+	await shot('group-table');
+	const original = await names();
+	expect(original).toEqual(['Pump P1', 'Pump P2', 'Pump P3']);
+	expect(await lines()).toEqual([
+		{ id: 'P2', after: 'Pump P2', seen: true },
+		{ id: 'P3', after: 'Pump P3', seen: true }
+	]);
+
+	// Sort by flow: from its heading from 640 px, from "Sort by" on a phone (the same sort).
+	const flow = region.getByRole('columnheader', { name: /^Flow/ });
+	if (phone) await block.getByRole('combobox', { name: 'Sort by' }).selectOption('flow');
+	else await flow.getByRole('button', { name: 'Flow L/s' }).click();
+	await expect(flow).toHaveAttribute('aria-sort', 'ascending');
+	const flows = (await region.locator('tbody td[data-label^="Flow"]').allTextContents()).map(
+		Number
+	);
+	expect(flows).toEqual([...flows].sort((a, b) => a - b));
+	expect(await names()).not.toEqual(original);
+	// Each flag line still under its own pump.
+	for (const line of await lines()) expect(line.after).toBe(`Pump ${line.id}`);
+
+	// Flagged only: the flagged pumps, each with its flag line, its sentences in sight.
+	const flagged = block.getByRole('checkbox', { name: 'Flagged only (2 of 3)' });
+	await flagged.check();
+	await expect(region.getByRole('rowheader')).toHaveCount(2);
+	expect(await lines()).toEqual([
+		{ id: 'P3', after: 'Pump P3', seen: true },
+		{ id: 'P2', after: 'Pump P2', seen: true }
+	]);
+	await flagged.uncheck();
+	await expect(region.getByRole('rowheader')).toHaveCount(3);
+
+	// Fields: a menu under its button from 640 px; on a phone a sheet across the screen from its
+	// foot (build-density.md §16), fixed to the screen, no container above it trapping it (§5.5),
+	// drawn over the pinned nav and the page.
+	const fields = block.getByRole('button', { name: /^Fields/ });
+	await fields.click();
+	const sheet = page.getByRole('group', { name: 'Fields shown in The pumps in the group' });
+	await expect(sheet).toBeVisible();
+	const viewport = page.viewportSize()!;
+	const box = (await sheet.boundingBox())!;
+	const button = (await fields.boundingBox())!;
+	const over = await sheet.evaluate((el) => {
+		const r = el.getBoundingClientRect();
+		const containers: string[] = [];
+		for (let e = el.parentElement; e; e = e.parentElement) {
+			const s = getComputedStyle(e);
+			if (s.containerType !== 'normal' || s.transform !== 'none' || s.filter !== 'none') {
+				containers.push(`<${e.tagName.toLowerCase()} class="${e.className}">`);
+			}
+		}
+		const top = document.elementFromPoint(r.left + r.width / 2, r.top + 12);
+		return {
+			containers,
+			onTop: !!top && el.contains(top),
+			position: getComputedStyle(el).position
+		};
+	});
+	expect(over.containers).toEqual([]);
+	expect(over.onTop).toBe(true);
+	if (phone) {
+		expect(over.position).toBe('fixed');
+		expect(box.x).toBeCloseTo(0, 0);
+		expect(box.width).toBeCloseTo(viewport.width, 0);
+		expect(box.y + box.height).toBeCloseTo(viewport.height, 0);
+	} else {
+		expect(over.position).toBe('absolute');
+		expect(box.y).toBeGreaterThanOrEqual(button.y + button.height - 0.5);
+		expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+	}
+	await shot('fields');
+	await sheet.getByRole('checkbox', { name: /^Shaft power/ }).uncheck();
+	await expect(region.locator('td[data-label^="Shaft power"]')).toHaveCount(0);
+	await expect(region.getByRole('columnheader', { name: /^Shaft power/ })).toHaveCount(0);
+	await expect(fields).toContainText(/of/);
+	if (phone) await sheet.getByRole('button', { name: 'Done' }).click();
+	else await page.keyboard.press('Escape');
+	await expect(sheet).toBeHidden();
+	await expect(fields).toHaveAttribute('aria-expanded', 'false');
+	// Its flag lines still span the row, inside the box's visible width.
+	const width = (await region.boundingBox())!;
+	for (const text of await region.locator('[data-flag-text]').all()) {
+		const r = (await text.boundingBox())!;
+		expect(r.x).toBeGreaterThanOrEqual(width.x - 0.5);
+		expect(r.x + r.width).toBeLessThanOrEqual(width.x + width.width + 0.5);
+	}
+	await fields.click();
+	await sheet.getByRole('button', { name: 'Show all' }).click();
+	await expect(region.locator('td[data-label^="Shaft power"]')).toHaveCount(3);
+	await noSidewaysScroll(page, `the ladder's group table at ${sizeOf(page)}`);
 });
 
 // ---- S5 review: a measure no case gives, the trace's focus, a stale group on a phone ----------

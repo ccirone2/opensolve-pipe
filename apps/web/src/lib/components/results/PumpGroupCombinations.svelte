@@ -45,6 +45,7 @@
 	} from '$lib/utils/pump-group-one-off';
 	import type { Row, RowGroup, Table } from '$lib/utils/results';
 	import { sectionMark } from '$lib/utils/section-nav';
+	import { scrollRegion } from '$lib/utils/scroll-focus';
 	import FlagIcon from './FlagIcon.svelte';
 	import FlagLine from './FlagLine.svelte';
 	import ResultsTable from './ResultsTable.svelte';
@@ -217,10 +218,12 @@
 			(§5.5) and the box drops its frame, as the mock draws the list (§5.7: 834 px). -->
 		<div class="@container space-y-1" data-combination-extremes>
 			<h5 class="section-title">Extremes over these cases (current results)</h5>
-			<!-- Sideways shadows, and no tabindex in S5: from 26 rem it does not overflow, a long
-				unbroken name in a cell breaking inside it (§5.3; S7's measured rule then covers it). -->
+			<!-- Sideways shadows; a Tab stop and a region named by its caption only while it overflows
+				(§9 S7, §5.7: scrollRegion). From 26 rem it does not, a long unbroken name in a cell
+				breaking inside it (§5.3, §7 item 25). -->
 			<div
 				class="scroll-shadow-x relative max-w-full overflow-x-auto rounded-md border border-slate-200 bg-white @max-[26rem]:rounded-none @max-[26rem]:border-0"
+				use:scrollRegion={`${id}-extremes-caption`}
 				data-extremes
 			>
 				<!-- Explicit roles: below 26 rem CSS lays the table out as a list (§5.3). -->
@@ -230,7 +233,7 @@
 					class="min-w-full border-separate border-spacing-0 text-xs text-slate-700 @max-[26rem]:block"
 				>
 					<!-- The table's name, the dl's aria-label words; the visible h5 heads it. -->
-					<caption class="sr-only">Extremes over these cases</caption>
+					<caption id="{id}-extremes-caption" class="sr-only">Extremes over these cases</caption>
 					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<thead role="rowgroup" class="bg-slate-50 @max-[26rem]:sr-only">
 						<!-- svelte-ignore a11y_no_redundant_roles -->

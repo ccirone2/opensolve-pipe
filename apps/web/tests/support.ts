@@ -198,6 +198,37 @@ export async function tableTexts(table: Locator): Promise<string[]> {
 	return (await table.getByRole('row').allInnerTexts()).map(squash);
 }
 
+/**
+ * A chart's curve table: since S7 each in its own disclosure, "{caption} ({n} points)"
+ * (proposal pumps-results-layout.md §9 S7). The disclosure, by its table's caption.
+ */
+export function curveTableFold(scope: Locator, caption: string): Locator {
+	// Its own summary, by its whole words (a regular expression meets the text as it is, the
+	// space before and after included): they match no Details summary inside its table.
+	const words = caption.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	return scope.locator('details[data-curve-table]').filter({
+		has: scope.page().locator('summary', {
+			hasText: new RegExp(`^\\s*${words} \\(\\d+ points?\\)\\s*$`)
+		})
+	});
+}
+
+/**
+ * Open a curve table's disclosure as a user would, by its summary, where it is closed by default
+ * (the chart drawn, no reason column with entries: §9 S7), and return its table, in sight.
+ */
+export async function openCurveTable(scope: Locator, caption: string): Promise<Locator> {
+	const fold = curveTableFold(scope, caption);
+	await expect(fold).toHaveCount(1);
+	await expect(fold, `"${caption}" closed until opened`).not.toHaveAttribute('open');
+	// Its own summary, the first in it (a Details summary inside its table comes after).
+	await fold.locator('summary').first().click();
+	await expect(fold).toHaveAttribute('open', '');
+	const table = scope.getByRole('table', { name: caption, exact: true });
+	await expect(table).toBeVisible();
+	return table;
+}
+
 /** A number as shown in the results: 4 significant figures. */
 export const sig4 = (value: number) => String(Number(value.toPrecision(4)));
 /** Rounded toward zero to 4 significant digits: how a bound a value must stay below is shown. */

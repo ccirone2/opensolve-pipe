@@ -36,8 +36,9 @@
 	flag line (`flagLine`: each flag's pill and its text, visible and read once, in place of the
 	FlagBadges, whose words are a tooltip and hidden text) and its own row header's content
 	(`name`: the slot symbol, a trace button only where one fits, the name wrapping at 12 rem);
-	its box may be a named region and a Tab stop (`labelledby`), as the card's boxes are, so the
-	keyboard can scroll it sideways. Every other table draws as before.
+	its box may be a named region and a Tab stop (`labelledby`) while it overflows, as the card's
+	boxes are (pumps-results-layout.md §9 S7), so the keyboard can scroll it. Every other table
+	draws as before.
 
 	Row groups (`table.groups`; §9 S6b, the owner's answer 3: Running combinations, a group per
 	case): in the table's own order each group is a row group headed by its lines (`groupHeading`,
@@ -51,6 +52,7 @@
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { mediaQuery } from '$lib/utils/media.svelte';
+	import { scrollRegion } from '$lib/utils/scroll-focus';
 	import {
 		NAME_SORT_KEY,
 		sortableColumn,
@@ -91,8 +93,8 @@
 		name?: Snippet<[Row]>;
 		/**
 		 * The id of the element naming the box: the box is then a region by that name and a Tab
-		 * stop, so the keyboard can scroll it (the card's tables, §15 item 92; S7 makes that
-		 * conditional on overflow).
+		 * stop while it overflows, so the keyboard can scroll it (the card's tables, §15 item 92;
+		 * pumps-results-layout.md §9 S7).
 		 */
 		labelledby?: string;
 		/** Where the Fields choice is remembered, when the caption changes (it names the case). */
@@ -600,18 +602,16 @@
 	{/if}
 </div>
 
-<!-- A size container, so the lines under a row can be exactly as wide as the visible box. Named by
-	`labelledby`, a region and a Tab stop, positioned so the flag lines' hidden words (absolutely
-	placed) scroll with it (§15 item 92). -->
-<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<!-- A size container, so the lines under a row can be exactly as wide as the visible box. Given
+	`labelledby`, a region by that name and a Tab stop only while it overflows (pumps-results-layout.md
+	§9 S7, §5.7: scrollRegion measures both axes), positioned so the flag lines' hidden words
+	(absolutely placed) scroll with it (§15 item 92). -->
 <div
 	class={[
 		'scroll-shadow-x @container max-h-[max(16rem,calc(100dvh-12rem))] max-w-full overflow-auto overscroll-x-contain rounded-lg border border-slate-200 max-sm:max-h-none max-sm:overflow-visible',
 		labelledby && 'relative'
 	]}
-	role={labelledby ? 'region' : undefined}
-	aria-labelledby={labelledby}
-	tabindex={labelledby ? 0 : undefined}
+	use:scrollRegion={labelledby}
 >
 	<!-- Explicit roles: below 640 px CSS lays the table out as a list (see the header comment). -->
 	<!-- svelte-ignore a11y_no_redundant_roles -->

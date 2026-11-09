@@ -92,6 +92,7 @@
 		CombinationsTable,
 		OtherGroupCase
 	} from '$lib/utils/pump-group-one-off';
+	import { loadTableShown } from '$lib/utils/pump-chart';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import BackToSections from './BackToSections.svelte';
 	import PumpGroupCombinations from './PumpGroupCombinations.svelte';
@@ -345,10 +346,12 @@
 	/**
 	 * What the group chart's section keeps while it is drawn again (the card closed and opened,
 	 * the values gone and back), as the card did before its sections were components: whether its
-	 * data table is shown, and where "Read along the curves" was moved to (raw: the response is
-	 * compared by identity, and a deep proxy would never equal it).
+	 * data table is shown (remembered in this browser too, pumps-results-layout.md §9 S7), the
+	 * curve tables opened or closed in it (§9 S7), and where "Read along the curves" was moved to
+	 * (raw: the response is compared by identity, and a deep proxy would never equal it).
 	 */
-	let showTable = $state(false);
+	let showTable = $state(loadTableShown('group'));
+	let tablesOpen = $state<Record<string, boolean | undefined>>({});
 	let reading = $state.raw<{ response: unknown; index: number } | null>(null);
 
 	/**
@@ -526,6 +529,7 @@
 				<PumpGroupFigure
 					bind:figure
 					bind:showTable
+					bind:tablesOpen
 					bind:reading
 					onlabels={(leftOut) => (labelsLeftOut = leftOut)}
 					{members}

@@ -30,7 +30,8 @@
 	import { STALE_CHUNK_MESSAGE } from '$lib/utils/export/load';
 	import type { Chart as ChartInstance } from 'chart.js';
 	import { mediaQuery } from '$lib/utils/media.svelte';
-	import { chartHeightRem } from '$lib/utils/pump-chart';
+	import { chartHeightRem, saveTableShown } from '$lib/utils/pump-chart';
+	import { scrollRegion } from '$lib/utils/scroll-focus';
 	import {
 		ARRANGEMENT_WORDS,
 		curveAnchor,
@@ -65,6 +66,7 @@
 	import { formatNumber } from '$lib/utils/units';
 	import { sectionMark } from '$lib/utils/section-nav';
 	import Icon from '$lib/components/ui/Icon.svelte';
+	import CurveTable from './CurveTable.svelte';
 	import IssueDetail from './IssueDetail.svelte';
 	import PumpGroupOthers from './PumpGroupOthers.svelte';
 	import { registerSection, useSectionNav } from './section-nav.svelte';
@@ -78,8 +80,16 @@
 	interface Props {
 		/** The figure (bindable): the focus falls back to it. */
 		figure?: HTMLElement;
-		/** The data table is shown (bindable: the card keeps it while the section is redrawn). */
+		/**
+		 * The data table is shown (bindable: the card keeps it while the section is redrawn, and
+		 * reads it from this browser, which remembers it, §9 S7).
+		 */
 		showTable?: boolean;
+		/**
+		 * The curve tables the user opened or closed, by table (bindable, as `showTable`: kept while
+		 * the data region is hidden or the section redrawn, §9 S7).
+		 */
+		tablesOpen?: Record<string, boolean | undefined>;
 		/**
 		 * The sample the user moved "Read along the curves" to, for a response (bindable, as
 		 * `showTable`); compared by identity, so the card keeps it raw.
@@ -149,6 +159,7 @@
 	let {
 		figure = $bindable(),
 		showTable = $bindable(false),
+		tablesOpen = $bindable({}),
 		reading = $bindable(null),
 		onlabels,
 		members,
@@ -287,7 +298,16 @@
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let noCanvas = $state(false);
 	let loadFailed = $state(false);
-	const tableShown = $derived(showTable || noCanvas || loadFailed);
+	/** No chart: the data region is shown, and every curve table in it open (§9 S7). */
+	const cannotDraw = $derived(noCanvas || loadFailed);
+	const tableShown = $derived(showTable || cannotDraw);
+	/** Show or hide the data table, remembered in this browser (§9 S7). */
+	function toggleTable() {
+		showTable = !showTable;
+		saveTableShown('group', showTable);
+	}
+	/** The points of the other cases' own group curves, every case's (CurveTable's count). */
+	const curvePoints = $derived(curveRows.reduce((n, group) => n + group.rows.length, 0));
 
 	// From the group system curve's Cancel to the button that computes it again (or the figure),
 	// and back (the group curve's handovers are Station's since S3, unchanged).
@@ -646,7 +666,7 @@
 					class="btn btn-quiet px-2 text-blue-800"
 					aria-expanded={tableShown}
 					aria-controls="{id}-data"
-					onclick={() => (showTable = !showTable)}
+					onclick={toggleTable}
 				>
 					<!-- The space outside the hidden suffix, so every name computation keeps it. -->
 					{tableShown ? 'Hide data table' : 'Show data table'}
@@ -844,15 +864,15 @@
 			</details>
 		{/if}
 		<!-- The data region after the reference (§5.1 item 9, §9 S2; F3: it opened at the card's
-			foot), so opening it never pushes a note or a check away from the chart. -->
+			foot), so opening it never pushes a note or a check away from the chart. Each curve table
+			a disclosure, "{caption} ({n} points)", full height when open, and open by default where
+			the chart cannot be drawn or the group system curve has points without a rise (§9 S7:
+			CurveTable); every box a Tab stop and a named region only while it overflows (§5.7). -->
 		{#if tableShown}
 			<div id="{id}-data" class="space-y-3" data-group-data>
-				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 				<div
 					class="relative overflow-auto rounded-md border border-slate-200 bg-white"
-					role="region"
-					aria-labelledby="{id}-points-caption"
-					tabindex="0"
+					use:scrollRegion={`${id}-points-caption`}
 				>
 					<table class="w-full text-sm">
 						<caption
@@ -919,107 +939,85 @@
 					{/if}
 				{/if}
 				{#if samples.length}
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-samples-caption"
-						tabindex="0"
+					<CurveTable
+						key="group-curve"
+						caption="Group curve (station's flow at each rise)"
+						points={samples.length}
+						openByDefault={cannotDraw}
+						bind:choice={tablesOpen['group-curve']}
 					>
-						<table class="w-full text-sm">
-							<caption
-								id="{id}-samples-caption"
-								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
-							>
-								Group curve (station's flow at each rise)
-							</caption>
-							<thead class="sticky top-0 bg-slate-50">
-								<tr>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Rise ({data.headUnit})</th
+						<thead class="bg-slate-50">
+							<tr>
+								<th scope="col" class="px-2 py-1 text-right font-medium">Rise ({data.headUnit})</th>
+								<th scope="col" class="px-2 py-1 text-right font-medium">Flow ({data.flowUnit})</th>
+								{#each shown!.station.memberIds as memberId (memberId)}
+									<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
+										>{nameOf(memberId)} flow ({data.flowUnit})</th
 									>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Flow ({data.flowUnit})</th
+									<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
+										>{nameOf(memberId)} head ({data.headUnit})</th
 									>
-									{#each shown!.station.memberIds as memberId (memberId)}
-										<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
-											>{nameOf(memberId)} flow ({data.flowUnit})</th
-										>
-										<th scope="col" class="px-2 py-1 text-right font-medium whitespace-nowrap"
-											>{nameOf(memberId)} head ({data.headUnit})</th
-										>
-										<th scope="col" class="px-2 py-1 text-left font-medium whitespace-nowrap"
-											>{nameOf(memberId)} state</th
-										>
-									{/each}
-									<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each samples as sample, i (i)}
-									<tr class="border-t border-slate-100">
-										<td class="px-2 py-1 text-right tabular-nums">{sample.rise}</td>
-										<td class="px-2 py-1 text-right tabular-nums">{sample.flow}</td>
-										{#each sample.members as m, k (k)}
-											<td class="px-2 py-1 text-right tabular-nums">{m.flow}</td>
-											<td class="px-2 py-1 text-right tabular-nums">{m.head}</td>
-											<td class="px-2 py-1 text-xs whitespace-nowrap text-slate-600">{m.state}</td>
-										{/each}
-										<td class="px-2 py-1 text-xs text-slate-600"
-											>{[sample.duty ? "The duty's rise (the duty check)." : '', sample.note]
-												.filter(Boolean)
-												.join(' ')}</td
-										>
-									</tr>
+									<th scope="col" class="px-2 py-1 text-left font-medium whitespace-nowrap"
+										>{nameOf(memberId)} state</th
+									>
 								{/each}
-							</tbody>
-						</table>
-					</div>
+								<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each samples as sample, i (i)}
+								<tr class="border-t border-slate-100">
+									<td class="px-2 py-1 text-right tabular-nums">{sample.rise}</td>
+									<td class="px-2 py-1 text-right tabular-nums">{sample.flow}</td>
+									{#each sample.members as m, k (k)}
+										<td class="px-2 py-1 text-right tabular-nums">{m.flow}</td>
+										<td class="px-2 py-1 text-right tabular-nums">{m.head}</td>
+										<td class="px-2 py-1 text-xs whitespace-nowrap text-slate-600">{m.state}</td>
+									{/each}
+									<td class="px-2 py-1 text-xs text-slate-600"
+										>{[sample.duty ? "The duty's rise (the duty check)." : '', sample.note]
+											.filter(Boolean)
+											.join(' ')}</td
+									>
+								</tr>
+							{/each}
+						</tbody>
+					</CurveTable>
 				{/if}
 				{#if systemRows.length}
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-system-caption"
-						tabindex="0"
+					<!-- Open by default when a point has no rise: the reasons the strip's coverage line
+						points to, one press away (§9 S7, D10's owner rule). -->
+					<CurveTable
+						key="group-system"
+						caption="Group system curve (rise the rest of the network needs at each station's flow)"
+						points={systemRows.length}
+						openByDefault={cannotDraw || systemRows.some((row) => row.rise === '—')}
+						bind:choice={tablesOpen['group-system']}
 					>
-						<table class="w-full text-sm">
-							<caption
-								id="{id}-system-caption"
-								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
-							>
-								Group system curve (rise the rest of the network needs at each station's flow)
-							</caption>
-							<thead class="sticky top-0 bg-slate-50">
-								<tr>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Flow ({data.flowUnit})</th
+						<thead class="bg-slate-50">
+							<tr>
+								<th scope="col" class="px-2 py-1 text-right font-medium">Flow ({data.flowUnit})</th>
+								<th scope="col" class="px-2 py-1 text-right font-medium">Rise ({data.headUnit})</th>
+								<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each systemRows as row, i (i)}
+								<tr class="border-t border-slate-100">
+									<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+									<td class="px-2 py-1 text-right tabular-nums">{row.rise}</td>
+									<td class="px-2 py-1 text-xs text-slate-600"
+										>{[row.duty ? "The duty's flow (the system duty check)." : '', row.note]
+											.filter(Boolean)
+											.join(' ')}{#if row.detail}<IssueDetail
+												detail={row.detail}
+												subject="the point at {row.flow} {data.flowUnit}"
+											/>{/if}</td
 									>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
-										>Rise ({data.headUnit})</th
-									>
-									<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
 								</tr>
-							</thead>
-							<tbody>
-								{#each systemRows as row, i (i)}
-									<tr class="border-t border-slate-100">
-										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
-										<td class="px-2 py-1 text-right tabular-nums">{row.rise}</td>
-										<td class="px-2 py-1 text-xs text-slate-600"
-											>{[row.duty ? "The duty's flow (the system duty check)." : '', row.note]
-												.filter(Boolean)
-												.join(' ')}{#if row.detail}<IssueDetail
-													detail={row.detail}
-													subject="the point at {row.flow} {data.flowUnit}"
-												/>{/if}</td
-										>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
+							{/each}
+						</tbody>
+					</CurveTable>
 				{/if}
 				{#if othersOn && others.length}
 					<!-- The other cases' tables last, after the shown case's (§5.3 The data region, F33):
@@ -1029,12 +1027,9 @@
 						case headed by its name, each value after its column's words (data-label, as
 						::before content, so a cell's text is the same at every width), the roles
 						kept. -->
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 					<div
 						class="relative overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-others-caption"
-						tabindex="0"
+						use:scrollRegion={`${id}-others-caption`}
 						data-other-duties
 					>
 						<!-- svelte-ignore a11y_no_redundant_roles -->
@@ -1131,84 +1126,72 @@
 				{#if curveRows.length}
 					<!-- Other cases' own group curves (D24 §9.6): every point, those cut from the chart
 						included, one row group per case; a list below 640 px, as Running combinations. -->
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-curves-caption"
-						tabindex="0"
-						data-other-curves
+					<CurveTable
+						key="other-curves"
+						caption={OTHER_CURVES_CAPTION}
+						points={curvePoints}
+						openByDefault={cannotDraw}
+						bind:choice={tablesOpen['other-curves']}
+						roles
+						tableClass="w-full border-separate border-spacing-0 text-sm max-sm:block"
 					>
 						<!-- svelte-ignore a11y_no_redundant_roles -->
-						<table
-							role="table"
-							class="w-full border-separate border-spacing-0 text-sm max-sm:block"
-						>
-							<caption
-								id="{id}-curves-caption"
-								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700 max-sm:block"
-							>
-								{OTHER_CURVES_CAPTION}
-							</caption>
+						<thead role="rowgroup" class="bg-slate-50 max-sm:sr-only">
 							<!-- svelte-ignore a11y_no_redundant_roles -->
-							<thead role="rowgroup" class="sticky top-0 bg-slate-50 max-sm:sr-only">
+							<tr role="row">
+								<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
+									>Rise ({data.headUnit})</th
+								>
+								<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
+									>Flow ({data.flowUnit})</th
+								>
+								<th role="columnheader" scope="col" class="px-2 py-1 text-left font-medium">Note</th
+								>
+							</tr>
+						</thead>
+						{#each curveRows as group (group.key)}
+							{@const outOfDate = others.find((o) => o.key === group.key)?.stale ?? false}
+							<!-- svelte-ignore a11y_no_redundant_roles -->
+							<tbody role="rowgroup" class="max-sm:block">
 								<!-- svelte-ignore a11y_no_redundant_roles -->
-								<tr role="row">
-									<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
-										>Rise ({data.headUnit})</th
+								<tr role="row" class="max-sm:block">
+									<th
+										role="rowheader"
+										scope="rowgroup"
+										colspan="3"
+										class={[
+											'border-y border-slate-200 px-2 py-1 text-left font-medium break-words max-sm:block',
+											outOfDate ? 'bg-amber-50/60' : 'bg-slate-50/60'
+										]}
 									>
-									<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
-										>Flow ({data.flowUnit})</th
-									>
-									<th role="columnheader" scope="col" class="px-2 py-1 text-left font-medium"
-										>Note</th
-									>
+										<span aria-hidden="true" style:color={GROUP_OTHER}>{`${OTHER_SYMBOL} `}</span
+										>{group.header}
+									</th>
 								</tr>
-							</thead>
-							{#each curveRows as group (group.key)}
-								{@const outOfDate = others.find((o) => o.key === group.key)?.stale ?? false}
-								<!-- svelte-ignore a11y_no_redundant_roles -->
-								<tbody role="rowgroup" class="max-sm:block">
+								{#each group.rows as row, i (i)}
 									<!-- svelte-ignore a11y_no_redundant_roles -->
-									<tr role="row" class="max-sm:block">
-										<th
-											role="rowheader"
-											scope="rowgroup"
-											colspan="3"
-											class={[
-												'border-y border-slate-200 px-2 py-1 text-left font-medium break-words max-sm:block',
-												outOfDate ? 'bg-amber-50/60' : 'bg-slate-50/60'
-											]}
+									<tr
+										role="row"
+										class="max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5"
+									>
+										<td
+											role="cell"
+											data-label="Rise ({data.headUnit})"
+											class={listCell(row.rise, true)}>{row.rise}</td
 										>
-											<span aria-hidden="true" style:color={GROUP_OTHER}>{`${OTHER_SYMBOL} `}</span
-											>{group.header}
-										</th>
+										<td
+											role="cell"
+											data-label="Flow ({data.flowUnit})"
+											class={listCell(row.flow, true)}>{row.flow}</td
+										>
+										<td role="cell" data-label="Note" class={listCell(row.note, false)}
+											>{row.note}</td
+										>
 									</tr>
-									{#each group.rows as row, i (i)}
-										<!-- svelte-ignore a11y_no_redundant_roles -->
-										<tr
-											role="row"
-											class="max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5"
-										>
-											<td
-												role="cell"
-												data-label="Rise ({data.headUnit})"
-												class={listCell(row.rise, true)}>{row.rise}</td
-											>
-											<td
-												role="cell"
-												data-label="Flow ({data.flowUnit})"
-												class={listCell(row.flow, true)}>{row.flow}</td
-											>
-											<td role="cell" data-label="Note" class={listCell(row.note, false)}
-												>{row.note}</td
-											>
-										</tr>
-									{/each}
-								</tbody>
-							{/each}
-						</table>
-					</div>
+								{/each}
+							</tbody>
+						{/each}
+					</CurveTable>
 				{/if}
 			</div>
 		{/if}

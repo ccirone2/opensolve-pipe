@@ -1,14 +1,16 @@
 /**
  * ResultsTable's props for a table in a card that reads no workspace (proposal
  * pumps-results-layout.md §5.3 Station, §9 S6a): the flag line drawn by the caller in place of
- * FlagBadge, the row header's content, the box a named region and a Tab stop, the Fields choice
- * kept under a key of its own. Each is drawn only where given: every other table keeps its
- * FlagBadges, its name buttons and its box as before (the Links view, mounted with its workspace).
+ * FlagBadge, the row header's content, the box a named region and a Tab stop while it overflows
+ * (§9 S7), the Fields choice kept under a key of its own. Each is drawn only where given: every
+ * other table keeps its FlagBadges, its name buttons and its box as before (the Links view,
+ * mounted with its workspace).
  */
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { createRawSnippet, tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
+import { fakeResizeObserver, sizeBox } from '$lib/testing/resize';
 import { flag, pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { pumpTransferExample } from '$lib/utils/examples';
@@ -121,7 +123,8 @@ describe('ResultsTable: a flag line, a name and a region of the caller’s (pump
 		expect(onselect).toHaveBeenCalledWith(expect.objectContaining({ key: 'PA' }));
 	});
 
-	it('makes its box a region named by the element given and a Tab stop; else neither', () => {
+	it('makes its box a region named by the element given and a Tab stop while it overflows (§9 S7); else neither', () => {
+		const observers = fakeResizeObserver();
 		const label = document.createElement('p');
 		label.id = 'made-up-title';
 		label.textContent = 'The pumps in the group, Winter';
@@ -133,20 +136,35 @@ describe('ResultsTable: a flag line, a name and a region of the caller’s (pump
 			labelledby: 'made-up-title',
 			flagLine
 		});
+		// As a browser lays it out: the table wider than its box, then measured.
+		const fits = { clientWidth: 452, scrollWidth: 452, clientHeight: 300, scrollHeight: 300 };
+		const own = screen.getByRole('table').parentElement!;
+		sizeBox(own, { ...fits, scrollWidth: 900 });
+		observers.resize(own);
 		const region = screen.getByRole('region', { name: 'The pumps in the group, Winter' });
+		expect(region).toBe(own);
 		expect(region).toHaveAttribute('tabindex', '0');
 		expect(region).toHaveClass('@container', 'scroll-shadow-x', 'overflow-auto', 'relative');
 		expect(within(region).getByRole('table', { name: 'The pumps in the group, Winter' })).toBe(
 			screen.getByRole('table')
 		);
+		// Its content fits: neither a region nor a Tab stop.
+		sizeBox(own, fits);
+		observers.resize(own);
+		expect(screen.queryByRole('region', { name: 'The pumps in the group, Winter' })).toBeNull();
+		expect(own).not.toHaveAttribute('tabindex');
 		label.remove();
 		cleanup();
 		render(ResultsTable, { table: table(), caption: 'Results', first: 'Pump', flagLine });
 		const box = screen.getByRole('table').parentElement!;
+		// Without a name, never, even overflowing.
+		sizeBox(box, { ...fits, scrollWidth: 900 });
+		observers.resize(box);
 		expect(box).not.toHaveAttribute('role');
 		expect(box).not.toHaveAttribute('tabindex');
 		expect(box).not.toHaveClass('relative');
 		expect(box).toHaveClass('@container', 'scroll-shadow-x', 'overflow-auto');
+		observers.restore();
 	});
 
 	it('keeps the Fields choice under the key given, whatever the caption (it names the case)', async () => {

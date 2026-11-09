@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { cellText, resultsView, solveConverged } from './support';
+import { cellText, openCurveTable, resultsView, solveConverged } from './support';
 
 /**
  * The pump chart's panels (proposal pump-chart.md §4), against the real app and API, on desktop
@@ -49,10 +49,13 @@ test('draws the efficiency, power and NPSH panels and reads them at the duty', a
 	await panels.getByRole('button', { name: 'Shaft power' }).click();
 	await expect(chart).toHaveAccessibleName(/below, on the same flow axis: efficiency, npsh/);
 	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	// Each curve table in its disclosure, opened first (proposal pumps-results-layout.md §9 S7).
+	await expect(await openCurveTable(figure, 'Efficiency curve at 100 % speed')).toBeVisible();
+	// Gone, not folded away: hidden ones counted too.
 	await expect(
-		figure.getByRole('table', { name: /Efficiency curve at 100 % speed/ })
-	).toBeVisible();
-	await expect(figure.getByRole('table', { name: /Shaft power curve/ })).toHaveCount(0);
+		figure.getByRole('table', { name: /Shaft power curve/, includeHidden: true })
+	).toHaveCount(0);
+	await openCurveTable(figure, 'System curve');
 	await expect(figure.getByRole('columnheader', { name: /NPSHa/ })).toBeVisible();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
 		true

@@ -35,6 +35,7 @@ import {
 	caseGroup,
 	chooseCase,
 	openCases,
+	openCurveTable,
 	resultsPane,
 	resultsScroller,
 	resultsView,
@@ -1943,9 +1944,10 @@ async function cutInCard(page: Page): Promise<string[]> {
  */
 async function groupTableSideways(page: Page): Promise<boolean> {
 	return page.evaluate(() => {
+		// The table's box (a region only while it overflows since S7, §9 S7).
 		const box = document.querySelector<HTMLElement>(
-			'[data-pumps-together] [data-group-table] [role="region"]'
-		);
+			'[data-pumps-together] [data-group-table] table[role="table"]'
+		)?.parentElement;
 		return !!box && window.innerWidth < 640 && box.scrollWidth > box.clientWidth + 1;
 	});
 }
@@ -2502,6 +2504,7 @@ function readExtremes() {
 		display: getComputedStyle(table).display,
 		sideways: box.scrollWidth > box.clientWidth + 1,
 		tabindex: box.getAttribute('tabindex'),
+		role: box.getAttribute('role'),
 		containerType: getComputedStyle(container).containerType,
 		containerWidth: Math.round(container.getBoundingClientRect().width),
 		frame: getComputedStyle(box).borderTopWidth,
@@ -2648,7 +2651,10 @@ async function extremesPart(page: Page, view: string, where: string) {
 	soft(m.columns, `the extremes' column headers, ${where}`).toEqual(EXTREMES_COLUMNS);
 	soft(m.rows.length, `a row per member, ${where}`).toBeGreaterThan(1);
 	soft(m.sideways, `the extremes' box scrolls sideways, ${where}`).toBe(false);
+	// A Tab stop and a region only while it overflows (S7's rule, §7 item 25): it never scrolls
+	// sideways (above), so neither.
 	soft(m.tabindex, `the extremes' box a Tab stop (S7's), ${where}`).toBeNull();
+	soft(m.role, `the extremes' box a region (S7's), ${where}`).toBeNull();
 	soft(m.containerType, `the extremes' container, ${where}`).toBe('inline-size');
 	soft(m.containerWidth, `the container the box's width, ${where}`).toBe(m.width);
 	soft(m.display, `the extremes' form, ${where}`).toBe(m.list ? 'block' : 'table');
@@ -2742,9 +2748,10 @@ const OPEN_CARD_1280 = 6_296;
  */
 function readCombinations() {
 	const card = document.querySelector('[data-pumps-together]');
-	// The box: a ResultsTable's since S6b, the region in the block that holds its controls.
+	// The box: a ResultsTable's since S6b, the table's in the block that holds its controls (a
+	// region only while it overflows since S7, §9 S7).
 	const block = card?.querySelector<HTMLElement>('[data-running-combinations]');
-	const box = block?.querySelector<HTMLElement>('[role="region"]');
+	const box = block?.querySelector<HTMLElement>('table[role="table"]')?.parentElement;
 	if (!card || !block || !box) return null;
 	const table = box.querySelector('table')!;
 	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
@@ -3021,7 +3028,8 @@ function readCombinationsTable() {
 	const block = document.querySelector<HTMLElement>(
 		'[data-pumps-together] [data-running-combinations]'
 	);
-	const box = block?.querySelector<HTMLElement>('[role="region"]');
+	// The table's box (a region only while it overflows since S7, §9 S7).
+	const box = block?.querySelector<HTMLElement>('table[role="table"]')?.parentElement;
 	const table = box?.querySelector('table');
 	if (!block || !box || !table) return null;
 	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
@@ -3345,7 +3353,8 @@ function readGroupTable() {
 		return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
 	};
 	const title = block.querySelector('p');
-	const box = block.querySelector<HTMLElement>('[role="region"]');
+	// The table's box (a region only while it overflows since S7, §9 S7).
+	const box = block.querySelector<HTMLElement>('table[role="table"]')?.parentElement;
 	const table = box?.querySelector('table');
 	const select = block.querySelector<HTMLSelectElement>('select[aria-label="Sort by"]');
 	const fields = [...block.querySelectorAll('button')].find((b) =>
@@ -3389,6 +3398,15 @@ function readGroupTable() {
 			? {
 					labelledby: box.getAttribute('aria-labelledby'),
 					tabindex: box.getAttribute('tabindex'),
+					role: box.getAttribute('role'),
+					// It overflows on an axis it scrolls (§9 S7: a Tab stop only then).
+					overflows: (() => {
+						const css = getComputedStyle(box);
+						return (
+							(/(auto|scroll)/.test(css.overflowX) && box.scrollWidth > box.clientWidth + 1) ||
+							(/(auto|scroll)/.test(css.overflowY) && box.scrollHeight > box.clientHeight + 1)
+						);
+					})(),
 					rect: rect(box),
 					sideways: box.scrollWidth > box.clientWidth + 1,
 					caption: squash(table?.querySelector('caption')?.textContent)
@@ -3473,8 +3491,14 @@ async function groupTablePart(page: Page, where: string) {
 		/^The pumps in the group(, .+)?$/
 	);
 	soft(m.title?.seen, `the group table's title in sight, ${where}`).toBe(true);
-	soft(m.box?.labelledby, `the group table's box named by its title, ${where}`).toBe(m.title?.id);
-	soft(m.box?.tabindex, `the group table's box a Tab stop, ${where}`).toBe('0');
+	// A region named by its title and a Tab stop while it overflows, neither when it fits (§9 S7).
+	const stop = !!m.box?.overflows;
+	soft(m.box?.labelledby, `the group table's box named by its title, ${where}`).toBe(
+		stop ? m.title?.id : null
+	);
+	soft(m.box?.role, `the group table's box a region, ${where}`).toBe(stop ? 'region' : null);
+	soft(m.box?.tabindex, `the group table's box a Tab stop, ${where}`).toBe(stop ? '0' : null);
+	console.log(`${where}: the group table's box ${stop ? 'overflows: a Tab stop' : 'fits'}`);
 	soft(m.box?.caption, `the group table named as its title, ${where}`).toBe(m.title?.text);
 	soft(m.list, `the group table a list below 640 px only, ${where}`).toBe(phone);
 	soft(m.fields?.seen, `Fields in sight, ${where}`).toBe(true);
@@ -3529,6 +3553,114 @@ async function groupTablePart(page: Page, where: string) {
 	if (phone) soft(m.box?.sideways, `the group table's box scrolls sideways, ${where}`).toBe(false);
 }
 
+// ---- S7: data without scroll traps (§9 S7) -----------------------------------------------------
+
+/**
+ * §5.7 row 11: the scroll regions that are Tab stops in the lineups, every disclosure and data
+ * table open, at each size: the boxes that overflow, as measured after S7 (13 on main). The rule
+ * holds in every view at every size: every focusable box overflows, and every box of the data
+ * regions and the card's tables that overflows is one.
+ */
+const SCROLL_STOPS: Readonly<Record<string, number>> = {
+	// The group table's, the group curve's and Running combinations' boxes.
+	'1280x800': 3,
+	// The group curve's box alone: the group table and Running combinations are lists there.
+	'390x844': 1,
+	'320x640': 1
+};
+
+/**
+ * The tab's scroll boxes (§9 S7): every element made a Tab stop that is no control of its own,
+ * and every box S7 measures (the two data regions' tables', the group table's, Running
+ * combinations' and the extremes'), each with what it holds, whether it is drawn, whether it
+ * overflows on an axis it scrolls, and what it is: a Tab stop, a region, its name.
+ */
+function readScrollBoxes() {
+	const pane = document.querySelector('section[aria-label="Results"]')!;
+	const tab = [...pane.querySelectorAll('[role="tabpanel"]')].find(
+		(p) => !(p as HTMLElement).hidden
+	)!;
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const overflows = (el: Element) => {
+		const css = getComputedStyle(el);
+		return (
+			(/(auto|scroll)/.test(css.overflowX) && el.scrollWidth > el.clientWidth + 1) ||
+			(/(auto|scroll)/.test(css.overflowY) && el.scrollHeight > el.clientHeight + 1)
+		);
+	};
+	const named = (el: Element) =>
+		squash(
+			(el.getAttribute('aria-labelledby') ?? '')
+				.split(/\s+/)
+				.map((id) => document.getElementById(id)?.textContent ?? '')
+				.join(' ')
+		);
+	const read = (box: HTMLElement) => {
+		const r = box.getBoundingClientRect();
+		return {
+			holds: squash(box.querySelector('caption')?.textContent) || box.tagName.toLowerCase(),
+			drawn: box.checkVisibility() && r.width > 1 && r.height > 1,
+			overflows: overflows(box),
+			stop: box.getAttribute('tabindex') === '0',
+			role: box.getAttribute('role'),
+			name: named(box)
+		};
+	};
+	const NATIVE = 'a[href],button,input,select,textarea,summary,[contenteditable="true"]';
+	const focusable = [...tab.querySelectorAll<HTMLElement>('[tabindex="0"]')]
+		.filter((el) => !el.matches(NATIVE))
+		.map(read);
+	const measured = [
+		...tab.querySelectorAll('[data-pump-data] table, [data-group-data] table'),
+		...tab.querySelectorAll(
+			'[data-group-table] table[role="table"], [data-running-combinations] table[role="table"], [data-extremes] > table'
+		)
+	].map((t) => read(t.parentElement!));
+	// A data region or a card's table drawn: S7 has boxes to measure (none in the one-off's
+	// defaults, the card closed and no data table shown).
+	const tables = !!tab.querySelector(
+		'[data-pump-data], [data-group-data], [data-group-table], [data-running-combinations]'
+	);
+	return { focusable, measured, tables };
+}
+
+/**
+ * S7 at the size shown (soft): every focusable box overflows and is a region named by what it
+ * holds; every box S7 measures is a Tab stop exactly while it overflows (none while folded away);
+ * in the lineups, everything open, the count of scroll-region Tab stops is §5.7 row 11's.
+ */
+async function scrollBoxesPart(page: Page, view: string, where: string) {
+	const soft = expect.configure({ soft: true });
+	const m = await page.evaluate(readScrollBoxes);
+	console.log(
+		`${where}: ${m.focusable.length} scroll-region Tab stops (${m.focusable.map((b) => b.holds).join('; ')}); ${m.measured.filter((b) => b.drawn).length} measured boxes drawn, ${m.measured.filter((b) => b.overflows).length} overflowing`
+	);
+	for (const box of m.focusable) {
+		soft(box.overflows, `a focusable box overflows: "${box.holds}", ${where}`).toBe(true);
+		soft(box.role, `a focusable box a region: "${box.holds}", ${where}`).toBe('region');
+		soft(box.name.length, `a focusable box named: "${box.holds}", ${where}`).toBeGreaterThan(0);
+	}
+	if (m.tables) soft(m.measured.length, `boxes S7 measures, ${where}`).toBeGreaterThan(0);
+	for (const box of m.measured) {
+		const stop = box.drawn && box.overflows;
+		soft(box.stop, `"${box.holds}" a Tab stop only while it overflows, ${where}`).toBe(stop);
+		soft(box.role, `"${box.holds}" a region only while it overflows, ${where}`).toBe(
+			stop ? 'region' : null
+		);
+		if (stop && box.holds !== 'div') {
+			// Named by what it holds: the caption, or the group table's and Running combinations'
+			// titles, the same words.
+			soft(box.name, `"${box.holds}" named by what it holds, ${where}`).toBe(box.holds);
+		}
+	}
+	const size = sizeOf(page);
+	if (view === '2-lineups') {
+		soft(m.focusable.length, `scroll-region Tab stops, lineups everything open, ${where}`).toBe(
+			SCROLL_STOPS[size]
+		);
+	}
+}
+
 /**
  * Check and measure the view at the project's size and, on the phone, at 320×640 too (reflow at
  * 400 % zoom; pump-lineups.e2e.ts resizes the same way). Then axe with every disclosure open at
@@ -3547,8 +3679,10 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await addCasesPart(page, view, `${view} at ${size}`);
 	await extremesPart(page, view, `${view} at ${size}`);
 	await combinationsPart(page, view, `${view} at ${size}`, data);
+	await scrollBoxesPart(page, view, `${view} at ${size}`);
 	if (info.project.name !== 'mobile') {
 		await axeClean(page, `${view} at ${size}`);
+		await scrollBoxesPart(page, '', `${view} at ${size}, every disclosure open`);
 		await pageHolds(page, `${view} at ${size}, every disclosure open`);
 		return;
 	}
@@ -3565,11 +3699,14 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await addCasesPart(page, view, `${view} at 320x640`);
 	await extremesPart(page, view, `${view} at 320x640`);
 	await combinationsPart(page, view, `${view} at 320x640`, narrow);
+	await scrollBoxesPart(page, view, `${view} at 320x640`);
 	await axeClean(page, `${view} at 320x640`);
+	await scrollBoxesPart(page, '', `${view} at 320x640, every disclosure open`);
 	await pageHolds(page, `${view} at 320x640, every disclosure open`);
 	await page.setViewportSize(viewport);
 	await settle(page, 1000);
 	await axeClean(page, `${view} at ${size}`);
+	await scrollBoxesPart(page, '', `${view} at ${size}, every disclosure open`);
 	await pageHolds(page, `${view} at ${size}, every disclosure open`);
 }
 
@@ -4232,7 +4369,7 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 	await expect(card.getByRole('group', { name: 'Pumps in the group' })).toContainText(LONG_PUMP);
 	await expect(card.getByRole('group', { name: 'Cases on this chart' })).toContainText(LONG_CASE);
 	await expect(
-		card.getByRole('region', { name: 'The pumps in the group' }).getByRole('rowheader').first()
+		card.getByRole('table', { name: 'The pumps in the group' }).getByRole('rowheader').first()
 	).toContainText(LONG_PUMP);
 	const viewport = page.viewportSize()!;
 	const sizes =
@@ -4344,7 +4481,8 @@ test('the group table sorts, chooses its fields and shows the flagged pumps only
 	const tab = await pumpsTab(page);
 	const card = await openCard(page, tab);
 	const block = card.locator('[data-group-table]');
-	const region = card.getByRole('region', { name: 'The pumps in the group' });
+	// The table's box (a region only while it overflows since S7, §9 S7).
+	const region = card.getByRole('table', { name: 'The pumps in the group' }).locator('..');
 	await expect(region.getByRole('rowheader')).toHaveCount(3);
 	const phone = info.project.name === 'mobile';
 	const names = () => region.locator('tbody th[scope="row"] span.min-w-0').allTextContents();
@@ -4474,7 +4612,7 @@ test('the group table sorts, chooses its fields and shows the flagged pumps only
 /** Sort Running combinations by a column, or clear the sort: its heading from 640 px, "Sort by" below. */
 async function sortCombinations(page: Page, column: RegExp, key: string, clear = false) {
 	const block = page.locator('[data-pumps-together] [data-running-combinations]');
-	const heading = block.getByRole('region').getByRole('columnheader', { name: column });
+	const heading = block.getByRole('table').getByRole('columnheader', { name: column });
 	if ((page.viewportSize()?.width ?? 1280) < 640) {
 		await block.getByRole('combobox', { name: 'Sort by' }).selectOption(clear ? '' : key);
 	} else if (clear) {
@@ -4497,7 +4635,8 @@ test('Running combinations sorts into one table with a Case column, its first ro
 	const tab = await pumpsTab(page);
 	const card = tab.getByRole('region', { name: /^Pumps together/ });
 	const block = card.locator('[data-running-combinations]');
-	const region = card.getByRole('region', { name: 'Running combinations' });
+	// The table's box (a region only while it overflows since S7, §9 S7).
+	const region = card.getByRole('table', { name: 'Running combinations' }).locator('..');
 	const viewport = page.viewportSize()!;
 	const sizes =
 		info.project.name === 'mobile' ? [viewport, { width: 320, height: 640 }] : [viewport];
@@ -4739,8 +4878,9 @@ test('S5 review: the extremes list’s names with a measure no case gives, each 
 
 	// The trace's openers: Running combinations' names (S5), the Station's group table's (S3) and
 	// Results per pump's (the shared ResultsTable), each closed by Escape, one by Close too.
-	const combos = card.getByRole('region', { name: 'Running combinations' });
-	const station = card.getByRole('region', { name: /^The pumps in the group/ });
+	// The tables' boxes (regions only while they overflow since S7, §9 S7).
+	const combos = card.getByRole('table', { name: 'Running combinations' }).locator('..');
+	const station = card.getByRole('table', { name: /^The pumps in the group/ }).locator('..');
 	const perPump = tab.getByRole('table', { name: 'Results per pump' });
 	await expect(combos.getByRole('button', { name: 'Pump P2', exact: true })).toHaveCount(1);
 	await traceGivesFocusBack(
@@ -5077,4 +5217,164 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	await expect(box).not.toBeChecked();
 	await expect(block.locator('[data-now-ticked]')).toHaveCount(0);
 	await expect(status).toHaveText('');
+});
+
+// ---- S7: the curve tables folded, the boxes measured, the choice remembered (§9 S7) -------------
+
+/** Each curve table's disclosure in `scope`: its caption, its summary, its rows, open or not. */
+function readFolds(scope: Element) {
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	return [...scope.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')].map((d) => {
+		const summary = d.querySelector(':scope > summary')!;
+		const r = summary.getBoundingClientRect();
+		const table = d.querySelector('table')!;
+		return {
+			caption: squash(table.querySelector('caption')?.textContent),
+			summary: squash(summary.textContent),
+			// What its reason column holds: the pump chart's "Why no head", the group system
+			// curve's rows without a rise (§9 S7).
+			reasons:
+				[...table.querySelectorAll('thead th')].some(
+					(th) => squash(th.textContent) === 'Why no head'
+				) ||
+				[...table.querySelectorAll('tbody tr')].some(
+					(tr) =>
+						squash(table.querySelector('caption')?.textContent).startsWith('Group system curve') &&
+						squash(tr.querySelectorAll('td')[1]?.textContent) === '—'
+				),
+			rows: table.querySelectorAll('tbody tr').length,
+			open: d.open,
+			// The summary in sight: a box of its own, no sr-only, 12 px at least.
+			seen:
+				summary.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+				!summary.closest('.sr-only') &&
+				r.width > 1 &&
+				r.height >= 12
+		};
+	});
+}
+
+test('S7: each curve table a disclosure “{caption} ({n} points)” in sight, open where its reasons have entries; a box a Tab stop only while it overflows, resized in the browser; each chart’s data table remembered after a reload (§9 S7, §5.7)', async ({
+	page
+}) => {
+	test.setTimeout(300_000);
+	await open(page, projectOf('fcv-outside'));
+	await solveConverged(page);
+	const tab = await pumpsTab(page);
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	await expect(figure.locator('[data-pump-method]')).toBeVisible({ timeout: 60_000 });
+	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	const pumpFolds = await figure.evaluate(readFolds);
+	console.log(`the pump chart's curve tables: ${JSON.stringify(pumpFolds)}`);
+	expect(pumpFolds.map((f) => f.caption).slice(0, 2)).toEqual([
+		'Pump curve at 100 % speed',
+		'System curve'
+	]);
+	for (const f of pumpFolds) {
+		expect(f.summary, f.caption).toBe(`${f.caption} (${f.rows} point${f.rows === 1 ? '' : 's'})`);
+		expect(f.rows, f.caption).toBeGreaterThan(1);
+		expect(f.seen, `"${f.summary}" in sight`).toBe(true);
+		// The chart drawn: open exactly where its Why no head column has entries.
+		expect(f.open, `"${f.caption}" open`).toBe(f.reasons);
+	}
+
+	const card = await openCard(page, tab);
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
+	const data = card.locator('[data-group-data]');
+	const groupFolds = await data.evaluate(readFolds);
+	console.log(`the group chart's curve tables: ${JSON.stringify(groupFolds)}`);
+	expect(groupFolds.map((f) => [f.caption, f.open, f.reasons])).toEqual([
+		["Group curve (station's flow at each rise)", false, false],
+		["Group system curve (rise the rest of the network needs at each station's flow)", true, true]
+	]);
+	for (const f of groupFolds) {
+		expect(f.summary).toBe(`${f.caption} (${f.rows} points)`);
+		expect(f.seen, `"${f.summary}" in sight`).toBe(true);
+	}
+	// The rule with the curve tables at their defaults, most folded (§9 S7): only drawn boxes
+	// that overflow are Tab stops.
+	await scrollBoxesPart(page, '', `the curve tables at their defaults, ${sizeOf(page)}`);
+	// The group system curve's reasons in sight, the note pointing to them answered.
+	const reason = data
+		.getByRole('table', { name: /^Group system curve/ })
+		.getByRole('cell', { name: /^No steady state carries this flow/ })
+		.first();
+	expect(await seenLine(reason), 'a reason without a rise in sight').toBe(true);
+
+	// Real boxes resized: the group curve's table is wider than its box (its member columns), so
+	// it is a Tab stop and a region by its caption once its disclosure is open; folded away it is
+	// neither, though the browser lays it out still; given room, it fits and is neither; back.
+	const box = data.locator('details[data-curve-table="group-curve"] table').locator('..');
+	const state = () =>
+		box.evaluate((el) => ({
+			tabindex: el.getAttribute('tabindex'),
+			role: el.getAttribute('role'),
+			sideways: el.scrollWidth > el.clientWidth + 1
+		}));
+	expect(await state()).toEqual({ tabindex: null, role: null, sideways: true });
+	await openCurveTable(card, "Group curve (station's flow at each rise)");
+	await expect.poll(state).toEqual({ tabindex: '0', role: 'region', sideways: true });
+	await expect(
+		data.getByRole('region', { name: "Group curve (station's flow at each rise)" })
+	).toHaveCount(1);
+	// Its keyboard scroll: focused by Tab from its summary, → moves it sideways.
+	await card.locator('details[data-curve-table="group-curve"] > summary').focus();
+	await page.keyboard.press('Tab');
+	await expect(box).toBeFocused();
+	await page.keyboard.press('ArrowRight');
+	await expect.poll(() => box.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+	await box.evaluate((el) => {
+		el.style.maxWidth = 'none';
+		el.style.width = `${el.scrollWidth + 400}px`;
+	});
+	await expect.poll(state).toEqual({ tabindex: null, role: null, sideways: false });
+	await box.evaluate((el) => {
+		el.style.maxWidth = '';
+		el.style.width = '';
+	});
+	await expect.poll(state).toEqual({ tabindex: '0', role: 'region', sideways: true });
+	// Down too: "Each pump's point" fits; held to 40 px high it overflows, and back.
+	const points = data
+		.getByRole('table', { name: "Each pump's point (flow through it)" })
+		.locator('..');
+	const pointsState = () =>
+		points.evaluate((el) => ({
+			tabindex: el.getAttribute('tabindex'),
+			role: el.getAttribute('role'),
+			down: el.scrollHeight > el.clientHeight + 1
+		}));
+	expect(await pointsState()).toEqual({ tabindex: null, role: null, down: false });
+	await points.evaluate((el) => (el.style.maxHeight = '40px'));
+	await expect.poll(pointsState).toEqual({ tabindex: '0', role: 'region', down: true });
+	await expect(
+		data.getByRole('region', { name: "Each pump's point (flow through it)" })
+	).toHaveCount(1);
+	await points.evaluate((el) => (el.style.maxHeight = ''));
+	await expect.poll(pointsState).toEqual({ tabindex: null, role: null, down: false });
+
+	// Both choices remembered in this browser: after a reload each chart's data table is shown.
+	await page.reload();
+	await solveConverged(page);
+	const again = await pumpsTab(page);
+	await expect(
+		again.getByRole('button', { name: 'Hide data table of the pump chart' })
+	).toHaveAttribute('aria-expanded', 'true', { timeout: 60_000 });
+	const reopened = await openCard(page, again);
+	await expect(
+		reopened.getByRole('button', { name: 'Hide data table of the group chart' })
+	).toHaveAttribute('aria-expanded', 'true');
+	await expect(reopened.locator('[data-group-data]')).toBeVisible();
+	// Hidden again, it stays hidden after the next reload.
+	await reopened.getByRole('button', { name: 'Hide data table of the group chart' }).click();
+	await again.getByRole('button', { name: 'Hide data table of the pump chart' }).click();
+	await page.reload();
+	await solveConverged(page);
+	const third = await pumpsTab(page);
+	await expect(
+		third.getByRole('button', { name: 'Show data table of the pump chart' })
+	).toHaveAttribute('aria-expanded', 'false', { timeout: 60_000 });
+	const closedAgain = await openCard(page, third);
+	await expect(
+		closedAgain.getByRole('button', { name: 'Show data table of the group chart' })
+	).toHaveAttribute('aria-expanded', 'false');
 });

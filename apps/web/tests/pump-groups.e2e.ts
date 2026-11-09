@@ -12,9 +12,11 @@ import type {
 	SolveResponse
 } from '../src/lib/api/types';
 import {
+	curveTableFold,
 	downloadFrom,
 	expectNothingSent,
 	halfUlp,
+	openCurveTable,
 	readWorkbook,
 	resultsPane,
 	resultsScroller,
@@ -233,7 +235,8 @@ test('two pumps in parallel: the station, each share and loss on its way, the PN
 	expect(footer).toContain('Rise from Tee T1 (run inlet) to Tee T2 (run outlet)');
 
 	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
-	const samples = card.getByRole('table', { name: "Group curve (station's flow at each rise)" });
+	// In its disclosure, opened first (proposal pumps-results-layout.md §9 S7).
+	const samples = await openCurveTable(card, "Group curve (station's flow at each rise)");
 	await expect(samples.getByRole('row')).toHaveCount(body.points.length + 1);
 	await noSidewaysScroll(page);
 
@@ -260,7 +263,8 @@ test('the station: its answer before the group table, each flagged pump’s flag
 	await expect(station.getByRole('heading', { name: 'Station', level: 4 })).toBeVisible();
 	// The answer first: the station's dl, then the table.
 	const answer = station.getByLabel('The station');
-	const region = station.getByRole('region', { name: 'The pumps in the group' });
+	// The table's box (a region only while it overflows since S7, pumps-results-layout.md §9 S7).
+	const region = station.getByRole('table', { name: 'The pumps in the group' }).locator('..');
 	const [a, r] = [(await answer.boundingBox())!, (await region.boundingBox())!];
 	expect(a.y + a.height).toBeLessThanOrEqual(r.y);
 	// In sight at a size of its own, on a phone too: not sr-only's 1 px box, which toBeVisible
@@ -426,11 +430,13 @@ test('the group system curve: drawn, listed with the response’s values, crossi
 		)
 	).toBeVisible();
 
-	// The data table: every point of the group system curve, its flow and rise as the response's.
+	// The data table: every point of the group system curve, its flow and rise as the response's,
+	// in its disclosure, opened first (proposal pumps-results-layout.md §9 S7).
 	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
-	const table = card.getByRole('table', {
-		name: "Group system curve (rise the rest of the network needs at each station's flow)"
-	});
+	const table = await openCurveTable(
+		card,
+		"Group system curve (rise the rest of the network needs at each station's flow)"
+	);
 	const points = [...body.systemPoints].sort((a, b) => a.flow - b.flow);
 	const rows = table.getByRole('row');
 	await expect(rows).toHaveCount(points.length + 1);
@@ -497,9 +503,11 @@ test('the group system curve in US units: its points in gpm and ft', async ({ pa
 	const { system } = await answersOf(page, () => toggle.click());
 	expect(system.status).toBe(200);
 	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
-	const table = card.getByRole('table', {
-		name: "Group system curve (rise the rest of the network needs at each station's flow)"
-	});
+	// In its disclosure, opened first (proposal pumps-results-layout.md §9 S7).
+	const table = await openCurveTable(
+		card,
+		"Group system curve (rise the rest of the network needs at each station's flow)"
+	);
 	const heads = (await table.getByRole('columnheader').allInnerTexts()).map(squash);
 	expect(heads).toEqual(['Flow (gpm)', 'Rise (ft)', 'Note']);
 	const points = [...system.body.systemPoints].sort((a, b) => a.flow - b.flow);
@@ -541,6 +549,13 @@ test('an FCV outside the station: the group system curve has no rise beyond it, 
 		)
 	).toBeVisible();
 	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
+	// Open by default: some of its rows have no rise (proposal pumps-results-layout.md §9 S7).
+	await expect(
+		curveTableFold(
+			card,
+			"Group system curve (rise the rest of the network needs at each station's flow)"
+		)
+	).toHaveAttribute('open', '');
 	const table = card.getByRole('table', {
 		name: "Group system curve (rise the rest of the network needs at each station's flow)"
 	});
@@ -796,7 +811,8 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 	expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 	await noSidewaysScroll(page);
-	const region = card.getByRole('region', { name: 'Running combinations' });
+	// Its box (a region only while it overflows since S7, pumps-results-layout.md §9 S7).
+	const region = card.getByRole('table', { name: 'Running combinations' }).locator('..');
 	if (isMobile) {
 		// A list on a phone: nothing to scroll sideways, each case's heading in view.
 		expect(await region.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -818,7 +834,8 @@ test('Running combinations wraps a long pump name on a phone, with no sideways s
 	await solveConverged(page);
 	const { card, toggle } = await openCard(page);
 	await answersOf(page, () => toggle.click());
-	const region = card.getByRole('region', { name: 'Running combinations' });
+	// Its box (a region only while it overflows since S7, pumps-results-layout.md §9 S7).
+	const region = card.getByRole('table', { name: 'Running combinations' }).locator('..');
 	// PA's own row header, by its exact name: since D24 §7.10 each case's heading holds a lineup
 	// line naming every member, which a substring match (and `.first()`) would find first.
 	await expect(region.getByRole('rowheader', { name: long, exact: true })).toBeVisible();
@@ -1083,9 +1100,11 @@ test('the curve family: after adding cases by number running, each lineup’s ow
 				.nth(3)
 		).toHaveText(`Drawn (${running[i]} running): it crosses the group system curve at the ring`);
 	}
-	const table = card.getByRole('table', {
-		name: "Other cases' group curves (station's flow at each rise)"
-	});
+	// In its disclosure, opened first (proposal pumps-results-layout.md §9 S7).
+	const table = await openCurveTable(
+		card,
+		"Other cases' group curves (station's flow at each rise)"
+	);
 	await expect(table).toBeVisible();
 	await expect(table.getByRole('rowgroup')).toHaveCount(1 + names.length);
 	for (const [i, name] of names.entries()) {
@@ -1108,9 +1127,8 @@ test('the curve family: after adding cases by number running, each lineup’s ow
 			else shows(flows[j]!, p.flow * 1000);
 		}
 	}
-	const region = card.getByRole('region', {
-		name: "Other cases' group curves (station's flow at each rise)"
-	});
+	// Its box (a region only while it overflows since S7, pumps-results-layout.md §9 S7).
+	const region = table.locator('..');
 	if (isMobile) {
 		// A list on a phone: nothing to scroll sideways.
 		expect(await region.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);

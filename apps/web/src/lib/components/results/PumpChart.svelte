@@ -43,6 +43,7 @@
 		chartReadout,
 		checksDrawn,
 		loadHiddenPanels,
+		loadTableShown,
 		MARKER_SYMBOLS,
 		MAX_CHART_CASES,
 		otherCasesData,
@@ -51,6 +52,7 @@
 		pumpChartData,
 		pumpLine,
 		saveHiddenPanels,
+		saveTableShown,
 		untickedAfter,
 		valueNotes,
 		type ChipKey,
@@ -60,7 +62,9 @@
 		type SystemCurveNames
 	} from '$lib/utils/pump-chart';
 	import { mediaQuery } from '$lib/utils/media.svelte';
+	import { scrollRegion } from '$lib/utils/scroll-focus';
 	import Icon from '$lib/components/ui/Icon.svelte';
+	import CurveTable from './CurveTable.svelte';
 	import IssueDetail from './IssueDetail.svelte';
 	import { formatNumber } from '$lib/utils/units';
 
@@ -260,11 +264,23 @@
 	let retryButton: HTMLButtonElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let unavailable = $state(false);
-	let showTable = $state(false);
+	/** The data table shown: remembered in this browser (pumps-results-layout.md §9 S7). */
+	let showTable = $state(loadTableShown('pump'));
+	function toggleTable() {
+		showTable = !showTable;
+		saveTableShown('pump', showTable);
+	}
 
 	/** The chart chunk could not be loaded (a redeploy, or a dropped connection): the table is shown. */
 	let loadFailed = $state(false);
-	const tableShown = $derived(showTable || unavailable || loadFailed);
+	/** No chart: the data region is shown, and every curve table in it open (§9 S7). */
+	const cannotDraw = $derived(unavailable || loadFailed);
+	const tableShown = $derived(showTable || cannotDraw);
+	/**
+	 * The curve tables the user opened or closed, by table: kept while the data region is hidden
+	 * and shown again (§9 S7).
+	 */
+	let tablesOpen = $state<Record<string, boolean | undefined>>({});
 
 	const fmt = (v: number) => formatNumber(v, 4);
 	const markerOf = (key: string) => otherData.find((o) => o.key === key)?.marker;
@@ -739,7 +755,7 @@
 				class="btn btn-quiet px-2 text-blue-800"
 				aria-expanded={tableShown}
 				aria-controls="{id}-table"
-				onclick={() => (showTable = !showTable)}
+				onclick={toggleTable}
 			>
 				<!-- The space outside the hidden suffix, so every name computation keeps it. -->
 				{tableShown ? 'Hide data table' : 'Show data table'}
@@ -822,7 +838,10 @@
 		notes, so a table shown never pushes a note away from its chart. The case shown first: its
 		operating point at the top (the table is the chart's long description, pump-chart.md §4.4),
 		"Operating points by case", then its curves, two-up only from a 40 rem container (§5.5); the
-		other cases' system curves last. Every box shades its edges when it scrolls sideways.
+		other cases' system curves last. Each curve table is a disclosure, "{caption} ({n} points)",
+		full height when open, and open by default where the chart cannot be drawn or its Why no
+		head column has entries (§9 S7: CurveTable). Every box shades its edges when it scrolls
+		sideways, and is a Tab stop and a named region only while it overflows (scrollRegion, §5.7).
 	-->
 	{#if tableShown}
 		<div id="{id}-table" class="space-y-3" data-pump-data>
@@ -841,12 +860,9 @@
 			{#if otherData.length}
 				<!-- A list below 640 px (ui-guide, Phones): explicit roles, so CSS never unmakes the
 					table for screen readers; each row its case, then "Flow (L/s) 21.58" pairs. -->
-				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 				<div
-					class="scroll-shadow-x max-w-full overflow-auto rounded-md border border-slate-200 bg-white max-sm:overflow-visible"
-					role="region"
-					aria-labelledby="{id}-cases-caption"
-					tabindex="0"
+					class="scroll-shadow-x relative max-w-full overflow-auto rounded-md border border-slate-200 bg-white max-sm:overflow-visible"
+					use:scrollRegion={`${id}-cases-caption`}
 				>
 					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<table role="table" class="w-full text-sm max-sm:block">
@@ -921,23 +937,44 @@
 			{/if}
 			<!-- A container (§5.5): the shown case's tables two-up only where two fit, from 40 rem. -->
 			<div class="@container">
-				<div class="grid gap-3 @min-[40rem]:grid-cols-2">
-					<!-- A scroll box keyboard users can reach and scroll; its headings stay in view. -->
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						class="scroll-shadow-x max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-						role="region"
-						aria-labelledby="{id}-curve-caption"
-						tabindex="0"
+				<div class="grid items-start gap-3 @min-[40rem]:grid-cols-2">
+					<CurveTable
+						key="pump"
+						caption="Pump curve at {speedText}"
+						points={data.curveRows.length}
+						openByDefault={cannotDraw}
+						bind:choice={tablesOpen.pump}
 					>
-						<table class="w-full text-sm">
-							<caption
-								id="{id}-curve-caption"
-								class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
-							>
-								Pump curve at {speedText}
-							</caption>
-							<thead class="sticky top-0 bg-slate-50">
+						<thead class="bg-slate-50">
+							<tr>
+								<th scope="col" class="px-2 py-1 text-right font-medium">Flow ({data.flowUnit})</th>
+								<th scope="col" class="px-2 py-1 text-right font-medium">Head ({data.headUnit})</th>
+								<th scope="col" class="px-2 py-1 text-left font-medium">Data</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each data.curveRows as row, i (i)}
+								<tr class="border-t border-slate-100">
+									<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+									<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
+									<td class="px-2 py-1 text-xs text-slate-600"
+										>{row.extrapolated ? 'Extrapolated' : 'Curve'}</td
+									>
+								</tr>
+							{/each}
+						</tbody>
+					</CurveTable>
+					{#if data.system}
+						<!-- Open by default when a point has no head: the reasons the strip's line points
+							to ("the data table says why") one press away (§5.3, D10's owner rule). -->
+						<CurveTable
+							key="system"
+							caption="System curve"
+							points={data.systemRows.length}
+							openByDefault={cannotDraw || data.systemMissing > 0}
+							bind:choice={tablesOpen.system}
+						>
+							<thead class="bg-slate-50">
 								<tr>
 									<th scope="col" class="px-2 py-1 text-right font-medium"
 										>Flow ({data.flowUnit})</th
@@ -945,152 +982,97 @@
 									<th scope="col" class="px-2 py-1 text-right font-medium"
 										>Head ({data.headUnit})</th
 									>
-									<th scope="col" class="px-2 py-1 text-left font-medium">Data</th>
+									{#if data.npsh?.available}
+										<th scope="col" class="px-2 py-1 text-right font-medium"
+											>NPSHa ({data.headUnit})</th
+										>
+									{/if}
+									{#if data.systemMissing}
+										<th scope="col" class="px-2 py-1 text-left font-medium">Why no head</th>
+									{/if}
 								</tr>
 							</thead>
 							<tbody>
-								{#each data.curveRows as row, i (i)}
+								{#each data.systemRows as row, i (i)}
 									<tr class="border-t border-slate-100">
 										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
 										<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
-										<td class="px-2 py-1 text-xs text-slate-600"
-											>{row.extrapolated ? 'Extrapolated' : 'Curve'}</td
-										>
+										{#if data.npsh?.available}
+											<td class="px-2 py-1 text-right tabular-nums">{row.npsha}</td>
+										{/if}
+										{#if data.systemMissing}
+											<td class="px-2 py-1 text-xs text-slate-600"
+												>{row.note}{#if row.detail}<IssueDetail
+														detail={row.detail}
+														subject="the point at {row.flow} {data.flowUnit}"
+													/>{/if}</td
+											>
+										{/if}
 									</tr>
 								{/each}
 							</tbody>
-						</table>
-					</div>
-					{#if data.system}
-						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-						<div
-							class="scroll-shadow-x max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-							role="region"
-							aria-labelledby="{id}-system-caption"
-							tabindex="0"
-						>
-							<table class="w-full text-sm">
-								<caption
-									id="{id}-system-caption"
-									class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
-								>
-									System curve
-								</caption>
-								<thead class="sticky top-0 bg-slate-50">
-									<tr>
-										<th scope="col" class="px-2 py-1 text-right font-medium"
-											>Flow ({data.flowUnit})</th
-										>
-										<th scope="col" class="px-2 py-1 text-right font-medium"
-											>Head ({data.headUnit})</th
-										>
-										{#if data.npsh?.available}
-											<th scope="col" class="px-2 py-1 text-right font-medium"
-												>NPSHa ({data.headUnit})</th
-											>
-										{/if}
-										{#if data.systemMissing}
-											<th scope="col" class="px-2 py-1 text-left font-medium">Why no head</th>
-										{/if}
-									</tr>
-								</thead>
-								<tbody>
-									{#each data.systemRows as row, i (i)}
-										<tr class="border-t border-slate-100">
-											<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
-											<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
-											{#if data.npsh?.available}
-												<td class="px-2 py-1 text-right tabular-nums">{row.npsha}</td>
-											{/if}
-											{#if data.systemMissing}
-												<td class="px-2 py-1 text-xs text-slate-600"
-													>{row.note}{#if row.detail}<IssueDetail
-															detail={row.detail}
-															subject="the point at {row.flow} {data.flowUnit}"
-														/>{/if}</td
-												>
-											{/if}
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
+						</CurveTable>
 					{/if}
 					{#each curveTables as table (table.key)}
-						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-						<div
-							class="scroll-shadow-x max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-							role="region"
-							aria-labelledby="{id}-{table.key}-caption"
-							tabindex="0"
+						<CurveTable
+							key={table.key}
+							caption={table.caption}
+							points={table.rows.length}
+							openByDefault={cannotDraw}
+							bind:choice={tablesOpen[table.key]}
 						>
-							<table class="w-full text-sm">
-								<caption
-									id="{id}-{table.key}-caption"
-									class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
-								>
-									{table.caption}
-								</caption>
-								<thead class="sticky top-0 bg-slate-50">
-									<tr>
-										<th scope="col" class="px-2 py-1 text-right font-medium"
-											>Flow ({data.flowUnit})</th
-										>
-										<th scope="col" class="px-2 py-1 text-right font-medium">{table.column}</th>
+							<thead class="bg-slate-50">
+								<tr>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Flow ({data.flowUnit})</th
+									>
+									<th scope="col" class="px-2 py-1 text-right font-medium">{table.column}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each table.rows as row, i (i)}
+									<tr class="border-t border-slate-100">
+										<td class="px-2 py-1 text-right tabular-nums">{fmt(row.x)}</td>
+										<td class="px-2 py-1 text-right tabular-nums">{fmt(row.y)}</td>
 									</tr>
-								</thead>
-								<tbody>
-									{#each table.rows as row, i (i)}
-										<tr class="border-t border-slate-100">
-											<td class="px-2 py-1 text-right tabular-nums">{fmt(row.x)}</td>
-											<td class="px-2 py-1 text-right tabular-nums">{fmt(row.y)}</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
+								{/each}
+							</tbody>
+						</CurveTable>
 					{/each}
 				</div>
 			</div>
-			<!-- The other cases' system curves, on this chart's flow grid, last (§5.3, F33). -->
+			<!-- The other cases' system curves, on this chart's flow grid, last (§5.3, F33); each open
+				by default when one of its points has no head (§9 S7). -->
 			{#each otherData.filter((o) => o.system) as other (other.key)}
-				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<div
-					class="scroll-shadow-x max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
-					role="region"
-					aria-labelledby="{id}-system-{caseId(other.key)}"
-					tabindex="0"
+				<CurveTable
+					key="system-{caseId(other.key)}"
+					caption="System curve, {other.label}"
+					points={other.systemRows.length}
+					openByDefault={cannotDraw || other.systemRows.some((row) => row.head === '—')}
+					bind:choice={tablesOpen[`system-${caseId(other.key)}`]}
 				>
-					<table class="w-full text-sm">
-						<caption
-							id="{id}-system-{caseId(other.key)}"
-							class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
-						>
-							System curve, {other.label}
-						</caption>
-						<thead class="sticky top-0 bg-slate-50">
-							<tr>
-								<th scope="col" class="px-2 py-1 text-right font-medium">Flow ({data.flowUnit})</th>
-								<th scope="col" class="px-2 py-1 text-right font-medium">Head ({data.headUnit})</th>
-								<th scope="col" class="px-2 py-1 text-left font-medium">Why no head</th>
+					<thead class="bg-slate-50">
+						<tr>
+							<th scope="col" class="px-2 py-1 text-right font-medium">Flow ({data.flowUnit})</th>
+							<th scope="col" class="px-2 py-1 text-right font-medium">Head ({data.headUnit})</th>
+							<th scope="col" class="px-2 py-1 text-left font-medium">Why no head</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each other.systemRows as row, i (i)}
+							<tr class="border-t border-slate-100">
+								<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+								<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
+								<td class="px-2 py-1 text-xs text-slate-600"
+									>{row.note}{#if row.detail}<IssueDetail
+											detail={row.detail}
+											subject="the point at {row.flow} {data.flowUnit}, {other.label}"
+										/>{/if}</td
+								>
 							</tr>
-						</thead>
-						<tbody>
-							{#each other.systemRows as row, i (i)}
-								<tr class="border-t border-slate-100">
-									<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
-									<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
-									<td class="px-2 py-1 text-xs text-slate-600"
-										>{row.note}{#if row.detail}<IssueDetail
-												detail={row.detail}
-												subject="the point at {row.flow} {data.flowUnit}, {other.label}"
-											/>{/if}</td
-									>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+						{/each}
+					</tbody>
+				</CurveTable>
 			{/each}
 		</div>
 	{/if}

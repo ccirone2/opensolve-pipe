@@ -58,6 +58,7 @@ import {
 	type OtherGroupCase
 } from '$lib/utils/pump-group-one-off';
 import { lineupPlan, type LineupPlanInput } from '$lib/utils/pump-lineups';
+import { fakeResizeObserver, sizeBox } from '$lib/testing/resize';
 import { withScenarios } from '$lib/utils/scenarios';
 import { formatNumber } from '$lib/utils/units';
 import PumpGroupChart from './PumpGroupChart.svelte';
@@ -87,14 +88,47 @@ vi.mock('./chart-setup', async () => ({
 }));
 
 const getContext = HTMLCanvasElement.prototype.getContext;
+/** jsdom's missing ResizeObserver, run by the tests that lay a box out (§9 S7). */
+let observers: ReturnType<typeof fakeResizeObserver>;
 beforeEach(() => {
 	charts.length = 0;
 	images.requests.length = 0;
 	HTMLCanvasElement.prototype.getContext = (() => ({})) as unknown as typeof getContext;
+	observers = fakeResizeObserver();
 });
 afterEach(() => {
 	HTMLCanvasElement.prototype.getContext = getContext;
+	observers.restore();
+	// The data table shown is remembered in this browser (pumps-results-layout.md §9 S7): each
+	// test starts from none remembered.
+	localStorage.clear();
 });
+
+/**
+ * A table's scroll box in the card, by the table's name: a region and a Tab stop only while it
+ * overflows since S7 (pumps-results-layout.md §9 S7), so found by what it holds.
+ */
+const boxOf = (name: string | RegExp, scope: HTMLElement = document.body) =>
+	within(scope).getByRole('table', { name }).parentElement!;
+/** Lay a box out as a browser would, its table wider than it (452 px), and measure it. */
+function overflowSideways(box: HTMLElement) {
+	sizeBox(box, { clientWidth: 452, scrollWidth: 900, clientHeight: 300, scrollHeight: 300 });
+	observers.resize(box);
+}
+/** A curve table's disclosure (CurveTable), by its table's name. */
+const disclosureOf = (name: string, scope: HTMLElement = document.body) =>
+	within(scope).getByRole('table', { name }).closest('details')!;
+/**
+ * Open a curve table's disclosure as a user would, closed until then: a curve table is read
+ * after its disclosure is opened (§9 S7, §10 S7). Its table.
+ */
+async function openTable(name: string, scope: HTMLElement = document.body) {
+	const details = disclosureOf(name, scope);
+	expect(details.open, `"${name}" closed until opened`).toBe(false);
+	await fireEvent.click(details.querySelector(':scope > summary')!);
+	expect(details.open).toBe(true);
+	return within(scope).getByRole('table', { name });
+}
 
 interface FixtureCase {
 	name: string;
@@ -340,10 +374,12 @@ describe('the card', () => {
 		expect(
 			within(data).getByRole('table', { name: "Each pump's point (flow through it)" })
 		).toBeVisible();
+		// A curve table in its disclosure, closed while every point has a rise (§9 S7).
 		expect(
-			within(data).getByRole('table', {
-				name: "Group system curve (rise the rest of the network needs at each station's flow)"
-			})
+			await openTable(
+				"Group system curve (rise the rest of the network needs at each station's flow)",
+				data
+			)
 		).toBeVisible();
 	});
 
@@ -621,7 +657,11 @@ describe('the card', () => {
 	it('lists the pumps in the group table, from the solve and the duty, with a footer', () => {
 		const c = named('series');
 		render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		// Its box a named region and a Tab stop while it overflows (§9 S7): 13 columns in 452 px.
+		const box = boxOf('The pumps in the group');
+		overflowSideways(box);
 		const region = screen.getByRole('region', { name: 'The pumps in the group' });
+		expect(region).toBe(box);
 		expect(region).toHaveAttribute('tabindex', '0');
 		const table = within(region).getByRole('table');
 		const headers = within(table)
@@ -657,9 +697,7 @@ describe('the card', () => {
 		const points = screen.getByRole('table', { name: "Each pump's point (flow through it)" });
 		expect(within(points).getAllByRole('row')).toHaveLength(3);
 		expect(within(points).getByRole('rowheader', { name: /Pump PB/ })).toHaveTextContent('◇');
-		const samples = screen.getByRole('table', {
-			name: "Group curve (station's flow at each rise)"
-		});
+		const samples = await openTable("Group curve (station's flow at each rise)");
 		const response = c.groupCurve.body as PumpGroupCurveResponse;
 		expect(within(samples).getAllByRole('row')).toHaveLength(response.points.length + 1);
 		expect(within(samples).getByText("The duty's rise (the duty check).")).toBeVisible();
@@ -716,9 +754,7 @@ describe('the card', () => {
 		);
 		expect(screen.queryByText(/the group curve does not pass through it/)).toBeNull();
 		// The duty's row: its mark and the point's reason, two sentences.
-		const samples = screen.getByRole('table', {
-			name: "Group curve (station's flow at each rise)"
-		});
+		const samples = await openTable("Group curve (station's flow at each rise)");
 		expect(
 			within(samples).getByText(
 				"The duty's rise (the duty check). Not computed: the time budget ran out before this point."
@@ -895,7 +931,12 @@ describe('the card', () => {
 		expect(
 			screen.getByRole('table', { name: "Each pump's point (flow through it)" })
 		).toBeVisible();
-		expect(screen.getByRole('region', { name: 'The pumps in the group' })).toBeVisible();
+		expect(screen.getByRole('table', { name: 'The pumps in the group' })).toBeVisible();
+		// Its curve table open by default: the chart cannot be drawn (§9 S7).
+		expect(disclosureOf("Group curve (station's flow at each rise)").open).toBe(true);
+		expect(
+			screen.getByRole('table', { name: "Group curve (station's flow at each rise)" })
+		).toBeVisible();
 	});
 });
 
@@ -1093,8 +1134,8 @@ describe('the members, the station and the group chart’s reading (pumps-result
 		expect(terms[3]![1]).toMatch(/^[\d.]+ ft$/);
 		expect(terms[4]![1]).toBe('Lost in the piping between the pumps:');
 		expect(terms[5]![1]).toMatch(/^[\d.]+ ft$/);
-		const region = within(station).getByRole('region', { name: 'The pumps in the group' });
-		expect(follows(answer, region)).toBe(true);
+		const box = boxOf('The pumps in the group', station);
+		expect(follows(answer, box)).toBe(true);
 		// The card's one dl.
 		expect(
 			screen.getByRole('region', { name: /^Pumps together/ }).querySelectorAll('dl')
@@ -1131,9 +1172,7 @@ describe('the members, the station and the group chart’s reading (pumps-result
 		const station = screen.getByRole('heading', { name: 'Station', level: 4 }).parentElement!;
 		const refusal = station.querySelector<HTMLElement>('[data-group-refusal]')!;
 		expect(refusal).toHaveTextContent(/^These pumps do not form a station/);
-		expect(
-			follows(refusal, within(station).getByRole('region', { name: 'The pumps in the group' }))
-		).toBe(true);
+		expect(follows(refusal, boxOf('The pumps in the group', station))).toBe(true);
 		// Not in the figure any more.
 		expect(screen.getByRole('figure').querySelector('[data-group-refusal]')).toBeNull();
 		const item = within(refusal).getByRole('listitem');
@@ -1148,10 +1187,10 @@ describe('the members, the station and the group chart’s reading (pumps-result
 		const c = named('dead-headed');
 		const flagText = (flag: Flag) => `${flag.code}: ${flag.message}`;
 		render(PumpGroupChart, props(c, { oninspect: () => {}, flagText }));
-		const region = screen.getByRole('region', { name: 'The pumps in the group' });
+		const box = boxOf('The pumps in the group');
 		// A size container (§5.5), so a flag line is the box's visible width.
-		expect(region).toHaveClass('@container', 'scroll-shadow-x', 'overflow-auto', 'relative');
-		const table = within(region).getByRole('table');
+		expect(box).toHaveClass('@container', 'scroll-shadow-x', 'overflow-auto', 'relative');
+		const table = within(box).getByRole('table');
 		expect(within(table).queryByRole('columnheader', { name: 'Flags' })).toBeNull();
 		const rows = within(table).getAllByRole('row');
 		for (const pump of pumpsOf(c)) {
@@ -1238,11 +1277,7 @@ describe('the members, the station and the group chart’s reading (pumps-result
 		// A table without a flag has no flag line.
 		cleanup();
 		render(PumpGroupChart, props(named('one-off')));
-		expect(
-			screen
-				.getByRole('region', { name: 'The pumps in the group' })
-				.querySelector('[data-row-notes]')
-		).toBeNull();
+		expect(boxOf('The pumps in the group').querySelector('[data-row-notes]')).toBeNull();
 	});
 
 	it('the group chart: its canvas busy while a curve loads, the strip’s live line always there, coverage plain after it', async () => {
@@ -1560,6 +1595,8 @@ describe('the members, the station and the group chart’s reading (pumps-result
 		const table = screen.getByRole('table', {
 			name: "Group system curve (rise the rest of the network needs at each station's flow)"
 		});
+		// Open by default: some of its rows have no rise (§9 S7).
+		expect(table.closest('details')!.open).toBe(true);
 		const response = c.systemCurve!.body as PumpGroupCurveResponse;
 		const missing = [...response.systemPoints]
 			.sort((a, b) => a.flow - b.flow)
@@ -1717,6 +1754,8 @@ describe('the group system curve (slice 4b)', () => {
 		const table = screen.getByRole('table', {
 			name: "Group system curve (rise the rest of the network needs at each station's flow)"
 		});
+		// Open by default: some of its rows have no rise (§9 S7).
+		expect(table.closest('details')!.open).toBe(true);
 		const response = c.systemCurve!.body as PumpGroupCurveResponse;
 		const points = [...response.systemPoints].sort((a, b) => a.flow - b.flow);
 		const rows = within(table).getAllByRole('row').slice(1);
@@ -2710,10 +2749,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			expect(section(name).contains(el)).toBe(true);
 			expect(follows(heading(name), el)).toBe(true);
 		};
-		inSection(
-			'Station',
-			within(card).getByRole('region', { name: 'The pumps in the group, Base case' })
-		);
+		inSection('Station', boxOf('The pumps in the group, Base case', card));
 		inSection('Station', within(card).getByLabelText('The station'));
 		inSection('Group chart', within(card).getByRole('figure'));
 		// The block (its own region) is a section of the card's body, as the others are, in place of
@@ -2753,8 +2789,13 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(within(card).queryByRole('region', { name: 'Station' })).toBeNull();
 		expect(within(card).queryByRole('region', { name: 'Group chart' })).toBeNull();
 		// Running combinations' box: a ResultsTable's since S6b (§9 S6b), the region in the block
-		// that holds its controls and its box, named by the h4.
+		// that holds its controls and its box, named by the h4, while it overflows (§9 S7): its
+		// cases taller than its box.
+		const box = boxOf('Running combinations', card);
+		sizeBox(box, { clientWidth: 452, scrollWidth: 452, clientHeight: 608, scrollHeight: 2400 });
+		observers.resize(box);
 		const combinations = within(card).getByRole('region', { name: 'Running combinations' });
+		expect(combinations).toBe(box);
 		expect(card.querySelector('[data-running-combinations] [role="region"]')).toBe(combinations);
 		expect(combinations).toHaveAttribute('aria-labelledby', heading('Running combinations').id);
 		// Running combinations' caption is visually hidden beside its h4, and still its name.
@@ -2934,6 +2975,38 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		stale: false,
 		station: null,
 		...values
+	});
+
+	it('the extremes’ box and Running combinations’ box: each a Tab stop and a named region only while it overflows (§9 S7, §7 item 25)', () => {
+		const input = combinationsOf([
+			solvedCase('', 'Base case', c.solve),
+			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve)
+		]);
+		render(
+			PumpGroupChart,
+			base({ combinations: runningCombinations(input), extremes: combinationExtremes(input) })
+		);
+		const extremes = boxOf('Extremes over these cases');
+		const combos = boxOf('Running combinations');
+		// From 26 rem the extremes fit their box: no Tab stop (S5's measure, §7 item 25).
+		sizeBox(extremes, { clientWidth: 452, scrollWidth: 452, clientHeight: 300, scrollHeight: 300 });
+		observers.resize(extremes);
+		expect(extremes).not.toHaveAttribute('tabindex');
+		expect(screen.queryByRole('region', { name: 'Extremes over these cases' })).toBeNull();
+		// An unbroken name wider than the box: it scrolls, so the keyboard can reach it.
+		sizeBox(extremes, { scrollWidth: 881 });
+		observers.resize(extremes);
+		expect(screen.getByRole('region', { name: 'Extremes over these cases' })).toBe(extremes);
+		expect(extremes).toHaveAttribute('tabindex', '0');
+		// Running combinations' cases fit (a phone's list, or few cases), then taller than the box.
+		sizeBox(combos, { clientWidth: 452, scrollWidth: 452, clientHeight: 608, scrollHeight: 608 });
+		observers.resize(combos);
+		expect(screen.queryByRole('region', { name: 'Running combinations' })).toBeNull();
+		expect(combos).not.toHaveAttribute('tabindex');
+		sizeBox(combos, { scrollHeight: 2400 });
+		observers.resize(combos);
+		expect(screen.getByRole('region', { name: 'Running combinations' })).toBe(combos);
+		expect(combos).toHaveAttribute('tabindex', '0');
 	});
 
 	it('Running combinations opens with its lead, its mark the worst severity, then the extremes, then its table (pumps-results-layout.md §5.3, §6.1, §9 S5)', () => {
@@ -3192,10 +3265,10 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		const squash = (text: string | null) => (text ?? '').replace(/\s+/g, ' ').trim();
 		const oninspect = vi.fn();
 		render(PumpGroupChart, base({ combinations: table, flagText, oninspect }));
-		const region = screen.getByRole('region', { name: 'Running combinations' });
+		const box = boxOf('Running combinations');
 		// A size container (§5.5), so a heading line and a flag line are the box's visible width.
-		expect(region).toHaveClass('@container', 'scroll-shadow-x', 'overflow-auto', 'relative');
-		const combos = within(region).getByRole('table', { name: 'Running combinations' });
+		expect(box).toHaveClass('@container', 'scroll-shadow-x', 'overflow-auto', 'relative');
+		const combos = within(box).getByRole('table', { name: 'Running combinations' });
 		const columns = within(combos).getAllByRole('columnheader');
 		expect(columns.map((h) => h.textContent!.trim())).not.toContain('Flags');
 		// No Flags column, so no "None" on screen or in a phone's list (§5.3 Phones).
@@ -3300,9 +3373,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		// buttons are its column headings' sorts (a ResultsTable since S6b), none in a row.
 		cleanup();
 		render(PumpGroupChart, base({ combinations: table, flagText }));
-		const boxed = within(
-			screen.getByRole('region', { name: 'Running combinations' })
-		).queryAllByRole('button');
+		const boxed = within(boxOf('Running combinations')).queryAllByRole('button');
 		expect(boxed.filter((b) => !b.closest('thead'))).toHaveLength(0);
 		for (const b of boxed) expect(b.closest('th[role="columnheader"]')).not.toBeNull();
 	});
@@ -3376,7 +3447,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		]);
 	};
 	const squashed = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
-	const combosRegion = () => screen.getByRole('region', { name: 'Running combinations' });
+	const combosRegion = () => boxOf('Running combinations');
 	const combosColumn = (name: RegExp) => within(combosRegion()).getByRole('columnheader', { name });
 	/** Sort by a column from its heading (from 640 px; a phone's "Sort by" does the same). */
 	const sortBy = (name: RegExp) => fireEvent.click(within(combosColumn(name)).getByRole('button'));
@@ -3903,12 +3974,13 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			}
 		}
 		expect(ringed).toBe(6);
-		// 4d's table, without curve states: no such column.
+		// 4d's table, without curve states: no such column. The data table still shown: remembered
+		// in this browser (§9 S7).
 		cleanup();
 		await renderDrawn(family('', { without: true }).props);
-		await fireEvent.click(
-			screen.getByRole('button', { name: 'Show data table of the group chart' })
-		);
+		expect(
+			screen.getByRole('button', { name: 'Hide data table of the group chart' })
+		).toHaveAttribute('aria-expanded', 'true');
 		expect(
 			within(screen.getByRole('table', { name: "Other cases' station duties" })).queryByRole(
 				'columnheader',
@@ -3918,16 +3990,45 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		expect(screen.queryByRole('table', { name: OTHER_CURVES_CAPTION })).toBeNull();
 	});
 
+	it('folds “Other cases’ group curves” into a disclosure counting every point of every case’s curve, closed while the chart is drawn (pumps-results-layout.md §9 S7)', async () => {
+		const { view, props } = family();
+		await renderDrawn(props);
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		const details = disclosureOf(OTHER_CURVES_CAPTION);
+		expect(details.open).toBe(false);
+		// Every point of each curve drawn, the cases' own responses' (D24 §9.6).
+		const drawnCurves = view.others.filter(
+			(o) => o.onChart && o.state === 'ready' && o.curve && o.number !== null
+		);
+		expect(drawnCurves.length).toBeGreaterThan(1);
+		const points = drawnCurves.reduce((n, o) => n + o.curve!.points.length, 0);
+		expect(
+			details.querySelector(':scope > summary')!.textContent!.replace(/\s+/g, ' ').trim()
+		).toBe(`${OTHER_CURVES_CAPTION} (${points} points)`);
+		// The count is the rows of values it lists, the cases' header rows apart.
+		expect(details.querySelectorAll('tbody tr:not(:has(th[scope="rowgroup"]))')).toHaveLength(
+			points
+		);
+	});
+
 	it('lists every point of each curve drawn in "Other cases’ group curves": a row group per case, a list below 640 px', async () => {
 		const { view, props } = family('', { stale: ['S1'] });
 		await renderDrawn(props);
 		await fireEvent.click(
 			screen.getByRole('button', { name: 'Show data table of the group chart' })
 		);
-		const region = screen.getByRole('region', { name: OTHER_CURVES_CAPTION });
-		expect(region).toHaveClass('max-h-72', 'overflow-auto');
+		// A curve table in its disclosure, closed until opened, full height (§9 S7): no box that
+		// scrolls down inside the pane; a region and a Tab stop only while it overflows.
+		const table = await openTable(OTHER_CURVES_CAPTION);
+		const region = table.parentElement!;
+		expect(region).toHaveClass('overflow-x-auto');
+		expect(region).not.toHaveClass('max-h-72');
+		expect(region).not.toHaveAttribute('tabindex');
+		overflowSideways(region);
+		expect(screen.getByRole('region', { name: OTHER_CURVES_CAPTION })).toBe(region);
 		expect(region).toHaveAttribute('tabindex', '0');
-		const table = within(region).getByRole('table', { name: OTHER_CURVES_CAPTION });
 		expect(OTHER_CURVES_CAPTION).toBe("Other cases' group curves (station's flow at each rise)");
 		expect(table).toHaveClass('max-sm:block');
 		expect(
@@ -4358,7 +4459,8 @@ describe('every footer line of the group chart on screen, word for word (pumps-r
 describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station, §9 S6a)', () => {
 	afterEach(() => localStorage.clear());
 	const squash = (text: string | null) => (text ?? '').replace(/\s+/g, ' ').trim();
-	const region = (name = 'The pumps in the group') => screen.getByRole('region', { name });
+	/** The table's box (a region only while it overflows, §9 S7). */
+	const region = (name = 'The pumps in the group') => boxOf(name);
 	/** The table's body rows: each pump by its name, each flag line as "flags of {id}". */
 	const order = (name?: string) =>
 		within(within(region(name)).getAllByRole('rowgroup')[1]!)
@@ -4378,6 +4480,9 @@ describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station,
 		const title = within(station).getByText('The pumps in the group', { selector: 'p' });
 		expect(title.tagName).toBe('P');
 		expect(outOfSight(title)).toBe(false);
+		// A region named by the title, and a Tab stop, while it overflows (§9 S7).
+		overflowSideways(region());
+		expect(screen.getByRole('region', { name: 'The pumps in the group' })).toBe(region());
 		expect(region()).toHaveAttribute('aria-labelledby', title.id);
 		expect(region()).toHaveAttribute('tabindex', '0');
 		expect(within(region()).getByRole('table', { name: 'The pumps in the group' })).toBeVisible();
@@ -4483,5 +4588,202 @@ describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station,
 		const winter = region('The pumps in the group, Winter');
 		expect(within(winter).queryByRole('columnheader', { name: /^Shaft power/ })).toBeNull();
 		expect(within(winter).getByRole('columnheader', { name: /^Flow/ })).toBeInTheDocument();
+	});
+});
+
+/**
+ * S7 (pumps-results-layout.md §9 S7, §10 S7): the group chart's curve tables each a disclosure
+ * "{caption} ({n} points)", full height when open, open by default where the chart cannot be drawn
+ * or the group system curve has rows without a rise; the data region's boxes a Tab stop and a
+ * named region only while they overflow; whether the data table is shown remembered in this
+ * browser, kept by the card with each table's opening while the section is drawn again.
+ */
+describe('the group chart’s data without scroll traps (pumps-results-layout.md §9 S7)', () => {
+	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+	const GROUP = "Group curve (station's flow at each rise)";
+	const SYSTEM = "Group system curve (rise the rest of the network needs at each station's flow)";
+	/** Every curve table's disclosure, in order: its table's name, its summary, its rows, open. */
+	const disclosures = () =>
+		[...document.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')].map((d) => ({
+			table: squash(d.querySelector('caption')!.textContent),
+			summary: squash(d.querySelector(':scope > summary')!.textContent),
+			rows: d.querySelectorAll('tbody tr').length,
+			open: d.open
+		}));
+	const showTable = () =>
+		fireEvent.click(screen.getByRole('button', { name: 'Show data table of the group chart' }));
+
+	it('draws the group curve’s and the group system curve’s tables as disclosures “{caption} ({n} points)”, closed while the chart is drawn and every point has a rise', async () => {
+		const c = named('parallel-ideal');
+		render(PumpGroupChart, props(c, { system: systemReady(c) }));
+		await drawn();
+		await showTable();
+		const group = c.groupCurve.body as PumpGroupCurveResponse;
+		const system = c.systemCurve!.body as PumpGroupCurveResponse;
+		// The fixture's 42 samples of each (pump-groups-input.json).
+		expect(group.points).toHaveLength(42);
+		expect(system.systemPoints).toHaveLength(42);
+		expect(disclosures()).toEqual([
+			{ table: GROUP, summary: `${GROUP} (42 points)`, rows: 42, open: false },
+			{ table: SYSTEM, summary: `${SYSTEM} (42 points)`, rows: 42, open: false }
+		]);
+		// The other tables are no curves: never folded.
+		for (const name of ["Each pump's point (flow through it)"]) {
+			expect(screen.getByRole('table', { name }).closest('details')).toBeNull();
+		}
+		for (const d of document.querySelectorAll('details[data-curve-table]')) {
+			const box = d.querySelector('table')!.parentElement!;
+			// Full height when open: sideways only, never a box that scrolls down in the pane.
+			expect(box).toHaveClass('overflow-x-auto', 'scroll-shadow-x', 'relative');
+			expect(box.className).not.toMatch(/max-h-/);
+			expect(d.querySelector('caption')).toHaveClass('sr-only');
+		}
+		// Opened, its rows in sight.
+		expect(outOfSight(screen.getByRole('table', { name: GROUP }).querySelector('td')!)).toBe(true);
+		await openTable(GROUP);
+		expect(outOfSight(screen.getByRole('table', { name: GROUP }).querySelector('td')!)).toBe(false);
+	});
+
+	it('opens the group system curve’s table by default when some of its rows have no rise, the group curve’s staying closed', async () => {
+		const c = named('fcv-outside');
+		render(PumpGroupChart, props(c, { system: systemReady(c) }));
+		await drawn();
+		await showTable();
+		const system = c.systemCurve!.body as PumpGroupCurveResponse;
+		const missing = system.systemPoints.filter((p) => p.head === null).length;
+		expect(missing).toBe(21);
+		expect(disclosures().map(({ table, summary, open }) => [table, summary, open])).toEqual([
+			[GROUP, `${GROUP} (42 points)`, false],
+			[SYSTEM, `${SYSTEM} (42 points)`, true]
+		]);
+		// The reasons the strip's coverage line points to, in sight.
+		const table = screen.getByRole('table', { name: SYSTEM });
+		const reasons = [...table.querySelectorAll('tbody tr')].filter(
+			(r) => r.querySelectorAll('td')[1]!.textContent === '—'
+		);
+		expect(reasons).toHaveLength(21);
+		for (const r of reasons) expect(outOfSight(r.querySelectorAll('td')[2]!)).toBe(false);
+	});
+
+	it('opens every curve table by default where the chart cannot be drawn', async () => {
+		const c = named('parallel-ideal');
+		HTMLCanvasElement.prototype.getContext = (() => null) as unknown as typeof getContext;
+		render(PumpGroupChart, props(c, { system: systemReady(c) }));
+		await vi.waitFor(
+			() => expect(screen.getByText(/The chart cannot be drawn in this browser/)).toBeVisible(),
+			{ timeout: 10_000 }
+		);
+		expect(disclosures().map(({ table, open }) => [table, open])).toEqual([
+			[GROUP, true],
+			[SYSTEM, true]
+		]);
+	});
+
+	it('keeps each table’s opening, and the data table shown, while the card is closed and opened', async () => {
+		const c = named('parallel-ideal');
+		const view = render(PumpGroupChart, props(c, { system: systemReady(c) }));
+		await drawn();
+		await showTable();
+		await openTable(GROUP);
+		await new Promise((resolve) => setTimeout(resolve, 0)); // the toggle event's task
+		await view.rerender(props(c, { system: systemReady(c), open: false }));
+		expect(screen.queryByRole('table', { name: GROUP })).toBeNull();
+		await view.rerender(props(c, { system: systemReady(c), open: true }));
+		expect(
+			screen.getByRole('button', { name: 'Hide data table of the group chart' })
+		).toHaveAttribute('aria-expanded', 'true');
+		expect(disclosures().map(({ table, open }) => [table, open])).toEqual([
+			[GROUP, true],
+			[SYSTEM, false]
+		]);
+	});
+
+	it('remembers in this browser whether the data table is shown, apart from the pump chart’s', async () => {
+		const c = named('parallel-ideal');
+		const first = render(PumpGroupChart, props(c));
+		await drawn();
+		expect(localStorage.getItem('opensolve-pipe:pump-group-chart-data-table')).toBeNull();
+		await showTable();
+		expect(localStorage.getItem('opensolve-pipe:pump-group-chart-data-table')).toBe('shown');
+		expect(localStorage.getItem('opensolve-pipe:pump-chart-data-table')).toBeNull();
+		first.unmount();
+		const second = render(PumpGroupChart, props(c));
+		const hide = screen.getByRole('button', { name: 'Hide data table of the group chart' });
+		expect(hide).toHaveAttribute('aria-expanded', 'true');
+		expect(document.getElementById(hide.getAttribute('aria-controls')!)).not.toBeNull();
+		await fireEvent.click(hide);
+		expect(localStorage.getItem('opensolve-pipe:pump-group-chart-data-table')).toBeNull();
+		second.unmount();
+		render(PumpGroupChart, props(c));
+		expect(
+			screen.getByRole('button', { name: 'Show data table of the group chart' })
+		).toHaveAttribute('aria-expanded', 'false');
+	});
+
+	it('works with storage refused: starts hidden, shows and hides on request', async () => {
+		const refuse = () => {
+			throw new DOMException('Storage refused', 'SecurityError');
+		};
+		const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(refuse);
+		const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(refuse);
+		const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(refuse);
+		try {
+			const c = named('parallel-ideal');
+			render(PumpGroupChart, props(c));
+			await drawn();
+			expect(get).toHaveBeenCalledWith('opensolve-pipe:pump-group-chart-data-table');
+			const toggle = screen.getByRole('button', { name: 'Show data table of the group chart' });
+			expect(toggle).toHaveAttribute('aria-expanded', 'false');
+			await fireEvent.click(toggle);
+			expect(set).toHaveBeenCalled();
+			expect(toggle).toHaveAttribute('aria-expanded', 'true');
+			expect(screen.getByRole('table', { name: GROUP })).toBeInTheDocument();
+			await fireEvent.click(toggle);
+			expect(remove).toHaveBeenCalled();
+			expect(toggle).toHaveAttribute('aria-expanded', 'false');
+			expect(screen.queryByRole('table', { name: GROUP })).toBeNull();
+		} finally {
+			get.mockRestore();
+			set.mockRestore();
+			remove.mockRestore();
+		}
+	});
+
+	it('makes each box of the data region a Tab stop and a named region only while it overflows, on either axis', async () => {
+		const c = named('parallel-ideal');
+		render(PumpGroupChart, props(c, { system: systemReady(c) }));
+		await drawn();
+		await showTable();
+		await openTable(GROUP);
+		const data = document.querySelector<HTMLElement>('[data-group-data]')!;
+		const boxes = within(data)
+			.getAllByRole('table')
+			.map((t) => t.parentElement!);
+		expect(
+			boxes.map((b) => squash(b.querySelector(':scope > table > caption')!.textContent))
+		).toEqual(["Each pump's point (flow through it)", GROUP, SYSTEM]);
+		for (const box of boxes) {
+			sizeBox(box, { clientWidth: 452, scrollWidth: 452, clientHeight: 300, scrollHeight: 300 });
+			observers.resize(box);
+		}
+		expect(within(data).queryAllByRole('region')).toEqual([]);
+		// The group curve's member columns wider than the box.
+		sizeBox(boxes[1]!, { scrollWidth: 1400 });
+		observers.resize(boxes[1]!);
+		expect(within(data).getByRole('region', { name: GROUP })).toBe(boxes[1]);
+		expect(boxes[1]).toHaveAttribute('tabindex', '0');
+		// "Each pump's point" taller than its box.
+		sizeBox(boxes[0]!, { scrollHeight: 500 });
+		observers.resize(boxes[0]!);
+		expect(within(data).getByRole('region', { name: "Each pump's point (flow through it)" })).toBe(
+			boxes[0]
+		);
+		// They fit again: neither is.
+		sizeBox(boxes[1]!, { clientWidth: 1400 });
+		observers.resize(boxes[1]!);
+		sizeBox(boxes[0]!, { clientHeight: 500 });
+		observers.resize(boxes[0]!);
+		expect(within(data).queryAllByRole('region')).toEqual([]);
+		for (const box of boxes) expect(box).not.toHaveAttribute('tabindex');
 	});
 });

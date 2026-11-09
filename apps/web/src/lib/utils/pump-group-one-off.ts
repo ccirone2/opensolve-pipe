@@ -804,9 +804,16 @@ export interface CombinationsLead {
 	invalid: number;
 	/** w: of the v, those in which a member has a warning flag and none an invalid one. */
 	warnings: number;
-	/** m: the cases whose results are out of date (values, out of date: the extremes' notCounted). */
+	/**
+	 * m: the cases whose results are out of date, values or not: the groups headed "(out of
+	 * date)" (a stale solve that did not converge among them; those with values are the extremes'
+	 * notCounted).
+	 */
 	outOfDate: number;
-	/** f: the cases without results (failed, not reached, not solved, not converged). */
+	/**
+	 * f: the other cases without values (failed, not reached, not solved, and a current solve that
+	 * did not converge).
+	 */
 	without: number;
 	/**
 	 * Its mark (§5.2): the worst severity among the v, `invalid` (the red octagon, "Physically
@@ -826,8 +833,8 @@ export const LEAD_MARK_NAMES: Readonly<Record<'invalid' | 'warning', string>> = 
  * Running combinations' lead (pumps-results-layout.md §5.3, §9 S5), from its table: the cases with
  * current results counted as the extremes count them (values, not out of date), those of them in
  * which a member is invalid or, else, has a warning flag (an info flag counts in neither, and a
- * design check is never a flag: D19), then those out of date and those without values, so v + m +
- * f = n. Each count but n and v is "none" at zero.
+ * design check is never a flag: D19), then those out of date (each group headed "(out of date)")
+ * and the rest without values, so v + m + f = n. Each count but n and v is "none" at zero.
  */
 export function combinationsLead(table: CombinationsTable): CombinationsLead {
 	const groups = table.groups;
@@ -838,8 +845,10 @@ export function combinationsLead(table: CombinationsTable): CombinationsLead {
 			!g.rows.some((r) => r.invalid) &&
 			g.rows.some((r) => r.flags.some((f) => f.severity === 'warning'))
 	).length;
-	const outOfDate = groups.filter((g) => g.values && g.stale).length;
-	const without = groups.filter((g) => !g.values).length;
+	// m by the group heading's own rule, "(out of date)", values or not, so the lead and the
+	// headings under it count alike (§5.3); f the rest without values.
+	const outOfDate = groups.filter((g) => g.stale).length;
+	const without = groups.filter((g) => !g.values && !g.stale).length;
 	const none = (k: number) => (k ? String(k) : 'none');
 	const n = groups.length;
 	return {

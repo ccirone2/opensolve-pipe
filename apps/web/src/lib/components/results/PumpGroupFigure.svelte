@@ -242,14 +242,18 @@
 	 * column's words (pumps-results-layout.md §5.5, §9 S5: a list, as "Other cases' group
 	 * curves"), "—" out of sight there. A number sits beside its words, a pair; a cell of words
 	 * takes the line, its column's words before them in the same run of text, so neither is
-	 * squeezed into a column of its own.
+	 * squeezed into a column of its own. There its words take the list's value style, 14 px
+	 * slate-900 as the numbers' (and Running combinations' list), and its column's words end in a
+	 * space (`attr(data-label) " "`, as the extremes' list), so the column's words (12 px
+	 * slate-600) and the answer after them read apart, on screen and in the cell's accessible name
+	 * (S5 review LAYOUT-1).
 	 */
 	const dutyCell = (value: string, numeric: boolean) => [
 		'px-2 py-1 max-sm:p-0 max-sm:text-left',
 		numeric
-			? 'text-right tabular-nums max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1'
-			: 'text-xs text-slate-600 max-sm:block max-sm:w-full max-sm:text-slate-700 max-sm:before:mr-1',
-		'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]',
+			? 'text-right tabular-nums max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:before:content-[attr(data-label)]'
+			: "text-xs text-slate-600 max-sm:block max-sm:w-full max-sm:text-sm max-sm:text-slate-900 max-sm:before:content-[attr(data-label)_'_']",
+		'max-sm:before:text-xs max-sm:before:text-slate-600',
 		value === '—' && 'max-sm:sr-only'
 	];
 	/** The labels on the curves: the page's pure placement, run by the chart's plugin. */

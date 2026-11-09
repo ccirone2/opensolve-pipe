@@ -954,6 +954,34 @@ describe('one pump off on the Pumps together card', () => {
 		expect(within(groups[1]!).getAllByRole('rowheader', { name: 'Pump PB' })).toHaveLength(1);
 	}, 20_000);
 
+	it('Running combinations with a scenario shown: its group first with the trace buttons, which open its trace; none in the base case’s (pumps-results-layout.md §5.3 Pump names, §10 S5)', async () => {
+		const { ws, calls } = setup(structuredClone(oneOff.project));
+		await ws.store.solveAll();
+		ws.setCase('S3');
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await waitFor(() => expect(calls.filter((c) => c.scenarioId === 'S3')).toHaveLength(2));
+		const table = within(card()).getByRole('table', { name: 'Running combinations' });
+		const groups = within(table).getAllByRole('rowgroup').slice(1);
+		const heading = (g: HTMLElement) =>
+			within(g)
+				.getAllByRole('rowheader')
+				.find((h) => h.getAttribute('scope') === 'rowgroup')!.firstElementChild!.textContent;
+		expect(heading(groups[0]!)).toBe('Delivery tank 5 m higher (shown)');
+		expect(within(groups[0]!).getAllByRole('button')).toEqual([
+			within(groups[0]!).getByRole('button', { name: 'Pump PA' }),
+			within(groups[0]!).getByRole('button', { name: 'Pump PB' })
+		]);
+		const baseGroup = groups.find((g) => heading(g) === 'Base case')!;
+		expect(within(baseGroup).queryAllByRole('button')).toEqual([]);
+		for (const g of groups.slice(1)) expect(within(g).queryAllByRole('button')).toEqual([]);
+		// Pressing one opens that pump's trace with the scenario still the case shown, so the
+		// trace and the values beside the name are one case's (§5.3; GOALS §4.2, D15).
+		await fireEvent.click(within(groups[0]!).getByRole('button', { name: 'Pump PB' }));
+		expect(ws.inspected).toEqual({ kind: 'component', id: 'PB' });
+		expect(ws.store.activeCase).toBe('S3');
+	}, 20_000);
+
 	it('in a scenario: made from the base case only, and the base’s duty beyond this curve', async () => {
 		const { ws, calls } = setup(structuredClone(oneOff.project));
 		await ws.store.solveAll();

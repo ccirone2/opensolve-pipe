@@ -2950,13 +2950,18 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(lead.textContent).toBe(
 			'4 cases: 2 with current results (1 physically invalid, none with warnings), 1 out of date, 1 without results.'
 		);
-		// 14 px with tabular figures (§5.2 Answers).
+		// 14 px with tabular figures (§5.2 Answers), on screen at every width: no hiding class at
+		// any breakpoint on it or above it (S5 review MUT-04).
 		expect(lead).toHaveClass('text-sm', 'tabular-nums');
+		expect(outOfSight(lead)).toBe(false);
 		// Its mark: its own element before the <p>, never inside it (§5.2 Placement), an image
 		// named by the worst severity, the red octagon.
 		const mark = within(section).getByRole('img', { name: 'Physically invalid' });
 		expect(lead.contains(mark)).toBe(false);
 		expect(mark.nextElementSibling).toBe(lead);
+		// Drawn at every width, its octagon too (S5 review MUT-03; jsdom's roles see no CSS).
+		expect(outOfSight(mark)).toBe(false);
+		expect(outOfSight(mark.querySelector('svg')!)).toBe(false);
 		expect(shapes(mark)).toEqual([OCTAGON]);
 		expect(mark.querySelector('svg')).toHaveClass('text-red-700');
 		// In reading order: the h4, the lead, the h5 and the extremes, "Not counted", then the
@@ -3090,7 +3095,15 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				expect(shapes(cell), line.term).toEqual(marked ? [OCTAGON] : []);
 				if (marked) {
 					expect(cell.querySelector('svg')).toHaveClass('text-red-700');
-					expect(cell.firstElementChild!.firstElementChild!.tagName.toLowerCase()).toBe('svg');
+					// Before the value: the value's nodes in order, its text counted (an element
+					// child alone skips the amount's text node and so cannot see the order).
+					const drawn = [...cell.firstElementChild!.childNodes].filter(
+						(n) =>
+							n.nodeType === Node.ELEMENT_NODE ||
+							(n.nodeType === Node.TEXT_NODE && n.textContent!.trim() !== '')
+					);
+					expect(drawn.map((n) => n.nodeName.toLowerCase())).toEqual(['svg', '#text']);
+					expect(drawn[1]!.textContent).toBe(value.amount);
 					invalid++;
 				}
 			}
@@ -3120,12 +3133,21 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				'@max-[26rem]:font-semibold'
 			);
 			for (const cell of within(r).getAllByRole('cell')) {
+				// Its header and a space (the mock's `attr(data-label) " "`), so the list cell's
+				// accessible name never runs its header into its words (S5 review EXT-1).
 				expect(cell).toHaveClass(
 					'@max-[26rem]:block',
-					'@max-[26rem]:before:content-[attr(data-label)]',
+					"@max-[26rem]:before:content-[attr(data-label)_'_']",
 					'@max-[26rem]:before:text-slate-600'
 				);
 				expect(cell.textContent).not.toContain(cell.dataset.label);
+				// The value by its text on the line's baseline, its octagon centred (EXT-2).
+				const amount = cell.querySelector(':scope > span.font-medium');
+				if (amount) {
+					expect(amount).toHaveClass('@max-[26rem]:inline-flex', '@max-[26rem]:items-baseline');
+					const icon = amount.querySelector('svg');
+					if (icon) expect(icon).toHaveClass('self-center');
+				}
 			}
 		}
 		// Running combinations' marked cells take the same octagon, keeping their visually hidden
@@ -3254,6 +3276,12 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					);
 					expect(squash(said[i]!.textContent)).toBe(`${word} ${flagText(flag)}`);
 					expect(outOfSight(said[i]!)).toBe(false);
+					// Its text in sight, not only its item (§10 Flags: the flag text visible):
+					// its own element, never hidden by any class variant, attribute or style.
+					expect(squash(wordsInSight(said[i]!))).toBe(`${word} ${flagText(flag)}`);
+					const text = said[i]!.querySelector('[data-flag-text]')!;
+					expect(text.textContent).toBe(flagText(flag));
+					expect(outOfSight(text)).toBe(false);
 					expect(note.textContent!.split(flagText(flag))).toHaveLength(2);
 				}
 			}
@@ -3267,6 +3295,62 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(
 			within(screen.getByRole('region', { name: 'Running combinations' })).queryAllByRole('button')
 		).toHaveLength(0);
+	});
+
+	it('Running combinations with a scenario shown: the trace buttons in its group, first, and none in the base case’s (pumps-results-layout.md §5.3 Pump names, §10 S5)', async () => {
+		const input = combinationsOf([
+			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve, { shown: true }),
+			solvedCase('', 'Base case', c.solve, { shown: false }),
+			solvedCase('S3', 'Delivery tank 5 m higher', c.scenarioCases.S3!.solve)
+		]);
+		const oninspect = vi.fn();
+		render(PumpGroupChart, base({ combinations: runningCombinations(input), oninspect }));
+		const combos = screen.getByRole('table', { name: 'Running combinations' });
+		const groups = within(combos).getAllByRole('rowgroup').slice(1);
+		const heading = (g: HTMLElement) =>
+			within(g)
+				.getAllByRole('rowheader')
+				.find((h) => h.getAttribute('scope') === 'rowgroup')!.firstElementChild!.textContent;
+		expect(groups.map(heading)).toEqual([
+			'Pump PB off (shown)',
+			'Base case',
+			'Delivery tank 5 m higher'
+		]);
+		// The scenario shown: a button per member, each opening that pump's trace (for that case).
+		expect(
+			within(groups[0]!)
+				.getAllByRole('button')
+				.map((b) => b.textContent)
+		).toEqual(['▲Pump PA', '■Pump PB']);
+		await fireEvent.click(within(groups[0]!).getByRole('button', { name: 'Pump PB' }));
+		expect(oninspect).toHaveBeenLastCalledWith('PB');
+		// The base case not shown: plain row headers, as every other case's.
+		for (const g of groups.slice(1)) {
+			expect(within(g).queryAllByRole('button')).toEqual([]);
+			expect(within(g).getAllByRole('rowheader', { name: 'Pump PA' })).toHaveLength(1);
+		}
+	});
+
+	it('Running combinations: a stale group amber whole, in the table each cell and below 640 px its block, every line in it transparent (pumps-results-layout.md §5.3 Invalid and stale, §5.5; S5 review LAYOUT-3)', () => {
+		const dead = named('one-off-dead-headed') as unknown as OneOffCase;
+		const input = combinationsOf([
+			solvedCase('', 'Base case', c.solve),
+			solvedCase('S9', 'Held (synthetic)', dead.solve, { status: 'stale', stale: true })
+		]);
+		render(PumpGroupChart, base({ combinations: runningCombinations(input) }));
+		const combos = screen.getByRole('table', { name: 'Running combinations' });
+		const [current, stale] = within(combos).getAllByRole('rowgroup').slice(1);
+		// The stale group's cells: its heading, names, values and flag lines.
+		const cells = (g: HTMLElement) => [...g.querySelectorAll(':scope > tr > th, :scope > tr > td')];
+		expect(stale!.querySelector('[data-row-notes]')).not.toBeNull();
+		expect(stale).toHaveClass('max-sm:block', 'max-sm:bg-amber-50/60');
+		for (const cell of cells(stale!)) {
+			expect(cell.className).toMatch(/(^|\s)bg-amber-50(\/60)?(\s|$)/);
+			expect(cell).toHaveClass('max-sm:bg-transparent');
+		}
+		// A current group: no amber anywhere, its block untinted.
+		expect(current!.className).not.toMatch(/amber/);
+		for (const cell of cells(current!)) expect(cell.className).not.toMatch(/amber/);
 	});
 
 	it('the figure: the rings in the legend and the name, the data table’s rows, no image while computed', async () => {
@@ -3521,11 +3605,19 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			ringed++;
 			expect(cells.map((cell) => cell.dataset.label)).toEqual(headers.slice(1));
 			// A number beside its column's words, a pair; a cell of words the whole line, its
-			// column's words before them in the same run of text.
+			// column's words and a space before them in the same run of text, so its accessible
+			// name never runs the two together (S5 review LAYOUT-1).
 			for (const [i, cell] of cells.entries()) {
-				expect(cell).toHaveClass('max-sm:before:content-[attr(data-label)]');
+				expect(cell).toHaveClass(
+					i < 2
+						? 'max-sm:before:content-[attr(data-label)]'
+						: "max-sm:before:content-[attr(data-label)_'_']"
+				);
 				expect(cell).toHaveClass(i < 2 ? 'max-sm:flex' : 'max-sm:block');
-				if (i >= 2) expect(cell).toHaveClass('max-sm:w-full', 'max-sm:before:mr-1');
+				if (i >= 2) expect(cell).toHaveClass('max-sm:w-full');
+				// Its words the list's value style, as a number's, apart from its column's words
+				// (12 px slate-600): 14 px slate-900 (S5 review LAYOUT-1).
+				if (i >= 2) expect(cell).toHaveClass('max-sm:text-sm', 'max-sm:text-slate-900');
 				expect(cell.textContent).not.toContain(cell.dataset.label);
 			}
 		}

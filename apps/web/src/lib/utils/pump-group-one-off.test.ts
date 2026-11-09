@@ -808,6 +808,24 @@ describe('Running combinations', () => {
 		]);
 	});
 
+	it('marks the group of the case shown, a scenario as the base, never the base case for being the base (§5.3 Pump names)', () => {
+		const base = combinationsInput();
+		// Scenario S3 shown: its group alone is the shown one (its names the trace buttons).
+		const table = runningCombinations({
+			...base,
+			cases: base.cases.map((c) => ({ ...c, shown: c.key === 'S3' }))
+		});
+		expect(table.groups.map((g) => [g.key, g.shown])).toEqual([
+			['', false],
+			['S1', false],
+			['S2', false],
+			['S3', true],
+			['S4', false]
+		]);
+		expect(table.groups.find((g) => g.shown)!.heading).toBe('Delivery tank 5 m higher (shown)');
+		expect(table.groups[0]!.heading).toBe('Base case');
+	});
+
 	it('heads each group with its state and ring, an out-of-date one tinted', () => {
 		const base = combinationsInput();
 		const table = runningCombinations({
@@ -966,6 +984,51 @@ describe('Running combinations’ lead (pumps-results-layout.md §5.3, §9 S5)',
 			})
 		);
 		expect([stale.invalid, stale.warnings, stale.outOfDate, stale.mark]).toEqual([0, 0, 1, null]);
+	});
+
+	it('counts a case out of date by its heading’s rule, values or not: a stale solve that did not converge is out of date, a stale failure without results (§5.3)', () => {
+		const base = everyCase(oneOff);
+		const notConverged = structuredClone(scenarioCase('S1').solve);
+		notConverged.solvedState.converged = false;
+		// The review's case: S1's solve did not converge, S2's failed, every case solved, then an
+		// edit. Every case's status is then 'stale'; PumpsView passes a stale case's response on.
+		const table = runningCombinations({
+			...base,
+			cases: base.cases.map((c) =>
+				c.key === 'S1'
+					? { ...c, status: 'stale', response: notConverged, stale: true }
+					: c.key === 'S2'
+						? { ...c, status: 'stale', response: null, stale: true }
+						: { ...c, status: 'stale', stale: true }
+			)
+		});
+		const headed = table.groups.filter((g) => g.heading.includes('(out of date)'));
+		expect(table.groups.map((g) => [g.heading, g.detail])).toEqual([
+			['Base case (shown) (out of date)', null],
+			['Pump PA off (out of date)', 'Out of date'],
+			['Pump PB off', 'Out of date'],
+			['Delivery tank 5 m higher (out of date)', null],
+			['Both pumps off (out of date)', null]
+		]);
+		const lead = combinationsLead(table);
+		// m is the number of groups headed "(out of date)"; the failure has no results (f).
+		expect(lead.outOfDate).toBe(headed.length);
+		expect(lead).toMatchObject({ cases: 5, current: 0, outOfDate: 4, without: 1 });
+		expect(lead.text).toBe(
+			'5 cases: 0 with current results (none physically invalid, none with warnings), 4 out of date, 1 without results.'
+		);
+		expect(lead.current + lead.outOfDate + lead.without).toBe(lead.cases);
+		// The same not-converged solve while current has no values and no "(out of date)": f.
+		const current = combinationsLead(
+			runningCombinations({
+				...base,
+				cases: [
+					base.cases[0]!,
+					{ ...base.cases[1]!, status: 'not_converged', response: notConverged }
+				]
+			})
+		);
+		expect([current.current, current.outOfDate, current.without]).toEqual([1, 0, 1]);
 	});
 
 	it('says "1 case" for one', () => {

@@ -166,17 +166,21 @@
 									<!-- The value on its cell's first line, medium; the rest under it (§5.3).
 										A long unbroken word (a case's name) breaks inside its cell, so the
 										table never runs past its box, which has no Tab stop. Below 26 rem one
-										line, headed by the column's words as ::before content, never an
-										element: the cell's text is its words at every width (§5.3, §7). -->
+										line, headed by the column's words and a space as ::before content
+										(the mock's `attr(data-label) " "`), never an element: the cell's text
+										is its words at every width, and its accessible name its header, a
+										space, then its words, "no case gives one" too (§5.3, §7). There the
+										value sits on the line's baseline by its text, the octagon centred
+										beside it (§5.3: the cell's words after it on the same line). -->
 									<td
 										role="cell"
 										data-label={table.columns[i]!.label}
-										class="border-b border-slate-200 px-1.5 py-1 align-top wrap-anywhere tabular-nums @max-[26rem]:block @max-[26rem]:border-0 @max-[26rem]:p-0 @max-[26rem]:pt-0.5 @max-[26rem]:before:mr-1 @max-[26rem]:before:text-slate-600 @max-[26rem]:before:content-[attr(data-label)]"
+										class="border-b border-slate-200 px-1.5 py-1 align-top wrap-anywhere tabular-nums @max-[26rem]:block @max-[26rem]:border-0 @max-[26rem]:p-0 @max-[26rem]:pt-0.5 @max-[26rem]:before:text-slate-600 @max-[26rem]:before:content-[attr(data-label)_'_']"
 										>{#if cell.amount !== null}<span
-												class="flex items-center gap-1 font-medium text-slate-900 @max-[26rem]:inline-flex"
+												class="flex items-center gap-1 font-medium text-slate-900 @max-[26rem]:inline-flex @max-[26rem]:items-baseline"
 												>{#if cell.invalid}<FlagIcon
 														severity="invalid"
-														class="inline size-3.5"
+														class="inline size-3.5 self-center"
 													/>{/if}{cell.amount}</span
 											> <span class="text-slate-600">{cell.rest}</span>{:else}<span
 												class="text-slate-600">{cell.rest}</span
@@ -238,8 +242,11 @@
 				</tr>
 			</thead>
 			{#each combinations.groups as group (group.key)}
+				<!-- A stale group amber whole (§5.3 Invalid and stale): in the table each cell is
+					tinted; below 640 px its block, every line in it transparent, so the list's group
+					reads as one amber block as the table's does (§5.5: only the layout changes). -->
 				<!-- svelte-ignore a11y_no_redundant_roles -->
-				<tbody role="rowgroup" class="max-sm:block">
+				<tbody role="rowgroup" class={['max-sm:block', group.stale && 'max-sm:bg-amber-50/60']}>
 					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<tr role="row" class="max-sm:block">
 						<th
@@ -248,7 +255,7 @@
 							colspan={combinations.columns.length + 1}
 							class={[
 								'border-b border-slate-200 px-0 py-1 text-left font-normal max-sm:block',
-								group.stale ? 'bg-amber-50/60' : 'bg-slate-50/60'
+								group.stale ? 'bg-amber-50/60 max-sm:bg-transparent' : 'bg-slate-50/60'
 							]}
 						>
 							<!-- Each line sticky at the box's visible width, so it wraps in view (§5.3). -->
@@ -277,7 +284,7 @@
 								scope="row"
 								class={[
 									'sticky left-0 z-10 border-r border-b border-slate-200 px-1 py-0.5 text-left font-normal',
-									'max-sm:static max-sm:-mx-1 max-sm:block max-sm:w-full max-sm:border-0',
+									'max-sm:static max-sm:-mx-1 max-sm:block max-sm:w-full max-sm:border-0 max-sm:bg-transparent',
 									group.stale ? 'bg-amber-50' : 'bg-white'
 								]}
 							>
@@ -360,7 +367,7 @@
 															flag.severity
 														]}</span
 													>
-													{flagText(flag)}
+													<span data-flag-text>{flagText(flag)}</span>
 												</li>
 											{/each}
 										</ul>

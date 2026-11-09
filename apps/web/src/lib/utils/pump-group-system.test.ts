@@ -407,7 +407,7 @@ describe('the notes (screen and image)', () => {
 		const { notes } = card(c, groupState(c), { status: 'ready', response: system });
 		expect(notes.systemDuty).toEqual([
 			`The group system curve does not pass through the Group point: at the duty's flow it needs a rise of ${m(system.duty!.head + 1)} (the solve: ${m(system.duty!.head)}), more than 0.5 % or 0.01 m apart.`,
-			'Several steady states can exist (D13); the point is the one the solve found.'
+			'Several steady states can exist; the point is the one the solve found.'
 		]);
 		expect(systemDutyCheckState(system)).toBe('the group system curve does not pass through it');
 	});

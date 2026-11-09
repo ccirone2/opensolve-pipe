@@ -291,13 +291,14 @@ describe('the rest of the network and the duty claim', () => {
 			rest_differs:
 				"No: the rest of the network differs from this case's; its own group system curve is not drawn",
 			no_curve: 'Not said: no group system curve is drawn for this case',
-			zero_flow: 'Not said: at zero station flow the rest can hold more than one state (D13)',
+			zero_flow: 'Not said: at zero station flow the rest can hold more than one state',
 			beyond_range: 'Not said: its flow is beyond the flows this curve was computed for',
 			gap: 'Not said: the curve has no rise next to its flow',
-			shown_duty: "Not said: this case's own duty is not on the curve (D13)"
+			shown_duty:
+				"Not said: this case's own duty is not on the curve (several steady states can exist; the duty is the one the solve found)"
 		});
 		expect(DUTY_CLAIM_RULE).toBe(
-			"A ring is called a point of the group system curve shown only when its case, as solved, is the same as this one outside the station, its station flow is above zero, the curve has a rise at the computed flows on both sides of it, and this case's own duty is on the curve. Its duty is then a steady state of the same rest of the network, so it lies on the curve wherever the rest has one state at its flow; the curve is drawn through sampled points, each the state the system curve's starts find (D13)."
+			"A ring is called a point of the group system curve shown only when its case, as solved, is the same as this one outside the station, its station flow is above zero, the curve has a rise at the computed flows on both sides of it, and this case's own duty is on the curve. Its duty is then a steady state of the same rest of the network, so it lies on the curve wherever the rest has one state at its flow; the curve is drawn through sampled points, each the state the system curve's starts find."
 		);
 	});
 });
@@ -1682,7 +1683,7 @@ describe('the station inside, and the other cases’ own group curves (D24 slice
 		expect(notThrough).toMatchObject({ claim: 'on', curveState: 'not_through' });
 		expect(notThrough.curve).not.toBeNull();
 		expect(notThrough.curveWords).toBe(
-			'drawn (3 running): it does not pass through the ring (D13)'
+			'drawn (3 running): it does not pass through the ring (several steady states can exist; the ring is the one the solve found)'
 		);
 	});
 
@@ -1693,7 +1694,8 @@ describe('the station inside, and the other cases’ own group curves (D24 slice
 		expect(words).toEqual({
 			crossing: 'drawn (3 running): it crosses the group system curve at the ring',
 			through: 'drawn (3 running): it passes through the ring',
-			not_through: 'drawn (3 running): it does not pass through the ring (D13)',
+			not_through:
+				'drawn (3 running): it does not pass through the ring (several steady states can exist; the ring is the one the solve found)',
 			same_inside: "the same as this case's: the station is the same inside",
 			inside_differs:
 				'not drawn: the station differs inside in more than which pumps are switched on',

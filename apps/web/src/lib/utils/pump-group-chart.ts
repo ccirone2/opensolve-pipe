@@ -128,7 +128,7 @@ export const OTHER_CURVES_LABEL = "Other cases' group curves (slate; dashed beyo
  * dutyClaim): the notes' sentence, while a ring and a group system curve are drawn.
  */
 export const DUTY_CLAIM_RULE =
-	"A ring is called a point of the group system curve shown only when its case, as solved, is the same as this one outside the station, its station flow is above zero, the curve has a rise at the computed flows on both sides of it, and this case's own duty is on the curve. Its duty is then a steady state of the same rest of the network, so it lies on the curve wherever the rest has one state at its flow; the curve is drawn through sampled points, each the state the system curve's starts find (D13).";
+	"A ring is called a point of the group system curve shown only when its case, as solved, is the same as this one outside the station, its station flow is above zero, the curve has a rise at the computed flows on both sides of it, and this case's own duty is on the curve. Its duty is then a steady state of the same rest of the network, so it lies on the curve wherever the rest has one state at its flow; the curve is drawn through sampled points, each the state the system curve's starts find.";
 
 /**
  * The station and its duty the card shows: the group curve's ready response, else the group
@@ -1250,7 +1250,7 @@ export function groupNotes({
 		} else if (check) {
 			duty.push(
 				`The group curve does not pass through the Group point: ${dutyCheckWords(response, name, prefs)}.`,
-				'Several steady states can exist (D13); the point is the one the solve found.'
+				'Several steady states can exist; the point is the one the solve found.'
 			);
 		}
 	}
@@ -1327,7 +1327,7 @@ export function groupNotes({
  * judged (D24 §9.6): it replaces 4d's, exactly. The list of rings then says which applies.
  */
 export const OTHER_CURVES_FRAME =
-	"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13). Where its case differs from this one inside the station only in which pumps are switched on, and its curve has flow, that curve is drawn in slate and labelled with the number of pumps switched on; where it differs only outside the station, it is the group curve drawn for this case; otherwise it is not drawn. The list below says, for each ring, which.";
+	"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise. Where its case differs from this one inside the station only in which pumps are switched on, and its curve has flow, that curve is drawn in slate and labelled with the number of pumps switched on; where it differs only outside the station, it is the group curve drawn for this case; otherwise it is not drawn. The list below says, for each ring, which.";
 
 /**
  * The clip note (D24 §9.4, §9.6), after the frame sentence when the axes cut a curve: each clause
@@ -1437,10 +1437,10 @@ export function otherNoteParts(
 			family
 				? OTHER_CURVES_FRAME
 				: curve.drawn
-					? "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
+					? "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise: the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
 					: curve.pressureControl
 						? "With an active PRV or PSV inside, the station has no group curve, so none is drawn here; each ring is its case's duty from its group system curve where one is active in that case too, else from its group curve."
-						: "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13); no group curve is drawn here."
+						: "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise; no group curve is drawn here."
 		].join(' ');
 	}
 	// The clip note (D24 §9.4): only while the family is drawn, and only for the cuts made.
@@ -1591,7 +1591,7 @@ function groupSystemNotes(
 		} else if (check) {
 			duty.push(
 				`The group system curve does not pass through the Group point: at the duty's flow it needs a rise of ${head(check.head!)} (the solve: ${head(response.duty.head)}), more than ${tolerance} apart.`,
-				'Several steady states can exist (D13); the point is the one the solve found.'
+				'Several steady states can exist; the point is the one the solve found.'
 			);
 		}
 	}

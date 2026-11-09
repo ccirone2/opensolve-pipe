@@ -777,7 +777,7 @@ describe('one pump off on the Pumps together card', () => {
 			/4 · Delivery tank 5 m higher, [\d.]+ L\/s at a rise of [\d.]+ m \(No: the rest of the network differs from this case's; its own group system curve is not drawn; group curve: the same as this case's: the station is the same inside\)/
 		);
 		expect(name).toMatch(
-			/2 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state \(D13\); group curve: not drawn: no flow at any rise\)/
+			/2 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state; group curve: not drawn: no flow at any rise\)/
 		);
 		expect(name).toMatch(
 			/; other cases' group curves drawn: 1 \(1 running\) and 3 \(1 running\); group curve shown; group system curve shown\.$/
@@ -794,7 +794,7 @@ describe('one pump off on the Pumps together card', () => {
 		// Delivery tank 5 m higher.
 		expect(claims).toEqual([
 			'Yes: the same rest of the network',
-			'Not said: at zero station flow the rest can hold more than one state (D13)',
+			'Not said: at zero station flow the rest can hold more than one state',
 			'Yes: the same rest of the network',
 			"No: the rest of the network differs from this case's; its own group system curve is not drawn"
 		]);

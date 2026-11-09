@@ -641,6 +641,57 @@ async function tabStops(page: Page): Promise<{ kind: string; name: string }[]> {
 }
 
 /**
+ * The record (PUMPS_LAYOUT_RECORD): an element inside the pane's scroller, one screenshot per
+ * screen of it at CSS pixels (`{label}-{i}.png` under `segments`, each with the element's offset
+ * it starts at), the section nav hidden so that nothing is drawn over it; the scroller is put back
+ * where it was. Element screenshots cannot be used: the page does not scroll, its scroller does.
+ */
+async function elementScreens(page: Page, element: Locator, label: string) {
+	const scroll = (to: number | null) =>
+		element.evaluate((el, top) => {
+			let s = el.parentElement;
+			while (s && !/(auto|scroll)/.test(getComputedStyle(s).overflowY)) s = s.parentElement;
+			if (top !== null) s!.scrollTop = top;
+			const sr = s!.getBoundingClientRect();
+			const er = el.getBoundingClientRect();
+			return {
+				scrollTop: s!.scrollTop,
+				view: { y: sr.top + s!.clientTop, height: s!.clientHeight },
+				element: { x: er.left, top: er.top, width: er.width, height: er.height }
+			};
+		}, to);
+	const start = await scroll(null);
+	const top = start.element.top - start.view.y + start.scrollTop;
+	const parts: { file: string; from: number }[] = [];
+	for (let from = 0, i = 0; from < start.element.height && i < 40; i++) {
+		const at = await scroll(top + from);
+		await page.waitForTimeout(150);
+		const y = Math.max(at.view.y, at.element.top + from);
+		const height = Math.min(at.view.y + at.view.height - y, at.element.top + at.element.height - y);
+		if (height < 1) break;
+		const file = path.join(RECORD, 'segments', `${label}-${String(i).padStart(2, '0')}.png`);
+		await page.screenshot({
+			path: file,
+			scale: 'css',
+			clip: {
+				x: Math.round(at.element.x),
+				y: Math.round(y),
+				width: Math.round(at.element.width),
+				height: Math.floor(height)
+			},
+			style: '[data-pumps-nav] { visibility: hidden; }'
+		});
+		parts.push({ file, from: Math.round(y - at.element.top) });
+		from = Math.round(y - at.element.top) + Math.floor(height);
+	}
+	await scroll(start.scrollTop);
+	writeFileSync(
+		path.join(RECORD, 'segments', `${label}.json`),
+		JSON.stringify({ height: Math.round(start.element.height), parts }, null, 1)
+	);
+}
+
+/**
  * The pane's scroller from the pump chart's canvas to the tab's end, one screenshot per screen at
  * CSS pixels (measure.mjs `stitched`); the files and the scroll offset each was taken at. Where
  * the section nav is pinned over a screen's top (S2, §5.4), that screen's `cover` is its height,
@@ -2159,6 +2210,22 @@ async function cardPart(
 		if (ringBudget) {
 			soft(others.height, `the ring notes' height, ${where}`).toBeLessThanOrEqual(ringBudget);
 		}
+	}
+	// The record (PUMPS_LAYOUT_RECORD): the other cases' section as measured, "How to read the
+	// rings" closed, then open (the frame and the rule, §6.2 S8's W3 to W6).
+	if (RECORD && others && others.rings > 0) {
+		mkdirSync(path.join(RECORD, 'segments'), { recursive: true });
+		const section = card.locator('[data-group-others]');
+		const how = section.locator('[data-group-rings-how]');
+		const hasHow = (await how.count()) > 0;
+		const setOpen = async (open: boolean) => {
+			if (hasHow) await how.evaluate((d, o) => ((d as HTMLDetailsElement).open = o), open);
+		};
+		for (const open of hasHow ? [false, true] : [false]) {
+			await setOpen(open);
+			await elementScreens(page, section, `rings-${view}-${size}-${open ? 'open' : 'closed'}`);
+		}
+		await setOpen(others.howOpen);
 	}
 
 	// §5.7 row 4: the group legend's height (the lineups' at 390×844 is the budget).

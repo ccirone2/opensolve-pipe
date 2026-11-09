@@ -157,7 +157,7 @@ const frame = (s: string, d: string, arrangement = '') =>
 		`Each numbered slate ring is another case's station duty: that case's station flow and its rise from ${s} to ${d}, drawn against the station's flow as the group curve is, not a pump's own point.`,
 		arrangement,
 		"Each pump's own flow and head in each case are in Running combinations.",
-		"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
+		"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise: the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
 	]
 		.filter((x) => x)
 		.join(' ');
@@ -251,12 +251,7 @@ describe('the rings', () => {
 					duty('S3').flow * 1000,
 					"No: the rest of the network differs from this case's; its own group system curve is not drawn"
 				),
-				line(
-					'S4',
-					4,
-					0,
-					'Not said: at zero station flow the rest can hold more than one state (D13)'
-				)
+				line('S4', 4, 0, 'Not said: at zero station flow the rest can hold more than one state')
 			].join('; ')}; group curve shown; group system curve shown.`
 		);
 		expect(
@@ -494,7 +489,7 @@ describe('the notes', () => {
 				"Each numbered slate ring is another case's station duty: that case's station flow and its rise from Tee T1 (run inlet) to Tee T2 (run outlet), drawn against the station's flow as the group system curve is, not a pump's own point.",
 				PARALLEL,
 				"Each pump's own flow and head in each case are in Running combinations.",
-				"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13); no group curve is drawn here."
+				"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise; no group curve is drawn here."
 			].join(' ')
 		);
 	});
@@ -687,7 +682,7 @@ const NAMES = {
 } as const;
 /** §9.6's frame sentence, the last of the frame's (typed from the proposal). */
 const L3_FRAME =
-	"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13). Where its case differs from this one inside the station only in which pumps are switched on, and its curve has flow, that curve is drawn in slate and labelled with the number of pumps switched on; where it differs only outside the station, it is the group curve drawn for this case; otherwise it is not drawn. The list below says, for each ring, which.";
+	"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise. Where its case differs from this one inside the station only in which pumps are switched on, and its curve has flow, that curve is drawn in slate and labelled with the number of pumps switched on; where it differs only outside the station, it is the group curve drawn for this case; otherwise it is not drawn. The list below says, for each ring, which.";
 const lineupFrame = [
 	"Each numbered slate ring is another case's station duty: that case's station flow and its rise from Tee TS1 (run inlet) to Tee TD1 (run outlet), drawn against the station's flow as the group curve is, not a pump's own point.",
 	PARALLEL,
@@ -2508,7 +2503,7 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 				"Each numbered slate ring is another case's station duty: that case's station flow and its rise from Tee T1 (run inlet) to Tee T2 (run outlet), drawn against the station's flow as the group system curve is, not a pump's own point.",
 				PARALLEL,
 				"Each pump's own flow and head in each case are in Running combinations.",
-				"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13); no group curve is drawn here."
+				"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise; no group curve is drawn here."
 			].join(' ')
 		);
 		const prv = cases.find((c) => c.name === 'prv-inside')!;

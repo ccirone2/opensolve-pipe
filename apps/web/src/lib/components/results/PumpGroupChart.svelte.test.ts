@@ -1535,9 +1535,7 @@ describe('the members, the station and the group chart’s reading (pumps-result
 		]);
 		for (const s of summaries) expect(s.querySelector('.sr-only')).toBeTruthy();
 		expect(
-			screen.getAllByText(
-				'Several steady states can exist (D13); the point is the one the solve found.'
-			)
+			screen.getAllByText('Several steady states can exist; the point is the one the solve found.')
 		).toHaveLength(2);
 	});
 
@@ -1802,9 +1800,7 @@ describe('the group system curve (slice 4b)', () => {
 			within(note).getByText("Calculation server's message: made-up server words")
 		).toBeInTheDocument();
 		expect(
-			screen.getByText(
-				'Several steady states can exist (D13); the point is the one the solve found.'
-			)
+			screen.getByText('Several steady states can exist; the point is the one the solve found.')
 		).toBeVisible();
 		expect((charts[0]!.config as Recorded).data.datasets.at(-1)!.label).toBe(
 			'Group duty, on the group curve'
@@ -3723,7 +3719,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			'○ 4 · Both pumps off (station duty)'
 		]);
 		expect(within(figure).getByRole('img')).toHaveAccessibleName(
-			/; other cases' station duties: 1 · Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network\); 2 · Pump PB off, .*; 4 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state \(D13\)\); group curve shown; group system curve shown\.$/
+			/; other cases' station duties: 1 · Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network\); 2 · Pump PB off, .*; 4 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state\); group curve shown; group system curve shown\.$/
 		);
 		await drawn();
 		await fireEvent.click(

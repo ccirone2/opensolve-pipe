@@ -411,7 +411,7 @@ describe('the notes (screen and image)', () => {
 		const l = (q: number) => `${f4(q * 1000)} L/s`;
 		expect(notesOf(c, { status: 'ready', response }).duty).toEqual([
 			`The group curve does not pass through the Group point: at the duty's rise it gives ${l(duty.members[0]!.flow)} (the solve: ${l(duty.flow)}), and Pump PB 0 L/s (the solve: ${l(duty.members[1]!.flow)}).`,
-			'Several steady states can exist (D13); the point is the one the solve found.'
+			'Several steady states can exist; the point is the one the solve found.'
 		]);
 	});
 

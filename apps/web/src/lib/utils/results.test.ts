@@ -55,6 +55,7 @@ import {
 	smallestNpshMargin,
 	sortableColumn,
 	sortRows,
+	sortValue,
 	type Cell,
 	type Row,
 	type TableSort,
@@ -1260,6 +1261,25 @@ describe('sorting results tables', () => {
 			'a'
 		]);
 		expect(names(null)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+	});
+
+	it('sorts a value with a note after it by its value: the group table’s shutoff head at maximum speed (S6 review TBL-3)', () => {
+		expect(sortValue('73.7 (79.74 at maximum speed)')).toBe(73.7);
+		expect(sortValue('-2.5 (a note)')).toBe(-2.5);
+		// Words, or a number inside words, stay text.
+		expect(sortValue('Running at maximum speed (holding flow setpoint)')).toBe(
+			'Running at maximum speed (holding flow setpoint)'
+		);
+		expect(sortValue('12 L/s: held')).toBe('12 L/s: held');
+		const rows = [
+			row('controlled', { s: '73.7 (79.74 at maximum speed)' }),
+			row('fixed', { s: '73.68' }),
+			row('none', { s: '—' })
+		];
+		const names = (direction: TableSort['direction']) =>
+			sortRows(rows, { key: 's', direction }).map((r) => r.name);
+		expect(names('ascending')).toEqual(['fixed', 'controlled', 'none']);
+		expect(names('descending')).toEqual(['controlled', 'fixed', 'none']);
 	});
 
 	it('sorts a cell of several values by its largest, and knows which columns can sort', () => {

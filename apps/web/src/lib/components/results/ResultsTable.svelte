@@ -38,6 +38,14 @@
 	(`name`: the slot symbol, a trace button only where one fits, the name wrapping at 12 rem);
 	its box may be a named region and a Tab stop (`labelledby`), as the card's boxes are, so the
 	keyboard can scroll it sideways. Every other table draws as before.
+
+	Row groups (`table.groups`; §9 S6b, the owner's answer 3: Running combinations, a group per
+	case): in the table's own order each group is a row group headed by its lines (`groupHeading`,
+	in one cell across the row), its rows under it; Flagged only keeps the groups with a flagged
+	row, Fields hides a column in every group. A sort flattens them into one table with a column
+	(`groupColumn`, "Case") naming each row's group, not sortable itself, since the groups are that
+	order; clearing the sort brings the groups back. A group out of date is amber, whole in either
+	form. A cell's content may be the caller's (`cellContent`: a mark before an invalid value).
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -48,6 +56,7 @@
 		sortableColumn,
 		sortRows,
 		type Row,
+		type RowGroup,
 		type Table,
 		type TableSort
 	} from '$lib/utils/results';
@@ -88,6 +97,15 @@
 		labelledby?: string;
 		/** Where the Fields choice is remembered, when the caption changes (it names the case). */
 		fieldsKey?: string;
+		/**
+		 * A row group's heading (`table.groups`; §9 S6b): its lines, each a block, in one cell
+		 * across the row. Else its label.
+		 */
+		groupHeading?: Snippet<[RowGroup]>;
+		/** The heading of the column a sort adds to a table of row groups, naming each row's. */
+		groupColumn?: string;
+		/** A cell's content, by its row and column, in place of its text (a mark before a value). */
+		cellContent?: Snippet<[Row, string]>;
 	}
 
 	let {
@@ -102,7 +120,10 @@
 		flagLine,
 		name,
 		labelledby,
-		fieldsKey
+		fieldsKey,
+		groupHeading,
+		groupColumn = 'Group',
+		cellContent
 	}: Props = $props();
 
 	const id = $props.id();
@@ -146,6 +167,10 @@
 	function toggle(key: string) {
 		expanded = expanded.includes(key) ? expanded.filter((k) => k !== key) : [...expanded, key];
 	}
+
+	/** A row's own key in the table: in a table of row groups, its group's and its own. */
+	const rowKey = (row: Row) =>
+		row.group === undefined ? row.key : JSON.stringify([row.group, row.key]);
 
 	const domId = (key: string) => `${id}-detail-${key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
 
@@ -217,6 +242,28 @@
 	}
 
 	const rows = $derived(limit >= shown.length ? shown : shown.slice(0, limit));
+
+	/**
+	 * Row groups (§9 S6b): in the table's own order, a row group each, in the groups' order, its
+	 * rows in the table's; a sort flattens them, with the group column. Flagged only leaves out a
+	 * group with no flagged row; the rows drawn so far (`limit`) fill the groups in order.
+	 */
+	const groupOf = $derived(new Map((table.groups ?? []).map((g) => [g.key, g])));
+	const flat = $derived(!!table.groups && !!sort);
+	const blocks = $derived.by(() => {
+		if (!table.groups || sort) return [];
+		const filtering = canFilter && flaggedOnly;
+		const drawn: { group: RowGroup; rows: Row[] }[] = [];
+		let start = 0;
+		for (const group of table.groups) {
+			const all = shown.filter((row) => row.group === group.key);
+			if (filtering && !all.length) continue;
+			if (start > limit || (all.length && start >= limit)) break;
+			drawn.push({ group, rows: all.slice(0, Math.max(0, limit - start)) });
+			start += all.length;
+		}
+		return drawn;
+	});
 	$effect(() => {
 		if (limit >= shown.length) return;
 		const grow = () => (limit += CHUNK);
@@ -227,7 +274,7 @@
 		const timer = setTimeout(grow, 16);
 		return () => clearTimeout(timer);
 	});
-	const columns = $derived(visibleColumns.length + 1);
+	const columns = $derived(visibleColumns.length + 1 + (flat ? 1 : 0));
 	// A sort on a column hidden since goes back to the table's order.
 	$effect.pre(() => {
 		if (sort && sort.key !== NAME_SORT_KEY && hidden.includes(sort.key)) sort = null;
@@ -269,6 +316,158 @@
 		{#if unit}
 			<span class="block px-1 text-xs font-normal whitespace-nowrap text-slate-600">{unit}</span>
 		{/if}
+	{/if}
+{/snippet}
+
+<!-- A row of the body, with its flag line and its details under it: in the table's one row
+	group, or in its group's (§9 S6b), where every row has a divider above it (its heading's over
+	the first). A row out of date is amber (`stale`); on a phone the block that holds it is, its
+	group's or, flattened, the row's own (`tintRow`), so it reads as one tone. -->
+{#snippet bodyRow(row: Row, index: number, divided: boolean, stale: boolean, tintRow: boolean)}
+	{@const key = rowKey(row)}
+	{@const open = expanded.includes(key)}
+	{@const expandable = !!detail && hasDetail(row)}
+	{@const annotated = row.flags.length > 0 || expandable}
+	{@const divider = (divided || index > 0) && 'border-t border-slate-200'}
+	<!-- svelte-ignore a11y_no_redundant_roles -->
+	<tr
+		role="row"
+		class={[
+			'max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5',
+			index > 0 && 'max-sm:border-t max-sm:border-slate-200',
+			tintRow && 'max-sm:bg-amber-50/60'
+		]}
+	>
+		<th
+			role="rowheader"
+			scope="row"
+			class={[
+				FIXED,
+				divider,
+				'z-10 px-1 py-0.5 text-left align-top font-normal sm:w-auto',
+				stale ? 'bg-amber-50 max-sm:bg-transparent' : 'bg-white',
+				!name && 'sm:max-w-[16rem] sm:min-w-[11rem]',
+				'max-sm:static max-sm:-mx-1 max-sm:block max-sm:w-full max-sm:border-0 max-sm:shadow-none'
+			]}
+		>
+			{#if name}
+				{@render name(row)}
+			{:else if onselect}
+				<button
+					type="button"
+					class="flex min-h-11 w-full flex-col items-start justify-center rounded px-1 text-left hover:bg-slate-100"
+					onclick={() => onselect(row)}
+				>
+					<span class="font-medium break-words text-blue-800 underline underline-offset-2"
+						>{row.name}</span
+					>
+					{#if row.detail}<span class="text-xs break-words text-slate-600">{row.detail}</span>{/if}
+				</button>
+			{:else}
+				<span class="block px-1 py-2">
+					<span class="block font-medium break-words">{row.name}</span>
+					{#if row.detail}<span class="block text-xs text-slate-600">{row.detail}</span>{/if}
+				</span>
+			{/if}
+		</th>
+		{#if flat}
+			<!-- A sort flattens the groups (§9 S6b): the row's group named in a column of its own,
+				after the name. Its words' own width is their one line up to 12 rem, as a name's, so
+				the column is that wide rather than its longest word, and a long name wraps inside it.
+				A phone's pair, "Case Base case (shown)", its header kept whole beside the words. -->
+			<td
+				role="cell"
+				data-label={groupColumn}
+				class={[
+					divider,
+					'px-2 py-2 align-top',
+					stale && 'bg-amber-50/60 max-sm:bg-transparent',
+					'max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:p-0 max-sm:text-left',
+					'max-sm:before:shrink-0 max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]'
+				]}
+				><span
+					class="block w-max max-w-48 wrap-break-word max-sm:w-auto max-sm:max-w-none max-sm:min-w-0 max-sm:wrap-anywhere"
+					>{groupOf.get(row.group ?? '')?.label ?? ''}</span
+				></td
+			>
+		{/if}
+		{#each visibleColumns as column (column.key)}
+			{@const cell = row.cells[column.key] ?? '—'}
+			<td
+				role="cell"
+				data-label={column.unit ? `${column.label} (${column.unit})` : column.label}
+				class={[
+					divider,
+					'px-2 py-2 align-top',
+					column.numeric && 'text-right tabular-nums',
+					column.wrap ? 'max-w-[22rem] min-w-[14rem] text-xs break-words' : 'whitespace-nowrap',
+					stale && 'bg-amber-50/60 max-sm:bg-transparent',
+					// A phone: "Flow (L/s) 18.98", its label from the column (not in its text).
+					'max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:p-0 max-sm:text-left max-sm:whitespace-normal',
+					'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]',
+					// A phone's row leaves out what it has no value for: out of sight only, so the
+					// row keeps its cells, in order, for screen readers.
+					cell === '—' && 'max-sm:sr-only'
+				]}
+			>
+				<!-- Plain text inline: a component per cell is slow on tables of hundreds of rows. -->
+				{#if cellContent}{@render cellContent(
+						row,
+						column.key
+					)}{:else if typeof cell === 'string'}{cell}{:else}<CellValue {cell} />{/if}
+			</td>
+		{/each}
+	</tr>
+	{#if annotated}
+		<!-- svelte-ignore a11y_no_redundant_roles -->
+		<tr role="row" class={['max-sm:block', tintRow && 'max-sm:bg-amber-50/60']}>
+			<td
+				role="cell"
+				colspan={columns}
+				class={['p-0 max-sm:block', stale && 'bg-amber-50/60 max-sm:bg-transparent']}
+			>
+				<!-- With `flagLine`, the card's flag line (§5.3 Station): its own block of flags
+					at the box's visible width, labelled Flags, after the row's values on a
+					phone; else the badges in a wrapping row. -->
+				<div
+					class={flagLine
+						? 'sticky left-0 w-[100cqw] px-2 pt-1 pb-1.5 max-sm:static max-sm:w-auto'
+						: 'sticky left-0 flex w-[100cqw] flex-wrap items-center gap-1 px-2 pb-1 max-sm:static max-sm:w-auto'}
+					data-row-notes={row.key}
+					data-label={flagLine ? 'Flags' : undefined}
+				>
+					{#if flagLine}
+						{#if row.flags.length}{@render flagLine(row)}{/if}
+					{:else}
+						{#each row.flags as flag, i (i)}
+							<FlagBadge {flag} />
+						{/each}
+					{/if}
+					{#if expandable}
+						<button
+							type="button"
+							class="inline-flex min-h-11 items-center gap-1 rounded px-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+							aria-expanded={open}
+							aria-controls={open ? domId(key) : undefined}
+							onclick={() => toggle(key)}
+						>
+							<Icon name="down" class={['size-4 transition-transform', open && 'rotate-180']} />
+							{detailLabel}<span class="sr-only">: {row.name}</span>
+						</button>
+					{/if}
+				</div>
+			</td>
+		</tr>
+	{/if}
+	{#if open && detail}
+		<!-- svelte-ignore a11y_no_redundant_roles -->
+		<tr role="row" class="bg-slate-50/60 max-sm:block">
+			<td role="cell" colspan={columns} class="border-t border-slate-100 p-0 max-sm:block">
+				<div id={domId(key)} class="sticky left-0 w-[100cqw] px-2 py-2 max-sm:static max-sm:w-auto">
+					{@render detail(row)}
+				</div>
+			</td>
+		</tr>
 	{/if}
 {/snippet}
 
@@ -433,6 +632,17 @@
 				>
 					{@render heading(NAME_SORT_KEY, first, undefined, false)}
 				</th>
+				{#if flat}
+					<!-- The group column a sort adds (§9 S6b): not a sort of its own, since the groups,
+						brought back by clearing the sort, are its order. -->
+					<th
+						role="columnheader"
+						scope="col"
+						class="sticky top-0 z-20 border-b border-slate-300 bg-slate-50 px-1 py-1 text-left align-bottom font-medium"
+					>
+						<span class="block px-1">{groupColumn}</span>
+					</th>
+				{/if}
 				{#each visibleColumns as column (column.key)}
 					<th
 						role="columnheader"
@@ -448,132 +658,48 @@
 				{/each}
 			</tr>
 		</thead>
-		<!-- svelte-ignore a11y_no_redundant_roles -->
-		<tbody role="rowgroup" class="max-sm:block">
-			{#each rows as row, index (row.key)}
-				{@const open = expanded.includes(row.key)}
-				{@const expandable = !!detail && hasDetail(row)}
-				{@const annotated = row.flags.length > 0 || expandable}
-				{@const divider = index > 0 && 'border-t border-slate-200'}
+		{#if table.groups && !sort}
+			<!-- Row groups in the table's own order (§9 S6b): a row group each, headed by its lines in
+				one cell across the row, a rule above it but the first's; no fill, so the box's
+				sideways shadow runs down its edge unbroken (§15 item 157), but a group out of date,
+				amber whole (§5.3 Invalid and stale), on a phone its block. -->
+			{#each blocks as block, g (block.group.key)}
 				<!-- svelte-ignore a11y_no_redundant_roles -->
-				<tr
-					role="row"
-					class={[
-						'max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5',
-						index > 0 && 'max-sm:border-t max-sm:border-slate-200'
-					]}
+				<tbody
+					role="rowgroup"
+					class={['max-sm:block', block.group.stale && 'max-sm:bg-amber-50/60']}
 				>
-					<th
-						role="rowheader"
-						scope="row"
-						class={[
-							FIXED,
-							divider,
-							'z-10 bg-white px-1 py-0.5 text-left align-top font-normal sm:w-auto',
-							!name && 'sm:max-w-[16rem] sm:min-w-[11rem]',
-							'max-sm:static max-sm:-mx-1 max-sm:block max-sm:w-full max-sm:border-0 max-sm:shadow-none'
-						]}
-					>
-						{#if name}
-							{@render name(row)}
-						{:else if onselect}
-							<button
-								type="button"
-								class="flex min-h-11 w-full flex-col items-start justify-center rounded px-1 text-left hover:bg-slate-100"
-								onclick={() => onselect(row)}
-							>
-								<span class="font-medium break-words text-blue-800 underline underline-offset-2"
-									>{row.name}</span
-								>
-								{#if row.detail}<span class="text-xs break-words text-slate-600">{row.detail}</span
-									>{/if}
-							</button>
-						{:else}
-							<span class="block px-1 py-2">
-								<span class="block font-medium break-words">{row.name}</span>
-								{#if row.detail}<span class="block text-xs text-slate-600">{row.detail}</span>{/if}
-							</span>
-						{/if}
-					</th>
-					{#each visibleColumns as column (column.key)}
-						{@const cell = row.cells[column.key] ?? '—'}
-						<td
-							role="cell"
-							data-label={column.unit ? `${column.label} (${column.unit})` : column.label}
-							class={[
-								divider,
-								'px-2 py-2 align-top',
-								column.numeric && 'text-right tabular-nums',
-								column.wrap
-									? 'max-w-[22rem] min-w-[14rem] text-xs break-words'
-									: 'whitespace-nowrap',
-								// A phone: "Flow (L/s) 18.98", its label from the column (not in its text).
-								'max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:p-0 max-sm:text-left max-sm:whitespace-normal',
-								'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]',
-								// A phone's row leaves out what it has no value for: out of sight only, so the
-								// row keeps its cells, in order, for screen readers.
-								cell === '—' && 'max-sm:sr-only'
-							]}
-						>
-							<!-- Plain text inline: a component per cell is slow on tables of hundreds of rows. -->
-							{#if typeof cell === 'string'}{cell}{:else}<CellValue {cell} />{/if}
-						</td>
-					{/each}
-				</tr>
-				{#if annotated}
 					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<tr role="row" class="max-sm:block">
-						<td role="cell" colspan={columns} class="p-0 max-sm:block">
-							<!-- With `flagLine`, the card's flag line (§5.3 Station): its own block of flags
-								at the box's visible width, labelled Flags, after the row's values on a
-								phone; else the badges in a wrapping row. -->
-							<div
-								class={flagLine
-									? 'sticky left-0 w-[100cqw] px-2 pt-1 pb-1.5 max-sm:static max-sm:w-auto'
-									: 'sticky left-0 flex w-[100cqw] flex-wrap items-center gap-1 px-2 pb-1 max-sm:static max-sm:w-auto'}
-								data-row-notes={row.key}
-								data-label={flagLine ? 'Flags' : undefined}
-							>
-								{#if flagLine}
-									{#if row.flags.length}{@render flagLine(row)}{/if}
-								{:else}
-									{#each row.flags as flag, i (i)}
-										<FlagBadge {flag} />
-									{/each}
-								{/if}
-								{#if expandable}
-									<button
-										type="button"
-										class="inline-flex min-h-11 items-center gap-1 rounded px-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-										aria-expanded={open}
-										aria-controls={open ? domId(row.key) : undefined}
-										onclick={() => toggle(row.key)}
-									>
-										<Icon
-											name="down"
-											class={['size-4 transition-transform', open && 'rotate-180']}
-										/>
-										{detailLabel}<span class="sr-only">: {row.name}</span>
-									</button>
-								{/if}
-							</div>
-						</td>
+						<th
+							role="rowheader"
+							scope="rowgroup"
+							colspan={columns}
+							class={[
+								'px-0 pt-2 pb-1 text-left align-top font-normal max-sm:block',
+								g > 0 && 'border-t border-slate-300',
+								block.group.stale && 'bg-amber-50/60 max-sm:bg-transparent'
+							]}
+						>
+							{#if groupHeading}{@render groupHeading(block.group)}{:else}<span
+									class="sticky left-0 block w-[100cqw] px-2 font-medium wrap-break-word max-sm:static max-sm:w-auto"
+									>{block.group.label}</span
+								>{/if}
+						</th>
 					</tr>
-				{/if}
-				{#if open && detail}
-					<!-- svelte-ignore a11y_no_redundant_roles -->
-					<tr role="row" class="bg-slate-50/60 max-sm:block">
-						<td role="cell" colspan={columns} class="border-t border-slate-100 p-0 max-sm:block">
-							<div
-								id={domId(row.key)}
-								class="sticky left-0 w-[100cqw] px-2 py-2 max-sm:static max-sm:w-auto"
-							>
-								{@render detail(row)}
-							</div>
-						</td>
-					</tr>
-				{/if}
+					{#each block.rows as row, index (row.key)}
+						{@render bodyRow(row, index, true, !!block.group.stale, false)}
+					{/each}
+				</tbody>
 			{/each}
-		</tbody>
+		{:else}
+			<!-- svelte-ignore a11y_no_redundant_roles -->
+			<tbody role="rowgroup" class="max-sm:block">
+				{#each rows as row, index (rowKey(row))}
+					{@const stale = !!groupOf.get(row.group ?? '')?.stale}
+					{@render bodyRow(row, index, false, stale, stale)}
+				{/each}
+			</tbody>
+		{/if}
 	</table>
 </div>

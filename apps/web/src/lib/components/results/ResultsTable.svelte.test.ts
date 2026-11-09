@@ -12,7 +12,7 @@ import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { flag, pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { pumpTransferExample } from '$lib/utils/examples';
-import type { Row, Table } from '$lib/utils/results';
+import type { Row, RowGroup, Table } from '$lib/utils/results';
 import ResultsTable from './ResultsTable.svelte';
 
 afterEach(() => localStorage.clear());
@@ -197,6 +197,274 @@ describe('ResultsTable: a flag line, a name and a region of the caller’s (pump
 			'ascending'
 		);
 		expect(order()).toEqual(['Pump PB', 'Pump PC', 'flags of PC', 'Pump PA', 'flags of PA']);
+	});
+});
+
+describe('ResultsTable: row groups, flattened by a sort (pumps-results-layout.md §9 S6b)', () => {
+	/**
+	 * Two pumps in each of three cases: "Base case (shown)", "Winter (out of date)" and "Failed",
+	 * which has no rows; Pump PA flagged in the base case, Pump PB in Winter.
+	 */
+	function grouped(): Table {
+		const row = (group: string, key: string, flow: string, flags: Row['flags']): Row => ({
+			key,
+			group,
+			element: { kind: 'component', id: key },
+			name: `Pump ${key}`,
+			detail: '',
+			cells: { flow, head: flow === '—' ? '—' : '40' },
+			flags
+		});
+		return {
+			columns: [
+				{ key: 'flow', label: 'Flow', unit: 'L/s', numeric: true },
+				{ key: 'head', label: 'Head', unit: 'm', numeric: true }
+			],
+			groups: [
+				{ key: '', label: 'Base case (shown)' },
+				{ key: 'S1', label: 'Winter (out of date)', stale: true },
+				{ key: 'S2', label: 'Failed' }
+			],
+			rows: [
+				row('', 'PA', '21.5', [warning]),
+				row('', 'PB', '19.2', []),
+				row('S1', 'PA', '—', []),
+				row('S1', 'PB', '17.4', [invalid])
+			]
+		};
+	}
+	/** The caller's heading: its label and a second line. */
+	const groupHeading = createRawSnippet((group: () => RowGroup) => ({
+		render: () =>
+			`<span data-test-heading>${group().label}<span class="block">line of ${group().key || 'base'}</span></span>`
+	}));
+	const props = () => ({
+		table: grouped(),
+		caption: 'Running combinations',
+		first: 'Pump',
+		groupColumn: 'Case',
+		flagLine,
+		groupHeading
+	});
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	/** Each body row group: its heading's words (null in the flat form) and its rows. */
+	const read = () =>
+		screen
+			.getAllByRole('rowgroup')
+			.slice(1)
+			.map((g) => {
+				const heading = g.querySelector('th[scope="rowgroup"]');
+				return {
+					heading: heading ? squash(heading.textContent) : null,
+					rows: within(g)
+						.getAllByRole('row')
+						.filter((r) => !r.querySelector('th[scope="rowgroup"]'))
+						.map((r) => {
+							const header = within(r).queryByRole('rowheader');
+							if (!header)
+								return `flags of ${r.querySelector('[data-row-notes]')!.getAttribute('data-row-notes')}`;
+							const cells = within(r)
+								.getAllByRole('cell')
+								.map((c) => squash(c.textContent));
+							return [squash(header.textContent), ...cells].join(' | ');
+						})
+				};
+			});
+	const columns = () => screen.getAllByRole('columnheader').map((h) => squash(h.textContent));
+	const flow = () => screen.getByRole('columnheader', { name: /^Flow/ });
+
+	it('in the table’s order a row group each, headed by its lines in one cell across the row, a group with no row too; no group column', () => {
+		render(ResultsTable, props());
+		expect(read()).toEqual([
+			{
+				heading: 'Base case (shown)line of base',
+				rows: ['Pump PA | 21.5 | 40', 'flags of PA', 'Pump PB | 19.2 | 40']
+			},
+			{
+				heading: 'Winter (out of date)line of S1',
+				rows: ['Pump PA | — | —', 'Pump PB | 17.4 | 40', 'flags of PB']
+			},
+			{ heading: 'Failedline of S2', rows: [] }
+		]);
+		expect(columns()).toEqual(['Pump', 'Flow L/s', 'Head m']);
+		for (const th of document.querySelectorAll('th[scope="rowgroup"]')) {
+			expect(th).toHaveAttribute('role', 'rowheader');
+			expect(th).toHaveAttribute('colspan', '3');
+			expect(th.querySelector('[data-test-heading]')).not.toBeNull();
+		}
+		// No fill on a current group's heading, so the box's sideways shadow runs past it (§15
+		// item 157); a rule above each but the first.
+		const [first, second, third] = [...document.querySelectorAll('th[scope="rowgroup"]')];
+		expect(first!.className).not.toMatch(/(^|\s)bg-/);
+		expect(third!.className).not.toMatch(/(^|\s)bg-/);
+		expect(first).not.toHaveClass('border-t');
+		expect(second).toHaveClass('border-t');
+		expect(third).toHaveClass('border-t');
+		// Without a heading of the caller's, the group's label, sticky at the box's visible width.
+		cleanup();
+		render(ResultsTable, { ...props(), groupHeading: undefined });
+		const label = document.querySelector('th[scope="rowgroup"] > span')!;
+		expect(label).toHaveTextContent('Base case (shown)');
+		expect(label).toHaveClass('sticky', 'left-0', 'w-[100cqw]');
+	});
+
+	it('a sort flattens them into one table, its group column after the name and no sort of its own, the smallest first; clearing the sort brings the groups back in order', async () => {
+		render(ResultsTable, props());
+		const before = read();
+		await fireEvent.click(within(flow()).getByRole('button'));
+		expect(flow()).toHaveAttribute('aria-sort', 'ascending');
+		expect(columns()).toEqual(['Pump', 'Case', 'Flow L/s', 'Head m']);
+		// The group column: a plain heading, not a sort.
+		const caseHeading = screen.getByRole('columnheader', { name: 'Case' });
+		expect(within(caseHeading).queryByRole('button')).toBeNull();
+		expect(
+			[...(screen.getByRole('combobox', { name: 'Sort by' }) as HTMLSelectElement).options].map(
+				(o) => o.text
+			)
+		).toEqual(['Table order', 'Pump', 'Flow (L/s)', 'Head (m)']);
+		// One row group, the rows by flow, the one with none last; each row's case named.
+		expect(read()).toEqual([
+			{
+				heading: null,
+				rows: [
+					'Pump PB | Winter (out of date) | 17.4 | 40',
+					'flags of PB',
+					'Pump PB | Base case (shown) | 19.2 | 40',
+					'Pump PA | Base case (shown) | 21.5 | 40',
+					'flags of PA',
+					'Pump PA | Winter (out of date) | — | —'
+				]
+			}
+		]);
+		for (const cell of document.querySelectorAll('td[data-label="Case"]')) {
+			// A phone's pair: its header whole beside its words (::before content).
+			expect(cell).toHaveClass(
+				'max-sm:before:content-[attr(data-label)]',
+				'max-sm:before:shrink-0'
+			);
+			// Its words wrap at 12 rem, their own width the column's (a name's rule).
+			expect(cell.firstElementChild).toHaveClass('w-max', 'max-w-48', 'wrap-break-word');
+			expect(cell.firstElementChild).toHaveTextContent(cell.textContent!);
+		}
+		// The flag lines span the row, the group column with it.
+		for (const notes of document.querySelectorAll('[data-row-notes]')) {
+			expect(notes.closest('td')).toHaveAttribute('colspan', '4');
+		}
+		// Descending, then the table's order: the groups again, as before.
+		await fireEvent.click(within(flow()).getByRole('button'));
+		expect(read()[0]!.rows[0]).toBe('Pump PA | Base case (shown) | 21.5 | 40');
+		await fireEvent.click(within(flow()).getByRole('button'));
+		expect(flow()).not.toHaveAttribute('aria-sort');
+		expect(read()).toEqual(before);
+		expect(columns()).toEqual(['Pump', 'Flow L/s', 'Head m']);
+		// A phone's "Sort by" does the same: a field flattens, "Table order" groups again.
+		const field = screen.getByRole('combobox', { name: 'Sort by' });
+		await fireEvent.change(field, { target: { value: 'flow' } });
+		expect(read()).toHaveLength(1);
+		expect(columns()).toContain('Case');
+		await fireEvent.change(field, { target: { value: '' } });
+		expect(read()).toEqual(before);
+	});
+
+	it('Fields hides a column in both forms, the headings and flag lines spanning what is shown', async () => {
+		render(ResultsTable, props());
+		await fireEvent.click(screen.getByRole('button', { name: /^Fields/ }));
+		const menu = screen.getByRole('group', { name: 'Fields shown in Running combinations' });
+		// The group column is no field: it names the row, as the name does.
+		expect(
+			within(menu)
+				.getAllByRole('checkbox')
+				.map((b) => squash(b.closest('label')!.textContent))
+		).toEqual(['Flow (L/s)', 'Head (m)']);
+		await fireEvent.click(within(menu).getByRole('checkbox', { name: /^Head/ }));
+		expect(columns()).toEqual(['Pump', 'Flow L/s']);
+		expect(document.querySelectorAll('td[data-label^="Head"]')).toHaveLength(0);
+		for (const th of document.querySelectorAll('th[scope="rowgroup"]')) {
+			expect(th).toHaveAttribute('colspan', '2');
+		}
+		await fireEvent.click(within(flow()).getByRole('button'));
+		expect(columns()).toEqual(['Pump', 'Case', 'Flow L/s']);
+		expect(document.querySelectorAll('td[data-label^="Head"]')).toHaveLength(0);
+		for (const notes of document.querySelectorAll('[data-row-notes]')) {
+			expect(notes.closest('td')).toHaveAttribute('colspan', '3');
+		}
+	});
+
+	it('Flagged only keeps the flagged rows with their flag lines in both forms, and only the groups with one', async () => {
+		render(ResultsTable, props());
+		const toggle = screen.getByRole('checkbox', { name: 'Flagged only (2 of 4)' });
+		await fireEvent.click(toggle);
+		expect(read()).toEqual([
+			{ heading: 'Base case (shown)line of base', rows: ['Pump PA | 21.5 | 40', 'flags of PA'] },
+			{ heading: 'Winter (out of date)line of S1', rows: ['Pump PB | 17.4 | 40', 'flags of PB'] }
+		]);
+		await fireEvent.click(within(flow()).getByRole('button'));
+		expect(read()).toEqual([
+			{
+				heading: null,
+				rows: [
+					'Pump PB | Winter (out of date) | 17.4 | 40',
+					'flags of PB',
+					'Pump PA | Base case (shown) | 21.5 | 40',
+					'flags of PA'
+				]
+			}
+		]);
+		await fireEvent.click(toggle);
+		expect(read()[0]!.rows).toHaveLength(6);
+	});
+
+	it('a group out of date amber whole in both forms: in the table each cell, below 640 px its block, flattened each row', async () => {
+		render(ResultsTable, props());
+		const cells = (el: Element) => [...el.querySelectorAll(':scope > tr > th, :scope > tr > td')];
+		const [current, stale] = screen.getAllByRole('rowgroup').slice(1);
+		expect(stale).toHaveClass('max-sm:block', 'max-sm:bg-amber-50/60');
+		for (const cell of cells(stale!)) {
+			expect(cell.className).toMatch(/(^|\s)bg-amber-50(\/60)?(\s|$)/);
+			expect(cell).toHaveClass('max-sm:bg-transparent');
+		}
+		expect(current!.className).not.toMatch(/amber/);
+		for (const cell of cells(current!)) expect(cell.className).not.toMatch(/amber/);
+		// Flattened, each of its rows (and its flag line) amber, on a phone the row's block.
+		await fireEvent.click(within(flow()).getByRole('button'));
+		const body = screen.getAllByRole('rowgroup')[1]!;
+		expect(body.className).not.toMatch(/amber/);
+		for (const tr of body.querySelectorAll(':scope > tr')) {
+			const winter =
+				squash(tr.querySelector('td[data-label="Case"]')?.textContent) === 'Winter (out of date)' ||
+				(tr.querySelector('[data-row-notes]') !== null &&
+					squash(tr.previousElementSibling!.querySelector('td[data-label="Case"]')!.textContent) ===
+						'Winter (out of date)');
+			expect(tr.className.includes('max-sm:bg-amber-50/60'), squash(tr.textContent)).toBe(winter);
+			for (const cell of tr.querySelectorAll(':scope > th, :scope > td')) {
+				expect(/(^|\s)bg-amber-50(\/60)?(\s|$)/.test(cell.className), squash(tr.textContent)).toBe(
+					winter
+				);
+			}
+		}
+	});
+
+	it('draws a cell’s content of the caller’s, by its row and column', () => {
+		const cellContent = createRawSnippet((row: () => Row, key: () => string) => ({
+			render: () => `<span data-test-cell>${key()} of ${row().group || 'base'}:${row().key}</span>`
+		}));
+		render(ResultsTable, { ...props(), cellContent });
+		// Winter's group, its first row: Pump PA's flow, by its row and its column.
+		const winter = screen.getAllByRole('rowgroup')[2]!;
+		const cells = within(winter)
+			.getAllByRole('cell')
+			.filter((c) => c.dataset.label === 'Flow (L/s)');
+		expect(cells.map((c) => c.querySelector('[data-test-cell]')?.textContent)).toEqual([
+			'flow of S1:PA',
+			'flow of S1:PB'
+		]);
+		// Without it, the cell's own text.
+		cleanup();
+		render(ResultsTable, props());
+		expect(document.querySelector('[data-test-cell]')).toBeNull();
+		expect(
+			screen.getAllByRole('cell').find((c) => c.dataset.label === 'Flow (L/s)')
+		).toHaveTextContent(/^21\.5$/);
 	});
 });
 

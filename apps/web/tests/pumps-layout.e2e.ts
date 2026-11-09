@@ -2725,12 +2725,13 @@ async function extremesPart(page: Page, view: string, where: string) {
 // ---- S5: Running combinations' order, lines and names (§5.3, §9 S5, §10 S5) ------------------
 
 /**
- * §5.7 row 11: the open card, the condenser's after Add cases at 1280×800, at most this: S5's
- * measurement + 10 %, 9,547 px (S4's 7,418; §5.7 estimated about 5,650), so 10,501. Running
- * combinations makes the difference: each flagged pump's flags now visible under its row (the
- * condenser's 10 flagged rows hold 36 flags), and the names wrapping at 12 rem in 42 rows.
+ * §5.7 row 11: the open card, the condenser's after Add cases at 1280×800, at most this: the
+ * measurement + 10 %. S5 set 10,501 from its 9,547 px (S4's 7,418; §5.7 estimated about 5,650):
+ * each flagged pump's flags visible under its row, and the names wrapping at 12 rem in 42 rows.
+ * Since S6b (§9 S6b) Running combinations is a ResultsTable, its box held to ResultsTable's
+ * height there (608 px, scrolling inside, its headings sticky), so the card is 5,724 px: 6,296.
  */
-const OPEN_CARD_1280 = 10_501;
+const OPEN_CARD_1280 = 6_296;
 
 /**
  * Running combinations as laid out (viewport px): its box and form; each case's group, its
@@ -2741,8 +2742,10 @@ const OPEN_CARD_1280 = 10_501;
  */
 function readCombinations() {
 	const card = document.querySelector('[data-pumps-together]');
-	const box = card?.querySelector<HTMLElement>('[data-running-combinations]');
-	if (!card || !box) return null;
+	// The box: a ResultsTable's since S6b, the region in the block that holds its controls.
+	const block = card?.querySelector<HTMLElement>('[data-running-combinations]');
+	const box = block?.querySelector<HTMLElement>('[role="region"]');
+	if (!card || !block || !box) return null;
 	const table = box.querySelector('table')!;
 	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
 	/** An element's words without its aria-hidden marks (a slot's symbol, a ring). */
@@ -2953,6 +2956,8 @@ async function combinationsPart(
 			}
 		}
 	}
+	// S6b (§9 S6b): a ResultsTable, its controls, names, flag lines and shadow, in its own order.
+	await combinationsTablePart(page, where, 'grouped');
 	if (m.duties) {
 		const list = page.viewportSize()!.width < 640;
 		soft(m.duties.display, `"Other cases' station duties" a list below 640 px only, ${where}`).toBe(
@@ -2998,6 +3003,314 @@ async function combinationsPart(
 			`"Other cases' station duties", ${where}`
 		);
 	}
+}
+
+// ---- S6b: Running combinations a ResultsTable (§9 S6b) -----------------------------------------
+
+/**
+ * Running combinations as a ResultsTable (§9 S6b; the owner's answer 3, §12) in either form, as
+ * laid out (viewport px): its controls (Fields, Flagged only, a phone's "Sort by" with its room for
+ * its longest field, the headings' sort buttons); its form, a row group per case or one flat table
+ * with a Case column; each pump's row (its name, its case, its NPSH margin, a trace button or not,
+ * in sight and shown to its end) and the flag line under it; and every element inside the box
+ * that paints a fill over its right edge, where the sideways shadow is drawn (§15 item 157), with
+ * the box scrolled to show more on its right and read screen by screen down it. A stale case's
+ * amber is left out: it is its look (§5.3 Invalid and stale).
+ */
+function readCombinationsTable() {
+	const block = document.querySelector<HTMLElement>(
+		'[data-pumps-together] [data-running-combinations]'
+	);
+	const box = block?.querySelector<HTMLElement>('[role="region"]');
+	const table = box?.querySelector('table');
+	if (!block || !box || !table) return null;
+	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+	// In sight at a size of its own, inside no visually hidden box (readGroupTable's rule).
+	const seen = (el: Element | null) => {
+		if (!el) return false;
+		const r = el.getBoundingClientRect();
+		for (let a: Element | null = el; a; a = a.parentElement) {
+			const b = a.getBoundingClientRect();
+			if (getComputedStyle(a).overflow === 'hidden' && (b.width <= 1 || b.height <= 1)) {
+				return false;
+			}
+		}
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			r.width > 1 &&
+			r.height > 1
+		);
+	};
+	const whole = (el: Element | null) => !!el && el.scrollWidth <= el.clientWidth + 1;
+	const headerRoom = (td: Element) => {
+		const css = getComputedStyle(td, '::before');
+		if (css.content === 'none' || !td.firstElementChild) return null;
+		const context = document.createElement('canvas').getContext('2d')!;
+		context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+		const text = css.content.replace(/^"|"$/g, '');
+		return {
+			room: td.firstElementChild.getBoundingClientRect().left - td.getBoundingClientRect().left,
+			text: Math.ceil(context.measureText(text).width)
+		};
+	};
+	const drawn = (el: Element | null) => {
+		if (!el) return '';
+		const copy = el.cloneNode(true) as Element;
+		for (const hidden of copy.querySelectorAll('.sr-only')) hidden.remove();
+		return squash(copy.textContent);
+	};
+	const b = box.getBoundingClientRect();
+	const left = b.left + box.clientLeft;
+	const right = left + box.clientWidth;
+	const inWidth = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return r.left >= left - 0.5 && r.right <= right + 0.5;
+	};
+	const select = block.querySelector<HTMLSelectElement>('select[aria-label="Sort by"]');
+	const fields = [...block.querySelectorAll('button')].find((x) =>
+		squash(x.textContent).startsWith('Fields')
+	);
+	const flagged = [...block.querySelectorAll('label')].find((l) =>
+		squash(l.textContent).startsWith('Flagged only')
+	);
+	let sortRoom: { name: string; text: number; room: number } | null = null;
+	if (select && seen(select)) {
+		const css = getComputedStyle(select);
+		const context = document.createElement('canvas').getContext('2d')!;
+		context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+		const longest = [...select.options].reduce(
+			(widest, option) => {
+				const width = context.measureText(option.text).width;
+				return width > widest.width ? { name: option.text, width } : widest;
+			},
+			{ name: '', width: 0 }
+		);
+		sortRoom = {
+			name: longest.name,
+			text: Math.ceil(longest.width),
+			room: Math.floor(
+				select.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+			)
+		};
+	}
+	const headings = [...table.querySelectorAll('thead th')].map((h) => ({
+		name: squash(h.textContent),
+		button: !!h.querySelector('button'),
+		seen: seen(h.querySelector('button') ?? h)
+	}));
+	const bodies = [...table.querySelectorAll(':scope > tbody')];
+	const groupOf = (tr: Element) =>
+		squash(tr.closest('tbody')?.querySelector('th[scope="rowgroup"] > :first-child')?.textContent);
+	const rows = [...table.querySelectorAll(':scope > tbody > tr')]
+		.filter((r) => r.querySelector('th[scope="row"]'))
+		.map((r) => {
+			const name = r.querySelector('th[scope="row"] span.min-w-0');
+			const kase = r.querySelector('td[data-label="Case"]');
+			const notes = r.nextElementSibling?.querySelector<HTMLElement>('[data-row-notes]') ?? null;
+			return {
+				name: squash(name?.textContent),
+				nameSeen: seen(name),
+				nameWhole: whole(name),
+				case: kase ? squash(kase.textContent) : groupOf(r),
+				caseCell: kase
+					? {
+							// Its words in sight, not only its cell (whose header is ::before content).
+							seen: seen(kase.firstElementChild ?? kase),
+							whole: whole(kase) && whole(kase.firstElementChild),
+							before: getComputedStyle(kase, '::before').content,
+							// A phone's header ("Case") whole on its line: the room before the words
+							// against the header's own width (never "Cas" over "e").
+							headerRoom: headerRoom(kase)
+						}
+					: null,
+				// Its words as drawn: a marked value's "physically invalid:" is for screen readers.
+				margin: drawn(r.querySelector('td[data-label="NPSH margin (m)"]')),
+				head: r.querySelector('td[data-label^="Head"]') !== null,
+				button: !!r.querySelector('th[scope="row"] button'),
+				flags: notes
+					? {
+							id: notes.dataset.rowNotes ?? '',
+							label: notes.dataset.label ?? '',
+							hidden: [...notes.querySelectorAll('.sr-only')].map((e) => squash(e.textContent)),
+							said: [...notes.querySelectorAll('[data-flag-text]')].map((t) => ({
+								seen: seen(t),
+								inWidth: inWidth(t),
+								words: squash(t.textContent)
+							}))
+						}
+					: null
+			};
+		});
+	// Each value on its line: in a row, the first line of every cell's words (a marked value's
+	// amount after its octagon included) shares one baseline with the cells beside it (§15 item
+	// 157: a marked value 3 px above its line on a phone; EXT-2).
+	const offLine: string[] = [];
+	for (const tr of [...table.querySelectorAll(':scope > tbody > tr')].slice(0, 60)) {
+		const lines: { cell: string; top: number; bottom: number }[] = [];
+		for (const td of tr.querySelectorAll<HTMLElement>(':scope > td[data-label]')) {
+			const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+			for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+				if (!n.textContent?.trim() || n.parentElement?.closest('.sr-only')) continue;
+				const range = document.createRange();
+				range.selectNodeContents(n);
+				const r = range.getClientRects()[0];
+				if (r && r.height > 1) {
+					lines.push({
+						cell: `${td.dataset.label}: ${squash(td.textContent)}`,
+						top: r.top,
+						bottom: r.bottom
+					});
+				}
+				break;
+			}
+		}
+		for (const a of lines) {
+			for (const c of lines) {
+				if (Math.abs(a.top - c.top) < 6 && Math.abs(a.bottom - c.bottom) > 0.5) {
+					offLine.push(`"${a.cell.slice(0, 40)}" against "${c.cell.slice(0, 40)}"`);
+				}
+			}
+		}
+	}
+	// The fills over the box's right edge, screen by screen, the box scrolled to its middle.
+	const covers: string[] = [];
+	const sideways = box.scrollWidth > box.clientWidth + 1;
+	if (sideways) {
+		const [x0, y0] = [box.scrollLeft, box.scrollTop];
+		box.scrollLeft = Math.floor((box.scrollWidth - box.clientWidth) / 2);
+		const clear = (c: string) => c === 'rgba(0, 0, 0, 0)' || c === 'transparent';
+		const top = b.top + box.clientTop;
+		for (let at = 0; at < box.scrollHeight; at += Math.max(1, box.clientHeight)) {
+			box.scrollTop = at;
+			for (const el of box.querySelectorAll('tbody *')) {
+				const bg = getComputedStyle(el).backgroundColor;
+				if (clear(bg)) continue;
+				const r = el.getBoundingClientRect();
+				if (r.right <= right - 12 || r.left >= right) continue;
+				if (r.bottom <= top || r.top >= top + box.clientHeight) continue;
+				const tr = el.closest('tr');
+				const stale =
+					groupOf(el).includes('(out of date)') ||
+					squash(tr?.querySelector('td[data-label="Case"]')?.textContent).includes(
+						'(out of date)'
+					) ||
+					squash(
+						tr?.previousElementSibling?.querySelector('td[data-label="Case"]')?.textContent
+					).includes('(out of date)');
+				if (stale) continue;
+				covers.push(`<${el.tagName.toLowerCase()}> "${squash(el.textContent).slice(0, 30)}" ${bg}`);
+			}
+			if (box.scrollHeight <= box.clientHeight) break;
+		}
+		box.scrollLeft = x0;
+		box.scrollTop = y0;
+	}
+	return {
+		height: Math.round(b.height),
+		scrollHeight: box.scrollHeight,
+		list: getComputedStyle(table).display === 'block',
+		sideways,
+		flat: headings.some((h) => h.name === 'Case'),
+		groups: bodies.map((t) =>
+			t.querySelector('th[scope="rowgroup"]') ? groupOf(t.querySelector('tr')!) : null
+		),
+		headings,
+		select: select ? { seen: seen(select), top: select.getBoundingClientRect().top } : null,
+		sortRoom,
+		fields: fields ? { seen: seen(fields), top: fields.getBoundingClientRect().top } : null,
+		flagged: flagged ? { seen: seen(flagged), text: squash(flagged.textContent) } : null,
+		rows,
+		offLine: [...new Set(offLine)].slice(0, 6),
+		covers: [...new Set(covers)]
+	};
+}
+
+/**
+ * Running combinations' S6b checks at the size shown (soft): its controls in sight (Fields,
+ * Flagged only, the headings' sort buttons from 640 px, "Sort by" below it on one line with Fields,
+ * showing its longest field to its end while unsorted, §15 item 17), its form as expected, a
+ * trace button in each row of the shown case and in no other, every name and Case cell in sight
+ * and shown to its end, each flag line under its own pump with its sentences in sight inside the
+ * box's visible width, and no fill over the box's right edge, where its shadow is (§15 item 157).
+ */
+async function combinationsTablePart(page: Page, where: string, form: 'grouped' | 'flat') {
+	const soft = expect.configure({ soft: true });
+	const m = await page.evaluate(readCombinationsTable);
+	if (!m) return null;
+	const phone = (page.viewportSize()?.width ?? 1280) < 640;
+	console.log(
+		`${where}: Running combinations ${form}, a ${m.list ? 'list' : 'table'}, its box ${m.height} px (holding ${m.scrollHeight}), ${m.rows.length} rows, ${m.rows.filter((r) => r.flags).length} flag lines${m.sortRoom ? `, Sort by ${m.sortRoom.room} px for "${m.sortRoom.name}" (${m.sortRoom.text})` : ''}${m.flagged ? `, "${m.flagged.text}"` : ''}`
+	);
+	soft(m.flat, `Running combinations ${form}, ${where}`).toBe(form === 'flat');
+	if (form === 'flat') {
+		soft(m.groups, `one row group, no case heading, ${where}`).toEqual([null]);
+		soft(
+			m.headings.slice(0, 2).map((h) => h.name),
+			`Pump and Case first, ${where}`
+		).toEqual(['Pump', 'Case']);
+	} else {
+		soft(
+			m.groups.every((g) => !!g),
+			`a heading on every row group, ${where}`
+		).toBe(true);
+	}
+	soft(m.fields?.seen, `Running combinations' Fields in sight, ${where}`).toBe(true);
+	if (m.flagged) soft(m.flagged.seen, `its Flagged only in sight, ${where}`).toBe(true);
+	for (const h of m.headings) {
+		if (!h.button) continue;
+		soft(h.seen, `its heading "${h.name}" a sort in sight, ${where}`).toBe(!phone);
+	}
+	if (phone) {
+		soft(m.select?.seen, `its "Sort by" in sight, ${where}`).toBe(true);
+		soft(
+			Math.abs((m.select?.top ?? 0) - (m.fields?.top ?? 99)) < 12,
+			`its "Sort by" and Fields on one line, ${where}`
+		).toBe(true);
+		if (m.sortRoom && form === 'grouped') {
+			soft(
+				m.sortRoom.room - MENULIST_INNER,
+				`room in its "Sort by" for "${m.sortRoom.name}", ${where}`
+			).toBeGreaterThanOrEqual(m.sortRoom.text);
+		}
+	} else {
+		soft(m.select?.seen ?? false, `its "Sort by" out of sight from 640 px, ${where}`).toBe(false);
+	}
+	soft(m.rows.length, `Running combinations' rows, ${where}`).toBeGreaterThan(0);
+	for (const r of m.rows) {
+		const what = `"${r.name}" in "${r.case}", ${where}`;
+		soft(r.nameSeen, `${what}: its name in sight`).toBe(true);
+		soft(r.nameWhole, `${what}: its name shown to its end`).toBe(true);
+		soft(r.button, `${what}: a trace button in the shown case's rows only`).toBe(
+			/\(shown\)/.test(r.case)
+		);
+		if (form === 'flat') {
+			soft(r.caseCell?.seen, `${what}: its Case in sight`).toBe(true);
+			soft(r.caseCell?.whole, `${what}: its Case shown to its end`).toBe(true);
+			soft(r.caseCell?.before, `${what}: its Case's line header`).toBe(phone ? '"Case"' : 'none');
+			if (phone && r.caseCell?.headerRoom) {
+				soft(
+					r.caseCell.headerRoom.room + 0.5,
+					`${what}: its Case's line header whole before its words`
+				).toBeGreaterThanOrEqual(r.caseCell.headerRoom.text);
+			}
+		}
+		if (r.flags) {
+			soft(r.flags.label, `${what}: its flag line labelled`).toBe('Flags');
+			soft(r.flags.hidden, `${what}: its flag line named by its pump`).toEqual([
+				`${r.name}, flags:`
+			]);
+			soft(r.flags.said.length, `${what}: its flags`).toBeGreaterThan(0);
+			for (const said of r.flags.said) {
+				soft(said.seen, `${what}: "${said.words.slice(0, 40)}" in sight`).toBe(true);
+				soft(said.inWidth, `${what}: "${said.words.slice(0, 40)}" inside the box's width`).toBe(
+					true
+				);
+			}
+		}
+	}
+	soft(m.offLine, `Running combinations' values off their line, ${where}`).toEqual([]);
+	soft(m.covers, `fills over Running combinations' right shadow, ${where}`).toEqual([]);
+	return m;
 }
 
 // ---- S6a: the group table a ResultsTable (§9 S6a) ----------------------------------------------
@@ -3969,6 +4282,20 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 				`the long case name heading its case, ${where}`
 			)
 			.toBe(true);
+		// Sorted (§9 S6b): one table with a Case column, the long case name in its Case cells and
+		// the long pump name in its rows, each shown to its end; then the cases back.
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin');
+		const flat = await combinationsTablePart(page, `${where}, sorted`, 'flat');
+		expect
+			.soft(
+				flat?.rows.filter((r) => r.case.startsWith(LONG_CASE)).length,
+				`the long case's rows, ${where}`
+			)
+			.toBeGreaterThan(0);
+		expect
+			.soft(flat?.rows.filter((r) => r.name === LONG_PUMP).length, `the long pump's rows, ${where}`)
+			.toBe(named?.atStart.filter((g) => g.members.length).length);
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin', true);
 		// Each line of a long name ends inside the card, outside a box that scrolls (the data
 		// tables, and the group table at 640 px and over, whose name column wraps at 12 rem).
 		const past = await card.evaluate(
@@ -4140,6 +4467,164 @@ test('the group table sorts, chooses its fields and shows the flagged pumps only
 	await sheet.getByRole('button', { name: 'Show all' }).click();
 	await expect(region.locator('td[data-label^="Shaft power"]')).toHaveCount(3);
 	await noSidewaysScroll(page, `the ladder's group table at ${sizeOf(page)}`);
+});
+
+// ---- S6b: Running combinations sorted, its fields and its flagged rows, in the browser ---------
+
+/** Sort Running combinations by a column, or clear the sort: its heading from 640 px, "Sort by" below. */
+async function sortCombinations(page: Page, column: RegExp, key: string, clear = false) {
+	const block = page.locator('[data-pumps-together] [data-running-combinations]');
+	const heading = block.getByRole('region').getByRole('columnheader', { name: column });
+	if ((page.viewportSize()?.width ?? 1280) < 640) {
+		await block.getByRole('combobox', { name: 'Sort by' }).selectOption(clear ? '' : key);
+	} else if (clear) {
+		// Ascending, descending, then the table's own order.
+		while ((await heading.getAttribute('aria-sort')) !== null) {
+			await heading.getByRole('button').click();
+		}
+	} else {
+		await heading.getByRole('button').click();
+	}
+	if (clear) await expect(heading).not.toHaveAttribute('aria-sort');
+	else await expect(heading).toHaveAttribute('aria-sort', 'ascending');
+}
+
+test('Running combinations sorts into one table with a Case column, its first row the smallest NPSH margin, and back into its cases in S5’s order; Fields and Flagged only in both forms; trace buttons in the shown case’s rows only; its shadow unbroken (§9 S6b, §10 S6b; the owner’s answer 3)', async ({
+	page
+}, info) => {
+	test.setTimeout(420_000);
+	await condenser(page);
+	const tab = await pumpsTab(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const block = card.locator('[data-running-combinations]');
+	const region = card.getByRole('region', { name: 'Running combinations' });
+	const viewport = page.viewportSize()!;
+	const sizes =
+		info.project.name === 'mobile' ? [viewport, { width: 320, height: 640 }] : [viewport];
+	if (RECORD) mkdirSync(path.join(RECORD, 'segments'), { recursive: true });
+	/** The record (PUMPS_LAYOUT_RECORD): Running combinations' top under the nav, as shown. */
+	const shot = async (name: string) => {
+		if (!RECORD) return;
+		// Its controls' row under the pinned nav: the pane scrolled to the block, then, once the
+		// nav has pinned, back by its height and a margin.
+		await block.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+		await page.waitForTimeout(300);
+		await block.evaluate((el) => {
+			const nav = document.querySelector('[data-pumps-nav][data-pinned]');
+			let scroller = el.parentElement;
+			while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
+				scroller = scroller.parentElement;
+			}
+			scroller?.scrollBy(0, -((nav?.getBoundingClientRect().height ?? 0) + 8));
+		});
+		await page.waitForTimeout(300);
+		await page.screenshot({
+			path: path.join(RECORD, 'segments', `s6b-condenser-${sizeOf(page)}-${name}.png`),
+			scale: 'css'
+		});
+	};
+	const cardHeight = () => card.evaluate((c) => Math.round(c.getBoundingClientRect().height));
+	const key = (r: { name: string; case: string }) => `${r.name} | ${r.case}`;
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `the condenser at ${sizeOf(page)}`;
+		const phone = size.width < 640;
+
+		// In its own order: a row group per case, in S5's order (combinationsPart reads it).
+		const before = (await combinationsTablePart(page, `${where}, unsorted`, 'grouped'))!;
+		expect(before, `Running combinations drawn, ${where}`).not.toBeNull();
+		expect(before.groups.length).toBe(7);
+		console.log(`${where}: the open card ${await cardHeight()} px, unsorted`);
+		await shot('unsorted');
+
+		// Sorted by NPSH margin: one table, every case's pumps, by margin, those without one last,
+		// the smallest first; the same rows as the cases held.
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin');
+		const sorted = (await combinationsTablePart(page, `${where}, sorted`, 'flat'))!;
+		const values = sorted.rows.map((r) => (/^-?[\d.]+$/.test(r.margin) ? Number(r.margin) : null));
+		const numbers = values.filter((v): v is number => v !== null);
+		expect(numbers.length, `margins, ${where}`).toBeGreaterThan(1);
+		expect(values.slice(0, numbers.length), `the margins in order, ${where}`).toEqual(
+			[...numbers].sort((a, b) => a - b)
+		);
+		expect(values.slice(numbers.length).every((v) => v === null)).toBe(true);
+		expect(values[0], `the smallest margin first, ${where}`).toBe(Math.min(...numbers));
+		expect(sorted.rows.map(key).sort(), `the same rows, ${where}`).toEqual(
+			before.rows.map(key).sort()
+		);
+		// A trace button in each of the shown case's rows, wherever the sort puts them.
+		expect(sorted.rows.filter((r) => r.button).map((r) => r.case)).toEqual(
+			before.rows.filter((r) => r.button).map(() => before.groups[0])
+		);
+		console.log(`${where}: the open card ${await cardHeight()} px, sorted`);
+		await shot('sorted');
+
+		// Flagged only, still sorted: the flagged rows, each with its flag line; its count the rows.
+		const flaggedRows = before.rows.filter((r) => r.flags);
+		const flagged = block.getByRole('checkbox', { name: /^Flagged only/ });
+		await expect(flagged).toHaveAccessibleName(
+			`Flagged only (${flaggedRows.length} of ${before.rows.length})`
+		);
+		await flagged.check();
+		const flatFlagged = (await combinationsTablePart(
+			page,
+			`${where}, sorted, flagged only`,
+			'flat'
+		))!;
+		expect(flatFlagged.rows.map(key).sort()).toEqual(flaggedRows.map(key).sort());
+		expect(flatFlagged.rows.every((r) => !!r.flags)).toBe(true);
+
+		// The sort cleared: the cases with a flagged pump, in S5's order, each such pump's row.
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin', true);
+		const groupedFlagged = (await combinationsTablePart(
+			page,
+			`${where}, flagged only`,
+			'grouped'
+		))!;
+		expect(groupedFlagged.groups).toEqual(
+			before.groups.filter((g) => flaggedRows.some((r) => r.case === g))
+		);
+		expect(groupedFlagged.rows.map(key)).toEqual(flaggedRows.map(key));
+		console.log(`${where}: the open card ${await cardHeight()} px, flagged only`);
+		await shot('flagged-only');
+		await flagged.uncheck();
+
+		// Fields: Head hidden in both forms, then every field back.
+		const fields = block.getByRole('button', { name: /^Fields/ });
+		const sheet = page.getByRole('group', { name: 'Fields shown in Running combinations' });
+		// Closed by Done on a phone; from 640 px by Escape from inside it, or by Fields again once
+		// "Show all", which goes as it is pressed, has taken the focus with it.
+		const closeSheet = async (by: 'Escape' | 'Fields' = 'Escape') => {
+			if (phone) await sheet.getByRole('button', { name: 'Done' }).click();
+			else if (by === 'Escape') await page.keyboard.press('Escape');
+			else await fields.click();
+			await expect(sheet).toBeHidden();
+			await expect(fields).toHaveAttribute('aria-expanded', 'false');
+		};
+		await fields.click();
+		await sheet.getByRole('checkbox', { name: /^Head/ }).uncheck();
+		await closeSheet();
+		const noHead = async (form: string) => {
+			await expect(region.locator('td[data-label^="Head"]'), `Head cells, ${form}`).toHaveCount(0);
+			await expect(region.getByRole('columnheader', { name: /^Head/ })).toHaveCount(0);
+			await expect(region.locator('td[data-label^="Flow"]').first()).toBeVisible();
+		};
+		await noHead(`grouped, ${where}`);
+		await sortCombinations(page, /^Flow/, 'flow');
+		await noHead(`flat, ${where}`);
+		await sortCombinations(page, /^Flow/, 'flow', true);
+		await fields.click();
+		await sheet.getByRole('button', { name: 'Show all' }).click();
+		await closeSheet('Fields');
+
+		// Back as it was: every case, in S5's order, every row.
+		const after = (await combinationsTablePart(page, `${where}, again`, 'grouped'))!;
+		expect(after.groups).toEqual(before.groups);
+		expect(after.rows.map(key)).toEqual(before.rows.map(key));
+		await noSidewaysScroll(page, `Running combinations, ${where}`);
+	}
+	await page.setViewportSize(viewport);
 });
 
 // ---- S5 review: a measure no case gives, the trace's focus, a stale group on a phone ----------

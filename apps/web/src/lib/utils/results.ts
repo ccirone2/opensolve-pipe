@@ -546,11 +546,33 @@ export interface Row {
 	detail: string;
 	cells: Record<string, Cell>;
 	flags: Flag[];
+	/**
+	 * The key of the row's group, in a table of row groups (`Table.groups`): its key need then be
+	 * unique only within its group (the same pump in each case).
+	 */
+	group?: string;
+}
+
+/**
+ * A group of a table's rows (Running combinations: a case; proposal pumps-results-layout.md §9
+ * S6b): its rows are those whose `group` is its key, in the table's order.
+ */
+export interface RowGroup {
+	key: string;
+	/** Its name in the column a sort adds, where the groups are flattened into one table. */
+	label: string;
+	/** Its values are out of date: tinted amber (§5.3 Invalid and stale). */
+	stale?: boolean;
 }
 
 export interface Table {
 	columns: Column[];
 	rows: Row[];
+	/**
+	 * Row groups, in order: in the table's own order a row group each, headed by its lines; a sort
+	 * flattens them into one table with a column naming each row's group (§9 S6b).
+	 */
+	groups?: RowGroup[];
 }
 
 /** Formats SI values in the display units of a project. */

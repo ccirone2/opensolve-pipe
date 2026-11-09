@@ -54,6 +54,17 @@
 	press lands on the control, its expanded state announced), and each section registers its own
 	heading; the card ends with "Back to the sections". Without PumpsView (this card's own tests)
 	there is no nav, and neither is drawn.
+
+	The members, the station and the group chart's reading (§5.3, §9 S3): the members a grid that
+	never moves a name on tick, the server finder's hint the fieldset's description, a line while
+	the members are the group suggested for the pump on the pump chart, and two groups found or
+	more behind "Other groups found: {n}". Station opens with the group curve's line, the refusal
+	and the station's answer, before the group table with its flag lines (PumpGroupStation). The
+	group chart ends with the other cases under their h5 (PumpGroupOthers): the switch first, the
+	cases, their own live line, "Compute them again" with its reason shown and "Go to Running
+	combinations", then the ring notes cut as the owner answered (§12 item 1): the clip note,
+	"How to read the rings" (the frame and the rule), the ring list one line per ring, "Not on the
+	chart" and the left-out count.
 -->
 <script lang="ts">
 	import { tick } from 'svelte';
@@ -97,6 +108,11 @@
 		onslots?: (slots: (string | null)[]) => void;
 		/** The groups suggested on the topology as solved. */
 		suggestions?: readonly GroupSuggestion[];
+		/**
+		 * The pump on the pump chart, while the members are the group suggested for it (null: the
+		 * user's own choice, or no group found holds it): the suggestion line names it (§5.3).
+		 */
+		suggestedFor?: string | null;
 		/** The card is open (bindable: page state the caller keeps). */
 		open?: boolean;
 		/** The group curve of the members for this solve (undefined: not requested). */
@@ -176,6 +192,7 @@
 		slots,
 		onslots,
 		suggestions = [],
+		suggestedFor = null,
 		open = $bindable(false),
 		curve: groupCurve,
 		onretry,
@@ -392,17 +409,27 @@
 	</div>
 	{#if open}
 		<div id="{id}-body" class="space-y-3">
-			<fieldset bind:this={fieldset} class="space-y-1">
+			<!-- Members (§5.3): the legend the fieldset's first child, so the group keeps its name; the
+				server finder's hint its description (§6.2: kept visible, now also its description). -->
+			<fieldset bind:this={fieldset} aria-describedby="{id}-finder">
 				<legend class="text-xs font-medium text-slate-700">Pumps in the group</legend>
-				<div class="flex flex-wrap gap-x-4">
+				<!-- An auto-fill grid, 13 rem at least (no container needed, §15 item 35): two columns in
+					a 480 px pane, one on a phone; names wrap. -->
+				<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-3">
 					{#each pumps as pump (pump.id)}
 						{@const on = ticked(pump.id)}
 						{@const capped = !on && full}
-						{@const slot = slots.indexOf(pump.id)}
-						<label class="flex min-h-11 items-center gap-2 text-sm">
+						{@const style = on ? slotStyle(slots.indexOf(pump.id)) : null}
+						<!-- Capped (ui-guide): the box greyed, the name kept readable (slate-600). -->
+						<label
+							class={[
+								'flex min-h-11 items-start gap-2 py-3 text-sm',
+								capped && 'cursor-not-allowed text-slate-600'
+							]}
+						>
 							<input
 								type="checkbox"
-								class="size-4"
+								class={['mt-0.5 size-4 shrink-0', capped && 'opacity-45']}
 								checked={on}
 								aria-disabled={capped}
 								aria-describedby={capped ? `${id}-full` : undefined}
@@ -414,26 +441,39 @@
 									setTicked(pump.id, event.currentTarget.checked);
 								}}
 							/>
-							{#if on}<span aria-hidden="true" style:color={slotStyle(slot).color}
-									>{slotStyle(slot).symbol}</span
-								>{/if}
-							{pump.name}
+							<!-- The slot symbol's column is kept, so a name never moves on tick. -->
+							<span aria-hidden="true" class="w-4 shrink-0 text-center" style:color={style?.color}
+								>{style?.symbol ?? ''}</span
+							>
+							<span class="min-w-0 wrap-break-word">{pump.name}</span>
 						</label>
 					{/each}
 				</div>
 				{#if full && pumps.length > MAX_GROUP_PUMPS}
 					<p id="{id}-full" class="hint">At most {MAX_GROUP_PUMPS} pumps in a group.</p>
 				{/if}
-				<p class="hint">
+				<p id="{id}-finder" class="hint">
 					The calculation server finds the part of the network that holds them, between two places
 					(its inlet and outlet), and whether they are in parallel or in series.
 				</p>
 			</fieldset>
+			{#if suggestedFor}
+				<!-- While the members are the group suggested for the pump on the pump chart (F29: its
+					select also chooses the card's default members, and nothing said so). -->
+				<p class="hint -mt-2" data-group-suggested>
+					Suggested for {suggestedFor}, the pump on the pump chart above; tick pumps to choose your
+					own.
+				</p>
+			{/if}
 			{#if otherGroups.length}
-				<!-- pumps-results-layout.md §9 S0 (F10): the buttons wrap (`.btn` does not), so the pane
-					never scrolls sideways, and the one sentence below says what each does. -->
-				<div>
-					<div bind:this={alsoFound} class="flex flex-wrap items-center gap-x-2">
+				<!-- The other groups found (§5.3): one, its button; two or more, behind "Other groups
+					found: {n}". Each button wraps (§9 S0, F10: `.btn` does not), so the pane never
+					scrolls sideways; S0's one sentence comes first, saying what a button does before it
+					is met, and describes each. Like the suggestion line, 4 px under what it follows: the
+					members' block reads as one, before Station's rule. -->
+				{#snippet alsoFoundButtons()}
+					<p id="{id}-also-found" class="hint">Showing a group found replaces the pumps ticked.</p>
+					<div bind:this={alsoFound} class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
 						{#each otherGroups as other (other.pumpIds.join('\u0000'))}
 							<button
 								type="button"
@@ -444,20 +484,41 @@
 							>
 						{/each}
 					</div>
-					<p id="{id}-also-found" class="hint">Showing a group found replaces the pumps ticked.</p>
-				</div>
+				{/snippet}
+				{#if otherGroups.length > 1}
+					<details class="group -mt-2" data-other-groups>
+						<summary class="more-summary">
+							<Icon
+								name="right"
+								class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+							/>
+							Other groups found: {otherGroups.length}
+						</summary>
+						<div class="pb-1">{@render alsoFoundButtons()}</div>
+					</details>
+				{:else}
+					<div class="-mt-2">{@render alsoFoundButtons()}</div>
+				{/if}
 			{/if}
 
 			{#if unavailable}
 				<p class="text-sm text-slate-700">{unavailable}</p>
 			{:else if members.length}
-				<!-- 1. Station: the group table and the station as a whole (§5.3), before the chart. -->
+				<!-- 1. Station (§5.3): its answer first (the group curve's line, the refusal, the station),
+					then the group table, before the chart. -->
 				<PumpGroupStation
 					{table}
 					{caseName}
 					{oninspect}
 					{flagText}
 					sharesPending={!shown && groupCurve?.status !== 'refused' && members.length > 1}
+					curve={notes.curve}
+					{refusals}
+					{undefinedThere}
+					{loading}
+					{onretry}
+					{oncancel}
+					{figure}
 				/>
 				<!-- 2. Group chart: the figure, its actions under its legend, its data after its
 					reference (§5.1, §9 S2). -->
@@ -474,7 +535,6 @@
 					{notes}
 					{notesWith}
 					{refusals}
-					{undefinedThere}
 					{memberNames}
 					{arrangement}
 					{table}
@@ -484,14 +544,11 @@
 					{nameOf}
 					{caseName}
 					{stale}
-					{oninspect}
 					{image}
 					{loading}
 					{systemLoading}
 					{othersLoading}
 					{othersRetry}
-					{onretry}
-					{oncancel}
 					{onretrysystem}
 					{oncancelsystem}
 					{others}
@@ -502,6 +559,7 @@
 					{oncancelothers}
 					{onretryothers}
 					{othersRetryReason}
+					combinations={!!combinations && !!stationShown}
 				/>
 				{#if lineups && stationShown}
 					<!-- 3. Add cases (D24 slice L1): the cases of the base case with pumps off, the one

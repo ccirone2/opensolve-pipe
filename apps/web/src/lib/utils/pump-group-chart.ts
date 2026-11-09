@@ -1054,9 +1054,51 @@ export interface GroupNotes {
 	/**
 	 * Other cases' station duties (slice 4d): what a ring is, when one is called a point of the
 	 * group system curve shown, the rings, and the cases without one and why; one line while
-	 * they are not asked for (empty with no other case).
+	 * they are not asked for (empty with no other case). The image's footer lines, word for word
+	 * `otherNoteLines(otherParts)`.
 	 */
 	others: string[];
+	/**
+	 * The same notes as named parts, which only the screen reads (pumps-results-layout.md §5.3,
+	 * the ring notes cut): the clip note, the ring list and the cases not on the chart shown, the
+	 * frame and the rule inside "How to read the rings".
+	 */
+	otherParts: OtherNoteParts;
+}
+
+/** A ring's line in the ring list (pumps-results-layout.md §5.3 The ring list): its entry. */
+export interface OtherRingItem {
+	number: number;
+	/** The case's name, "(out of date)" after it when its results are. */
+	name: string;
+	/** "{flow} {unit} at a rise of {rise} {unit}". */
+	at: string;
+	/** Its claim, then "; group curve: {words}" while the rings' own curves are judged. */
+	words: string;
+	/** The entry, `${number} · ${name}, ${at}: ${words}`, as the ring list's sentence has it. */
+	text: string;
+}
+
+/**
+ * The notes on the other cases' station duties as named parts (pumps-results-layout.md §5.3,
+ * the owner's answer 1, §12): each null where today's notes have no such line. With `off` set
+ * (the duties not asked for) every other part is null.
+ */
+export interface OtherNoteParts {
+	/** The one line while the other cases' duties are not asked for. */
+	off: string | null;
+	/** What a ring is, in whichever of its four forms applies (while a ring is drawn). */
+	frame: string | null;
+	/** Which curves the axes cut (clipNote). */
+	clip: string | null;
+	/** DUTY_CLAIM_RULE, while a ring and a group system curve with a rise are drawn. */
+	claim: string | null;
+	/** The ring list: its lead and one item per ring, in number order. */
+	rings: { lead: string; items: OtherRingItem[] } | null;
+	/** "Not on the chart: …": the other cases without a ring, and why. */
+	notOn: string | null;
+	/** The count of curves whose labels are left out for space (labelsLeftOutNote). */
+	leftOut: string | null;
 }
 
 export interface GroupNotesInput {
@@ -1257,6 +1299,11 @@ export function groupNotes({
 				].join('; ')}.`
 			: null;
 
+	const otherParts = otherNoteParts(data, others, stationResponse(state, system), project, {
+		drawn: !!data.curve && data.missing < data.total,
+		pressureControl: undefinedThere,
+		labelsLeftOut
+	});
 	return {
 		curve,
 		systemCurve,
@@ -1269,11 +1316,9 @@ export function groupNotes({
 		systemCurves:
 			"Each pump's own system curve is on its pump chart above; it crosses that pump's curve, not the group curve.",
 		dashed,
-		others: otherNotes(data, others, stationResponse(state, system), project, {
-			drawn: !!data.curve && data.missing < data.total,
-			pressureControl: undefinedThere,
-			labelsLeftOut
-		})
+		// The footer's lines are the screen's parts joined (pumps-results-layout.md §5.3).
+		others: otherNoteLines(otherParts),
+		otherParts
 	};
 }
 
@@ -1311,12 +1356,13 @@ export function labelsLeftOutNote(n: number): string | null {
 }
 
 /**
- * The notes on the other cases' station duties (slice 4d), in order: what a ring is (while one
- * is drawn), when one is called a point of the group system curve shown (while a ring and that
- * curve are drawn), the rings, and the other cases without one with the reason. While the other
- * cases' duties are not asked for (the box off: every case `off`), one line instead of a list:
- * a project whose scenarios have nothing to do with pumps would otherwise list every case on
- * every card and image.
+ * The notes on the other cases' station duties (slice 4d), as named parts (pumps-results-layout.md
+ * §5.3, the ring notes cut): what a ring is (while one is drawn), when one is called a point of the
+ * group system curve shown (while a ring and that curve are drawn), the rings, and the other
+ * cases without one with the reason. While the other cases' duties are not asked for (the box
+ * off: every case `off`), one line instead of a list: a project whose scenarios have nothing to
+ * do with pumps would otherwise list every case on every card and image. otherNoteLines joins the
+ * parts into the notes' lines, today's words and order (the image's footer).
  *
  * The frame holds for any number of pumps running and any arrangement: a ring is the station's
  * point, at the station's flow (in parallel the sum of the running pumps' flows, so with two or
@@ -1334,7 +1380,7 @@ export function labelsLeftOutNote(n: number): string | null {
  * frame when the axes cut a curve, each ring's entry in the list gains "; group curve: {words}",
  * and the count of curves whose labels are left out for space comes last.
  */
-function otherNotes(
+export function otherNoteParts(
 	data: GroupChartData,
 	others: readonly OtherGroupCase[],
 	station: PumpGroupCurveResponse | null,
@@ -1347,14 +1393,21 @@ function otherNotes(
 		/** Curves whose labels are left out for space (placeCurveLabels). */
 		labelsLeftOut: number;
 	}
-): string[] {
+): OtherNoteParts {
+	const parts: OtherNoteParts = {
+		off: null,
+		frame: null,
+		clip: null,
+		claim: null,
+		rings: null,
+		notOn: null,
+		leftOut: null
+	};
 	if (others.length && others.every((o) => o.state === 'off')) {
 		const n = others.length;
-		return [
-			`Other cases' station duties are not on the chart: tick “Also show the other cases' station duties” to compute them (${n} other ${n === 1 ? 'case' : 'cases'} with results).`
-		];
+		parts.off = `Other cases' station duties are not on the chart: tick “Also show the other cases' station duties” to compute them (${n} other ${n === 1 ? 'case' : 'cases'} with results).`;
+		return parts;
 	}
-	const lines: string[] = [];
 	const cases = data.others.flatMap((ring) => ring.cases).sort((a, b) => a.number - b.number);
 	/** The rings' own curves are judged (D24 §9.6): the frame sentence is L3's. */
 	const family = curve.drawn && cases.some((c) => c.curve !== null);
@@ -1369,43 +1422,46 @@ function otherNotes(
 				: data.station
 					? ' as the Group point is'
 					: '';
-		lines.push(
-			[
-				`Each numbered slate ring is another case's station duty: that case's station flow and its rise from ${s} to ${d}, drawn against the station's flow${against}, not a pump's own point.`,
-				...(arrangement === 'parallel'
+		parts.frame = [
+			`Each numbered slate ring is another case's station duty: that case's station flow and its rise from ${s} to ${d}, drawn against the station's flow${against}, not a pump's own point.`,
+			...(arrangement === 'parallel'
+				? [
+						"In parallel that flow is the sum of the flows of the pumps running in that case, and that rise is each running pump's own head less its loss on the way."
+					]
+				: arrangement === 'series'
 					? [
-							"In parallel that flow is the sum of the flows of the pumps running in that case, and that rise is each running pump's own head less its loss on the way."
+							'In series that flow passes through every pump, and that rise is their heads added together less the head across the elements between them.'
 						]
-					: arrangement === 'series'
-						? [
-								'In series that flow passes through every pump, and that rise is their heads added together less the head across the elements between them.'
-							]
-						: []),
-				"Each pump's own flow and head in each case are in Running combinations.",
-				family
-					? OTHER_CURVES_FRAME
-					: curve.drawn
-						? "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
-						: curve.pressureControl
-							? "With an active PRV or PSV inside, the station has no group curve, so none is drawn here; each ring is its case's duty from its group system curve where one is active in that case too, else from its group curve."
-							: "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13); no group curve is drawn here."
-			].join(' ')
-		);
+					: []),
+			"Each pump's own flow and head in each case are in Running combinations.",
+			family
+				? OTHER_CURVES_FRAME
+				: curve.drawn
+					? "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13): the curve drawn here when its case differs from this one only outside the station; with other pumps running, a curve of theirs that is not drawn."
+					: curve.pressureControl
+						? "With an active PRV or PSV inside, the station has no group curve, so none is drawn here; each ring is its case's duty from its group system curve where one is active in that case too, else from its group curve."
+						: "A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13); no group curve is drawn here."
+		].join(' ');
 	}
 	// The clip note (D24 §9.4): only while the family is drawn, and only for the cuts made.
-	const clip = clipNote(data);
-	if (clip) lines.push(clip);
-	if (cases.length && data.system?.some((p) => p.y !== null)) lines.push(DUTY_CLAIM_RULE);
+	parts.clip = clipNote(data);
+	if (cases.length && data.system?.some((p) => p.y !== null)) parts.claim = DUTY_CLAIM_RULE;
 	if (cases.length) {
 		const fmt = (v: number) => formatNumber(v, 4);
-		lines.push(
-			`Other cases on the chart (slate rings, numbered): ${cases
-				.map(
-					(c) =>
-						`${c.number} · ${c.name}, ${fmt(c.flow)} ${data.flowUnit} at a rise of ${fmt(c.rise)} ${data.headUnit}: ${c.claim}${c.curve === null ? '' : `; group curve: ${c.curve}`}`
-				)
-				.join('; ')}.`
-		);
+		parts.rings = {
+			lead: OTHER_RINGS_LEAD,
+			items: cases.map((c) => {
+				const at = `${fmt(c.flow)} ${data.flowUnit} at a rise of ${fmt(c.rise)} ${data.headUnit}`;
+				const words = `${c.claim}${c.curve === null ? '' : `; group curve: ${c.curve}`}`;
+				return {
+					number: c.number,
+					name: c.name,
+					at,
+					words,
+					text: `${c.number} · ${c.name}, ${at}: ${words}`
+				};
+			})
+		};
 	}
 	const without = others.filter((o) => o.state !== 'ready');
 	if (without.length) {
@@ -1414,15 +1470,35 @@ function otherNotes(
 		// combinations' station line and the "Other cases' station duties" cell, where they read right.
 		const why = (o: OtherGroupCase) =>
 			o.state === 'unticked' ? 'unticked under Cases on this chart' : o.words;
-		lines.push(
-			`Not on the chart: ${without
-				.map((o) => `${o.name}${o.stale ? ' (out of date)' : ''} (${why(o)})`)
-				.join('; ')}.`
-		);
+		parts.notOn = `Not on the chart: ${without
+			.map((o) => `${o.name}${o.stale ? ' (out of date)' : ''} (${why(o)})`)
+			.join('; ')}.`;
 	}
-	const leftOut = labelsLeftOutNote(curve.labelsLeftOut);
-	if (leftOut) lines.push(leftOut);
-	return lines;
+	parts.leftOut = labelsLeftOutNote(curve.labelsLeftOut);
+	return parts;
+}
+
+/** The ring list's lead (§6.2: its words kept), now also the list's name on screen. */
+export const OTHER_RINGS_LEAD = 'Other cases on the chart (slate rings, numbered):';
+
+/**
+ * The other cases' notes as lines, in today's order (pumps-results-layout.md §5.3 The parts
+ * helper, §6.3): the off line alone, else the frame, the clip note, the rule, the ring list as one
+ * sentence (its items joined by "; ", a full stop after the last), "Not on the chart" and the
+ * left-out count. groupNotes' `others` and so the image's footer (groupNoteLines) are these.
+ */
+export function otherNoteLines(parts: OtherNoteParts): string[] {
+	if (parts.off) return [parts.off];
+	return [
+		parts.frame,
+		parts.clip,
+		parts.claim,
+		parts.rings
+			? `${parts.rings.lead} ${parts.rings.items.map((item) => item.text).join('; ')}.`
+			: null,
+		parts.notOn,
+		parts.leftOut
+	].filter((line): line is string => !!line);
 }
 
 /** The tolerance of the group system curve's duty check (D6): 0.5 % of the rise, or this, m. */
@@ -2024,10 +2100,26 @@ export interface GroupReadoutMark {
 	points: ChartPoint[];
 }
 
+/**
+ * The readout's words in parts, which the screen lays out as pairs (proposal
+ * pumps-results-layout.md §5.3 Reading): `${at}: ` and then each pump's and the group's name and
+ * value joined by ", ", or what stands for them (`none`). Joined so, they are the sample's `text`.
+ */
+export interface GroupReadoutParts {
+	/** "At a rise of 20 m". */
+	at: string;
+	/** Each member's flow (and its state when it does not run), then the station's ("group"). */
+	pairs: { name: string; value: string }[];
+	/** In place of the pairs, where the sample has no flow ("no flow solved here; …"). */
+	none: string | null;
+}
+
 /** A sample of the group curve as the readout gives it. */
 export interface GroupReadoutSample {
 	/** "At a rise of 20 m: Pump PA 43.8 L/s, Pump PB 24 L/s, group 67.8 L/s". */
 	text: string;
+	/** The same words in parts, for the screen's pairs. */
+	parts: GroupReadoutParts;
 	/** The sample at the duty's rise. */
 	duty: boolean;
 	mark: GroupReadoutMark;
@@ -2054,29 +2146,34 @@ export function groupReadout(
 			const rise = fromSI(p.head, headUnit);
 			const at = `At a rise of ${fmt(rise)} ${headLabel}`;
 			if (p.flow === null) {
+				const none = 'no flow solved here; the data table says why.';
 				return {
 					text: `${at}: no flow solved here; the data table says why.`,
+					parts: { at, pairs: [], none },
 					duty: p.isDuty,
 					mark: { rise, points: [] }
 				};
 			}
-			const members = response.station.memberIds.flatMap((id) => {
+			const pairs = response.station.memberIds.flatMap((id) => {
 				const m = p.members.find((x) => x.pumpId === id);
 				if (!m) return [];
 				const state =
 					m.status === 'running'
 						? ''
 						: ` (${MEMBER_STATUS_WORDS[m.status]?.toLowerCase() ?? m.status})`;
-				return [`${name(id)} ${fmt(fromSI(m.flow, flowUnit))} ${flowLabel}${state}`];
+				return [{ name: name(id), value: `${fmt(fromSI(m.flow, flowUnit))} ${flowLabel}${state}` }];
 			});
+			const members = pairs.map((pair) => `${pair.name} ${pair.value}`);
 			const points: ChartPoint[] = [
 				...p.members.flatMap((m) =>
 					m.head === null ? [] : [{ x: fromSI(m.flow, flowUnit), y: fromSI(m.head, headUnit) }]
 				),
 				{ x: fromSI(p.flow, flowUnit), y: rise }
 			];
+			const group = { name: 'group', value: `${fmt(fromSI(p.flow, flowUnit))} ${flowLabel}` };
 			return {
 				text: `${at}: ${[...members, `group ${fmt(fromSI(p.flow, flowUnit))} ${flowLabel}`].join(', ')}`,
+				parts: { at, pairs: [...pairs, group], none: null },
 				duty: p.isDuty,
 				mark: { rise, points }
 			};

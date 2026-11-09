@@ -305,8 +305,11 @@
 		unwatch = stop;
 	}
 
-	/** Scroll a section's target to the top, then focus it without a second scroll (§5.4). */
-	function go(key: SectionKey) {
+	/**
+	 * Scroll a section's target to the top, then focus it without a second scroll (§5.4); also
+	 * the "Go to" buttons' way there (§6.2), through the nav's context.
+	 */
+	export function go(key: SectionKey) {
 		const section = sections.find((s) => s.key === key);
 		if (!section) return;
 		pressed = key;

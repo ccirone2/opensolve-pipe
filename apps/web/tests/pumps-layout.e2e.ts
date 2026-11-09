@@ -31,14 +31,18 @@ import type { Project } from '../src/lib/api/types';
 import { exampleProject, pumpTransferExample } from '../src/lib/utils/examples';
 import { canonicalJson } from '../src/lib/utils/json';
 import {
+	buildPane,
 	caseGroup,
+	chooseCase,
 	openCases,
 	resultsPane,
 	resultsScroller,
 	resultsView,
+	setNumber,
 	showPane,
 	solve,
-	solveConverged
+	solveConverged,
+	traceOf
 } from './support';
 
 interface FixtureCase {
@@ -2396,6 +2400,604 @@ async function addCasesPart(page: Page, view: string, where: string) {
 	).toEqual(['Add', 'Solve all', 'Pump lineups table…']);
 }
 
+// ---- S5: Running combinations' lead and the extremes as a table (§5.3, §9 S5, §10 S5) ----------
+
+/** Running combinations' lead in each view with scenarios and a station shown (§5.3, §6.2). */
+const COMBINATIONS_LEAD: Readonly<Record<string, { text: string; mark: string | null }>> = {
+	// The proposal's own example (§5.3): S7's Pump P1 has a warning flag.
+	'2-lineups': {
+		text: '9 cases: 9 with current results (none physically invalid, 1 with warnings), none out of date, none without results.',
+		mark: 'Warning'
+	},
+	// The condenser's cases with pumps off run the others beyond their curves (§10 New tests).
+	'3-condenser': {
+		text: '7 cases: 7 with current results (4 physically invalid, none with warnings), none out of date, none without results.',
+		mark: 'Physically invalid'
+	}
+};
+const EXTREMES_COLUMNS = ['Pump', 'Largest flow', 'Largest shaft power', 'Smallest NPSH margin'];
+/**
+ * A list line's header ending in a space as drawn: its column's words and a space, as ::before
+ * content (the mock's `attr(data-label) " "`; S5 review EXT-1, LAYOUT-1), as getComputedStyle
+ * gives it, one string.
+ */
+const lineHeader = (label: string) => `"${label} "`;
+/**
+ * §5.7 row 9: the condenser's extremes with their h5 (the h5, the box and "Not counted"), at most
+ * this: S5's measurement + 10 %, 725 px at 1280×800 (the mock's table 711 px and the h5) and 893 at
+ * 390×844 (the mock's list 834 px), so 797 and 982. At 320×640 no budget (§5.7).
+ */
+const EXTREMES_HEIGHT: Readonly<Record<string, number>> = {
+	'1280x800': 797,
+	'390x844': 982
+};
+
+/**
+ * The extremes table as drawn (§5.3 the extremes): its form (a table from 26 rem of its box, a
+ * list below), its box, its headers and rows, each cell's text and line header, the icons in its
+ * cells and in Running combinations' value cells, and the lead with its mark.
+ */
+function readExtremes() {
+	const section = document.querySelector('[data-pumps-together] [data-group-combinations]');
+	const box = section?.querySelector<HTMLElement>('[data-extremes]');
+	const table = box?.querySelector('table');
+	if (!section || !box || !table) return null;
+	const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+	const OCTAGON = 'M8 3h8l5 5v8l-5 5H8l-5-5V8z';
+	const TRIANGLE = 'M12 3 2 20h20z';
+	const shapes = (el: Element) =>
+		[...el.querySelectorAll('svg')].map((svg) => svg.querySelector('path')!.getAttribute('d'));
+	/**
+	 * A cell's value against the words after it on its line (S5 review EXT-2): the bottom of the
+	 * rest's first line box less the bottom of the amount's text, in px, where the two share a
+	 * line (null otherwise, or with no amount). 0 when the value sits on the line's baseline.
+	 */
+	const lift = (td: Element) => {
+		const [amount, rest] = [...td.children];
+		const text = [...(amount?.childNodes ?? [])].find(
+			(n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim() !== ''
+		);
+		if (!amount || !rest || !text || amount.tagName !== 'SPAN') return null;
+		const range = document.createRange();
+		range.selectNodeContents(text);
+		const a = range.getBoundingClientRect();
+		range.selectNodeContents(rest);
+		const r = range.getClientRects()[0];
+		if (!r || r.top >= a.bottom) return null;
+		return Math.round((r.bottom - a.bottom) * 10) / 10;
+	};
+	const thead = table.querySelector('thead')!;
+	const rows = [...table.querySelectorAll('tbody tr')].map((tr) => {
+		const th = tr.querySelector('th')!;
+		const cells = [...tr.querySelectorAll('td')] as HTMLElement[];
+		return {
+			name: th.textContent ?? '',
+			nameShown: th.scrollWidth <= th.clientWidth + 1,
+			nameDisplay: getComputedStyle(th).display,
+			nameWeight: getComputedStyle(th).fontWeight,
+			cells: cells.map((td) => ({
+				label: td.dataset.label ?? '',
+				text: td.textContent ?? '',
+				display: getComputedStyle(td).display,
+				before: getComputedStyle(td, '::before').content,
+				octagons: shapes(td).filter((d) => d === OCTAGON).length,
+				triangles: shapes(td).filter((d) => d === TRIANGLE).length,
+				others: shapes(td).filter((d) => d !== OCTAGON).length,
+				lift: lift(td)
+			}))
+		};
+	});
+	// Its value cells: every cell but the flag lines' (S5's second half: no Flags column).
+	const combos = [...section.querySelectorAll('[data-running-combinations] td')].filter(
+		(td) => !td.querySelector('[data-label="Flags"]')
+	);
+	const lead = section.querySelector('[data-combinations-lead]');
+	const mark = section.querySelector('[data-combinations-mark]');
+	const container = box.parentElement!;
+	return {
+		width: Math.round(box.getBoundingClientRect().width),
+		list: box.getBoundingClientRect().width < 26 * rem,
+		display: getComputedStyle(table).display,
+		sideways: box.scrollWidth > box.clientWidth + 1,
+		tabindex: box.getAttribute('tabindex'),
+		containerType: getComputedStyle(container).containerType,
+		containerWidth: Math.round(container.getBoundingClientRect().width),
+		frame: getComputedStyle(box).borderTopWidth,
+		height: Math.round(container.getBoundingClientRect().height),
+		headClipped:
+			getComputedStyle(thead).position === 'absolute' && thead.getBoundingClientRect().width <= 1,
+		caption: table.querySelector('caption')?.textContent ?? '',
+		columns: [...thead.querySelectorAll('th')].map((th) => th.textContent ?? ''),
+		rows,
+		combos: combos.map((td) => ({
+			marked: td.textContent!.includes('physically invalid:'),
+			octagons: shapes(td).filter((d) => d === OCTAGON).length,
+			triangles: shapes(td).filter((d) => d === TRIANGLE).length
+		})),
+		lead: lead?.textContent ?? null,
+		leadTag: lead?.tagName ?? null,
+		mark: mark
+			? {
+					role: mark.getAttribute('role'),
+					name: mark.getAttribute('aria-label'),
+					// Drawn, its octagon or alert too: not only named (S5 review MUT-03).
+					seen: [mark, mark.querySelector('svg')].every((el) => {
+						const r = el?.getBoundingClientRect();
+						return (
+							!!el &&
+							!!r &&
+							el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+							r.width > 1 &&
+							r.height > 1
+						);
+					}),
+					beforeLead: mark.nextElementSibling === lead,
+					shape:
+						shapes(mark)[0] === OCTAGON
+							? 'octagon'
+							: shapes(mark)[0] === TRIANGLE
+								? 'triangle'
+								: 'other'
+				}
+			: null
+	};
+}
+
+/**
+ * The extremes as a list (soft; S5 review EXT-2): each value on its line's baseline, the octagon
+ * beside it, so the amount's text and the words after it end on one line, in an invalid cell as
+ * in a valid one (§5.3: the cell's words after it on the same line).
+ */
+function listLines(m: NonNullable<ReturnType<typeof readExtremes>>, where: string) {
+	const soft = expect.configure({ soft: true });
+	const measured = m.rows.flatMap((r) =>
+		r.cells
+			.filter((c) => c.lift !== null)
+			.map((c) => ({ what: `"${r.name}", ${c.label}`, lift: c.lift!, marked: c.octagons > 0 }))
+	);
+	soft(measured.length, `the list's values measured on their lines, ${where}`).toBeGreaterThan(0);
+	const marked = measured.filter((c) => c.marked).length;
+	console.log(`${where}: the list's values on their lines, ${measured.length} (${marked} marked)`);
+	for (const c of measured) {
+		soft(
+			Math.abs(c.lift),
+			`${c.what}: its value lifted off its line (px), ${where}`
+		).toBeLessThanOrEqual(0.5);
+	}
+}
+
+/**
+ * Each extremes cell's accessible name (soft; §7: in the list it gains its header there; S5
+ * review EXT-1): in the list its column's words, a space, then its words, "no case gives one"
+ * too, never the two run together; in the table its words alone.
+ */
+async function extremesNames(page: Page, list: boolean, where: string) {
+	await cellNames(page.locator('[data-pumps-together] [data-extremes] td'), list, where);
+}
+
+/**
+ * Each cell's accessible name (soft): in a list form, whose line header is ::before content, its
+ * column's words, a space, then its words; in a table its words alone.
+ */
+async function cellNames(cells: Locator, list: boolean, where: string) {
+	const soft = expect.configure({ soft: true });
+	const said = await cells.evaluateAll((all) =>
+		all.map((td) => ({
+			label: (td as HTMLElement).dataset.label ?? '',
+			text: (td.textContent ?? '').replace(/\s+/g, ' ').trim()
+		}))
+	);
+	for (const [i, c] of said.entries()) {
+		await soft(
+			cells.nth(i),
+			`the accessible name of "${c.label}: ${c.text.slice(0, 30)}", ${where}`
+		).toHaveAccessibleName(list ? `${c.label} ${c.text}` : c.text);
+	}
+}
+
+/**
+ * S5's first half at the size shown (soft): Running combinations' lead and its mark (§5.3: named
+ * by the worst severity, the red octagon or the amber alert); the extremes a table from 26 rem of
+ * its box and a list below, with the same roles, headers and data-labels, each line headed by its
+ * data-label as ::before content and each cell's text its words (the same as in the table form:
+ * at 1280×800 the box's container is narrowed to a list and read again); the box never scrolls
+ * sideways and has no Tab stop; every pump name shown to its end; the red octagon in exactly the
+ * cells whose words say "physically invalid", and in Running combinations' marked cells, and no
+ * triangle in any (§5.2, §6.4 item 15); axe's table rules over the extremes (§9 S5 Proof).
+ */
+async function extremesPart(page: Page, view: string, where: string) {
+	const soft = expect.configure({ soft: true });
+	const m = await page.evaluate(readExtremes);
+	if (!m) return;
+	console.log(
+		`${where}: the extremes a ${m.list ? 'list' : 'table'} in a ${m.width} px box, ${m.height} px with their h5; lead "${m.lead}" (${m.mark?.name ?? 'no mark'})`
+	);
+	// §5.7 row 9: the condenser's extremes' height (S5).
+	const heightBudget = view === '3-condenser' ? EXTREMES_HEIGHT[sizeOf(page)] : undefined;
+	if (heightBudget !== undefined) {
+		soft(m.height, `the extremes' height with their h5, ${where}`).toBeLessThanOrEqual(
+			heightBudget
+		);
+	}
+	const expected = COMBINATIONS_LEAD[view];
+	if (expected) {
+		soft(m.lead, `Running combinations' lead, ${where}`).toBe(expected.text);
+		soft(m.mark?.name ?? null, `the lead's mark, ${where}`).toBe(expected.mark);
+	}
+	soft(m.leadTag, `the lead a paragraph, ${where}`).toBe('P');
+	// On screen as text at every size, not a 1 px box (§5.2 Answers; S5 review MUT-04).
+	const leadLine = page.locator('[data-pumps-together] [data-combinations-lead]');
+	soft(await seenLine(leadLine), `the lead on screen, ${where}`).toBe(true);
+	if (m.mark) {
+		// Drawn, and an image of that name in the page's accessibility tree, which leaves out
+		// what CSS hides (S5 review MUT-03).
+		soft(m.mark.seen, `the lead's mark drawn, ${where}`).toBe(true);
+		await soft(
+			leadLine.locator('xpath=..').getByRole('img', { name: m.mark.name ?? '', exact: true }),
+			`the lead's mark an image named "${m.mark.name}" in the accessibility tree, ${where}`
+		).toBeVisible();
+		soft(m.mark.role, `the lead's mark an image, ${where}`).toBe('img');
+		soft(m.mark.beforeLead, `the lead's mark its own element before its <p>, ${where}`).toBe(true);
+		soft(m.mark.shape, `the lead's mark's shape, ${where}`).toBe(
+			m.mark.name === 'Physically invalid' ? 'octagon' : 'triangle'
+		);
+	}
+	soft(m.caption, `the extremes' caption, ${where}`).toBe('Extremes over these cases');
+	soft(m.columns, `the extremes' column headers, ${where}`).toEqual(EXTREMES_COLUMNS);
+	soft(m.rows.length, `a row per member, ${where}`).toBeGreaterThan(1);
+	soft(m.sideways, `the extremes' box scrolls sideways, ${where}`).toBe(false);
+	soft(m.tabindex, `the extremes' box a Tab stop (S7's), ${where}`).toBeNull();
+	soft(m.containerType, `the extremes' container, ${where}`).toBe('inline-size');
+	soft(m.containerWidth, `the container the box's width, ${where}`).toBe(m.width);
+	soft(m.display, `the extremes' form, ${where}`).toBe(m.list ? 'block' : 'table');
+	soft(m.headClipped, `the header row visually hidden in the list only, ${where}`).toBe(m.list);
+	soft(m.frame, `the box's frame, ${where}`).toBe(m.list ? '0px' : '1px');
+	for (const row of m.rows) {
+		soft(row.nameShown, `"${row.name}" shown to its end, ${where}`).toBe(true);
+		soft(
+			row.cells.map((c) => c.label),
+			`"${row.name}"'s cells under the measures, ${where}`
+		).toEqual(EXTREMES_COLUMNS.slice(1));
+		if (m.list) {
+			soft(row.nameDisplay, `"${row.name}" heads its block, ${where}`).toBe('block');
+			soft(row.nameWeight, `"${row.name}" in semibold, ${where}`).toBe('600');
+		}
+		for (const cell of row.cells) {
+			const what = `"${row.name}", ${cell.label}, ${where}`;
+			soft(cell.text.trim(), `${what}: its words`).not.toBe('');
+			soft(cell.text.includes(cell.label), `${what}: its header outside its text`).toBe(false);
+			soft(cell.display, `${what}: its form`).toBe(m.list ? 'block' : 'table-cell');
+			soft(cell.before, `${what}: its line header`).toBe(m.list ? lineHeader(cell.label) : 'none');
+			const invalid = cell.text.includes('; physically invalid');
+			soft(cell.octagons, `${what}: the octagon`).toBe(invalid ? 1 : 0);
+			soft(cell.others, `${what}: another icon`).toBe(0);
+			soft(cell.triangles, `${what}: a triangle`).toBe(0);
+		}
+	}
+	if (m.list) listLines(m, where);
+	await extremesNames(page, m.list, where);
+	for (const [i, cell] of m.combos.entries()) {
+		soft(cell.octagons, `Running combinations' value cell ${i}: the octagon, ${where}`).toBe(
+			cell.marked ? 1 : 0
+		);
+		soft(cell.triangles, `Running combinations' value cell ${i}: a triangle, ${where}`).toBe(0);
+	}
+	const axe = await new AxeBuilder({ page })
+		.include('[data-pumps-together] [data-extremes]')
+		.withRules(['td-has-header', 'th-has-data-cells', 'scope-attr-valid', 'td-headers-attr'])
+		.analyze();
+	soft(
+		axe.violations.map((v) => `${v.id} (${v.nodes.length})`),
+		`axe's table rules over the extremes, ${where}`
+	).toEqual([]);
+	soft(
+		axe.passes.length,
+		`axe's table rules that passed over the extremes, ${where}`
+	).toBeGreaterThan(0);
+
+	// From 26 rem a table: its container narrowed to a list below 26 rem reads the same words in
+	// every cell, each line headed by its data-label (§10 S5: the same as at 1280×800).
+	if (!m.list) {
+		const container = page.locator('[data-pumps-together] [data-combination-extremes]');
+		await container.evaluate((el) => (el.style.width = '20rem'));
+		const narrowed = await page.evaluate(readExtremes);
+		if (narrowed?.list) {
+			listLines(narrowed, `narrowed to 20 rem, ${where}`);
+			await extremesNames(page, true, `narrowed to 20 rem, ${where}`);
+		}
+		await container.evaluate((el) => (el.style.width = ''));
+		soft(narrowed?.list, `the extremes narrowed to 20 rem a list, ${where}`).toBe(true);
+		soft(narrowed?.display, `the extremes narrowed, its form, ${where}`).toBe('block');
+		soft(
+			narrowed?.rows.map((r) => [r.name, ...r.cells.map((c) => c.text)]),
+			`the extremes narrowed to a list: every cell's words as in the table, ${where}`
+		).toEqual(m.rows.map((r) => [r.name, ...r.cells.map((c) => c.text)]));
+		soft(
+			narrowed?.rows.flatMap((r) => r.cells.map((c) => c.before)),
+			`the extremes narrowed: each line headed by its data-label, ${where}`
+		).toEqual(m.rows.flatMap((r) => r.cells.map((c) => lineHeader(c.label))));
+		soft(narrowed?.sideways, `the extremes narrowed scroll sideways, ${where}`).toBe(false);
+	}
+}
+
+// ---- S5: Running combinations' order, lines and names (§5.3, §9 S5, §10 S5) ------------------
+
+/**
+ * §5.7 row 11: the open card, the condenser's after Add cases at 1280×800, at most this: S5's
+ * measurement + 10 %, 9,547 px (S4's 7,418; §5.7 estimated about 5,650), so 10,501. Running
+ * combinations makes the difference: each flagged pump's flags now visible under its row (the
+ * condenser's 10 flagged rows hold 36 flags), and the names wrapping at 12 rem in 42 rows.
+ */
+const OPEN_CARD_1280 = 10_501;
+
+/**
+ * Running combinations as laid out (viewport px): its box and form; each case's group, its
+ * heading's lines, its members' names and its flag lines, each read against the box's visible
+ * width with the box at its start and scrolled to its end (the lines, names and flag lines are
+ * sticky, §5.3); the cases of "Cases on this chart", ticked or not, which list them in the chart's
+ * order (D24 §4.6); and "Other cases' station duties" while drawn (a list below 640 px, §9 S5).
+ */
+function readCombinations() {
+	const card = document.querySelector('[data-pumps-together]');
+	const box = card?.querySelector<HTMLElement>('[data-running-combinations]');
+	if (!card || !box) return null;
+	const table = box.querySelector('table')!;
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	/** An element's words without its aria-hidden marks (a slot's symbol, a ring). */
+	const words = (el: Element) => {
+		const copy = el.cloneNode(true) as Element;
+		for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+		return squash(copy.textContent);
+	};
+	const seen = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			r.width > 1 &&
+			r.height > 1
+		);
+	};
+	const shownWhole = (el: Element) => el.scrollWidth <= el.clientWidth + 1;
+	const b = box.getBoundingClientRect();
+	const left = b.left + box.clientLeft;
+	const right = left + box.clientWidth;
+	const inView = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return r.left >= left - 0.5 && r.right <= right + 0.5;
+	};
+	const read = () =>
+		[...table.querySelectorAll(':scope > tbody')].map((tbody) => {
+			const heading = tbody.querySelector('th[scope="rowgroup"]')!;
+			return {
+				lines: [...heading.children].map((line) => ({
+					text: squash(line.textContent),
+					position: getComputedStyle(line).position,
+					inView: inView(line),
+					shown: shownWhole(line)
+				})),
+				members: [...tbody.querySelectorAll('th[scope="row"]')].map((th) => {
+					const name = th.firstElementChild!;
+					return {
+						name: words(name),
+						button: name.tagName === 'BUTTON',
+						inView: inView(name),
+						shown: shownWhole(name) && [...name.children].every(shownWhole)
+					};
+				}),
+				notes: [...tbody.querySelectorAll<HTMLElement>('[data-row-notes]')].map((note) => ({
+					id: note.dataset.rowNotes ?? '',
+					label: note.dataset.label ?? '',
+					text: squash(note.textContent),
+					inView: inView(note),
+					said: [...note.querySelectorAll('li')].map((li) => {
+						// The flag's sentence, its own element after the pill: drawn as text, not
+						// only its item (§10 Flags: the flag text visible; S5 review MUT-01).
+						const text = li.querySelector('[data-flag-text]');
+						return {
+							seen: seen(li),
+							inView: inView(li),
+							textSeen:
+								!!text &&
+								seen(text) &&
+								!text.closest('.sr-only') &&
+								text.getBoundingClientRect().height >= 12 &&
+								squash(text.textContent) !== '',
+							textInView: !!text && inView(text)
+						};
+					})
+				}))
+			};
+		});
+	const atStart = read();
+	const sideways = box.scrollWidth > box.clientWidth + 1;
+	box.scrollLeft = box.scrollWidth;
+	const atEnd = read();
+	box.scrollLeft = 0;
+	const fieldset = [...card.querySelectorAll('fieldset')].find(
+		(f) => squash(f.querySelector('legend')?.textContent) === 'Cases on this chart'
+	);
+	const tag = fieldset?.querySelector(':scope > div > span');
+	const duties = card.querySelector<HTMLElement>('[data-other-duties]');
+	const dutiesTable = duties?.querySelector('table');
+	const dutiesHead = dutiesTable?.querySelector('thead');
+	return {
+		containerType: getComputedStyle(box).containerType,
+		sideways,
+		list: getComputedStyle(table).display === 'block',
+		height: Math.round(b.height),
+		columns: [...table.querySelectorAll('thead th')].map((th) => squash(th.textContent)),
+		nones: [...table.querySelectorAll('td')].filter((td) => squash(td.textContent) === 'None')
+			.length,
+		titles: table.querySelectorAll('[title]').length,
+		atStart,
+		atEnd,
+		chartOrder:
+			fieldset && tag
+				? [
+						words(tag),
+						...[...fieldset.querySelectorAll('label > span.min-w-0')].map((s) => words(s))
+					]
+				: null,
+		duties:
+			duties && dutiesTable && dutiesHead && seen(duties)
+				? {
+						display: getComputedStyle(dutiesTable).display,
+						sideways: duties.scrollWidth > duties.clientWidth + 1,
+						headClipped:
+							getComputedStyle(dutiesHead).position === 'absolute' &&
+							dutiesHead.getBoundingClientRect().width <= 1,
+						names: [...dutiesTable.querySelectorAll('tbody th')].map((th) => ({
+							name: words(th),
+							shown: shownWhole(th)
+						})),
+						cells: [...dutiesTable.querySelectorAll<HTMLElement>('tbody td[data-label]')].map(
+							(td) => ({
+								label: td.dataset.label ?? '',
+								text: squash(td.textContent),
+								before: getComputedStyle(td, '::before').content,
+								// A number cell (a pair) or a cell of words (S5 review LAYOUT-1).
+								numeric: /tabular-nums/.test(td.className),
+								style: `${getComputedStyle(td).fontSize} ${getComputedStyle(td).color} ${getComputedStyle(td).fontWeight}`,
+								beforeStyle: `${getComputedStyle(td, '::before').fontSize} ${getComputedStyle(td, '::before').color} ${getComputedStyle(td, '::before').fontWeight}`
+							})
+						)
+					}
+				: null
+	};
+}
+
+/**
+ * S5's second half at the size shown (soft): Running combinations' order, lines and names (§5.3,
+ * §9 S5). The box an inline-size container; the case shown first, then the cases in the chart's
+ * order, ticked or not; each line of a group's heading sticky (in the table) and in view at the
+ * box's start and end, shown to its end; no Flags column and no "None"; a flag line under each
+ * flagged pump, its text visible inside the box's visible width; names shown to their end, trace
+ * buttons in the shown case's group only; the list below 640 px with no sideways scroll; "Other
+ * cases' station duties" a list below 640 px. And §5.7 row 11, the condenser's open card.
+ */
+async function combinationsPart(
+	page: Page,
+	view: string,
+	where: string,
+	data: Awaited<ReturnType<typeof measure>> | null
+) {
+	const soft = expect.configure({ soft: true });
+	const m = await page.evaluate(readCombinations);
+	const size = sizeOf(page);
+	if (data?.card?.open) {
+		console.log(`${where}: the open card ${data.card.height} px`);
+		if (view === '3-condenser' && size === '1280x800') {
+			soft(data.card.height, `the open card's height, ${where}`).toBeLessThanOrEqual(
+				OPEN_CARD_1280
+			);
+		}
+	}
+	if (!m) return;
+	const flagLines = m.atStart.reduce((n, g) => n + g.notes.length, 0);
+	console.log(
+		`${where}: Running combinations a ${m.list ? 'list' : 'table'}, ${m.height} px, ${m.atStart.length} cases, ${flagLines} flag lines${m.sideways ? ', scrolls sideways' : ''}`
+	);
+	soft(m.containerType, `Running combinations' box a container, ${where}`).toBe('inline-size');
+	soft(m.list, `Running combinations a list below 640 px only, ${where}`).toBe(
+		page.viewportSize()!.width < 640
+	);
+	if (m.list) soft(m.sideways, `Running combinations' list scrolls sideways, ${where}`).toBe(false);
+	soft(m.columns, `no Flags column, ${where}`).not.toContain('Flags');
+	soft(m.nones, `"None" in Running combinations, ${where}`).toBe(0);
+	soft(m.titles, `a tooltip in Running combinations, ${where}`).toBe(0);
+	// The order (§5.3): the case shown, then the chart's, ticked or not.
+	const cases = m.atStart.map((g) => g.lines[0]?.text.replace(/ · ring \d+$/, '') ?? '');
+	if (m.chartOrder) {
+		soft(
+			cases.slice(0, m.chartOrder.length),
+			`Running combinations in the chart's order, ${where}`
+		).toEqual(m.chartOrder);
+	}
+	soft(cases[0], `the case shown first, ${where}`).toMatch(/ \(shown\)/);
+	for (const [label, groups] of [
+		['at its start', m.atStart],
+		['scrolled to its end', m.atEnd]
+	] as const) {
+		for (const [g, group] of groups.entries()) {
+			const what = `"${cases[g]}" ${label}, ${where}`;
+			for (const line of group.lines) {
+				soft(line.position, `${what}: "${line.text.slice(0, 40)}" sticky`).toBe(
+					m.list ? 'static' : 'sticky'
+				);
+				soft(line.inView, `${what}: "${line.text.slice(0, 40)}" in the box's view`).toBe(true);
+				soft(line.shown, `${what}: "${line.text.slice(0, 40)}" shown to its end`).toBe(true);
+			}
+			for (const member of group.members) {
+				soft(member.button, `${what}: "${member.name}" a trace button`).toBe(g === 0);
+				soft(member.inView, `${what}: "${member.name}" in the box's view`).toBe(true);
+				soft(member.shown, `${what}: "${member.name}" shown to its end`).toBe(true);
+			}
+			for (const note of group.notes) {
+				soft(note.label, `${what}: a flag line's label`).toBe('Flags');
+				soft(
+					group.members.some((member) => note.text.startsWith(`${member.name}, flags:`)),
+					`${what}: the flag line of ${note.id} named by its pump`
+				).toBe(true);
+				soft(note.inView, `${what}: the flag line of ${note.id} in the box's view`).toBe(true);
+				soft(note.said.length, `${what}: the flag line of ${note.id}'s flags`).toBeGreaterThan(0);
+				for (const said of note.said) {
+					soft(said.seen, `${what}: a flag of ${note.id} visible`).toBe(true);
+					soft(said.inView, `${what}: a flag of ${note.id} inside the box's view`).toBe(true);
+					soft(said.textSeen, `${what}: a flag of ${note.id}: its text visible`).toBe(true);
+					soft(said.textInView, `${what}: a flag of ${note.id}: its text in the box's view`).toBe(
+						true
+					);
+				}
+			}
+		}
+	}
+	if (m.duties) {
+		const list = page.viewportSize()!.width < 640;
+		soft(m.duties.display, `"Other cases' station duties" a list below 640 px only, ${where}`).toBe(
+			list ? 'block' : 'table'
+		);
+		soft(m.duties.headClipped, `its header row visually hidden in the list only, ${where}`).toBe(
+			list
+		);
+		if (list) soft(m.duties.sideways, `its list scrolls sideways, ${where}`).toBe(false);
+		for (const name of m.duties.names) {
+			soft(name.shown, `"${name.name}" shown to its end in its duties, ${where}`).toBe(true);
+		}
+		soft(m.duties.cells.length, `"Other cases' station duties"' cells, ${where}`).toBeGreaterThan(
+			0
+		);
+		for (const cell of m.duties.cells) {
+			// A number's column's words alone (a flex pair), a cell of words' with a space.
+			soft(cell.before, `a duty's line header (${cell.label}), ${where}`).toBe(
+				list ? (cell.numeric ? `"${cell.label}"` : lineHeader(cell.label)) : 'none'
+			);
+			soft(cell.text.includes(cell.label), `a duty's header outside its text, ${where}`).toBe(
+				false
+			);
+		}
+		// In the list a cell of words in the list's value style, a number's (14 px slate-900), so
+		// its column's words and its answer read apart (S5 review LAYOUT-1).
+		const numbers = [...new Set(m.duties.cells.filter((c) => c.numeric).map((c) => c.style))];
+		const words = m.duties.cells.filter((c) => !c.numeric && c.text !== '—');
+		soft(numbers.length, `one style for the duties' numbers, ${where}`).toBe(1);
+		if (list) {
+			soft(words.length, `"Other cases' station duties"' cells of words, ${where}`).toBeGreaterThan(
+				0
+			);
+			for (const cell of words) {
+				const what = `"${cell.label}: ${cell.text.slice(0, 30)}", ${where}`;
+				soft(cell.style, `${what}: its words as a number's`).toBe(numbers[0]);
+				soft(cell.style, `${what}: its words apart from its column's`).not.toBe(cell.beforeStyle);
+			}
+		}
+		await cellNames(
+			page.locator('[data-pumps-together] [data-other-duties] tbody td[data-label]'),
+			list,
+			`"Other cases' station duties", ${where}`
+		);
+	}
+}
+
 /**
  * Check and measure the view at the project's size and, on the phone, at 320×640 too (reflow at
  * 400 % zoom; pump-lineups.e2e.ts resizes the same way). Then axe with every disclosure open at
@@ -2411,6 +3013,8 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await cardPart(page, view, `${view} at ${size}`, data);
 	await navPart(page, `${view} at ${size}`);
 	await addCasesPart(page, view, `${view} at ${size}`);
+	await extremesPart(page, view, `${view} at ${size}`);
+	await combinationsPart(page, view, `${view} at ${size}`, data);
 	if (info.project.name !== 'mobile') {
 		await axeClean(page, `${view} at ${size}`);
 		await pageHolds(page, `${view} at ${size}, every disclosure open`);
@@ -2426,6 +3030,8 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await cardPart(page, view, `${view} at 320x640`, narrow);
 	await navPart(page, `${view} at 320x640`);
 	await addCasesPart(page, view, `${view} at 320x640`);
+	await extremesPart(page, view, `${view} at 320x640`);
+	await combinationsPart(page, view, `${view} at 320x640`, narrow);
 	await axeClean(page, `${view} at 320x640`);
 	await pageHolds(page, `${view} at 320x640, every disclosure open`);
 	await page.setViewportSize(viewport);
@@ -3110,6 +3716,36 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		expect
 			.soft(await groupTableSideways(page), `the group table's box scrolls sideways, ${where}`)
 			.toBe(false);
+		// The extremes (§9 S5): the long pump name a row header shown to its end, the long case
+		// name in their cells, and their box not scrolling sideways, at 1280×800 a table.
+		const extremes = await page.evaluate(readExtremes);
+		expect.soft(extremes, `the extremes drawn, ${where}`).not.toBeNull();
+		expect.soft(extremes?.rows[0]?.name, `the extremes' first row, ${where}`).toBe(LONG_PUMP);
+		expect
+			.soft(
+				extremes?.rows.some((r) => r.cells.some((c) => c.text.includes(LONG_CASE))),
+				`the long case's name in an extremes' cell, ${where}`
+			)
+			.toBe(true);
+		if (size.width === 1280)
+			expect.soft(extremes?.list, `the extremes a table, ${where}`).toBe(false);
+		await extremesPart(page, '', where);
+		// Running combinations (§9 S5): the long pump name in every case's rows and the long case
+		// name in its heading, each shown to its end in the box's view, sticky in the table.
+		await combinationsPart(page, '', where, null);
+		const named = await page.evaluate(readCombinations);
+		expect
+			.soft(
+				named?.atStart.filter((g) => g.members.some((m) => m.name === LONG_PUMP)).length,
+				`the long pump name in each case's rows, ${where}`
+			)
+			.toBe(named?.atStart.filter((g) => g.members.length).length);
+		expect
+			.soft(
+				named?.atStart.some((g) => g.lines[0]?.text.startsWith(LONG_CASE)),
+				`the long case name heading its case, ${where}`
+			)
+			.toBe(true);
 		// Each line of a long name ends inside the card, outside a box that scrolls (the data
 		// tables, and the group table at 640 px and over, whose name column wraps at 12 rem).
 		const past = await card.evaluate(
@@ -3142,6 +3778,218 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		);
 		console.log(`${where}: past the card ${JSON.stringify(past)}`);
 		expect.soft(past, `a long name's line past the card's edge, ${where}`).toEqual([]);
+	}
+	await page.setViewportSize(viewport);
+});
+
+// ---- S5 review: a measure no case gives, the trace's focus, a stale group on a phone ----------
+
+/**
+ * The lineups project with Pump P3 on a copy of its curve without efficiencies and Pump P4 on a
+ * copy without NPSHr (synthetic), so the extremes hold "no case gives one" for P3's shaft power and
+ * P4's NPSH margin (§5.3: a pump with no NPSH data, a measure no case gives).
+ */
+function lineupsWithoutData(): Project {
+	const project = projectOf('lineups');
+	const library = project.pumpLibrary!;
+	const curve = library.find((c) => c.id === 'PC-A')!;
+	library.push(
+		{
+			...structuredClone(curve),
+			id: 'PC-A-NOEFF',
+			name: 'Curve PC-A, no efficiencies',
+			efficiencyCurve: null
+		},
+		{ ...structuredClone(curve), id: 'PC-A-NONPSH', name: 'Curve PC-A, no NPSHr', npshrCurve: null }
+	);
+	for (const [id, curveId] of [
+		['P3', 'PC-A-NOEFF'],
+		['P4', 'PC-A-NONPSH']
+	] as const) {
+		const pump = project.components.find((c) => c.id === id)!;
+		if (pump.type === 'pump') pump.curveId = curveId;
+	}
+	return project;
+}
+
+/**
+ * Open a pump's trace from `opener` by the keyboard, close it by Escape (or its Close button) and
+ * expect the focus back on the opener (WCAG 2.4.3; S5 review A11Y-S5-1): on a phone the trace is a
+ * dialog, which gives it back; at 1280×800 a panel over the results, inert under it until it goes.
+ */
+async function traceGivesFocusBack(
+	page: Page,
+	opener: Locator,
+	name: string,
+	how: 'Escape' | 'Close',
+	where: string
+) {
+	await opener.scrollIntoViewIfNeeded();
+	await opener.focus();
+	await page.keyboard.press('Enter');
+	const trace = traceOf(page, name);
+	await expect(trace, `the trace of ${name} open, ${where}`).toBeVisible();
+	if (how === 'Escape') await page.keyboard.press('Escape');
+	else await trace.getByRole('button', { name: 'Close', exact: true }).click();
+	await expect(traceOf(page, name)).toBeHidden();
+	await expect.soft(opener, `the focus back on its opener after ${how}, ${where}`).toBeFocused();
+}
+
+/**
+ * A stale group in Running combinations as painted (§5.3 Invalid and stale: stale groups amber;
+ * §5.5: below 640 px only the layout changes; S5 review LAYOUT-3): each of its cells' background,
+ * its own or else the nearest painted one inside its group (its row's, its group's), against the
+ * ambers the card paints (amber-50, and at 60 %); in the list one tone over the whole block.
+ */
+function readStaleGroup() {
+	const box = document.querySelector('[data-pumps-together] [data-running-combinations]');
+	const tbody = [...(box?.querySelectorAll('table > tbody') ?? [])].find((t) =>
+		(t.querySelector('th[scope="rowgroup"]')?.textContent ?? '').includes('(out of date)')
+	);
+	if (!tbody) return null;
+	const clear = (c: string) => c === 'rgba(0, 0, 0, 0)' || c === 'transparent' || /\/ 0\)$/.test(c);
+	const painted = (el: Element) => {
+		for (let e: Element | null = el; e && e !== tbody.parentElement; e = e.parentElement) {
+			const bg = getComputedStyle(e).backgroundColor;
+			if (!clear(bg)) return bg;
+		}
+		return 'none';
+	};
+	/** The ambers the card paints, as computed: amber-50 and amber-50 at 60 %. */
+	const ambers = ['bg-amber-50', 'bg-amber-50/60'].map((name) => {
+		const probe = document.createElement('div');
+		probe.className = name;
+		document.body.append(probe);
+		const bg = getComputedStyle(probe).backgroundColor;
+		probe.remove();
+		return bg;
+	});
+	const cells = [...tbody.querySelectorAll(':scope > tr > th, :scope > tr > td')]
+		.filter((cell) => {
+			const r = cell.getBoundingClientRect();
+			return cell.checkVisibility() && r.width > 1 && r.height > 1;
+		})
+		.map((cell) => ({
+			what: (cell.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 30),
+			bg: painted(cell)
+		}));
+	return {
+		heading: (tbody.querySelector('th[scope="rowgroup"] > span')?.textContent ?? '').trim(),
+		ambers,
+		cells: cells.map((c) => ({ ...c, amber: ambers.includes(c.bg) })),
+		tones: [...new Set(cells.map((c) => c.bg))]
+	};
+}
+
+test('S5 review: the extremes list’s names with a measure no case gives, each value on its line; the trace gives the focus back to its opener; the duties’ words apart from their column’s; a stale group amber whole on a phone (§5.3, §5.5, §7; A11Y-S5-1, EXT-1, EXT-2, LAYOUT-1, LAYOUT-3)', async ({
+	page
+}, info) => {
+	test.setTimeout(420_000);
+	const counter = solveCounter(page);
+	await open(page, lineupsWithoutData());
+	await solveAll(page, counter, 9);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const size = sizeOf(page);
+
+	// The trace's openers: Running combinations' names (S5), the Station's group table's (S3) and
+	// Results per pump's (the shared ResultsTable), each closed by Escape, one by Close too.
+	const combos = card.getByRole('region', { name: 'Running combinations' });
+	const station = card.getByRole('region', { name: /^The pumps in the group/ });
+	const perPump = tab.getByRole('table', { name: 'Results per pump' });
+	await expect(combos.getByRole('button', { name: 'Pump P2', exact: true })).toHaveCount(1);
+	await traceGivesFocusBack(
+		page,
+		combos.getByRole('button', { name: 'Pump P2', exact: true }),
+		'Pump P2',
+		'Escape',
+		`Running combinations at ${size}`
+	);
+	await traceGivesFocusBack(
+		page,
+		combos.getByRole('button', { name: 'Pump P3', exact: true }),
+		'Pump P3',
+		'Close',
+		`Running combinations at ${size}`
+	);
+	await traceGivesFocusBack(
+		page,
+		station.getByRole('button', { name: 'Pump P2', exact: true }),
+		'Pump P2',
+		'Escape',
+		`the group table at ${size}`
+	);
+	await traceGivesFocusBack(
+		page,
+		perPump.getByRole('button', { name: /^Pump P2\b/ }),
+		'Pump P2',
+		'Escape',
+		`Results per pump at ${size}`
+	);
+
+	// "Other cases' station duties" drawn and the group chart's data table shown, so their list is
+	// read below 640 px (combinationsPart: a cell of words in a number's style; LAYOUT-1).
+	await card.getByRole('checkbox', { name: "Also show the other cases' station duties" }).check();
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
+	await expect(card.getByRole('table', { name: "Other cases' station duties" })).toBeVisible({
+		timeout: 240_000
+	});
+	await settle(page, 2500);
+
+	// "no case gives one" in P3's shaft power and P4's NPSH margin; the extremes' names and lines
+	// at each size (extremesPart: in the list, each cell's name its header, a space, its words).
+	const sizes =
+		info.project.name === 'mobile'
+			? [page.viewportSize()!, { width: 320, height: 640 }]
+			: [page.viewportSize()!];
+	const viewport = page.viewportSize()!;
+	for (const s of sizes) {
+		await page.setViewportSize(s);
+		await settle(page, 1000);
+		const where = `no data at ${sizeOf(page)}`;
+		const m = await page.evaluate(readExtremes);
+		const none = m?.rows.flatMap((r) =>
+			r.cells.filter((c) => c.text === 'no case gives one').map((c) => `${r.name}, ${c.label}`)
+		);
+		expect
+			.soft(none, `the measures no case gives, ${where}`)
+			.toEqual(['Pump P3, Largest shaft power', 'Pump P4, Smallest NPSH margin']);
+		await extremesPart(page, '', where);
+		await combinationsPart(page, '', where, null);
+	}
+	await page.setViewportSize(viewport);
+	await settle(page, 1000);
+
+	// A stale case: "Delivery tank 5 m higher" shown and its tank's level edited, then the base
+	// case shown again (only that case's results go out of date).
+	await chooseCase(page, 'Delivery tank 5 m higher (1 change)');
+	await showPane(page, 'Build');
+	await buildPane(page).getByRole('button', { name: 'Jump to a component' }).click();
+	const jump = page.getByRole('dialog', { name: 'Jump to a component' });
+	const filter = jump.getByRole('searchbox', { name: 'Filter' });
+	if (await filter.count()) await filter.fill('Reservoir R2');
+	await jump.getByRole('button', { name: /^Reservoir R2/ }).click();
+	await expect(jump).toBeHidden();
+	await setNumber(buildPane(page), /^Liquid level/, '8');
+	await chooseCase(page, 'Base case');
+	await showPane(page, 'Results');
+	await settle(page, 2000);
+	for (const s of sizes) {
+		await page.setViewportSize(s);
+		await settle(page, 1000);
+		const where = `a stale case at ${sizeOf(page)}`;
+		const g = await page.evaluate(readStaleGroup);
+		expect(g, `a group out of date, ${where}`).not.toBeNull();
+		console.log(`${where}: "${g!.heading}", tones ${JSON.stringify(g!.tones)}`);
+		expect.soft(g!.heading).toBe('Delivery tank 5 m higher (out of date)');
+		for (const cell of g!.cells) {
+			expect.soft(cell.amber, `"${cell.what}" amber (${cell.bg}), ${where}`).toBe(true);
+		}
+		// On a phone one tone over the whole block, as one group (no stripes).
+		if (s.width < 640) {
+			expect.soft(g!.tones, `the stale block's tones, ${where}`).toHaveLength(1);
+		}
+		await combinationsPart(page, '', where, null);
 	}
 	await page.setViewportSize(viewport);
 });

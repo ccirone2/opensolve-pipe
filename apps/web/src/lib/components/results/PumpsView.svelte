@@ -831,7 +831,22 @@
 			: null
 	);
 
-	/** Running combinations: every case's members, the shown first (slice 4d §3). */
+	/**
+	 * Running combinations' order (pumps-results-layout.md §5.3, §9 S5): the case shown, then the
+	 * other cases with values in the chart's order (lineupChartPriority's, chartOrdered), then the
+	 * cases without values in case order. Neither an untick under "Cases on this chart" nor "Also
+	 * show …" moves a case: the chart's order holds whether a case is ticked or not.
+	 */
+	const combinationsOrder = $derived.by((): CaseId[] => {
+		const active = ws.store.activeCase;
+		const valued = new Set(chartOrdered.map((v) => v.caseId));
+		return [
+			active,
+			...chartOrdered.map((v) => v.caseId),
+			...ws.store.caseIds.filter((c) => c !== active && !valued.has(c))
+		];
+	});
+	/** Running combinations: every case's members, in its order (slice 4d §3; §5.3). */
 	const combinationsInput = $derived.by((): CombinationsInput | null => {
 		if (!hasScenarios || !groupStation) return null;
 		const f = new Formatter(ws.displayUnits);
@@ -845,7 +860,7 @@
 		const nameOf = (id: string) => groupPumps.find((p) => p.id === id)?.name ?? id;
 		return {
 			members: groupMembers.map((id) => ({ id, name: nameOf(id), slot: groupSlots.indexOf(id) })),
-			cases: [active, ...ws.store.caseIds.filter((c) => c !== active)].map((c) => {
+			cases: combinationsOrder.map((c) => {
 				const status = ws.store.caseStatus(c);
 				const results = ws.store.resultsFor(c);
 				const other = otherCases.find((o) => o.caseId === c);

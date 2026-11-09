@@ -823,7 +823,7 @@ Under Each pump off the items are the same kinds. 4d's idle sentence and its "ha
 
 **The words.** The line never says "running": in a name, running means switched on (the owner's form), and the line answers which pumps carry flow, from the solve. A pump on behind a closed valve reads "Running" in the State column at 0 flow (`pumpStatusLabel`, `results.ts:851`) and "on, carrying no flow" here; the State column's word is outside this proposal (§12). The About sentence names the line (§7.7).
 
-**Order.** Groups keep 4d's order: the shown case first, then case order. The add appends in descending count, so the family reads top down.
+**Order.** Groups keep 4d's order: the shown case first, then case order. The add appends in descending count, so the family reads top down. Since `pumps-results-layout.md` S5 the groups follow the chart's order after the shown case, `lineupChartPriority`'s, ticked or not, the cases without values last in case order (its §6.4 item 5, §15 item 147).
 
 ### 7.11 Layout
 

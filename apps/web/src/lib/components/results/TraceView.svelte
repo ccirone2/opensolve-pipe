@@ -222,14 +222,22 @@
 		void focusCurrentHeading();
 	}
 
-	// Side panel: focus its heading when it opens, give focus back when it closes.
+	// Side panel: focus its heading when it opens, give focus back when it closes. The results
+	// under the panel are inert until the flush that removes it has run (ResultsPanel's
+	// `inert={covered}`, set after this cleanup), and an inert opener takes no focus: so the focus
+	// goes back after that flush, and only where it fell to the page, so a close that moves it on
+	// (Show in Build) keeps its own (WCAG 2.4.3; S5 review A11Y-S5-1).
 	let heading: HTMLHeadingElement | undefined = $state();
 	onMount(() => {
 		if (!wide.current) return;
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		heading?.focus();
 		return () => {
-			if (opener?.isConnected && opener.checkVisibility?.() !== false) opener.focus();
+			void tick().then(() => {
+				const active = document.activeElement;
+				if (active && active !== document.body) return;
+				if (opener?.isConnected && opener.checkVisibility?.() !== false) opener.focus();
+			});
 		};
 	});
 

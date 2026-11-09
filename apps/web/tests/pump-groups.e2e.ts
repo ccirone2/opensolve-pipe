@@ -734,10 +734,22 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 	await expect(paWithoutPb.locator('[data-label="Inside curve data"]')).toHaveText(
 		'No: beyond its data'
 	);
-	await expect(paWithoutPb.locator('[data-label="Flags"]')).toContainText('Warning');
-	// The extremes: PA's largest flow with PB off.
-	await expect(card.getByLabel('Extremes over these cases')).toContainText(
-		/Pump PA, largest flow: [\d.]+ L\/s in Pump PB off; beyond its curve data/
+	// Its flags in the flag line following its row (pumps-results-layout.md §5.3 Flags, §10 S5),
+	// no longer a Flags cell in it.
+	await expect(paWithoutPb.locator('[data-label="Flags"]')).toHaveCount(0);
+	await expect(
+		paWithoutPb.locator('xpath=following-sibling::*[1]').locator('[data-label="Flags"]')
+	).toContainText('Warning');
+	// The extremes: PA's largest flow with PB off, a table since pumps-results-layout.md S5 (§10
+	// S5): PA's row by its header, the cell under "Largest flow" by its data-label, the pattern
+	// anchored at the cell's start; on a phone the same roles and data-labels, the line's header
+	// ::before content outside the cell's text.
+	const extremes = card.getByRole('table', { name: 'Extremes over these cases' });
+	const paExtremes = extremes
+		.getByRole('row')
+		.filter({ has: page.getByRole('rowheader', { name: 'Pump PA', exact: true }) });
+	await expect(paExtremes.locator('[data-label="Largest flow"]')).toHaveText(
+		/^[\d.]+ L\/s in Pump PB off; beyond its curve data/
 	);
 
 	// Each case's station duty, a numbered ring on the base case's group system curve.

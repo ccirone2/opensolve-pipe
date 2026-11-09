@@ -2727,7 +2727,10 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			'Running combinations',
 			within(card).getByRole('heading', { name: 'Extremes over these cases (current results)' })
 		);
-		inSection('Running combinations', within(card).getByLabelText('Extremes over these cases'));
+		inSection(
+			'Running combinations',
+			within(card).getByRole('table', { name: 'Extremes over these cases' })
+		);
 		// The type scale (§5.2): the h3 16 px, each h4 14 px, both semibold; the h5 a section title.
 		expect(within(card).getByRole('heading', { level: 3 })).toHaveClass(
 			'text-base',
@@ -2833,35 +2836,521 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		]);
 		const held = groups[3]!;
 		const rows = within(held).getAllByRole('row');
-		expect(rows).toHaveLength(3);
-		const pb = rows[2]!;
+		// The heading's row and a row per member, each flagged member's followed by its flag line
+		// (pumps-results-layout.md §5.3 Flags, §10 S5): in Held both are flagged, Pump PA with
+		// warnings and Pump PB invalid.
+		const flagged = runningCombinations(input).groups[2]!.rows.filter((r) => r.flags.length);
+		expect(flagged.map((r) => r.id)).toEqual(['PA', 'PB']);
+		expect(rows).toHaveLength(3 + flagged.length);
+		// Pump PB's row by its row header, not by its index.
+		const pb = rows.find((r) => within(r).queryByRole('rowheader', { name: 'Pump PB' }))!;
 		expect(within(pb).getByRole('rowheader')).toHaveTextContent('Pump PB');
-		// A long name wraps on a phone (the list has no sideways scroll; the e2e measures it).
-		expect(within(pb).getByRole('rowheader')).toHaveClass(
-			'max-sm:whitespace-normal',
-			'max-sm:break-words'
+		// A long name wraps, at 12 rem in the table and anywhere on a phone (the list has no
+		// sideways scroll; the e2e measures it): the name's own box wraps, the row header no longer
+		// keeps it on one line (§15 item 92, the group table's).
+		const name = within(pb).getByRole('rowheader').firstElementChild!;
+		expect(name).toHaveTextContent('Pump PB');
+		expect(name).toHaveClass(
+			'w-max',
+			'max-w-48',
+			'wrap-break-word',
+			'max-sm:w-auto',
+			'max-sm:max-w-none',
+			'max-sm:wrap-anywhere'
 		);
+		expect(within(pb).getByRole('rowheader')).not.toHaveClass('whitespace-nowrap');
+		expect(name).not.toHaveClass('whitespace-nowrap');
 		const cells = within(pb).getAllByRole('cell');
 		expect(cells[0]).toHaveTextContent('No flow (system head above shutoff)');
 		// Speed next (Pump PB at another speed), then the flow, marked.
 		expect(cells[1]).toHaveAttribute('data-label', 'Speed (%)');
 		expect(cells[2]).toHaveAttribute('data-label', 'Flow (L/s)');
 		expect(cells[2]).toHaveTextContent('physically invalid:');
-		expect(cells.at(-1)).toHaveTextContent('Invalid');
+		// No Flags column: the flag line follows the pump's row (§10 S5).
+		expect(cells.map((cell) => cell.dataset.label)).not.toContain('Flags');
+		const line = pb.nextElementSibling!.querySelector('[data-row-notes]')!;
+		expect(line).toHaveAttribute('data-row-notes', 'PB');
+		expect(line).toHaveAttribute('data-label', 'Flags');
+		expect(line).toHaveTextContent('Invalid');
 		// Not marked where the pump has no invalid flag.
 		const pa = within(groups[1]!).getAllByRole('row')[1]!;
 		expect(within(pa).getAllByRole('cell')[2]).toHaveAttribute('data-label', 'Flow (L/s)');
 		expect(within(pa).getAllByRole('cell')[2]).not.toHaveTextContent('physically invalid');
 		expect(within(groups[4]!).getAllByRole('row')).toHaveLength(1);
-		const extremes = screen.getByLabelText('Extremes over these cases');
-		expect(extremes.tagName).toBe('DL');
+		// The extremes a table (pumps-results-layout.md §5.3, §10 S5): the pump and the measure
+		// pinned by the row and column headers, the cell's words whole.
+		const extremes = screen.getByRole('table', { name: 'Extremes over these cases' });
+		expect(extremes.tagName).toBe('TABLE');
 		expect(
 			screen.getByRole('heading', { name: 'Extremes over these cases (current results)' })
 		).toBeVisible();
-		expect(extremes).toHaveTextContent(
-			'Pump PA, largest flow: 40.75 L/s in Held (synthetic); beyond its curve data (over 2 of 2 cases)'
+		const paRow = within(extremes)
+			.getAllByRole('row')
+			.find((r) => within(r).queryByRole('rowheader', { name: 'Pump PA' }))!;
+		const flowColumn = within(extremes)
+			.getAllByRole('columnheader')
+			.findIndex((h) => h.textContent === 'Largest flow');
+		// The row header is the row's first cell, so a column's cell is that index less one.
+		expect(within(paRow).getAllByRole('cell')[flowColumn - 1]!.textContent).toBe(
+			'40.75 L/s in Held (synthetic); beyond its curve data (over 2 of 2 cases)'
 		);
 		expect(screen.getByText('Not counted (out of date): Pump PB off.')).toBeVisible();
+	});
+
+	/** FlagIcon's shapes (Icon.svelte): the invalid octagon, and the warning's triangle. */
+	const OCTAGON = 'M8 3h8l5 5v8l-5 5H8l-5-5V8z';
+	const TRIANGLE = 'M12 3 2 20h20z';
+	/** The icon shapes drawn inside an element, by their outline's path. */
+	const shapes = (el: Element) =>
+		[...el.querySelectorAll('svg')].map((svg) => svg.querySelector('path')!.getAttribute('d'));
+	/** Two members, every case given, the one-off project's order. */
+	const combinationsOf = (cases: CombinationsInput['cases']): CombinationsInput => ({
+		members: [
+			{ id: 'PA', name: 'Pump PA', slot: 0 },
+			{ id: 'PB', name: 'Pump PB', slot: 1 }
+		],
+		cases,
+		prefs: c.project.settings.units,
+		project: c.project
+	});
+	const solvedCase = (
+		key: string,
+		name: string,
+		response: SolveResponse | null,
+		values: Partial<CombinationsInput['cases'][number]> = {}
+	): CombinationsInput['cases'][number] => ({
+		key,
+		name,
+		shown: key === '',
+		status: response ? 'solved' : 'failed',
+		response,
+		stale: false,
+		station: null,
+		...values
+	});
+
+	it('Running combinations opens with its lead, its mark the worst severity, then the extremes, then its table (pumps-results-layout.md §5.3, §6.1, §9 S5)', () => {
+		const dead = named('one-off-dead-headed') as unknown as OneOffCase;
+		const input = combinationsOf([
+			solvedCase('', 'Base case', c.solve),
+			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve, { status: 'stale', stale: true }),
+			solvedCase('S9', 'Held (synthetic)', dead.solve),
+			solvedCase('S5', 'Failed case', null)
+		]);
+		const view = render(
+			PumpGroupChart,
+			base({ combinations: runningCombinations(input), extremes: combinationExtremes(input) })
+		);
+		const heading = screen.getByRole('heading', { name: 'Running combinations', level: 4 });
+		const section = heading.parentElement!;
+		const lead = section.querySelector('[data-combinations-lead]')!;
+		// The base and Held current (Held's Pump PB invalid, its Pump PA's warnings counted with
+		// it), Pump PB off out of date, the failed case without results (§5.3 the lead).
+		expect(lead.tagName).toBe('P');
+		expect(lead.textContent).toBe(
+			'4 cases: 2 with current results (1 physically invalid, none with warnings), 1 out of date, 1 without results.'
+		);
+		// 14 px with tabular figures (§5.2 Answers), on screen at every width: no hiding class at
+		// any breakpoint on it or above it (S5 review MUT-04).
+		expect(lead).toHaveClass('text-sm', 'tabular-nums');
+		expect(outOfSight(lead)).toBe(false);
+		// Its mark: its own element before the <p>, never inside it (§5.2 Placement), an image
+		// named by the worst severity, the red octagon.
+		const mark = within(section).getByRole('img', { name: 'Physically invalid' });
+		expect(lead.contains(mark)).toBe(false);
+		expect(mark.nextElementSibling).toBe(lead);
+		// Drawn at every width, its octagon too (S5 review MUT-03; jsdom's roles see no CSS).
+		expect(outOfSight(mark)).toBe(false);
+		expect(outOfSight(mark.querySelector('svg')!)).toBe(false);
+		expect(shapes(mark)).toEqual([OCTAGON]);
+		expect(mark.querySelector('svg')).toHaveClass('text-red-700');
+		// In reading order: the h4, the lead, the h5 and the extremes, "Not counted", then the
+		// table (§5.3, §6.1: the extremes before Running combinations' table).
+		const follows = (a: Node, b: Node) =>
+			!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+		const order = [
+			heading,
+			lead,
+			screen.getByRole('heading', { name: 'Extremes over these cases (current results)' }),
+			screen.getByRole('table', { name: 'Extremes over these cases' }),
+			screen.getByText('Not counted (out of date): Pump PB off.'),
+			screen.getByRole('table', { name: 'Running combinations' })
+		];
+		for (const [i, el] of order.entries()) {
+			expect(section.contains(el)).toBe(true);
+			if (i > 0) expect(follows(order[i - 1]!, el), String(i)).toBe(true);
+		}
+		// A warning alone: the amber alert, named "Warning".
+		const warned = combinationsOf([
+			solvedCase('', 'Base case', c.solve),
+			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve)
+		]);
+		view.rerender(
+			base({ combinations: runningCombinations(warned), extremes: combinationExtremes(warned) })
+		);
+		expect(section.querySelector('[data-combinations-lead]')!.textContent).toBe(
+			'2 cases: 2 with current results (none physically invalid, 1 with warnings), none out of date, none without results.'
+		);
+		const warning = within(section).getByRole('img', { name: 'Warning' });
+		expect(shapes(warning)).toEqual([TRIANGLE]);
+		expect(warning.querySelector('svg')).toHaveClass('text-amber-700');
+		expect(within(section).queryByRole('img', { name: 'Physically invalid' })).toBeNull();
+		// Neither: no mark.
+		const clean = combinationsOf([
+			solvedCase('', 'Base case', c.solve),
+			solvedCase('S1', 'Pump PA off', c.scenarioCases.S1!.solve)
+		]);
+		view.rerender(
+			base({ combinations: runningCombinations(clean), extremes: combinationExtremes(clean) })
+		);
+		expect(section.querySelector('[data-combinations-lead]')!.textContent).toBe(
+			'2 cases: 2 with current results (none physically invalid, none with warnings), none out of date, none without results.'
+		);
+		expect(section.querySelector('[data-combinations-mark]')).toBeNull();
+		expect(within(section).queryByRole('img')).toBeNull();
+	});
+
+	it('the extremes a table: caption, column and row headers, each cell its line’s words, the value first and the octagon in exactly the invalid ones; a list below 26 rem (pumps-results-layout.md §5.3, §9 S5)', () => {
+		const dead = named('one-off-dead-headed') as unknown as OneOffCase;
+		// Synthetic: the dead-headed base twice, so Pump PB's extremes are in a case where it is
+		// invalid, and it gives no NPSH margin there.
+		const input = combinationsOf([
+			solvedCase('', 'Base case', dead.solve),
+			solvedCase('S8', 'Copy', dead.solve)
+		]);
+		const extremes = combinationExtremes(input);
+		render(PumpGroupChart, base({ combinations: runningCombinations(input), extremes }));
+		const table = screen.getByRole('table', { name: 'Extremes over these cases' });
+		// Its name a visually hidden caption, the dl's aria-label words; the h5 heads it.
+		const caption = table.querySelector('caption')!;
+		expect(caption).toHaveTextContent('Extremes over these cases');
+		expect(caption).toHaveClass('sr-only');
+		expect(table.querySelector('dl')).toBeNull();
+		expect(
+			within(table)
+				.getAllByRole('columnheader')
+				.map((h) => [h.textContent, h.getAttribute('scope')])
+		).toEqual([
+			['Pump', 'col'],
+			['Largest flow', 'col'],
+			['Largest shaft power', 'col'],
+			['Smallest NPSH margin', 'col']
+		]);
+		const rows = within(table)
+			.getAllByRole('row')
+			.filter((r) => within(r).queryByRole('rowheader'));
+		expect(
+			rows.map((r) => {
+				const h = within(r).getByRole('rowheader');
+				return [h.tagName, h.getAttribute('scope'), h.textContent];
+			})
+		).toEqual([
+			['TH', 'row', 'Pump PA'],
+			['TH', 'row', 'Pump PB']
+		]);
+		// The sticky row header wraps at 12 rem, an unbroken name breaking inside it (§5.3).
+		for (const r of rows) {
+			expect(within(r).getByRole('rowheader')).toHaveClass(
+				'sticky',
+				'left-0',
+				'bg-white',
+				'border-r',
+				'max-w-48',
+				'wrap-break-word'
+			);
+		}
+		// Cell by cell, its line: the column's words its data-label, its text the line's value,
+		// with the row's name and the column's words the line's term (§9 S5).
+		const labels = ['Largest flow', 'Largest shaft power', 'Smallest NPSH margin'];
+		let invalid = 0;
+		let none = 0;
+		for (const [i, r] of rows.entries()) {
+			const cells = within(r).getAllByRole('cell');
+			expect(cells.map((cell) => cell.dataset.label)).toEqual(labels);
+			for (const [j, cell] of cells.entries()) {
+				const line = extremes.lines[i * labels.length + j]!;
+				const name = within(r).getByRole('rowheader').textContent;
+				expect(line.term).toBe(
+					`${name}, ${labels[j]!.charAt(0).toLowerCase()}${labels[j]!.slice(1)}`
+				);
+				expect(cell.textContent).toBe(line.value);
+				const value = extremes.table.rows[i]!.cells[j]!;
+				if (value.amount === null) {
+					// "no case gives one" fills its cell alone, with no value line.
+					expect(cell.children).toHaveLength(1);
+					expect(cell.firstElementChild).toHaveTextContent(/^no case gives one$/);
+					none++;
+				} else {
+					// The value on the cell's first line, medium and slate-900; the rest under it.
+					const [first, rest] = [...cell.children];
+					expect(first!.textContent).toBe(value.amount);
+					expect(first).toHaveClass('flex', 'font-medium', 'text-slate-900');
+					expect(rest!.textContent).toBe(value.rest);
+					expect(rest).toHaveClass('text-slate-600');
+				}
+				// The red octagon before the value exactly where its case is physically invalid
+				// for that pump (the words say so too), never the warning's triangle (§5.2).
+				const marked = line.value.includes('; physically invalid');
+				expect(value.invalid, line.term).toBe(marked);
+				expect(shapes(cell), line.term).toEqual(marked ? [OCTAGON] : []);
+				if (marked) {
+					expect(cell.querySelector('svg')).toHaveClass('text-red-700');
+					// Before the value: the value's nodes in order, its text counted (an element
+					// child alone skips the amount's text node and so cannot see the order).
+					const drawn = [...cell.firstElementChild!.childNodes].filter(
+						(n) =>
+							n.nodeType === Node.ELEMENT_NODE ||
+							(n.nodeType === Node.TEXT_NODE && n.textContent!.trim() !== '')
+					);
+					expect(drawn.map((n) => n.nodeName.toLowerCase())).toEqual(['svg', '#text']);
+					expect(drawn[1]!.textContent).toBe(value.amount);
+					invalid++;
+				}
+			}
+		}
+		expect([invalid > 0, none > 0]).toEqual([true, true]);
+		// Its box: sideways shadows, and no Tab stop in S5 (S7's measured rule covers it, §5.3);
+		// not a region. Its wrapper, the box's width, the inline-size container, so the box drops
+		// its frame in the list (§5.5); a long unbroken word breaks inside its cell.
+		const box = table.parentElement!;
+		expect(box).toHaveClass('scroll-shadow-x', 'overflow-x-auto', 'border');
+		expect(box).toHaveClass('@max-[26rem]:border-0');
+		expect(box).not.toHaveAttribute('tabindex');
+		expect(box).not.toHaveAttribute('role');
+		expect(box.parentElement).toHaveClass('@container');
+		for (const cell of within(table).getAllByRole('cell'))
+			expect(cell).toHaveClass('wrap-anywhere');
+		// Below 26 rem of its box, a list (§5.3, §5.5; the e2e lays it out): the roles kept, the
+		// header row visually hidden, a block per pump, each line headed by its data-label as
+		// ::before content, never an element.
+		expect(table).toHaveAttribute('role', 'table');
+		expect(table.querySelector('thead')).toHaveClass('@max-[26rem]:sr-only');
+		for (const r of rows) {
+			expect(r).toHaveClass('@max-[26rem]:block');
+			expect(within(r).getByRole('rowheader')).toHaveClass(
+				'@max-[26rem]:block',
+				'@max-[26rem]:static',
+				'@max-[26rem]:font-semibold'
+			);
+			for (const cell of within(r).getAllByRole('cell')) {
+				// Its header and a space (the mock's `attr(data-label) " "`), so the list cell's
+				// accessible name never runs its header into its words (S5 review EXT-1).
+				expect(cell).toHaveClass(
+					'@max-[26rem]:block',
+					"@max-[26rem]:before:content-[attr(data-label)_'_']",
+					'@max-[26rem]:before:text-slate-600'
+				);
+				expect(cell.textContent).not.toContain(cell.dataset.label);
+				// The value by its text on the line's baseline, its octagon centred (EXT-2).
+				const amount = cell.querySelector(':scope > span.font-medium');
+				if (amount) {
+					expect(amount).toHaveClass('@max-[26rem]:inline-flex', '@max-[26rem]:items-baseline');
+					const icon = amount.querySelector('svg');
+					if (icon) expect(icon).toHaveClass('self-center');
+				}
+			}
+		}
+		// Running combinations' marked cells take the same octagon, keeping their visually hidden
+		// "physically invalid:"; no value cell draws the triangle (the flag lines' warnings do).
+		const combos = screen.getByRole('table', { name: 'Running combinations' });
+		const valueCells = within(combos)
+			.getAllByRole('cell')
+			.filter((cell) => !cell.querySelector('[data-label="Flags"]'));
+		const markedCells = valueCells.filter((cell) =>
+			cell.textContent!.includes('physically invalid:')
+		);
+		expect(markedCells.length).toBeGreaterThan(0);
+		for (const cell of valueCells) {
+			const marked = markedCells.includes(cell);
+			expect(shapes(cell)).toEqual(marked ? [OCTAGON] : []);
+			if (marked) {
+				expect(cell.querySelector('svg')).toHaveClass('text-red-700');
+				expect(within(cell).getByText('physically invalid:')).toHaveClass('sr-only');
+			}
+		}
+	});
+
+	it('Running combinations’ lines and names: a size container, each heading line sticky at its visible width, a flag line under each flagged pump’s row (no Flags column, no “None”), trace buttons in the shown case’s group only (pumps-results-layout.md §5.3, §9 S5)', async () => {
+		const dead = named('one-off-dead-headed') as unknown as OneOffCase;
+		const input = combinationsOf([
+			solvedCase('', 'Base case', c.solve, {
+				station: 'Station 55.15 L/s at a rise of 27.38 m'
+			}),
+			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve, { ring: 2 }),
+			solvedCase('S9', 'Held (synthetic)', dead.solve),
+			solvedCase('S5', 'Failed case', null)
+		]);
+		const table = runningCombinations(input);
+		const flagText = (flag: Flag) => `${flag.code}: ${flag.message}`;
+		const squash = (text: string | null) => (text ?? '').replace(/\s+/g, ' ').trim();
+		const oninspect = vi.fn();
+		render(PumpGroupChart, base({ combinations: table, flagText, oninspect }));
+		const region = screen.getByRole('region', { name: 'Running combinations' });
+		// A size container (§5.5), so a heading line and a flag line are the box's visible width.
+		expect(region).toHaveClass('@container', 'scroll-shadow-x', 'overflow-auto', 'relative');
+		const combos = within(region).getByRole('table', { name: 'Running combinations' });
+		const columns = within(combos).getAllByRole('columnheader');
+		expect(columns.map((h) => h.textContent!.trim())).not.toContain('Flags');
+		// No Flags column, so no "None" on screen or in a phone's list (§5.3 Phones).
+		expect(within(combos).queryByText('None')).toBeNull();
+		expect(combos.querySelector('[title]')).toBeNull();
+		const groups = within(combos).getAllByRole('rowgroup').slice(1);
+		expect(groups).toHaveLength(table.groups.length);
+		let flaggedRows = 0;
+		let plainRows = 0;
+		for (const [g, group] of table.groups.entries()) {
+			const body = groups[g]!;
+			// The heading: one cell across the row, each line sticky at the box's visible width
+			// and wrapping there, a list's line on a phone (§5.3 Group heading lines).
+			const heading = within(body)
+				.getAllByRole('rowheader')
+				.find((h) => h.getAttribute('scope') === 'rowgroup')!;
+			expect(heading).toHaveAttribute('colspan', String(columns.length));
+			const lines = [...heading.children];
+			expect(lines.map((l) => l.textContent)).toEqual(
+				[group.heading, group.lineup, group.detail].filter((t) => t !== null)
+			);
+			for (const l of lines) {
+				expect(l).toHaveClass(
+					'sticky',
+					'left-0',
+					'block',
+					'w-[100cqw]',
+					'wrap-break-word',
+					'max-sm:static',
+					'max-sm:w-auto'
+				);
+			}
+			const rows = within(body).getAllByRole('row');
+			// The heading's row, a row per member, and a flag line after each flagged one's.
+			expect(rows).toHaveLength(
+				1 + group.rows.length + group.rows.filter((r) => r.flags.length).length
+			);
+			// Trace buttons in the shown case's group only: a trace opens for the case shown
+			// (§5.3 Pump names), so another case's names are plain row headers.
+			expect(within(body).queryAllByRole('button')).toHaveLength(
+				group.shown ? group.rows.length : 0
+			);
+			for (const member of group.rows) {
+				const row = rows.find((r) => within(r).queryByRole('rowheader', { name: member.name }))!;
+				const header = within(row).getByRole('rowheader');
+				if (group.shown) {
+					const button = within(header).getByRole('button', { name: member.name });
+					expect(button).toHaveClass('w-max', 'max-w-48', 'wrap-break-word', 'min-h-11');
+					await fireEvent.click(button);
+					expect(oninspect).toHaveBeenLastCalledWith(member.id);
+				} else {
+					expect(within(header).queryByRole('button')).toBeNull();
+				}
+				const next = row.nextElementSibling;
+				if (!member.flags.length) {
+					expect(next?.querySelector('[data-row-notes]') ?? null).toBeNull();
+					plainRows++;
+					continue;
+				}
+				flaggedRows++;
+				// The flag line (§5.3 Flags), as the group table's: one cell across the row,
+				// sticky at the box's visible width, named by its pump first (visually hidden),
+				// then each flag's pill and its text, visible, read once; the flags a list, an
+				// item each (no run of paragraphs where no trace button parts the rows, §5.7).
+				const note = next!.querySelector<HTMLElement>(`[data-row-notes="${member.id}"]`)!;
+				expect(note).toHaveAttribute('data-label', 'Flags');
+				expect(note).toHaveClass('sticky', 'left-0', 'w-[100cqw]', 'max-sm:static');
+				expect(note.closest('td')).toHaveAttribute('colspan', String(columns.length));
+				expect(next).toHaveClass('max-sm:block');
+				expect(note.querySelector('.sr-only')!.textContent).toBe(`${member.name}, flags:`);
+				expect(squash(note.textContent).startsWith(`${member.name}, flags:`)).toBe(true);
+				expect(note.querySelector('p')).toBeNull();
+				const said = [...note.querySelectorAll(':scope > ul > li')];
+				expect(said).toHaveLength(member.flags.length);
+				for (const [i, flag] of member.flags.entries()) {
+					const pill = said[i]!.querySelector('span')!;
+					const word = { invalid: 'Invalid', warning: 'Warning', info: 'Info' }[flag.severity];
+					expect(pill.textContent).toBe(word);
+					expect(pill).toHaveClass(
+						...{
+							invalid: ['border-red-300', 'bg-red-50', 'text-red-900'],
+							warning: ['border-amber-300', 'bg-amber-50', 'text-amber-900'],
+							info: ['border-slate-300', 'bg-slate-50', 'text-slate-700']
+						}[flag.severity]
+					);
+					expect(squash(said[i]!.textContent)).toBe(`${word} ${flagText(flag)}`);
+					expect(outOfSight(said[i]!)).toBe(false);
+					// Its text in sight, not only its item (§10 Flags: the flag text visible):
+					// its own element, never hidden by any class variant, attribute or style.
+					expect(squash(wordsInSight(said[i]!))).toBe(`${word} ${flagText(flag)}`);
+					const text = said[i]!.querySelector('[data-flag-text]')!;
+					expect(text.textContent).toBe(flagText(flag));
+					expect(outOfSight(text)).toBe(false);
+					expect(note.textContent!.split(flagText(flag))).toHaveLength(2);
+				}
+			}
+		}
+		// Both forms drawn: flagged pumps (Held's both, Pump PB off's Pump PA) and pumps without.
+		expect([flaggedRows > 0, plainRows > 0]).toEqual([true, true]);
+		expect(oninspect).toHaveBeenCalledTimes(table.groups[0]!.rows.length);
+		// Without oninspect (this card's own tests), no trace button anywhere.
+		cleanup();
+		render(PumpGroupChart, base({ combinations: table, flagText }));
+		expect(
+			within(screen.getByRole('region', { name: 'Running combinations' })).queryAllByRole('button')
+		).toHaveLength(0);
+	});
+
+	it('Running combinations with a scenario shown: the trace buttons in its group, first, and none in the base case’s (pumps-results-layout.md §5.3 Pump names, §10 S5)', async () => {
+		const input = combinationsOf([
+			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve, { shown: true }),
+			solvedCase('', 'Base case', c.solve, { shown: false }),
+			solvedCase('S3', 'Delivery tank 5 m higher', c.scenarioCases.S3!.solve)
+		]);
+		const oninspect = vi.fn();
+		render(PumpGroupChart, base({ combinations: runningCombinations(input), oninspect }));
+		const combos = screen.getByRole('table', { name: 'Running combinations' });
+		const groups = within(combos).getAllByRole('rowgroup').slice(1);
+		const heading = (g: HTMLElement) =>
+			within(g)
+				.getAllByRole('rowheader')
+				.find((h) => h.getAttribute('scope') === 'rowgroup')!.firstElementChild!.textContent;
+		expect(groups.map(heading)).toEqual([
+			'Pump PB off (shown)',
+			'Base case',
+			'Delivery tank 5 m higher'
+		]);
+		// The scenario shown: a button per member, each opening that pump's trace (for that case).
+		expect(
+			within(groups[0]!)
+				.getAllByRole('button')
+				.map((b) => b.textContent)
+		).toEqual(['▲Pump PA', '■Pump PB']);
+		await fireEvent.click(within(groups[0]!).getByRole('button', { name: 'Pump PB' }));
+		expect(oninspect).toHaveBeenLastCalledWith('PB');
+		// The base case not shown: plain row headers, as every other case's.
+		for (const g of groups.slice(1)) {
+			expect(within(g).queryAllByRole('button')).toEqual([]);
+			expect(within(g).getAllByRole('rowheader', { name: 'Pump PA' })).toHaveLength(1);
+		}
+	});
+
+	it('Running combinations: a stale group amber whole, in the table each cell and below 640 px its block, every line in it transparent (pumps-results-layout.md §5.3 Invalid and stale, §5.5; S5 review LAYOUT-3)', () => {
+		const dead = named('one-off-dead-headed') as unknown as OneOffCase;
+		const input = combinationsOf([
+			solvedCase('', 'Base case', c.solve),
+			solvedCase('S9', 'Held (synthetic)', dead.solve, { status: 'stale', stale: true })
+		]);
+		render(PumpGroupChart, base({ combinations: runningCombinations(input) }));
+		const combos = screen.getByRole('table', { name: 'Running combinations' });
+		const [current, stale] = within(combos).getAllByRole('rowgroup').slice(1);
+		// The stale group's cells: its heading, names, values and flag lines.
+		const cells = (g: HTMLElement) => [...g.querySelectorAll(':scope > tr > th, :scope > tr > td')];
+		expect(stale!.querySelector('[data-row-notes]')).not.toBeNull();
+		expect(stale).toHaveClass('max-sm:block', 'max-sm:bg-amber-50/60');
+		for (const cell of cells(stale!)) {
+			expect(cell.className).toMatch(/(^|\s)bg-amber-50(\/60)?(\s|$)/);
+			expect(cell).toHaveClass('max-sm:bg-transparent');
+		}
+		// A current group: no amber anywhere, its block untinted.
+		expect(current!.className).not.toMatch(/amber/);
+		for (const cell of cells(current!)) expect(cell.className).not.toMatch(/amber/);
 	});
 
 	it('the figure: the rings in the legend and the name, the data table’s rows, no image while computed', async () => {
@@ -3089,6 +3578,50 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			.filter((r) => r.textContent!.includes(NAMES.S5!));
 		expect(unticked).toHaveLength(1);
 		expect(unticked[0]!.querySelector('td')!.getAttribute('colspan')).toBe('4');
+		// Below 640 px a list (pumps-results-layout.md §5.5, §9 S5), as "Other cases' group
+		// curves": the roles explicit, the header row visually hidden, a block per case headed by
+		// its name (wrapping anywhere), each value after its column's words as ::before content,
+		// so a cell's text is the same at every width; a case without a ring its words alone.
+		expect(table).toHaveAttribute('role', 'table');
+		expect(table).toHaveClass('max-sm:block');
+		expect(table.querySelector('thead')).toHaveClass('max-sm:sr-only');
+		const headers = within(table)
+			.getAllByRole('columnheader')
+			.map((h) => h.textContent!.replace(/\s+/g, ' ').trim());
+		let ringed = 0;
+		for (const row of within(table).getAllByRole('row').slice(1)) {
+			expect(row).toHaveClass('max-sm:flex', 'max-sm:flex-wrap');
+			expect(within(row).getByRole('rowheader')).toHaveClass(
+				'max-sm:block',
+				'max-sm:w-full',
+				'max-sm:wrap-anywhere'
+			);
+			const cells = within(row).getAllByRole('cell');
+			if (cells.length === 1) {
+				expect(cells[0]).not.toHaveAttribute('data-label');
+				expect(cells[0]).toHaveClass('max-sm:block');
+				continue;
+			}
+			ringed++;
+			expect(cells.map((cell) => cell.dataset.label)).toEqual(headers.slice(1));
+			// A number beside its column's words, a pair; a cell of words the whole line, its
+			// column's words and a space before them in the same run of text, so its accessible
+			// name never runs the two together (S5 review LAYOUT-1).
+			for (const [i, cell] of cells.entries()) {
+				expect(cell).toHaveClass(
+					i < 2
+						? 'max-sm:before:content-[attr(data-label)]'
+						: "max-sm:before:content-[attr(data-label)_'_']"
+				);
+				expect(cell).toHaveClass(i < 2 ? 'max-sm:flex' : 'max-sm:block');
+				if (i >= 2) expect(cell).toHaveClass('max-sm:w-full');
+				// Its words the list's value style, as a number's, apart from its column's words
+				// (12 px slate-600): 14 px slate-900 (S5 review LAYOUT-1).
+				if (i >= 2) expect(cell).toHaveClass('max-sm:text-sm', 'max-sm:text-slate-900');
+				expect(cell.textContent).not.toContain(cell.dataset.label);
+			}
+		}
+		expect(ringed).toBe(6);
 		// 4d's table, without curve states: no such column.
 		cleanup();
 		await renderDrawn(family('', { without: true }).props);

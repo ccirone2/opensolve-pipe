@@ -237,6 +237,25 @@
 		'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]',
 		(value === '—' || value === '') && 'max-sm:sr-only'
 	];
+	/**
+	 * A cell of "Other cases' station duties": a table cell, below 640 px a line headed by its
+	 * column's words (pumps-results-layout.md §5.5, §9 S5: a list, as "Other cases' group
+	 * curves"), "—" out of sight there. A number sits beside its words, a pair; a cell of words
+	 * takes the line, its column's words before them in the same run of text, so neither is
+	 * squeezed into a column of its own. There its words take the list's value style, 14 px
+	 * slate-900 as the numbers' (and Running combinations' list), and its column's words end in a
+	 * space (`attr(data-label) " "`, as the extremes' list), so the column's words (12 px
+	 * slate-600) and the answer after them read apart, on screen and in the cell's accessible name
+	 * (S5 review LAYOUT-1).
+	 */
+	const dutyCell = (value: string, numeric: boolean) => [
+		'px-2 py-1 max-sm:p-0 max-sm:text-left',
+		numeric
+			? 'text-right tabular-nums max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:before:content-[attr(data-label)]'
+			: "text-xs text-slate-600 max-sm:block max-sm:w-full max-sm:text-sm max-sm:text-slate-900 max-sm:before:content-[attr(data-label)_'_']",
+		'max-sm:before:text-xs max-sm:before:text-slate-600',
+		value === '—' && 'max-sm:sr-only'
+	];
 	/** The labels on the curves: the page's pure placement, run by the chart's plugin. */
 	const curveLabels = { place: placeCurveLabels, anchor: curveAnchor };
 
@@ -1005,44 +1024,65 @@
 				{#if othersOn && others.length}
 					<!-- The other cases' tables last, after the shown case's (§5.3 The data region, F33):
 						their station duties (slice 4d), the rings and why a case has none (none while
-						they are not asked for: the one line says so), then their own group curves. -->
+						they are not asked for: the one line says so), then their own group curves. A
+						list below 640 px (§5.5, §9 S5), as "Other cases' group curves": a block per
+						case headed by its name, each value after its column's words (data-label, as
+						::before content, so a cell's text is the same at every width), the roles
+						kept. -->
 					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 					<div
 						class="relative overflow-auto rounded-md border border-slate-200 bg-white"
 						role="region"
 						aria-labelledby="{id}-others-caption"
 						tabindex="0"
+						data-other-duties
 					>
-						<table class="w-full text-sm">
+						<!-- svelte-ignore a11y_no_redundant_roles -->
+						<table role="table" class="w-full text-sm max-sm:block">
 							<caption
 								id="{id}-others-caption"
-								class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
+								class="px-2 py-1 text-left text-xs font-semibold text-slate-700 max-sm:block"
 							>
 								Other cases' station duties
 							</caption>
-							<thead class="bg-slate-50">
-								<tr>
-									<th scope="col" class="px-2 py-1 text-left font-medium">Case</th>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
+							<!-- svelte-ignore a11y_no_redundant_roles -->
+							<thead role="rowgroup" class="bg-slate-50 max-sm:sr-only">
+								<!-- svelte-ignore a11y_no_redundant_roles -->
+								<tr role="row">
+									<th role="columnheader" scope="col" class="px-2 py-1 text-left font-medium"
+										>Case</th
+									>
+									<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
 										>Station flow ({data.flowUnit})</th
 									>
-									<th scope="col" class="px-2 py-1 text-right font-medium"
+									<th role="columnheader" scope="col" class="px-2 py-1 text-right font-medium"
 										>Rise ({data.headUnit})</th
 									>
-									<th scope="col" class="px-2 py-1 text-left font-medium"
+									<th role="columnheader" scope="col" class="px-2 py-1 text-left font-medium"
 										>On the group system curve shown</th
 									>
 									{#if curveColumn}
-										<th scope="col" class="px-2 py-1 text-left font-medium">{OTHER_CURVE_COLUMN}</th
+										<th role="columnheader" scope="col" class="px-2 py-1 text-left font-medium"
+											>{OTHER_CURVE_COLUMN}</th
 										>
 									{/if}
 								</tr>
 							</thead>
-							<tbody>
+							<!-- svelte-ignore a11y_no_redundant_roles -->
+							<tbody role="rowgroup" class="max-sm:block">
 								{#each others as other (other.key)}
 									{@const ring = ringCase(other.number)}
-									<tr class="border-t border-slate-100">
-										<th scope="row" class="px-2 py-1 text-left font-normal"
+									<!-- svelte-ignore a11y_no_redundant_roles -->
+									<tr
+										role="row"
+										class="border-t border-slate-100 max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pt-1 max-sm:pb-1.5"
+									>
+										<!-- Below 640 px the case's name heads its block, wrapping anywhere (a
+											name with no space too). -->
+										<th
+											role="rowheader"
+											scope="row"
+											class="px-2 py-1 text-left font-normal max-sm:block max-sm:w-full max-sm:p-0 max-sm:font-medium max-sm:wrap-anywhere"
 											>{#if ring}<span aria-hidden="true" style:color={GROUP_OTHER}
 													>{`${OTHER_SYMBOL} `}</span
 												>{/if}{ring ? `${ring.number} · ` : ''}{other.name}{other.stale
@@ -1050,14 +1090,35 @@
 												: ''}</th
 										>
 										{#if ring}
-											<td class="px-2 py-1 text-right tabular-nums">{fmt(ring.flow)}</td>
-											<td class="px-2 py-1 text-right tabular-nums">{fmt(ring.rise)}</td>
-											<td class="px-2 py-1 text-xs text-slate-600">{ring.claim}</td>
+											<td
+												role="cell"
+												data-label="Station flow ({data.flowUnit})"
+												class={dutyCell(fmt(ring.flow), true)}>{fmt(ring.flow)}</td
+											>
+											<td
+												role="cell"
+												data-label="Rise ({data.headUnit})"
+												class={dutyCell(fmt(ring.rise), true)}>{fmt(ring.rise)}</td
+											>
+											<td
+												role="cell"
+												data-label="On the group system curve shown"
+												class={dutyCell(ring.claim, false)}>{ring.claim}</td
+											>
 											{#if curveColumn}
-												<td class="px-2 py-1 text-xs text-slate-600">{ring.curveCell ?? '—'}</td>
+												<td
+													role="cell"
+													data-label={OTHER_CURVE_COLUMN}
+													class={dutyCell(ring.curveCell ?? '—', false)}>{ring.curveCell ?? '—'}</td
+												>
 											{/if}
 										{:else}
-											<td colspan={curveColumn ? 4 : 3} class="px-2 py-1 text-xs text-slate-600"
+											<!-- Why the case has no ring, across the columns: on a phone its words
+												alone under the name, with no column's words before them. -->
+											<td
+												role="cell"
+												colspan={curveColumn ? 4 : 3}
+												class="px-2 py-1 text-xs text-slate-600 max-sm:block max-sm:w-full max-sm:p-0"
 												>{other.words}</td
 											>
 										{/if}

@@ -88,8 +88,8 @@
 		type GroupSuggestion
 	} from '$lib/utils/pump-groups';
 	import type {
+		CombinationExtremes,
 		CombinationsTable,
-		ExtremeLine,
 		OtherGroupCase
 	} from '$lib/utils/pump-group-one-off';
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -184,8 +184,8 @@
 		othersRetryReason?: string;
 		/** "Running combinations": every case's members (null: no table). */
 		combinations?: CombinationsTable | null;
-		/** The extremes over the current cases (screen only). */
-		extremes?: { lines: ExtremeLine[]; notCounted: string[] } | null;
+		/** The extremes over the current cases (screen only): their lines and their table. */
+		extremes?: CombinationExtremes | null;
 	}
 
 	let {
@@ -570,7 +570,7 @@
 				{/if}
 				{#if combinations && stationShown}
 					<!-- 4. Running combinations (slice 4d), with the extremes over the cases. -->
-					<PumpGroupCombinations {combinations} {extremes} {flagText} />
+					<PumpGroupCombinations {combinations} {extremes} {flagText} {oninspect} />
 				{/if}
 			{:else}
 				<p class="text-sm text-slate-700">Tick the pumps to see together.</p>

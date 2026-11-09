@@ -278,11 +278,16 @@ export function casesNote(
 	return `Other cases on the chart (slate, hollow markers${dotted}): ${cases.join('; ')}.`;
 }
 
-/** The image's footer notes: the figure's own sentences, in its order, then the other cases. */
+/**
+ * The image's footer notes: the figure's own sentences, in its order, then the other cases, then
+ * the line naming the cases in which the pump is off and that take no slot (`off`, the screen's
+ * words: pump-chart.ts offCasesNote; pumps-results-layout.md §6.2 S8).
+ */
 export function imageNoteLines(
 	notes: ChartNotes,
 	others: readonly OtherCaseData[],
-	symbols: Readonly<Record<string, string>>
+	symbols: Readonly<Record<string, string>>,
+	off: string | null = null
 ): string[] {
 	return [
 		notes.pump,
@@ -292,7 +297,8 @@ export function imageNoteLines(
 		...notes.panels,
 		...notes.facts,
 		...notes.checks,
-		casesNote(others, symbols)
+		casesNote(others, symbols),
+		off
 	].filter((line): line is string => !!line);
 }
 
@@ -305,6 +311,8 @@ export interface ChartImageRequest {
 	/** The other cases drawn, and their markers as text (pump-chart.ts MARKER_SYMBOLS). */
 	others: readonly OtherCaseData[];
 	markerSymbols: Readonly<Record<string, string>>;
+	/** "Off in this case (no operating point): …." as the screen shows it (offCasesNote), or none. */
+	offCases?: string | null;
 	pumpName: string;
 	/** The case shown, in a project with scenarios. */
 	caseName?: string;
@@ -377,7 +385,7 @@ export async function downloadChartImage(
 			});
 		const lines = figure
 			? [...figure.lines]
-			: imageNoteLines(pump!.notes, pump!.others, pump!.markerSymbols);
+			: imageNoteLines(pump!.notes, pump!.others, pump!.markerSymbols, pump!.offCases ?? null);
 		const drawnLines = figure?.drawnLines;
 		// A figure's notes that depend on its drawing are read once the image's chart is drawn.
 		const blob = drawnLines

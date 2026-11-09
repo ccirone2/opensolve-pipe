@@ -7,12 +7,21 @@ import { pumpResult, systemCurvePoint, systemCurveResponse } from '../testing/re
 import { imageNoteLines } from './export/chart-image';
 import { pumpTransferExample } from './examples';
 import {
+	CASE_MARKERS,
+	caseMarkers,
 	chartNotes,
+	MARKER_SYMBOLS,
+	offCasesNote,
 	otherCasesData,
+	pumpChartCases,
 	pumpChartData,
 	ratedCurveRange,
+	tickCase,
+	untickCase,
 	untickedAfter,
 	valueNotes,
+	type CaseChoice,
+	type CaseList,
 	type PanelKey,
 	type PumpChecksInput
 } from './pump-chart';
@@ -385,6 +394,228 @@ describe('untickedAfter: unticking a case in a capped list', () => {
 	});
 	it('adds only the case when every case is shown', () => {
 		expect(untickedAfter([], '', ['', 'S1'], ['', 'S1'])).toEqual(['']);
+	});
+});
+
+// One choice of cases for both charts (proposal pumps-results-layout.md §9 S8, the owner's answer
+// 2): the user's unticks one set, each chart's cases past its cap its own.
+describe('one choice of cases: untickCase and tickCase', () => {
+	const none: CaseChoice = { unticked: [], pump: [], group: [] };
+	/** The pump chart's list: five drawn of six (S6 past its cap). */
+	const pump = (shown = ['S1', 'S2', 'S3', 'S4', 'S5']): CaseList => ({
+		listed: ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'],
+		shown,
+		cap: 5
+	});
+	/** The card's list, in its own order: six drawn of seven (S7 past its cap). */
+	const group = (shown = ['S6', 'S5', 'S4', 'S3', 'S2', 'S1']): CaseList => ({
+		listed: ['S6', 'S5', 'S4', 'S3', 'S2', 'S1', 'S7'],
+		shown,
+		cap: 6
+	});
+
+	it('unticks a case under both lists, and on each chart that drew it keeps the cases past its cap off there only', () => {
+		const next = untickCase(none, 'S2', { pump: pump(), group: group() });
+		expect(next).toEqual({ unticked: ['S2'], pump: ['S6'], group: ['S7'] });
+		// From the card's list, the same: one set, each chart's own past its own cap.
+		expect(untickCase(none, 'S2', { pump: pump(), group: group() })).toEqual(
+			untickCase(none, 'S2', { group: group(), pump: pump() })
+		);
+	});
+
+	it('leaves a chart that did not draw the case as it was', () => {
+		// S6 is past the pump chart's cap: only the card frees a place.
+		expect(untickCase(none, 'S6', { pump: pump(), group: group() })).toEqual({
+			unticked: ['S6'],
+			pump: [],
+			group: ['S7']
+		});
+		// A chart with no list (the card without a station) is left alone.
+		expect(untickCase(none, 'S2', { pump: pump() })).toEqual({
+			unticked: ['S2'],
+			pump: ['S6'],
+			group: []
+		});
+	});
+
+	it('never makes a case the user unticked one of a chart’s own, and keeps each set once', () => {
+		const first = untickCase(none, 'S2', { pump: pump(), group: group() });
+		// S2 unticked: not drawn, but the user's, so not past a cap.
+		const second = untickCase(first, 'S3', {
+			pump: pump(['S1', 'S3', 'S4', 'S5']),
+			group: group(['S6', 'S5', 'S4', 'S3', 'S1'])
+		});
+		expect(second).toEqual({ unticked: ['S2', 'S3'], pump: ['S6'], group: ['S7'] });
+		// Unticked again (the card's list after the pump chart's): each set holds it once.
+		expect(untickCase(second, 'S3', { group: group(['S6', 'S5', 'S4', 'S1']) })).toEqual(second);
+	});
+
+	it('ticks a case again under both lists, where each chart has room', () => {
+		const off = untickCase(none, 'S2', { pump: pump(), group: group() });
+		const lists = {
+			pump: pump(['S1', 'S3', 'S4', 'S5']),
+			group: group(['S6', 'S5', 'S4', 'S3', 'S1'])
+		};
+		// Under the pump chart's list or the card's: ticked on both, each chart's own unchanged.
+		expect(tickCase(off, 'S2', 'pump', lists)).toEqual({
+			unticked: [],
+			pump: ['S6'],
+			group: ['S7']
+		});
+		expect(tickCase(off, 'S2', 'group', lists)).toEqual({
+			unticked: [],
+			pump: ['S6'],
+			group: ['S7']
+		});
+	});
+
+	it('ticks a case past its chart’s cap into the place left free, on that chart alone', () => {
+		const off = untickCase(none, 'S2', { pump: pump(), group: group() });
+		const lists = {
+			pump: pump(['S1', 'S3', 'S4', 'S5']),
+			group: group(['S6', 'S5', 'S4', 'S3', 'S1'])
+		};
+		expect(tickCase(off, 'S6', 'pump', lists)).toEqual({
+			unticked: ['S2'],
+			pump: [],
+			group: ['S7']
+		});
+	});
+
+	it('brings a case ticked under one list back on the other only into a free place: a full chart keeps every case it draws', () => {
+		// The card drew S2 and lost it; S7 was then ticked into its place, so the card is full.
+		const off = untickCase(none, 'S2', { pump: pump(), group: group() });
+		const full = tickCase(off, 'S7', 'group', {
+			pump: pump(['S1', 'S3', 'S4', 'S5']),
+			group: group(['S6', 'S5', 'S4', 'S3', 'S1'])
+		});
+		expect(full).toEqual({ unticked: ['S2'], pump: ['S6'], group: [] });
+		// S2 ticked again under the pump chart's list: drawn there, past the cap on the card.
+		expect(
+			tickCase(full, 'S2', 'pump', {
+				pump: pump(['S1', 'S3', 'S4', 'S5']),
+				group: group(['S6', 'S5', 'S4', 'S3', 'S1', 'S7'])
+			})
+		).toEqual({ unticked: [], pump: ['S6'], group: ['S2'] });
+	});
+});
+
+describe('the pump chart’s cases: slots and markers (pumps-results-layout.md §9 S8)', () => {
+	const other = (key: string, status: 'running' | 'off' | 'no_flow' = 'running') => ({
+		key,
+		result: { status }
+	});
+	const others = [
+		other('A', 'off'),
+		other('B'),
+		other('C', 'no_flow'),
+		other('D'),
+		other('E'),
+		other('F'),
+		other('G', 'off')
+	];
+	const keys = (list: readonly { key: string }[]) => list.map((o) => o.key);
+
+	it('gives a case in which the pump is off no slot while the other cases’ system curves are off', () => {
+		const cases = pumpChartCases(others, [], false);
+		expect(keys(cases.listed)).toEqual(['B', 'C', 'D', 'E', 'F']);
+		expect(keys(cases.shown)).toEqual(['B', 'C', 'D', 'E', 'F']);
+		expect(keys(cases.off)).toEqual(['A', 'G']);
+		// A pump held at zero flow has its point drawn: it keeps its slot.
+		expect(keys(cases.listed)).toContain('C');
+	});
+
+	it('gives it its slot while they are on, which can put a case drawn before past the cap', () => {
+		const cases = pumpChartCases(others, [], true);
+		expect(keys(cases.listed)).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G']);
+		expect(keys(cases.shown)).toEqual(['A', 'B', 'C', 'D', 'E']);
+		expect(keys(cases.off)).toEqual([]);
+	});
+
+	it('draws the first listed the choice leaves ticked, five at most', () => {
+		expect(keys(pumpChartCases(others, ['B', 'A'], false).shown)).toEqual(['C', 'D', 'E', 'F']);
+		expect(keys(pumpChartCases(others, ['B'], true).shown)).toEqual(['A', 'C', 'D', 'E', 'F']);
+		// An unticked case in which the pump is off still takes no slot, and is still named.
+		expect(keys(pumpChartCases(others, ['A'], false).off)).toEqual(['A', 'G']);
+	});
+
+	it('gives each case drawn its place’s marker, five shapes, the glyphs Chart.js draws', () => {
+		expect(CASE_MARKERS).toEqual(['triangle', 'rect', 'star', 'crossRot', 'triangleDown']);
+		expect(CASE_MARKERS.map((m) => MARKER_SYMBOLS[m])).toEqual(['△', '□', '✳\uFE0E', '×', '▽']);
+		expect(caseMarkers(['B', 'C', 'D'], ['B', 'C', 'D', 'E'])).toEqual({
+			B: 'triangle',
+			C: 'rect',
+			D: 'star'
+		});
+	});
+
+	it('keeps each case’s marker while five cases or fewer are listed, whatever is ticked', () => {
+		const listed = ['B', 'C', 'D', 'E', 'F'];
+		const all = caseMarkers(listed, listed);
+		// C unticked: no other case's marker changes; ticked again, it has its own back.
+		const without = caseMarkers(['B', 'D', 'E', 'F'], listed, all);
+		expect(without).toEqual({ B: all.B, D: all.D, E: all.E, F: all.F });
+		expect(caseMarkers(listed, listed, without)).toEqual(all);
+		// From nothing remembered, the same: each its place's.
+		expect(caseMarkers(['F', 'C'], listed)).toEqual({ C: all.C, F: all.F });
+	});
+
+	it('keeps the marker of a case that stays drawn past five listed, through an untick, the curves switched and a tick', () => {
+		const off = pumpChartCases(others, [], false);
+		const first = caseMarkers(keys(off.shown), keys(off.listed));
+		expect(first).toEqual({
+			B: 'triangle',
+			C: 'rect',
+			D: 'star',
+			E: 'crossRot',
+			F: 'triangleDown'
+		});
+		// The curves switched on: A and B drawn again before them, F past the cap. Those that
+		// stay keep theirs; A takes the one F left.
+		const on = pumpChartCases(others, [], true);
+		const second = caseMarkers(keys(on.shown), keys(on.listed), first);
+		expect(second).toEqual({
+			A: 'triangleDown',
+			B: 'triangle',
+			C: 'rect',
+			D: 'star',
+			E: 'crossRot'
+		});
+		// D unticked, then G ticked into its place: the others keep theirs, G takes D's.
+		const third = caseMarkers(['A', 'B', 'C', 'E'], keys(on.listed), second);
+		expect(third).toEqual({ A: 'triangleDown', B: 'triangle', C: 'rect', E: 'crossRot' });
+		const fourth = caseMarkers(['A', 'B', 'C', 'E', 'G'], keys(on.listed), third);
+		expect(fourth).toEqual({ ...third, G: 'star' });
+		// Never two cases one marker.
+		for (const set of [first, second, third, fourth]) {
+			expect(new Set(Object.values(set)).size).toBe(Object.keys(set).length);
+		}
+	});
+
+	it('names the cases that take no slot in one line, the screen’s and the image’s', () => {
+		expect(offCasesNote(['Pump PA off', 'Both pumps off (out of date)'])).toBe(
+			'Off in this case (no operating point): Pump PA off; Both pumps off (out of date).'
+		);
+		expect(offCasesNote([])).toBeNull();
+	});
+
+	it('gives otherCasesData the markers by case, by default each its place’s', () => {
+		const input = ['S1', 'S2'].map((key) => ({
+			key,
+			name: key,
+			result: pumpResult(),
+			stale: false,
+			system: null
+		}));
+		expect(otherCasesData(input, SI_UNITS, null, 1).map((o) => o.marker)).toEqual([
+			'triangle',
+			'rect'
+		]);
+		expect(
+			otherCasesData(input, SI_UNITS, null, 1, null, { S1: 'star', S2: 'triangleDown' }).map(
+				(o) => o.marker
+			)
+		).toEqual(['star', 'triangleDown']);
 	});
 });
 

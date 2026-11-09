@@ -6,7 +6,9 @@
 	the chart also shows the other cases' operating points (and, on request, their system curves on
 	this chart's flow grid; proposal scenario-manager.md §6.13): those of every case other than the
 	one shown that the chart shows, whichever case is shown. A pump the scenario of these results
-	changed says so in the table (`changed`).
+	changed says so in the table (`changed`). The cases the user unticks are one choice of page
+	state for this chart's list and the card's, each chart keeping the cases past its own cap, so
+	the chart's list is kept when another pump is shown (proposal pumps-results-layout.md §9 S8).
 
 	Under it, with two pumps or more, the Pumps together card (CLAUDE.md D21, proposal
 	pump-groups.md §6): its members are page state (the workspace's `pumpGroup`, the same in every
@@ -59,9 +61,15 @@
 	import { settingsSourceLabel } from '$lib/utils/design-checks';
 	import { componentById } from '$lib/utils/graph';
 	import {
+		caseMarkers,
 		MAX_CHART_CASES,
+		pumpChartCases,
 		ratedCurveRange,
-		untickedAfter,
+		tickCase,
+		untickCase,
+		type CaseChart,
+		type CaseChoice,
+		type CaseList,
 		type OtherCaseInput,
 		type PumpChecksInput
 	} from '$lib/utils/pump-chart';
@@ -84,6 +92,7 @@
 	import {
 		chartKeys,
 		combinationExtremes,
+		MAX_GROUP_CASES,
 		groupCurveDrawn,
 		otherGroupCases,
 		runningCombinations,
@@ -237,12 +246,11 @@
 			: null
 	);
 	/**
-	 * The other cases' system curves are asked for (`overlay`), for the other cases the chart shows:
-	 * all but those the user unticked (keys: '' is the base), derived from the cases that are other
-	 * now, so a case switch asks for the case that became another, never for the case shown.
+	 * The other cases' system curves are asked for (`overlay`), for the other cases the chart draws
+	 * (pumpCases' `shown`), derived from the cases that are other now, so a case switch asks for the
+	 * case that became another, never for the case shown.
 	 */
 	let overlay = $state(false);
-	let unticked = $state<readonly string[]>([]);
 	/** Counts the times the box was ticked: asking again computes the curves cancelled or failed. */
 	let asked = $state(0);
 	let retried = 0;
@@ -279,12 +287,38 @@
 			});
 	});
 
-	const overlayKeys = $derived(
-		others
-			.filter((o) => !unticked.includes(o.key))
-			.slice(0, MAX_CHART_CASES - 1)
-			.map((o) => o.key)
-	);
+	/**
+	 * One choice of cases for both charts (pumps-results-layout.md §9 S8, the owner's answer 2):
+	 * the cases the user unticked under either list, and each chart's own (past its cap at an
+	 * untick), page state, so the pump chart's list is kept when another pump is shown.
+	 */
+	const choice = $derived<CaseChoice>({
+		unticked: ws.casesUnticked,
+		pump: ws.pumpChartUnticked,
+		group: ws.pumpGroupUnticked
+	});
+	/** The pump chart's cases not drawn by the choice: the user's and its own. */
+	const pumpUnticked = $derived([...choice.unticked, ...choice.pump]);
+	/**
+	 * The pump chart's cases (§9 S8 Slots): a case in which this pump is off takes no slot while
+	 * the other cases' system curves are not asked for, since it would draw nothing.
+	 */
+	const pumpCases = $derived(pumpChartCases(others, pumpUnticked, overlay));
+	const overlayKeys = $derived(pumpCases.shown.map((o) => o.key));
+	/**
+	 * Their markers, fixed by case (§9 S8 Markers): a case keeps its marker while it stays drawn,
+	 * through an untick, the other cases' system curves switched and another pump shown (the
+	 * markers drawn last are page state, ws.pumpChartMarkers).
+	 */
+	const pumpMarkers = $derived.by(() => {
+		const markers = caseMarkers(
+			overlayKeys,
+			pumpCases.listed.map((o) => o.key),
+			ws.pumpChartMarkers
+		);
+		ws.pumpChartMarkers = markers;
+		return markers;
+	});
 	/** The keys as one value: the requests below are made again only when the cases change. */
 	const overlayList = $derived(overlayKeys.join('\u0000'));
 
@@ -322,10 +356,9 @@
 		});
 	});
 
-	function setOverlay(on: boolean, untickedKeys: readonly string[]) {
+	function setOverlay(on: boolean) {
 		if (on && !overlay) asked++;
 		overlay = on;
-		unticked = [...untickedKeys];
 	}
 
 	// ---- Pumps together (D21) ----------------------------------------------------------------
@@ -480,7 +513,7 @@
 	 * the other lineups, then case order, at most six (D24 §4.6, lineupChartPriority).
 	 */
 	const chartCaseKeys = $derived(
-		chartKeys(valuedOthers, ws.store.project, groupMembers, ws.pumpGroupUnticked)
+		chartKeys(valuedOthers, ws.store.project, groupMembers, [...choice.unticked, ...choice.group])
 	);
 	/**
 	 * The other cases with values in the chart's order (D24 §4.6, unticked ones in their place):
@@ -707,17 +740,31 @@
 		ws.pumpGroupOthers = on;
 		if (!on) for (const v of valuedOthers) cancelCase(v.caseId);
 	}
-	/** Tick or untick a case under "Cases on this chart"; unticking leaves its place free. */
-	function tickOther(key: string, on: boolean) {
-		ws.pumpGroupUnticked = on
-			? ws.pumpGroupUnticked.filter((k) => k !== key)
-			: untickedAfter(
-					ws.pumpGroupUnticked,
-					key,
-					valuedOthers.map((o) => o.key),
-					chartCaseKeys
-				);
-		if (!on) cancelCase(caseOf(key));
+	/**
+	 * Tick or untick a case under "Cases on the chart" (`pump`) or "Cases on this chart" (`group`):
+	 * one choice for both lists (§9 S8, pump-chart.ts untickCase and tickCase). Unticking leaves
+	 * its place free on each chart that drew it; ticking brings it back on each chart with room.
+	 * A case leaving the card's chart has its requests cancelled, as before.
+	 */
+	function tickChoice(chart: CaseChart, key: string, on: boolean) {
+		const lists: Record<CaseChart, CaseList> = {
+			pump: {
+				listed: pumpCases.listed.map((o) => o.key),
+				shown: overlayKeys,
+				cap: MAX_CHART_CASES - 1
+			},
+			group: {
+				listed: valuedOthers.map((o) => o.key),
+				shown: chartCaseKeys,
+				cap: MAX_GROUP_CASES
+			}
+		};
+		const onGroupChart = chartCaseKeys.includes(key);
+		const next = on ? tickCase(choice, key, chart, lists) : untickCase(choice, key, lists);
+		ws.casesUnticked = next.unticked;
+		ws.pumpChartUnticked = next.pump;
+		ws.pumpGroupUnticked = next.group;
+		if (!on && onGroupChart) cancelCase(caseOf(key));
 	}
 	function cancelOthers() {
 		for (const o of otherCases) if (o.onChart) cancelCase(o.caseId);
@@ -1033,8 +1080,8 @@
 							aria-describedby="{uid}-pump-chart-hint"
 							value={viewed.key}
 							onchange={(event) => {
+								// The cases' choice is kept: page state for both charts (§9 S8).
 								chosen = event.currentTarget.value;
-								unticked = []; // the new pump's chart starts with every case ticked
 							}}
 						>
 							{#each pumps as row (row.key)}
@@ -1069,6 +1116,9 @@
 					{othersControlled}
 					{...hasScenarios ? { caseName: ws.caseName(ws.store.activeCase) } : {}}
 					{others}
+					unticked={pumpUnticked}
+					markers={pumpMarkers}
+					ontick={(key, on) => tickChoice('pump', key, on)}
 					overlayCurves={overlay}
 					onoverlay={setOverlay}
 					{overlayProgress}
@@ -1109,7 +1159,7 @@
 			{shownOn}
 			othersOn={ws.pumpGroupOthers}
 			{...hasScenarios ? { onothers: setOthers } : {}}
-			onotherstick={tickOther}
+			onotherstick={(key, on) => tickChoice('group', key, on)}
 			{othersProgress}
 			oncancelothers={cancelOthers}
 			onretryothers={retryOthers}

@@ -3727,11 +3727,24 @@ test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump ch
 	const extra = await oneOff(page);
 	await atEachSize(page, info, '1-one-off', extra);
 
-	// S1 (§5.3, §10): a case in which Pump PA is off says so in its box's description, beside
-	// the box; the others do not. The fixture's scenarios set PA off in "Pump PA off" and "Both
-	// pumps off" (pump-groups-input.json).
+	// S8 (§9 S8 Slots, §6.2): while the other cases' system curves are off, a case in which Pump
+	// PA is off takes no slot: no box, and the line under the list names it, on screen at each
+	// size. The fixture's scenarios set PA off in "Pump PA off" and "Both pumps off"
+	// (pump-groups-input.json).
 	const figure = await pumpFigure(page);
 	const cases = figure.getByRole('group', { name: 'Cases on the chart' });
+	const offLine = cases.locator('[data-pump-off-cases]');
+	await expect(offLine).toHaveText(
+		'Off in this case (no operating point): Pump PA off; Both pumps off.'
+	);
+	expect(await seenLine(offLine), `the off line on screen at ${sizeOf(page)}`).toBe(true);
+	for (const name of ['Pump PA off', 'Both pumps off']) {
+		await expect(cases.getByRole('checkbox', { name, exact: true })).toHaveCount(0);
+	}
+	// S1 (§5.3, §10), while the other cases' system curves are on (S8): a case in which Pump PA
+	// is off has its box again, and says so in its description, beside the box; the others do not.
+	await figure.getByRole('checkbox', { name: "Also show the other cases' system curves" }).check();
+	await expect(offLine).toHaveCount(0);
 	const NOTE = 'off in this case: no operating point';
 	for (const name of ['Pump PA off', 'Both pumps off']) {
 		const box = cases.getByRole('checkbox', { name, exact: true });
@@ -3794,6 +3807,38 @@ test('lineups, every disclosure and data table open: nothing scrolls sideways; t
 	for (const cell of await byCase.getByRole('row').nth(1).getByRole('cell').all()) {
 		await expect(cell).not.toContainText('%');
 	}
+
+	// S8 (§9 S8, §10 One choice of cases; the owner's answer 2): a case unticked under "Cases on
+	// the chart" is unticked under "Cases on this chart", every other ring staying; the pump
+	// chart's list kept over a pump switch; ticked again under the card's list, on both.
+	const tab = resultsPane(page).getByRole('tabpanel', { name: 'Pumps', exact: true });
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const pumpCases = figure.getByRole('group', { name: 'Cases on the chart' });
+	const cardCases = card.getByRole('group', { name: 'Cases on this chart' });
+	const TWO = '2 of 4 running (Pump P3, Pump P4 off)';
+	const rings = () =>
+		card
+			.locator('[data-group-rings] li .font-medium')
+			.evaluateAll((all) => all.map((n) => n.textContent));
+	const ringsBefore = await rings();
+	expect(ringsBefore).toContain(TWO);
+	await expect(pumpCases.getByRole('checkbox', { name: TWO, exact: true })).toBeChecked();
+	await pumpCases.getByRole('checkbox', { name: TWO, exact: true }).uncheck();
+	await expect(cardCases.getByRole('checkbox', { name: TWO, exact: true })).not.toBeChecked();
+	await expect.poll(rings).toEqual(ringsBefore.filter((name) => name !== TWO));
+	// Pump P3 is off in that case: on its chart the case takes no slot and is named.
+	const select = tab.getByRole('combobox', { name: 'Pump chart' });
+	await select.selectOption({ label: 'Pump P3' });
+	await expect(tab.getByRole('figure', { name: /^Pump and system curves: Pump P3/ })).toBeVisible();
+	await expect(pumpCases.locator('[data-pump-off-cases]')).toContainText(TWO);
+	// Pump P2 runs in it: its box is there, still unticked.
+	await select.selectOption({ label: 'Pump P2' });
+	await expect(tab.getByRole('figure', { name: /^Pump and system curves: Pump P2/ })).toBeVisible();
+	await expect(pumpCases.getByRole('checkbox', { name: TWO, exact: true })).not.toBeChecked();
+	// Ticked again under "Cases on this chart": on both.
+	await cardCases.getByRole('checkbox', { name: TWO, exact: true }).check();
+	await expect(pumpCases.getByRole('checkbox', { name: TWO, exact: true })).toBeChecked();
+	await expect.poll(rings).toEqual(ringsBefore);
 });
 
 // ---- S1 review fixes: the live line, the failed request's mark, the lasting reason, the notes ---
@@ -4465,6 +4510,20 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		);
 		console.log(`${where}: past the card ${JSON.stringify(past)}`);
 		expect.soft(past, `a long name's line past the card's edge, ${where}`).toEqual([]);
+		// S8 (§9 S8, §6.2): Pump P1 is off in the long-named case, so on its chart the case takes
+		// no slot and the line under the list names it, every line of it inside the chart's card.
+		const offLine = tab.locator('[data-pump-chart] [data-pump-off-cases]');
+		await expect(offLine).toContainText(LONG_CASE);
+		const offPast = await offLine.evaluate((p) => {
+			const edge = p.closest('[data-pump-chart]')!.getBoundingClientRect().right;
+			const range = document.createRange();
+			range.selectNodeContents(p);
+			return Math.max(...[...range.getClientRects()].map((b) => b.right)) - edge;
+		});
+		expect
+			.soft(offPast, `the off line past the pump chart's card, ${where}`)
+			.toBeLessThanOrEqual(0.5);
+		expect.soft(await seenLine(offLine), `the off line on screen, ${where}`).toBe(true);
 	}
 	await page.setViewportSize(viewport);
 });

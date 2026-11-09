@@ -63,6 +63,7 @@
 	} from '$lib/utils/pump-lineups';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import SegmentedField from '$lib/components/ui/SegmentedField.svelte';
+	import { registerSection } from './section-nav.svelte';
 
 	let {
 		plan,
@@ -82,6 +83,9 @@
 	}));
 
 	let section: HTMLElement | undefined = $state();
+	/** The section nav's "Add cases" (pumps-results-layout.md §5.4): this block's heading. */
+	let heading: HTMLElement | undefined = $state();
+	registerSection('add-cases', () => heading);
 	let solveAllButton: HTMLButtonElement | undefined = $state();
 	/** The stop order's status line (polite): what the last move or Default order did. */
 	let status = $state('');
@@ -132,7 +136,15 @@
 </script>
 
 <section bind:this={section} class="space-y-2" aria-labelledby="{id}-heading" data-add-cases>
-	<h4 id="{id}-heading" class="text-xs font-semibold">{LINEUP_BLOCK_WORDS.heading}</h4>
+	<!-- tabindex −1: the section nav's "Add cases" focuses it (pumps-results-layout.md §5.4). -->
+	<h4
+		bind:this={heading}
+		id="{id}-heading"
+		class="scroll-mt-[calc(var(--pumps-nav-h,0px)-var(--pumps-nav-pad,0px)+0.5rem)] text-xs font-semibold"
+		tabindex="-1"
+	>
+		{LINEUP_BLOCK_WORDS.heading}
+	</h4>
 	{#if plan.gate}
 		<p class="text-xs text-slate-700">{plan.gate}</p>
 	{:else}

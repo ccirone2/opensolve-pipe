@@ -40,6 +40,7 @@
 	import type { Component, ControlValve } from '$lib/api/types';
 	import SiteFooter from '$lib/components/SiteFooter.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
+	import ScrollRow from '$lib/components/ui/ScrollRow.svelte';
 	import { caseNameIn, useWorkspace } from '$lib/state/workspace.svelte';
 	import { freePorts, isBoundary } from '$lib/utils/graph';
 	import { componentName, portLabel } from '$lib/utils/labels';
@@ -455,32 +456,31 @@
 	);
 
 	/**
-	 * The views' row: a mouse wheel scrolls it sideways while it can still move that way (a
-	 * non-passive listener); at its ends the wheel scrolls the pane, and a sideways gesture is the
-	 * browser's. The chosen view is kept in view (a link from the Summary, the keyboard).
+	 * The views' row, the shared sideways row (ScrollRow; proposal pumps-results-layout.md §5.4 One
+	 * shared component): its wheel and its edge shadows. The chosen view is kept in view (a link
+	 * from the Summary, the keyboard) by scrolling the row alone, never the pane, and when the row
+	 * is drawn again (Compare cases and back): the row is tracked, only its scroll is not.
 	 */
 	let viewRow: HTMLElement | undefined = $state();
-	$effect(() => {
-		const row = viewRow;
-		if (!row) return;
-		const wheel = (event: WheelEvent) => {
-			if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-			const room = row.scrollWidth - row.clientWidth;
-			const moving =
-				(event.deltaY > 0 && row.scrollLeft < room - 1) || (event.deltaY < 0 && row.scrollLeft > 0);
-			if (room <= 0 || !moving) return;
-			event.preventDefault();
-			row.scrollLeft += event.deltaY;
-		};
-		row.addEventListener('wheel', wheel, { passive: false });
-		return () => row.removeEventListener('wheel', wheel);
-	});
+	let viewRowComponent: ScrollRow | undefined = $state();
 	$effect(() => {
 		void view;
-		viewRow
-			?.querySelector<HTMLElement>('[aria-selected="true"]')
-			?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+		const row = viewRow;
+		const component = viewRowComponent;
+		if (!row || !component) return;
+		untrack(() => component.keepInView(row.querySelector('[aria-selected="true"]')));
 	});
+
+	/** The pane's scroller: the Pumps tab's section nav pins in it (§5.4 Place). */
+	let paneScroller: HTMLElement | undefined = $state();
+	/**
+	 * The Pumps tab's section nav while pinned (its height in px), else null: while the Pumps view
+	 * is shown the scroller's scroll padding keeps a focused control clear of it (§5.4 Focus never
+	 * hidden, WCAG 2.4.11), its height and 0.5 rem, so a focus ring (4 px beyond its control) and a
+	 * scroll's pixel rounding never reach under it (PumpsView's `--pumps-nav-pad`); other views
+	 * keep none.
+	 */
+	let pumpsNavPinned = $state<number | null>(null);
 
 	/** WAI-ARIA tabs: arrow keys, Home and End move between the views. */
 	function tabKeydown(event: KeyboardEvent) {
@@ -678,9 +678,20 @@
 		</div>
 	{/if}
 
-	<!-- A column, so the footer sits at the bottom of the pane when the results are short. -->
+	<!--
+		A column, so the footer sits at the bottom of the pane when the results are short.
+		Positioned, so whatever is absolutely placed inside it (a visually hidden word, "Back to the
+		sections" shown) has it, or an element inside it, for its containing block: it stays inside
+		the pane's clip and scroll, and the page itself never grows taller than the window, so a
+		section nav's press (scrollIntoView) or a wheel scrolls the pane alone (pumps-results-layout.md
+		§5.4 Place: only under short: does the workspace scroll as one page).
+	-->
 	<div
-		class="flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto px-3 py-4 sm:px-4"
+		bind:this={paneScroller}
+		class="relative flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto px-3 py-4 sm:px-4"
+		style:scroll-padding-top={view === 'pumps' && pumpsNavPinned !== null
+			? `calc(${pumpsNavPinned}px + 0.5rem)`
+			: undefined}
 		inert={covered}
 	>
 		{#if comparing}
@@ -957,38 +968,40 @@
 			{#if response && solved && !previousHidden}
 				<div class="space-y-3">
 					<!-- One row that scrolls sideways at every width (owner, 2026-10-31; proposal
-						build-density.md §17): edge shadows say there is more, a mouse wheel scrolls it. -->
-					<div
-						bind:this={viewRow}
-						role="tablist"
-						aria-label="Results view"
-						tabindex="-1"
-						class="scroll-shadow-x -mx-3 flex [scrollbar-width:none] gap-1.5 overflow-x-auto px-3 sm:-mx-4 sm:px-4 [&::-webkit-scrollbar]:hidden"
-						onkeydown={tabKeydown}
-					>
-						{#each views as v (v)}
-							<button
-								type="button"
-								role="tab"
-								id="{id}-tab-{v}"
-								aria-selected={view === v}
-								aria-controls={rendered.includes(v) ? `${id}-panel-${v}` : undefined}
-								tabindex={view === v ? 0 : -1}
-								class={[
-									'min-h-11 shrink-0 rounded-full border px-3 text-sm font-medium whitespace-nowrap',
-									view === v
-										? 'border-blue-700 bg-blue-700 text-white'
-										: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
-								]}
-								onclick={(event) => {
-									selectedView = v;
-									// The views scroll sideways in one row: bring the chosen one in.
-									event.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-								}}
-							>
-								{VIEW_LABELS[v]}
-							</button>
-						{/each}
+						build-density.md §17): edge shadows say there is more, a mouse wheel scrolls it.
+						The shared row (pumps-results-layout.md §5.4): its py-1 keeps a focused pill's ring
+						whole, and -my-1 keeps the layout as it was, inside a flow root so the space-y gap
+						after it is not replaced by the negative margin. -->
+					<div class="flow-root">
+						<ScrollRow
+							bind:this={viewRowComponent}
+							bind:row={viewRow}
+							role="tablist"
+							aria-label="Results view"
+							tabindex={-1}
+							class="-mx-3 -my-1 gap-1.5 px-3 sm:-mx-4 sm:px-4"
+							onkeydown={tabKeydown}
+						>
+							{#each views as v (v)}
+								<button
+									type="button"
+									role="tab"
+									id="{id}-tab-{v}"
+									aria-selected={view === v}
+									aria-controls={rendered.includes(v) ? `${id}-panel-${v}` : undefined}
+									tabindex={view === v ? 0 : -1}
+									class={[
+										'min-h-11 shrink-0 rounded-full border px-3 text-sm font-medium whitespace-nowrap',
+										view === v
+											? 'border-blue-700 bg-blue-700 text-white'
+											: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+									]}
+									onclick={() => (selectedView = v)}
+								>
+									{VIEW_LABELS[v]}
+								</button>
+							{/each}
+						</ScrollRow>
 					</div>
 
 					{#each rendered as v (v)}
@@ -1029,6 +1042,9 @@
 									{changed}
 									sortRequest={sortRequests.pumps ?? null}
 									onview={showView}
+									active={v === view}
+									scroller={paneScroller ?? null}
+									onpinned={(height) => (pumpsNavPinned = height)}
 								/>
 							{:else if v === 'valves' && valves}
 								<ResultsTable

@@ -18,7 +18,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
+import {
+	expect,
+	test,
+	type JSHandle,
+	type Locator,
+	type Page,
+	type TestInfo
+} from '@playwright/test';
 import { gzip } from 'pako';
 import type { Project } from '../src/lib/api/types';
 import { exampleProject, pumpTransferExample } from '../src/lib/utils/examples';
@@ -283,7 +290,10 @@ function collect() {
 		const label = el.labels?.[0] ?? el.closest('label');
 		return !!label && shown(label);
 	};
-	const below = (el: Element) => el.getBoundingClientRect().top >= base - 0.5;
+	// The section nav (S2, §5.4) is the tab's first child, above the pump chart: pinned, it sits
+	// over the area below the canvas but is not part of it, so none of the probe's counts holds it.
+	const below = (el: Element) =>
+		!el.closest('[data-pumps-nav]') && el.getBoundingClientRect().top >= base - 0.5;
 
 	function nameOf(el: Labelled): string {
 		const aria = el.getAttribute('aria-label');
@@ -622,7 +632,11 @@ async function tabStops(page: Page): Promise<{ kind: string; name: string }[]> {
 
 /**
  * The pane's scroller from the pump chart's canvas to the tab's end, one screenshot per screen at
- * CSS pixels (measure.mjs `stitched`); the files and the scroll offset each was taken at.
+ * CSS pixels (measure.mjs `stitched`); the files and the scroll offset each was taken at. Where
+ * the section nav is pinned over a screen's top (S2, §5.4), that screen's `cover` is its height,
+ * and the screen starts that much sooner than where the one before it ended: measured on the
+ * screen itself, since the nav pins as the canvas scrolls out, so nothing under the nav is left
+ * out (S2 review LAYOUT-2).
  */
 async function screens(page: Page, dir: string, label: string) {
 	const geometry = await page.evaluate(() => {
@@ -663,15 +677,29 @@ async function screens(page: Page, dir: string, label: string) {
 			end: Math.round(panel.getBoundingClientRect().bottom - box.y + at + 8)
 		};
 	});
-	const segments: { file: string; scrollTop: number }[] = [];
+	const segments: { file: string; scrollTop: number; cover: number }[] = [];
 	let position = Math.max(0, geometry.start);
-	for (let i = 0; i < 200 && position < geometry.end; i++) {
-		const actual = await page.evaluate((top) => {
+	const at = async (top: number) => {
+		const actual = await page.evaluate((to) => {
 			const s = document.querySelector('[data-layout-scroller]')!;
-			s.scrollTop = top;
+			s.scrollTop = to;
 			return s.scrollTop;
-		}, position);
+		}, top);
 		await page.waitForTimeout(150);
+		const cover = await page.evaluate(() => {
+			const nav = document.querySelector('[data-pumps-nav][data-pinned]');
+			return nav ? Math.round(nav.getBoundingClientRect().height) : 0;
+		});
+		return { actual, cover };
+	};
+	for (let i = 0; i < 200 && position < geometry.end; i++) {
+		let { actual, cover } = await at(position);
+		const last = segments.at(-1);
+		if (last && actual + cover > last.scrollTop + geometry.box.height) {
+			// The nav pinned over this screen and not the one before: start it sooner by its height.
+			position = last.scrollTop + geometry.box.height - cover;
+			({ actual, cover } = await at(position));
+		}
 		const file = path.join(dir, 'segments', `${label}-${String(i).padStart(3, '0')}.png`);
 		const b = geometry.box;
 		await page.screenshot({
@@ -679,9 +707,20 @@ async function screens(page: Page, dir: string, label: string) {
 			scale: 'css',
 			clip: { x: Math.round(b.x), y: Math.round(b.y), width: b.width, height: b.height }
 		});
-		segments.push({ file, scrollTop: actual });
+		segments.push({ file, scrollTop: actual, cover });
+		// Each screen starts, below the nav pinned over it, at or above where the screen before
+		// it ended: no line of the tab is left out of the record (S2 review LAYOUT-2).
+		const before = segments.at(-2);
+		if (before) {
+			expect
+				.soft(
+					actual + cover,
+					`screen ${i} of ${label} starts in sight where screen ${i - 1} ends (${before.scrollTop} + ${b.height})`
+				)
+				.toBeLessThanOrEqual(before.scrollTop + b.height);
+		}
 		if (actual + b.height >= geometry.end) break;
-		const next = actual + b.height;
+		const next = actual + b.height - cover;
 		if (next <= position && actual < position) break; // it cannot scroll further
 		position = next;
 	}
@@ -966,6 +1005,799 @@ async function pumpChartPart(page: Page, where: string) {
 	}
 }
 
+// ---- S2: the card's sections and the section nav (§9 S2) -----------------------------------------
+
+/**
+ * §5.7 row 3: the group chart's Show data table at most this far below its canvas, measured idle
+ * after the requests, with the card open; at 320×640 no budget (§5.7: the sideways, nav and
+ * outline checks only).
+ */
+const GROUP_SHOW_TABLE_BELOW_CANVAS: Readonly<Record<string, number>> = {
+	'1280x800': 600,
+	'390x844': 900
+};
+
+/** §5.7 row 6 and §7's outline below the pump canvas, as S2 builds it (§15). */
+const OUTLINE_CARD_CLOSED = [
+	{ level: 4, text: 'Other cases on the pump chart' },
+	{ level: 3, text: expect.stringMatching(/^Pumps together/) }
+];
+const OUTLINE_CARD_OPEN = [
+	{ level: 4, text: 'Other cases on the pump chart' },
+	{ level: 3, text: 'Pumps together' },
+	{ level: 4, text: 'Station' },
+	{ level: 4, text: 'Group chart' },
+	{ level: 4, text: 'Add cases' },
+	{ level: 4, text: 'Running combinations' },
+	{ level: 5, text: 'Extremes over these cases (current results)' }
+];
+
+/** The section nav and its pane as laid out (viewport px), and the element with the focus. */
+function readNav() {
+	const pane = document.querySelector('section[aria-label="Results"]')!;
+	const row = pane.querySelector('[role="tablist"][aria-label="Results view"]')!;
+	let scroller: HTMLElement | null = null;
+	for (let e = row.parentElement; e && e !== pane; e = e.parentElement) {
+		if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) {
+			scroller = e as HTMLElement;
+			break;
+		}
+	}
+	const nav = document.querySelector<HTMLElement>('[data-pumps-nav]')!;
+	const toolbar = nav.querySelector<HTMLElement>('[role="toolbar"]')!;
+	const figure = [...pane.querySelectorAll('figure')].find((f) =>
+		(f.querySelector(':scope > figcaption')?.textContent ?? '')
+			.trim()
+			.startsWith('Pump and system curves')
+	)!;
+	const canvas = figure.querySelector('[role="img"]')!.getBoundingClientRect();
+	const s = scroller!.getBoundingClientRect();
+	const n = nav.getBoundingClientRect();
+	const t = toolbar.getBoundingClientRect();
+	const a = document.activeElement as HTMLElement | null;
+	const ar = a?.getBoundingClientRect();
+	const here = toolbar.querySelector('[aria-current="location"]')?.getBoundingClientRect();
+	return {
+		pinned: nav.hasAttribute('data-pinned'),
+		position: getComputedStyle(nav).position,
+		navTop: n.top,
+		navBottom: n.bottom,
+		navHeight: n.height,
+		scrollerTop: s.top + scroller!.clientTop,
+		scrollerBottom: s.top + scroller!.clientTop + scroller!.clientHeight,
+		scrollerLeft: s.left + scroller!.clientLeft,
+		scrollerRight: s.left + scroller!.clientLeft + scroller!.clientWidth,
+		innerWidth: window.innerWidth,
+		innerHeight: window.innerHeight,
+		// The toolbar's row as it clips (its client box), and the current button in it.
+		toolbarLeft: t.left + toolbar.clientLeft,
+		toolbarRight: t.left + toolbar.clientLeft + toolbar.clientWidth,
+		current: here ? { left: here.left, right: here.right } : null,
+		clientHeight: scroller!.clientHeight,
+		scrollTop: scroller!.scrollTop,
+		scrollMax: scroller!.scrollHeight - scroller!.clientHeight,
+		scrollPadding: getComputedStyle(scroller!).scrollPaddingTop,
+		canvasTop: canvas.top,
+		canvasBottom: canvas.bottom,
+		buttons: [...toolbar.querySelectorAll<HTMLElement>('button')].map((b) => ({
+			// Its accessible name: a marked button's aria-label (§5.4 Marks), else its words.
+			name: b.getAttribute('aria-label') ?? (b.textContent ?? '').trim(),
+			stop: b.tabIndex === 0,
+			current: b.getAttribute('aria-current')
+		})),
+		active: a
+			? {
+					tag: a.tagName,
+					text: (a.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 80),
+					name: a.getAttribute('aria-label') ?? (a.textContent ?? '').replace(/\s+/g, ' ').trim(),
+					inNav: nav.contains(a),
+					top: ar!.top,
+					bottom: ar!.bottom,
+					left: ar!.left,
+					right: ar!.right,
+					height: ar!.height
+				}
+			: null
+	};
+}
+
+type NavState = ReturnType<typeof readNav>;
+
+/** Two animation frames: an observer's callback after a scroll has run (S2 review KBD-2). */
+const frames = (page: Page) =>
+	page.evaluate(
+		() =>
+			new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
+	);
+
+/**
+ * The pane's scroll and the nav's row at rest: neither has moved for ten frames (a press's
+ * smooth scroll, the row's keep-in-view), at most 10 s.
+ */
+async function scrollStops(page: Page) {
+	await page.evaluate(
+		() =>
+			new Promise<void>((done) => {
+				const pane = document.querySelector('section[aria-label="Results"]')!;
+				const row = pane.querySelector('[role="tablist"][aria-label="Results view"]')!;
+				let scroller: HTMLElement | null = null;
+				for (let e = row.parentElement; e && e !== pane; e = e.parentElement) {
+					if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) {
+						scroller = e as HTMLElement;
+						break;
+					}
+				}
+				const toolbar = document.querySelector<HTMLElement>('[data-pumps-nav] [role="toolbar"]')!;
+				let last = '';
+				let same = 0;
+				let n = 0;
+				const step = () => {
+					const now = `${scroller!.scrollTop} ${toolbar.scrollLeft}`;
+					same = now === last ? same + 1 : 0;
+					last = now;
+					if (same >= 10 || ++n > 600) done();
+					else requestAnimationFrame(step);
+				};
+				requestAnimationFrame(step);
+			})
+	);
+}
+
+/**
+ * The page itself never scrolls (§5.4 Place: only under `short:` does the workspace scroll as one
+ * page; S2 review KBD-1, TS-05): the document no taller than the viewport, not scrolled, the
+ * header at its top (soft).
+ */
+async function pageStill(page: Page, where: string) {
+	const p = await page.evaluate(() => ({
+		scrollY: window.scrollY,
+		scrollHeight: document.documentElement.scrollHeight,
+		innerHeight: window.innerHeight,
+		// The banner: the header outside main and the sections (the app's, with Solve).
+		bannerTop: [...document.querySelectorAll('header')]
+			.find((h) => !h.parentElement?.closest('main, section, article, aside, nav'))!
+			.getBoundingClientRect().top
+	}));
+	expect.soft(p.scrollHeight, `the page's height, ${where}`).toBeLessThanOrEqual(p.innerHeight);
+	expect.soft(p.scrollY, `the page's scroll, ${where}`).toBe(0);
+	expect.soft(p.bannerTop, `the header's top, ${where}`).toBe(0);
+}
+
+/** As pageStill, and a wheel over the header scrolls nothing either (S2 review TS-05). */
+async function pageHolds(page: Page, where: string) {
+	await pageStill(page, where);
+	const banner = (await page.getByRole('banner').boundingBox())!;
+	await page.mouse.move(banner.x + banner.width / 2, banner.y + banner.height / 2);
+	await page.mouse.wheel(0, 1500);
+	await page.waitForTimeout(300);
+	await pageStill(page, `${where}, after a wheel over the header`);
+	await page.mouse.move(1, 1);
+}
+
+/**
+ * The focused element in sight (§5.4 Focus never hidden, WCAG 2.4.11; S2 review): a box of its
+ * own inside the pane's visible area and the viewport and, for a button of the nav, inside the
+ * row that clips it.
+ */
+function focusInSight(s: NavState, what: string) {
+	const a = s.active;
+	const soft = expect.configure({ soft: true });
+	soft(a && a.height > 1, `${what}: a focused box`).toBe(true);
+	if (!a) return;
+	const top = Math.max(s.scrollerTop, 0);
+	const bottom = Math.min(s.scrollerBottom, s.innerHeight);
+	soft(
+		a.top,
+		`${what}: the focus's top in the pane's view and the viewport`
+	).toBeGreaterThanOrEqual(top - 0.5);
+	soft(
+		a.bottom,
+		`${what}: the focus's bottom in the pane's view and the viewport`
+	).toBeLessThanOrEqual(bottom + 0.5);
+	soft(a.left >= Math.max(s.scrollerLeft, 0) - 0.5, `${what}: the focus's left in sight`).toBe(
+		true
+	);
+	soft(
+		a.right <= Math.min(s.scrollerRight, s.innerWidth) + 0.5,
+		`${what}: the focus's right in sight`
+	).toBe(true);
+	if (a.inNav) {
+		soft(
+			a.left >= s.toolbarLeft - 0.5 && a.right <= s.toolbarRight + 0.5,
+			`${what}: the focused button inside the row (${Math.round(a.left)} to ${Math.round(a.right)} in ${Math.round(s.toolbarLeft)} to ${Math.round(s.toolbarRight)})`
+		).toBe(true);
+	}
+}
+
+/**
+ * Where the pane says you are (§5.4 Where you are), read from the targets given in document order
+ * (the sections' targets, as their presses focused them): the last whose top is at or above the
+ * line under the nav (the pane's top, the nav's height, the targets' 0.5 rem and 1 px for
+ * rounding), else the first; and whether each is on screen in the pane.
+ */
+function sectionsPassed(targets: Element[]) {
+	const pane = document.querySelector('section[aria-label="Results"]')!;
+	const row = pane.querySelector('[role="tablist"][aria-label="Results view"]')!;
+	let scroller: HTMLElement | null = null;
+	for (let e = row.parentElement; e && e !== pane; e = e.parentElement) {
+		if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) {
+			scroller = e as HTMLElement;
+			break;
+		}
+	}
+	const box = scroller!.getBoundingClientRect();
+	const top = Math.max(box.top + scroller!.clientTop, 0);
+	const bottom = Math.min(box.top + scroller!.clientTop + scroller!.clientHeight, innerHeight);
+	const nav = document.querySelector('[data-pumps-nav]')!.getBoundingClientRect().height;
+	const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+	const line = top + nav + rem / 2 + 1;
+	const boxes = targets.map((t) => t.getBoundingClientRect());
+	let passed = 0;
+	boxes.forEach((b, i) => {
+		if (b.top <= line) passed = i;
+	});
+	return {
+		passed,
+		line,
+		bottom,
+		tops: boxes.map((b) => Math.round(b.top)),
+		onScreen: boxes.map((b) => b.top < bottom && b.bottom > top)
+	};
+}
+
+/** Scroll the Results pane's scroller by `by` px (or to `to`), and let its observers run. */
+async function scrollPane(page: Page, move: { by?: number; to?: number }) {
+	await page.evaluate((m) => {
+		const pane = document.querySelector('section[aria-label="Results"]')!;
+		const row = pane.querySelector('[role="tablist"][aria-label="Results view"]')!;
+		for (let e = row.parentElement; e && e !== pane; e = e.parentElement) {
+			if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) {
+				e.scrollTop = m.to ?? e.scrollTop + (m.by ?? 0);
+				return;
+			}
+		}
+	}, move);
+	await page.waitForTimeout(150);
+}
+
+/**
+ * The section nav's part of S2 at the size shown (§5.4, §5.7, §10 The nav; soft, so a run reports
+ * every check): the group chart's budget; the outline below the pump canvas; one Tab stop and a
+ * ring the row never clips; pinned only once the pump canvas has scrolled out, at the pane's top,
+ * at most 15 % of it, and the canvas whole under the tab's top at 1280×800; each press, by the
+ * keyboard, lands on its target under the nav, uncovered, without motion when reduced motion is
+ * asked for, the link untouched; `aria-current` follows the scroll; Tab and Shift+Tab through the
+ * card never put the focus under the pinned nav; and "Back to the sections" gives the nav's
+ * current button the focus.
+ */
+async function navPart(page: Page, where: string) {
+	const soft = expect.configure({ soft: true });
+	const size = sizeOf(page);
+	const tab = resultsPane(page).getByRole('tabpanel', { name: 'Pumps', exact: true });
+	const nav = tab.getByRole('navigation', { name: 'Pumps view sections' });
+	const toolbar = nav.getByRole('toolbar', { name: 'Go to' });
+	await soft(toolbar, `the section nav's toolbar, ${where}`).toHaveAttribute(
+		'aria-orientation',
+		'horizontal'
+	);
+	// Its lead word seen, a box of its own, not sr-only's 1 px (§5.4 Markup: "a visible lead word").
+	soft(
+		await seenBox(nav.getByText('Go to', { exact: true })),
+		`the nav's lead word "Go to" seen, ${where}`
+	).toBe(true);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const toggle = card.getByRole('button', { name: /^Pumps together/ });
+	const open = (await toggle.getAttribute('aria-expanded')) === 'true';
+	const hash = await page.evaluate(() => location.hash);
+
+	// §5.7 row 3: the group canvas to its Show data table, with the card open.
+	const budget = GROUP_SHOW_TABLE_BELOW_CANVAS[size];
+	if (open && budget !== undefined) {
+		const figure = card.getByRole('figure');
+		const canvas = await figure.getByRole('img').boundingBox();
+		const button = await figure
+			.getByRole('button', { name: /^(Show|Hide) data table$/ })
+			.boundingBox();
+		soft(canvas && button, `the group canvas and its Show data table, ${where}`).toBeTruthy();
+		if (canvas && button) {
+			const below = Math.round(button.y - (canvas.y + canvas.height));
+			console.log(
+				`${where}: group Show data table ${below} px below its canvas (budget ${budget})`
+			);
+			soft(
+				below,
+				`the group chart's Show data table below its canvas, ${where}`
+			).toBeLessThanOrEqual(budget);
+		}
+	}
+
+	// §5.7 row 6, §7: the outline below the pump canvas, in order; the nav holds no heading.
+	const outline = await page.evaluate(() => {
+		const pane = document.querySelector('section[aria-label="Results"]')!;
+		const panel = [...pane.querySelectorAll('[role="tabpanel"]')].find(
+			(p) => !(p as HTMLElement).hidden
+		)!;
+		const figure = [...panel.querySelectorAll('figure')].find((f) =>
+			(f.querySelector(':scope > figcaption')?.textContent ?? '')
+				.trim()
+				.startsWith('Pump and system curves')
+		)!;
+		const base = figure.querySelector('[role="img"]')!.getBoundingClientRect().bottom;
+		return [...panel.querySelectorAll('h1,h2,h3,h4,h5,h6')]
+			.filter(
+				(h) =>
+					h.checkVisibility() &&
+					h.getBoundingClientRect().height > 1 &&
+					h.getBoundingClientRect().top >= base - 0.5
+			)
+			.map((h) => ({
+				level: Number(h.tagName[1]),
+				text: (h.textContent ?? '').replace(/\s+/g, ' ').trim()
+			}));
+	});
+	soft(outline, `the headings below the pump canvas, ${where}`).toEqual(
+		open ? OUTLINE_CARD_OPEN : OUTLINE_CARD_CLOSED
+	);
+	expect
+		.soft(await nav.locator('h1,h2,h3,h4,h5,h6').count(), `headings in the nav, ${where}`)
+		.toBe(0);
+
+	// One Tab stop (§5.4): from the Pumps view's tab, Tab lands in the toolbar, once.
+	await scrollPane(page, { to: 0 });
+	await resultsPane(page).getByRole('tab', { name: 'Pumps', exact: true }).focus();
+	await page.keyboard.press('Tab');
+	let state = await page.evaluate(readNav);
+	soft(state.active?.inNav, `Tab from the view's tab lands in the nav, ${where}`).toBe(true);
+	soft(state.buttons.filter((b) => b.stop).length, `the nav's Tab stops, ${where}`).toBe(1);
+	// Its ring (2 px at a 2 px offset) whole inside the row, which clips (§5.4 One shared component).
+	const ring = await page.evaluate(() => {
+		const a = document.activeElement as HTMLElement;
+		const row = a.closest('[role="toolbar"]') as HTMLElement;
+		const r = a.getBoundingClientRect();
+		const box = row.getBoundingClientRect();
+		const style = getComputedStyle(a);
+		return {
+			outline: style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0,
+			reach: parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset),
+			top: r.top - box.top - row.clientTop,
+			bottom: box.top + row.clientTop + row.clientHeight - r.bottom
+		};
+	});
+	soft(ring.outline, `the focused button's ring drawn, ${where}`).toBe(true);
+	soft(ring.top, `room above the ring in the row, ${where}`).toBeGreaterThanOrEqual(ring.reach);
+	soft(ring.bottom, `room below the ring in the row, ${where}`).toBeGreaterThanOrEqual(ring.reach);
+	await page.keyboard.press('Tab');
+	state = await page.evaluate(readNav);
+	soft(state.active?.inNav, `a second Tab leaves the nav, ${where}`).toBe(false);
+
+	// Pinned only once the pump canvas has scrolled out (§5.4 Place): at the tab's top static;
+	// the canvas 2 px in view, static; 2 px out, pinned at the pane's top, ≤ 15 % of its height.
+	await scrollPane(page, { to: 0 });
+	state = await page.evaluate(readNav);
+	soft(state.pinned, `the nav at the tab's top, ${where}`).toBe(false);
+	soft(state.position, `the nav at the tab's top, ${where}`).toBe('static');
+	await scrollPane(page, { by: state.canvasBottom - state.scrollerTop - 2 });
+	state = await page.evaluate(readNav);
+	soft(state.pinned, `the nav with the canvas's last 2 px in view, ${where}`).toBe(false);
+	await scrollPane(page, { by: 4 });
+	state = await page.evaluate(readNav);
+	const share = state.navHeight / state.clientHeight;
+	console.log(
+		`${where}: the nav ${Math.round(state.navHeight)} px, ${(share * 100).toFixed(1)} % of a ${state.clientHeight} px pane, pinned ${state.pinned}`
+	);
+	soft(share, `the nav's share of the pane, ${where}`).toBeLessThanOrEqual(0.15);
+	soft(state.pinned, `the nav with the canvas scrolled out, ${where}`).toBe(true);
+	soft(state.position, `the nav with the canvas scrolled out, ${where}`).toBe('sticky');
+	soft(
+		Math.abs(state.navTop - state.scrollerTop),
+		`the pinned nav at the pane's top, ${where}`
+	).toBeLessThan(1);
+	// Its height and 0.5 rem: a focus ring and a scroll's rounding never reach under it.
+	soft(state.scrollPadding, `the pane's scroll padding while pinned, ${where}`).toBe(
+		`${state.navHeight + 8}px`
+	);
+	if (size === '1280x800') {
+		// §5.7: the canvas whole under the tab's top, the nav not over it (F12).
+		await scrollPane(page, { by: state.canvasTop - state.scrollerTop });
+		state = await page.evaluate(readNav);
+		soft(state.pinned, `the nav over the whole canvas, ${where}`).toBe(false);
+		soft(state.canvasBottom, `the canvas's bottom in the pane, ${where}`).toBeLessThanOrEqual(
+			state.scrollerBottom
+		);
+	}
+
+	// Each press, by the keyboard (§5.4 A press): the focus on its target, 0.5 rem under the nav
+	// (pinned) or the pane's top (static), unless the pane cannot scroll that far; no motion.
+	await page.emulateMedia({ reducedMotion: 'reduce' });
+	const names = state.buttons.map((b) => b.name);
+	/** Each button's target, as its press focused it, in the buttons' order. */
+	const targets: JSHandle<Element>[] = [];
+	for (const name of names) {
+		await toolbar.getByRole('button', { name, exact: true }).press('Enter');
+		const animations = await page.evaluate(() => document.getAnimations().length);
+		// The nav's state once the canvas's observer has run, a frame after the scroll (S2
+		// review KBD-2: read at once, it was sometimes the state before the press).
+		await frames(page);
+		const pressed = await page.evaluate(() => {
+			const n = document.querySelector('[data-pumps-nav]')!;
+			return {
+				nav: { pinned: n.hasAttribute('data-pinned'), bottom: n.getBoundingClientRect().bottom }
+			};
+		});
+		state = await page.evaluate(readNav);
+		const label = name.split(',')[0]!;
+		const top = state.active ? state.active.top : NaN;
+		const edge = pressed.nav.pinned ? pressed.nav.bottom : state.scrollerTop;
+		const atEnd = state.scrollTop >= state.scrollMax - 1;
+		soft(animations, `animations after pressing ${label}, ${where}`).toBe(0);
+		soft(state.active?.inNav, `the focus after pressing ${label}, ${where}`).toBe(false);
+		soft(state.active?.text ?? '', `the focus after pressing ${label}, ${where}`).toMatch(
+			label === 'Per pump' ? /^Results per pump/ : new RegExp(`^${label}`)
+		);
+		if (atEnd) {
+			soft(top, `${label}'s target below the nav, ${where}`).toBeGreaterThanOrEqual(edge - 0.5);
+		} else {
+			soft(Math.round(top - edge), `${label}'s target under the nav, ${where}`).toBe(8);
+		}
+		soft(state.active!.bottom, `${label}'s target in the pane, ${where}`).toBeLessThanOrEqual(
+			state.scrollerBottom + 0.5
+		);
+		soft(
+			state.buttons.find((b) => b.current === 'location')?.name,
+			`aria-current after pressing ${label}, ${where}`
+		).toBe(name);
+		soft(
+			await page.evaluate(() => location.hash),
+			`the link after pressing ${label}, ${where}`
+		).toBe(hash);
+		focusInSight(state, `after pressing ${label}, ${where}`);
+		await pageStill(page, `after pressing ${label}, ${where}`);
+
+		// Then 150 px back up: aria-current follows, to the section passed last, unless the pane
+		// stopped at its end with the target short of the line and it is still on screen (§5.4
+		// Where you are; S2 check NAV2-LEAVE: a target at rest on the observer's edge left it
+		// unseen, and the section pressed stayed current). Then back where the press left it.
+		targets.push(await page.evaluateHandle(() => document.activeElement!));
+		const i = targets.length - 1;
+		const landed = await page.evaluate(sectionsPassed, targets);
+		await scrollPane(page, { by: -150 });
+		await frames(page);
+		const up = await page.evaluate(sectionsPassed, targets);
+		const held = landed.passed < i && up.onScreen[i]!;
+		soft(
+			(await page.evaluate(readNav)).buttons.find((b) => b.current === 'location')?.name,
+			`aria-current 150 px back up after pressing ${label} (tops ${up.tops.join(', ')}, the line at ${Math.round(up.line)}), ${where}`
+		).toBe(names[held ? i : up.passed]);
+		await scrollPane(page, { to: state.scrollTop });
+	}
+
+	// Each press from the tab's top, the nav static, with motion (the default): the target lands
+	// as it does from the pinned nav, 0.5 rem under it, and once the scroll has stopped the button
+	// pressed is current (S2 review TS-01, NAV-2).
+	await page.emulateMedia({ reducedMotion: 'no-preference' });
+	for (const name of names) {
+		await scrollPane(page, { to: 0 });
+		await toolbar.getByRole('button', { name, exact: true }).press('Enter');
+		await scrollStops(page);
+		state = await page.evaluate(readNav);
+		const label = `${name.split(',')[0]!} from the tab's top`;
+		const top = state.active ? state.active.top : NaN;
+		const edge = state.pinned ? state.navBottom : state.scrollerTop;
+		soft(state.active?.text ?? '', `the focus after pressing ${label}, ${where}`).toMatch(
+			name.startsWith('Per pump') ? /^Results per pump/ : new RegExp(`^${name.split(',')[0]}`)
+		);
+		if (state.scrollTop >= state.scrollMax - 1) {
+			soft(top, `${label}'s target below the nav, ${where}`).toBeGreaterThanOrEqual(edge - 0.5);
+		} else {
+			soft(Math.round(top - edge), `${label}'s target under the nav, ${where}`).toBe(8);
+		}
+		soft(
+			state.buttons.find((b) => b.current === 'location')?.name,
+			`aria-current once the scroll has stopped, after pressing ${label}, ${where}`
+		).toBe(name);
+		focusInSight(state, `after pressing ${label}, ${where}`);
+		await pageStill(page, `after pressing ${label}, ${where}`);
+	}
+
+	// A press cut short (S2 check NAV2-STUCK): the last button pressed from the tab's top, with
+	// motion, then Home, or the scrollbar dragged back to where the press began (an instant
+	// scroll), while its scroll runs and its target is still below the pane. Later the user's own
+	// scroll brings the target in from below, 60 px above the pane's foot and then 100 px further:
+	// aria-current is the section passed last, never the target before it is passed.
+	const last = names.at(-1)!;
+	for (const cut of ['Home', 'a drag'] as const) {
+		let below = false;
+		// The cut must come while the target is below the pane: tried again if the press was
+		// quicker (at most three times).
+		for (let attempt = 0; attempt < 3 && !below; attempt++) {
+			await scrollPane(page, { to: 0 });
+			await toolbar.getByRole('button', { name: last, exact: true }).press('Enter');
+			below = await page.evaluate(
+				([target, drag]) =>
+					new Promise<boolean>((done) => {
+						const pane = document.querySelector('section[aria-label="Results"]')!;
+						const row = pane.querySelector('[role="tablist"][aria-label="Results view"]')!;
+						let scroller: HTMLElement | null = null;
+						for (let e = row.parentElement; e && e !== pane; e = e.parentElement) {
+							if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) {
+								scroller = e as HTMLElement;
+								break;
+							}
+						}
+						const s = scroller!;
+						const from = s.scrollTop;
+						let n = 0;
+						// 200 px into the press's scroll (or its end, or 10 s), then the cut.
+						const step = () => {
+							if (s.scrollTop < from + 200 && ++n < 600) {
+								requestAnimationFrame(step);
+								return;
+							}
+							const box = s.getBoundingClientRect();
+							const bottom = Math.min(box.top + s.clientTop + s.clientHeight, innerHeight);
+							const out = target.getBoundingClientRect().top >= bottom;
+							if (drag) s.scrollTop = from;
+							done(out);
+						};
+						requestAnimationFrame(step);
+					}),
+				[targets.at(-1)!, cut === 'a drag'] as const
+			);
+			if (cut === 'Home') await page.keyboard.press('Home');
+			await scrollStops(page);
+			await frames(page);
+		}
+		soft(
+			below,
+			`the press of ${last} cut short (${cut}) while its target was below the pane, ${where}`
+		).toBe(true);
+		for (const [step, by] of [
+			['60 px above the pane’s foot', null],
+			['100 px further', 100]
+		] as const) {
+			const at = await page.evaluate(sectionsPassed, targets);
+			await scrollPane(page, { by: by ?? at.tops.at(-1)! - (at.bottom - 60) });
+			await frames(page);
+			const now = await page.evaluate(sectionsPassed, targets);
+			soft(
+				(await page.evaluate(readNav)).buttons.find((b) => b.current === 'location')?.name,
+				`aria-current, ${last} pressed and cut short (${cut}), then scrolled in to ${step} (tops ${now.tops.join(', ')}, the line at ${Math.round(now.line)}), ${where}`
+			).toBe(names[now.passed]);
+		}
+	}
+	await page.emulateMedia({ reducedMotion: 'reduce' });
+
+	if (open) {
+		// aria-current follows the scroll (§5.4 Where you are): each heading brought under the nav.
+		for (const heading of ['Station', 'Group chart', 'Running combinations']) {
+			const top = await card
+				.getByRole('heading', { name: heading, exact: true })
+				.evaluate((h) => h.getBoundingClientRect().top);
+			state = await page.evaluate(readNav);
+			await scrollPane(page, { by: top - state.scrollerTop - state.navHeight - 4 });
+			await soft
+				.poll(
+					async () =>
+						(await page.evaluate(readNav)).buttons
+							.find((b) => b.current === 'location')
+							?.name.split(',')[0],
+					{ message: `aria-current scrolled to ${heading}, ${where}`, timeout: 3000 }
+				)
+				.toBe(heading);
+			// The row scrolls to keep it in view (§5.4 Where you are; S2 review TS-07).
+			await frames(page);
+			state = await page.evaluate(readNav);
+			soft(
+				!!state.current &&
+					state.current.left >= state.toolbarLeft - 0.5 &&
+					state.current.right <= state.toolbarRight + 0.5,
+				`the current button inside the row, scrolled to ${heading}, ${where}`
+			).toBe(true);
+		}
+
+		// Tab and Shift+Tab through the card, the nav pinned: no focused element meets it (§5.7,
+		// WCAG 2.4.11). The toggle first (the nav's Pumps together), then to the card's end.
+		await toolbar.getByRole('button', { name: /^Pumps together/ }).press('Enter');
+		const covered: string[] = [];
+		const tall: string[] = [];
+		const check = (s: Awaited<ReturnType<typeof readNav>>, how: string) => {
+			if (!s.pinned || !s.active || s.active.inNav || s.active.height < 1) return;
+			const seen = `${how} ${s.active.tag} "${s.active.text.slice(0, 40)}" at ${Math.round(s.active.top - s.navBottom)}`;
+			if (s.active.height > s.scrollerBottom - s.navBottom) {
+				// A box taller than the pane under the nav always meets it: WCAG 2.4.11's own test,
+				// some of it in sight below the nav.
+				tall.push(seen);
+				if (!(s.active.bottom > s.navBottom + 1 && s.active.top < s.scrollerBottom - 1)) {
+					covered.push(`${seen} (none of it in sight)`);
+				}
+			} else if (s.active.bottom + 4 > s.navTop + 0.5 && s.active.top - 4 < s.navBottom - 0.5) {
+				// Its ring too: 2 px at a 2 px offset.
+				covered.push(seen);
+			}
+		};
+		let steps = 0;
+		for (; steps < 300; steps++) {
+			await page.keyboard.press('Tab');
+			state = await page.evaluate(readNav);
+			check(state, 'Tab');
+			const last = await page.evaluate(
+				() => !!document.activeElement?.closest('[data-back-to-sections]')
+			);
+			if (last) break;
+		}
+		soft(steps, `Tab reached "Back to the sections" at the card's end, ${where}`).toBeLessThan(300);
+		for (let i = 0; i < 300; i++) {
+			await page.keyboard.press('Shift+Tab');
+			state = await page.evaluate(readNav);
+			check(state, 'Shift+Tab');
+			if (await toggle.evaluate((t) => t === document.activeElement)) break;
+		}
+		soft(covered, `focused elements under the pinned nav, ${where}`).toEqual([]);
+		if (tall.length)
+			console.log(`${where}: focused boxes taller than the pane: ${tall.join('; ')}`);
+
+		// "Back to the sections" (§5.4 The way back): visible once focused; the nav's current
+		// button gets the focus.
+		const back = card.getByRole('button', { name: 'Back to the sections' });
+		const unshown = await page.evaluate(readNav);
+		await back.focus();
+		await frames(page);
+		const shown = await page.evaluate(readNav);
+		soft(await seenBox(back), `"Back to the sections" seen when focused, ${where}`).toBe(true);
+		// Shown, it lies over the card's foot (from the end of the card's content, over its
+		// padding) and moves nothing: the pane's scroll range is the same, so a press elsewhere
+		// that hides it lands where it was aimed (S2 review LAYOUT-1).
+		const foot = await back.evaluate((b) => ({
+			top: b.getBoundingClientRect().top,
+			cardBottom: b.closest('section')!.getBoundingClientRect().bottom
+		}));
+		soft(
+			foot.top >= foot.cardBottom - 16 && foot.top <= foot.cardBottom,
+			`"Back to the sections" shown at its card's foot (${Math.round(foot.top - foot.cardBottom)} px from its bottom), ${where}`
+		).toBe(true);
+		soft(
+			shown.scrollMax,
+			`the pane's scroll range with "Back to the sections" shown, ${where}`
+		).toBe(unshown.scrollMax);
+		// The nav's row wheeled back to its start, so the current button is out of its view and
+		// the focus must bring it in: the row alone moves.
+		await toolbar.evaluate((t) => (t.scrollLeft = 0));
+		const before = await page.evaluate(readNav);
+		await page.keyboard.press('Enter');
+		await frames(page);
+		state = await page.evaluate(readNav);
+		const focused = state.buttons.find((b) => b.current === 'location');
+		soft(state.active?.inNav, `the focus after "Back to the sections", ${where}`).toBe(true);
+		soft(state.active?.name, `the focus after "Back to the sections", ${where}`).toBe(
+			focused?.name
+		);
+		// The nav pinned is in sight: the focus scrolls nothing (S2 review TS-02).
+		if (before.pinned) {
+			soft(state.scrollTop, `the pane after "Back to the sections", the nav pinned, ${where}`).toBe(
+				before.scrollTop
+			);
+		}
+		focusInSight(state, `after "Back to the sections", ${where}`);
+		await pageStill(page, `after "Back to the sections", ${where}`);
+	}
+
+	// The toolbar's keys with the nav pinned (§5.4 One Tab stop, §7; S2 review TS-03, TS-04):
+	// End, Home and the arrows move the focus along the row, which brings the button in, and
+	// scroll nothing else (the browser's End and Home would take the pane to its ends).
+	await scrollPane(page, { to: 0 });
+	state = await page.evaluate(readNav);
+	await scrollPane(page, { by: state.canvasBottom - state.scrollerTop + 200 });
+	await toolbar
+		.getByRole('button')
+		.first()
+		.evaluate((b) => (b as HTMLElement).focus({ preventScroll: true }));
+	await frames(page);
+	const keyed = await page.evaluate(readNav);
+	soft(keyed.pinned, `the nav pinned for its keys, ${where}`).toBe(true);
+	const order = keyed.buttons.map((b) => b.name);
+	for (const [key, expected] of [
+		['End', order.at(-1)],
+		['Home', order[0]],
+		['ArrowLeft', order.at(-1)],
+		['ArrowRight', order[0]],
+		['ArrowRight', order[1]]
+	] as const) {
+		await page.keyboard.press(key);
+		await frames(page);
+		state = await page.evaluate(readNav);
+		soft(state.active?.name, `the focus after ${key} in the toolbar, ${where}`).toBe(expected);
+		soft(state.scrollTop, `the pane after ${key} in the toolbar, ${where}`).toBe(keyed.scrollTop);
+		focusInSight(state, `after ${key} in the toolbar, ${where}`);
+		await pageStill(page, `after ${key} in the toolbar, ${where}`);
+	}
+
+	// Static, the nav scrolled out above the pane while the pump canvas is still in view: an
+	// arrow key's focus brings it back into view (§5.4 Focus never hidden; S2 review NAV-3).
+	await scrollPane(page, { to: 0 });
+	await toolbar
+		.getByRole('button')
+		.first()
+		.evaluate((b) => (b as HTMLElement).focus({ preventScroll: true }));
+	state = await page.evaluate(readNav);
+	await scrollPane(page, { by: state.navBottom - state.scrollerTop + 40 });
+	state = await page.evaluate(readNav);
+	soft(state.pinned, `the nav scrolled out with the canvas in view, ${where}`).toBe(false);
+	soft(state.navBottom, `the nav scrolled out above the pane, ${where}`).toBeLessThan(
+		state.scrollerTop
+	);
+	await page.keyboard.press('ArrowRight');
+	await frames(page);
+	state = await page.evaluate(readNav);
+	soft(state.active?.name, `the focus after ArrowRight, the nav scrolled out, ${where}`).toBe(
+		order[1]
+	);
+	focusInSight(state, `after ArrowRight, the nav scrolled out, ${where}`);
+	await pageStill(page, `after ArrowRight, the nav scrolled out, ${where}`);
+
+	if (!open) {
+		// The closed card: Tab from its toggle to its "Back to the sections", the pane at its end,
+		// then a press on the toggle opens the card. Shown, Back moves nothing, so the press is
+		// not lost to content jumping under the pointer (S2 review LAYOUT-1).
+		await toggle.focus();
+		await page.keyboard.press('Tab');
+		const back = card.getByRole('button', { name: 'Back to the sections' });
+		soft(
+			await back.evaluate((b) => b === document.activeElement),
+			`Tab from the closed card's toggle reaches "Back to the sections", ${where}`
+		).toBe(true);
+		await scrollPane(page, { to: 1e7 });
+		await toggle.click();
+		soft(
+			await toggle.getAttribute('aria-expanded'),
+			`the toggle pressed, "Back to the sections" focused and the pane at its end, ${where}`
+		).toBe('true');
+		if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+		// The pump chart card's "Back to the sections", shown, reaches over the gap onto this
+		// card's top, its toggle's top edge: a press there is the toggle's (S2 check
+		// BACK-OVERLAY: it was Back's, and the focus jumped to the nav).
+		const chartBack = page.locator('[data-pump-chart] [data-back-to-sections] button');
+		await chartBack.evaluate((b) => b.scrollIntoView({ block: 'center' }));
+		await chartBack.evaluate((b) => (b as HTMLElement).focus({ preventScroll: true }));
+		await frames(page);
+		const edge = await chartBack.evaluate(
+			(b, t) => {
+				const r = b.getBoundingClientRect();
+				const box = t.getBoundingClientRect();
+				const x = Math.max(box.left, r.left) + 10;
+				const y = box.top + 2;
+				const hit = document.elementFromPoint(x, y);
+				return {
+					x,
+					y,
+					over: x >= r.left && x <= r.right && y >= r.top && y <= r.bottom,
+					hit: !!hit && t.contains(hit)
+				};
+			},
+			(await toggle.elementHandle())!
+		);
+		console.log(
+			`${where}: the pump chart card's Back shown, ${edge.over ? 'over' : 'clear of'} the toggle's top edge`
+		);
+		soft(
+			edge.hit,
+			`the toggle's top edge takes a press, the pump chart card's Back shown, ${where}`
+		).toBe(true);
+		await page.mouse.click(edge.x, edge.y);
+		soft(
+			await toggle.getAttribute('aria-expanded'),
+			`a click on the toggle's top edge, the pump chart card's Back shown, ${where}`
+		).toBe('true');
+		if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+	}
+	await page.emulateMedia({ reducedMotion: null });
+	soft(await page.evaluate(() => location.hash), `the link after the nav's part, ${where}`).toBe(
+		hash
+	);
+}
+
 /**
  * §9's merge condition "axe is clean with every disclosure open", over the whole Pumps tabpanel
  * (§7 Proof): axe-core with the suite's WCAG 2.0 to 2.2 A and AA tags, then `heading-order` and
@@ -1026,22 +1858,29 @@ async function axeClean(page: Page, where: string) {
 async function atEachSize(page: Page, info: TestInfo, view: string, extra: object) {
 	const size = sizeOf(page);
 	await noSidewaysScroll(page, `${view} at ${size}`);
+	await pageHolds(page, `${view} at ${size}`);
 	await pumpChartPart(page, `${view} at ${size}`);
 	await measure(page, info, `${view}-${size}`, extra);
+	await navPart(page, `${view} at ${size}`);
 	if (info.project.name !== 'mobile') {
 		await axeClean(page, `${view} at ${size}`);
+		await pageHolds(page, `${view} at ${size}, every disclosure open`);
 		return;
 	}
 	const viewport = page.viewportSize()!;
 	await page.setViewportSize({ width: 320, height: 640 });
 	await settle(page, 1000);
 	await noSidewaysScroll(page, `${view} at 320x640`);
+	await pageHolds(page, `${view} at 320x640`);
 	await pumpChartPart(page, `${view} at 320x640`);
 	await measure(page, info, `${view}-320x640`, extra);
+	await navPart(page, `${view} at 320x640`);
 	await axeClean(page, `${view} at 320x640`);
+	await pageHolds(page, `${view} at 320x640, every disclosure open`);
 	await page.setViewportSize(viewport);
 	await settle(page, 1000);
 	await axeClean(page, `${view} at ${size}`);
+	await pageHolds(page, `${view} at ${size}, every disclosure open`);
 }
 
 // ---- S0: no sideways scroll; S1: the pump chart's budget and outline -----------------------------
@@ -1362,4 +2201,214 @@ test('a lasting image reason sits with Download image, beside it or under it, ne
 			).toBeLessThanOrEqual(1);
 		}
 	}
+});
+
+// ---- S2: the section nav where it stays static, and its Tab stop clamped ----------------------
+
+test('the section nav stays static where it would cover too much (844×390, and 320×256 under short:); its stop is clamped to the buttons drawn (§5.4, §5.7)', async ({
+	page
+}) => {
+	test.setTimeout(240_000);
+	await oneOff(page);
+	const tab = resultsPane(page).getByRole('tabpanel', { name: 'Pumps', exact: true });
+	const card = await openCard(page, tab);
+	const toolbar = tab
+		.getByRole('navigation', { name: 'Pumps view sections' })
+		.getByRole('toolbar', { name: 'Go to' });
+	const hash = await page.evaluate(() => location.hash);
+	await page.emulateMedia({ reducedMotion: 'reduce' });
+
+	// The pinned nav never takes a press meant for the header's Scenarios menu, which opens over
+	// the pane: each of the menu's controls is what a press at its centre reaches.
+	await scrollPane(page, { to: 0 });
+	const top = await page.evaluate(readNav);
+	await scrollPane(page, { by: top.canvasBottom - top.scrollerTop + 200 });
+	expect((await page.evaluate(readNav)).pinned, 'the nav pinned under the menu').toBe(true);
+	const menu = await openCases(page);
+	const reached = await menu.evaluate((group) =>
+		[...group.querySelectorAll<HTMLElement>('button, select')].map((control) => {
+			const r = control.getBoundingClientRect();
+			const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+			return {
+				name: (control.textContent ?? '').trim().slice(0, 30),
+				reached: control.contains(hit)
+			};
+		})
+	);
+	expect(reached.length, 'the menu’s controls').toBeGreaterThan(1);
+	expect(reached.filter((c) => !c.reached)).toEqual([]);
+	await page.keyboard.press('Escape');
+	await expect(menu).toBeHidden();
+
+	// A landscape phone (a 212 px pane, measured) and a laptop at 400 % zoom, where the workspace
+	// scrolls as one page: the nav would take more than 15 %, so it never pins (§5.4 Place).
+	const viewport = page.viewportSize()!;
+	for (const [width, height] of [
+		[844, 390],
+		[320, 256]
+	] as const) {
+		await page.setViewportSize({ width, height });
+		await settle(page, 1000);
+		await noSidewaysScroll(page, `one-off at ${width}x${height}`);
+		await scrollPane(page, { to: 0 });
+		let state = await page.evaluate(readNav);
+		await scrollPane(page, { by: state.canvasBottom - state.scrollerTop + 200 });
+		// Under short: the page scrolls, not the pane: the canvas goes out of the viewport.
+		await page.evaluate(() => {
+			const fig = [...document.querySelectorAll('figure')].find((f) =>
+				(f.querySelector(':scope > figcaption')?.textContent ?? '')
+					.trim()
+					.startsWith('Pump and system curves')
+			)!;
+			fig.closest('[data-pump-chart]')!.nextElementSibling?.scrollIntoView({ block: 'start' });
+		});
+		await page.waitForTimeout(300);
+		state = await page.evaluate(readNav);
+		console.log(
+			`one-off at ${width}x${height}: the nav ${Math.round(state.navHeight)} px in a ${state.clientHeight} px pane, pinned ${state.pinned}`
+		);
+		expect.soft(state.pinned, `the nav at ${width}x${height}`).toBe(false);
+		expect.soft(state.position, `the nav at ${width}x${height}`).toBe('static');
+		expect
+			.soft(state.scrollPadding, `the pane's scroll padding at ${width}x${height}`)
+			.toBe('auto');
+		// A press still lands on its target, uncovered (nothing is pinned over it).
+		await toolbar.getByRole('button', { name: /^Group chart/ }).press('Enter');
+		await expect(card.getByRole('heading', { name: 'Group chart', exact: true })).toBeFocused();
+		const top = await card
+			.getByRole('heading', { name: 'Group chart', exact: true })
+			.evaluate((h) => h.getBoundingClientRect().top);
+		expect.soft(top, `the target in the viewport at ${width}x${height}`).toBeGreaterThanOrEqual(0);
+		expect
+			.soft(await page.evaluate(() => location.hash), `the link at ${width}x${height}`)
+			.toBe(hash);
+		// From the card's foot, "Back to the sections" gives the nav's current button the focus,
+		// in sight: the static nav is brought back into view (§5.4 The way back; S2 review TS-02).
+		// Then an arrow key, the nav scrolled out again: the same (S2 review NAV-3).
+		const back = card.getByRole('button', { name: 'Back to the sections' });
+		for (const key of ['Enter', 'ArrowRight']) {
+			if (key === 'Enter') {
+				await back.focus();
+			} else {
+				// The nav 40 px out of sight: above the pane, or under short: above the viewport.
+				const before = await page.evaluate(readNav);
+				if (height > 320) {
+					await scrollPane(page, { by: before.navBottom - before.scrollerTop + 40 });
+				} else {
+					await page.evaluate((by) => window.scrollBy(0, by), before.navBottom + 40);
+					await page.waitForTimeout(150);
+				}
+				const out = await page.evaluate(readNav);
+				expect
+					.soft(out.navBottom, `the nav scrolled out of sight at ${width}x${height}`)
+					.toBeLessThan(height > 320 ? out.scrollerTop : 0);
+			}
+			await page.keyboard.press(key);
+			await frames(page);
+			const after = await page.evaluate(readNav);
+			const what = `${key === 'Enter' ? '"Back to the sections"' : 'ArrowRight'} at ${width}x${height}`;
+			expect.soft(after.active?.inNav, `the focus after ${what}`).toBe(true);
+			const a = after.active!;
+			expect.soft(a.top, `the focus's top in the viewport after ${what}`).toBeGreaterThanOrEqual(0);
+			expect
+				.soft(a.bottom, `the focus's bottom in the viewport after ${what}`)
+				.toBeLessThanOrEqual(after.innerHeight);
+			if (height > 320) {
+				// Not under short:, where the page scrolls: the pane's own view too, the page still.
+				focusInSight(after, `after ${what}`);
+				await pageStill(page, `after ${what}`);
+			}
+		}
+	}
+	await page.setViewportSize(viewport);
+	await settle(page, 1000);
+
+	// The stop on Group chart, then every member unticked and the card closed: the station's
+	// buttons go, and Tab into the nav lands on one that exists, the nearest earlier (§5.4).
+	await toolbar.getByRole('button', { name: /^Group chart/ }).press('Enter');
+	await expect(toolbar.getByRole('button', { name: /^Group chart/ })).toHaveAttribute(
+		'tabindex',
+		'0'
+	);
+	const members = card.getByRole('group', { name: 'Pumps in the group' });
+	for (const box of await members.getByRole('checkbox').all()) {
+		if (await box.isChecked()) await box.click();
+	}
+	await card.getByRole('button', { name: /^Pumps together/ }).click();
+	await expect(toolbar.getByRole('button')).toHaveText([
+		'Per pump',
+		/^Pump chart/,
+		/^Pumps together/
+	]);
+	// The focus outside the toolbar, the stop is the current section (the scroll's; the clamp to
+	// the nearest earlier section is PumpsNav.svelte.test.ts's): one that exists, the only stop.
+	await resultsPane(page).getByRole('tab', { name: 'Pumps', exact: true }).focus();
+	await page.keyboard.press('Tab');
+	const focused = await page.evaluate(() => {
+		const a = document.activeElement as HTMLElement;
+		return {
+			inToolbar: !!a.closest('[role="toolbar"]'),
+			name: (a.textContent ?? '').trim(),
+			stop: a.tabIndex,
+			stops: [...(a.closest('[role="toolbar"]')?.querySelectorAll('button') ?? [])].filter(
+				(b) => b.tabIndex === 0
+			).length
+		};
+	});
+	expect(focused.inToolbar).toBe(true);
+	expect(['Per pump', 'Pump chart', 'Pumps together']).toContain(focused.name.split(',')[0]);
+	expect(focused.stop).toBe(0);
+	expect(focused.stops).toBe(1);
+	expect(await page.evaluate(() => location.hash)).toBe(hash);
+});
+
+// ---- S2 review fixes: the closed card's heading ------------------------------------------------
+
+test('the closed card’s heading keeps “Pumps together” on one line beside the condenser’s six members, at each size (§5.3 item 3, §5.6; S2 review LAYOUT-3)', async ({
+	page
+}, info) => {
+	test.setTimeout(240_000);
+	await open(page, exampleProject('condenser-water')!);
+	await solveConverged(page);
+	const tab = await pumpsTab(page);
+	await settle(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const toggle = card.getByRole('button', { name: /^Pumps together/ });
+	await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+	const viewport = page.viewportSize()!;
+	const sizes =
+		info.project.name === 'mobile' ? [viewport, { width: 320, height: 640 }] : [viewport];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		// The lines the words are drawn on: the distinct tops of a Range's boxes over them.
+		const read = await toggle.evaluate((button) => {
+			const words = 'Pumps together';
+			const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
+			let lines = 0;
+			for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+				const at = n.data.indexOf(words);
+				if (at < 0) continue;
+				const range = document.createRange();
+				range.setStart(n, at);
+				range.setEnd(n, at + words.length);
+				lines = new Set(
+					[...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top))
+				).size;
+				break;
+			}
+			return {
+				lines,
+				text: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+				// Nothing of the members cut off (their names shown whole, S1's lesson).
+				clipped: button.scrollWidth > button.clientWidth
+			};
+		});
+		console.log(
+			`the closed card's heading at ${sizeOf(page)}: ${read.lines} line(s), ${read.text}`
+		);
+		expect.soft(read.lines, `"Pumps together" on one line at ${sizeOf(page)}`).toBe(1);
+		expect.soft(read.clipped, `the toggle's words cut off at ${sizeOf(page)}`).toBe(false);
+	}
+	await page.setViewportSize(viewport);
 });

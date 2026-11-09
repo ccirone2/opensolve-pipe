@@ -3300,6 +3300,9 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					'max-sm:static',
 					'max-sm:w-auto'
 				);
+				// On screen, every word of it (S6 review MUT-03: a line made invisible failed nothing).
+				expect(outOfSight(l), l.textContent!).toBe(false);
+				expect(wordsInSight(l)).toBe(l.textContent);
 			}
 			const rows = within(body).getAllByRole('row');
 			// The heading's row, a row per member, and a flag line after each flagged one's.
@@ -4499,6 +4502,11 @@ describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station,
 				`${squash(line.closest('tr')!.previousElementSibling!.querySelector('th span.min-w-0')!.textContent)}, flags:`
 			]);
 		}
+		// Every slot symbol in a 1 rem column of its own, so every name starts at one edge, as in
+		// Running combinations (§15 item 157; S6 review MUT-04).
+		const symbols = [...region().querySelectorAll('th[scope="row"] [aria-hidden="true"]')];
+		expect(symbols).toHaveLength(3);
+		for (const symbol of symbols) expect(symbol).toHaveClass('w-4', 'shrink-0', 'text-center');
 		// Each name its slot symbol (aria-hidden) and its trace button, wrapping at 12 rem.
 		const header = within(region()).getByRole('rowheader', { name: 'Pump P2' });
 		const button = within(header).getByRole('button', { name: 'Pump P2' });
@@ -4534,13 +4542,42 @@ describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station,
 		// A phone's "Sort by" (the same sort): every column, its unit named.
 		const field = within(
 			screen.getByRole('heading', { name: 'Station', level: 4 }).parentElement!
-		).getByRole('combobox', { name: 'Sort by' });
+		).getByRole('combobox', { name: 'Sort by, The pumps in the group' });
 		expect([...(field as HTMLSelectElement).options].map((o) => o.text)).toEqual(
 			expect.arrayContaining(['Table order', 'Pump', 'State', 'Flow (L/s)', 'Share (%)'])
 		);
 		await fireEvent.change(field, { target: { value: 'flow' } });
 		expect(flow).toHaveAttribute('aria-sort', 'ascending');
 		expect(order()).toEqual(['Pump P3', 'flags of P3', 'Pump P2', 'flags of P2', 'Pump P1']);
+	});
+
+	it('sorts Shutoff head by its values, a controlled pump’s “at maximum speed” note after its value (S6 review TBL-3)', async () => {
+		// The controlled station, its pump under control at 73.68 ft, the fixed one's shutoff head
+		// set to 73.7 ft (22.46376 m, synthetic): their integer parts tie, so a sort of the cells
+		// as text would put 73.68 last (68 > 7).
+		const c = named('controlled');
+		const pumps = pumpsOf(c).map((m) =>
+			m.result.control
+				? m
+				: {
+						...m,
+						result: { ...m.result, shutoffHead: { ...m.result.shutoffHead, head: 22.46376 } }
+					}
+		);
+		render(PumpGroupChart, props(c, { pumps, oninspect: () => {} }));
+		const shutoff = heading(/^Shutoff head/);
+		const cells = () =>
+			[...region().querySelectorAll('td[data-label^="Shutoff head"]')].map((td) =>
+				squash(td.textContent)
+			);
+		expect(cells()).toEqual(['73.7', '73.68 (79.72 at maximum speed)']);
+		const values = () => cells().map((t) => Number(t.split(' ')[0]));
+		await fireEvent.click(within(shutoff).getByRole('button'));
+		expect(shutoff).toHaveAttribute('aria-sort', 'ascending');
+		expect(values()).toEqual([73.68, 73.7]);
+		await fireEvent.click(within(shutoff).getByRole('button'));
+		expect(shutoff).toHaveAttribute('aria-sort', 'descending');
+		expect(values()).toEqual([73.7, 73.68]);
 	});
 
 	it('Flagged only keeps each flagged pump with its flag line, and gives every pump back', async () => {
@@ -4573,7 +4610,7 @@ describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station,
 		const menu = screen.getByRole('group', { name: 'Fields shown in The pumps in the group' });
 		await fireEvent.click(within(menu).getByRole('checkbox', { name: /^Shaft power/ }));
 		expect(within(region()).queryByRole('columnheader', { name: /^Shaft power/ })).toBeNull();
-		expect(screen.getByRole('button', { name: /^Fields/ })).toHaveTextContent(/of/);
+		expect(screen.getByRole('button', { name: /^Fields/ })).toHaveTextContent(/\(\d+ of \d+\)/);
 		// The flag line still spans the row: the name and every column shown.
 		const columns = within(region()).getAllByRole('columnheader').length;
 		for (const line of region().querySelectorAll('[data-row-notes]')) {

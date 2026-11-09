@@ -336,9 +336,13 @@ describe('ResultsTable: row groups, flattened by a sort (pumps-results-layout.md
 		const caseHeading = screen.getByRole('columnheader', { name: 'Case' });
 		expect(within(caseHeading).queryByRole('button')).toBeNull();
 		expect(
-			[...(screen.getByRole('combobox', { name: 'Sort by' }) as HTMLSelectElement).options].map(
-				(o) => o.text
-			)
+			[
+				...(
+					screen.getByRole('combobox', {
+						name: 'Sort by, Running combinations'
+					}) as HTMLSelectElement
+				).options
+			].map((o) => o.text)
 		).toEqual(['Table order', 'Pump', 'Flow (L/s)', 'Head (m)']);
 		// One row group, the rows by flow, the one with none last; each row's case named.
 		expect(read()).toEqual([
@@ -376,7 +380,7 @@ describe('ResultsTable: row groups, flattened by a sort (pumps-results-layout.md
 		expect(read()).toEqual(before);
 		expect(columns()).toEqual(['Pump', 'Flow L/s', 'Head m']);
 		// A phone's "Sort by" does the same: a field flattens, "Table order" groups again.
-		const field = screen.getByRole('combobox', { name: 'Sort by' });
+		const field = screen.getByRole('combobox', { name: 'Sort by, Running combinations' });
 		await fireEvent.change(field, { target: { value: 'flow' } });
 		expect(read()).toHaveLength(1);
 		expect(columns()).toContain('Case');
@@ -509,14 +513,50 @@ describe('below 640 px the headings’ sort buttons leave the Tab order (§9 S6a
 		expect(buttons()).toHaveLength(3);
 		for (const button of buttons()) expect(button).toHaveAttribute('tabindex', '-1');
 		// "Sort by" and Fields stay Tab stops: the list's sort and its fields.
-		expect(screen.getByRole('combobox', { name: 'Sort by' })).not.toHaveAttribute('tabindex');
+		expect(screen.getByRole('combobox', { name: 'Sort by, Results' })).not.toHaveAttribute(
+			'tabindex'
+		);
 		expect(screen.getByRole('button', { name: /^Fields/ })).not.toHaveAttribute('tabindex');
 	});
 
-	it('from 640 px, where they show: each a Tab stop', () => {
+	it('from 640 px, where they show: one Tab stop among them, the one last focused (the first at first), ←, →, Home and End between them (S6 review LAYOUT-S6-1, S6-TABS-1)', async () => {
 		width(false);
 		render(ResultsTable, { table: table(), caption: 'Results', first: 'Pump', flagLine });
-		for (const button of buttons()) expect(button).not.toHaveAttribute('tabindex');
+		const stops = () => buttons().filter((b) => b.getAttribute('tabindex') !== '-1');
+		expect(buttons()).toHaveLength(3);
+		expect(stops()).toEqual([buttons()[0]]);
+		expect(buttons()[0]).not.toHaveAttribute('tabindex');
+		buttons()[0]!.focus();
+		expect(await fireEvent.keyDown(buttons()[0]!, { key: 'ArrowRight' })).toBe(false);
+		expect(document.activeElement).toBe(buttons()[1]);
+		expect(stops()).toEqual([buttons()[1]]);
+		await fireEvent.keyDown(buttons()[1]!, { key: 'End' });
+		expect(document.activeElement).toBe(buttons()[2]);
+		// An arrow at an end is not taken: the box's, to scroll it.
+		expect(await fireEvent.keyDown(buttons()[2]!, { key: 'ArrowRight' })).toBe(true);
+		expect(document.activeElement).toBe(buttons()[2]);
+		await fireEvent.keyDown(buttons()[2]!, { key: 'ArrowLeft' });
+		expect(document.activeElement).toBe(buttons()[1]);
+		await fireEvent.keyDown(buttons()[1]!, { key: 'Home' });
+		expect(document.activeElement).toBe(buttons()[0]);
+		expect(await fireEvent.keyDown(buttons()[0]!, { key: 'ArrowLeft' })).toBe(true);
+		// Pressed, the focused one sorts, and stays the stop.
+		buttons()[2]!.focus();
+		await fireEvent.click(buttons()[2]!);
+		expect(screen.getByRole('columnheader', { name: /^Head/ })).toHaveAttribute(
+			'aria-sort',
+			'ascending'
+		);
+		expect(stops()).toEqual([buttons()[2]]);
+		// Its column hidden through Fields: the stop is the first again, never a button gone.
+		await fireEvent.click(screen.getByRole('button', { name: /^Fields/ }));
+		await fireEvent.click(
+			within(screen.getByRole('group', { name: 'Fields shown in Results' })).getByRole('checkbox', {
+				name: /^Head/
+			})
+		);
+		expect(buttons()).toHaveLength(2);
+		expect(stops()).toEqual([buttons()[0]]);
 	});
 });
 
@@ -561,5 +601,363 @@ describe('every other ResultsTable keeps its FlagBadges, its name buttons and it
 		const box = within(panel).getByRole('table').parentElement!;
 		expect(box).not.toHaveAttribute('role');
 		expect(box).not.toHaveAttribute('tabindex');
+	});
+});
+
+describe('S6 review: the sort a phone chooses, a sort whose column goes, the chunks’ edge, the Fields menu’s focus, each table’s names (pumps-results-layout.md §9 S6)', () => {
+	/** Cases of pumps: `sizes[i]` rows in case i, then a case with none (a failed case). */
+	function cases(sizes: number[], speed = true): Table {
+		const groups: RowGroup[] = [
+			...sizes.map((_, i) => ({ key: `S${i}`, label: `Case ${i}` })),
+			{ key: 'F', label: 'Failed' }
+		];
+		const rows: Row[] = sizes.flatMap((n, i) =>
+			Array.from({ length: n }, (_, j) => ({
+				key: `P${j}`,
+				group: `S${i}`,
+				element: { kind: 'component' as const, id: `P${j}` },
+				name: `Pump P${j}`,
+				detail: '',
+				cells: { flow: String(10 + j + i / 100), ...(speed ? { speed: String(90 + j) } : {}) },
+				flags: []
+			}))
+		);
+		return {
+			columns: [
+				...(speed ? [{ key: 'speed', label: 'Speed', unit: '%', numeric: true }] : []),
+				{ key: 'flow', label: 'Flow', unit: 'L/s', numeric: true }
+			],
+			groups,
+			rows
+		};
+	}
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const groupHeadings = () =>
+		[...document.querySelectorAll('th[scope="rowgroup"]')].map((th) => squash(th.textContent));
+	const columns = () => screen.getAllByRole('columnheader').map((h) => squash(h.textContent));
+	const field = () => screen.getByRole('combobox', { name: /^Sort by/ }) as HTMLSelectElement;
+	const option = (text: string) => [...field().options].find((o) => o.text === text)!;
+	const shown = () => field().selectedOptions[0]?.text;
+	const base = { caption: 'Running combinations', first: 'Pump', groupColumn: 'Case' };
+
+	it('“Pump” in a phone’s “Sort by” sorts by name, as its heading does, and shows it; “Table order” clears it (STRUCT-3, TBL-1)', async () => {
+		render(ResultsTable, { ...base, table: cases([2, 2]) });
+		const before = groupHeadings();
+		expect(option('Pump').value).not.toBe(option('Table order').value);
+		await fireEvent.change(field(), { target: { value: option('Pump').value } });
+		const pump = screen.getByRole('columnheader', { name: 'Pump' });
+		expect(pump).toHaveAttribute('aria-sort', 'ascending');
+		expect(shown()).toBe('Pump');
+		// Flattened, its Case column after the name, by name; its direction button drawn.
+		expect(columns()).toEqual(['Pump', 'Case', 'Speed %', 'Flow L/s']);
+		expect(groupHeadings()).toEqual([]);
+		expect(
+			[...document.querySelectorAll('tbody th[scope="row"]')].map((th) => squash(th.textContent))
+		).toEqual(['Pump P0', 'Pump P0', 'Pump P1', 'Pump P1']);
+		await fireEvent.click(screen.getByRole('button', { name: 'Ascending: lowest first' }));
+		expect(pump).toHaveAttribute('aria-sort', 'descending');
+		expect(shown()).toBe('Pump');
+		await fireEvent.change(field(), { target: { value: option('Table order').value } });
+		expect(pump).not.toHaveAttribute('aria-sort');
+		expect(shown()).toBe('Table order');
+		expect(groupHeadings()).toEqual(before);
+		// A sort from the Pump heading shows in the field too.
+		await fireEvent.click(within(pump).getByRole('button'));
+		expect(pump).toHaveAttribute('aria-sort', 'ascending');
+		expect(shown()).toBe('Pump');
+	});
+
+	it('a sort on a column the table no longer has gives the table its order back: the groups again, no Case column, the field on Table order (STRUCT-5)', async () => {
+		const view = render(ResultsTable, { ...base, table: cases([2, 2]) });
+		const before = groupHeadings();
+		await fireEvent.click(
+			within(screen.getByRole('columnheader', { name: /^Speed/ })).getByRole('button')
+		);
+		expect(columns()).toContain('Case');
+		// The cases change and none has a speed column any more (a case deleted, say).
+		await view.rerender({ ...base, table: cases([2, 2], false) });
+		expect(columns()).toEqual(['Pump', 'Flow L/s']);
+		expect(groupHeadings()).toEqual(before);
+		for (const h of screen.getAllByRole('columnheader')) expect(h).not.toHaveAttribute('aria-sort');
+		expect(shown()).toBe('Table order');
+		expect(screen.queryByRole('button', { name: /^(Ascending|Descending)/ })).toBeNull();
+	});
+
+	it('every case’s heading in order at the chunks’ edge: 60 rows then a case with none, and 120 after the table has grown (MUT-05)', async () => {
+		const labels = (n: number) => [...Array.from({ length: n }, (_, i) => `Case ${i}`), 'Failed'];
+		render(ResultsTable, { ...base, table: cases(Array(10).fill(6)) });
+		expect(groupHeadings()).toEqual(labels(10));
+		cleanup();
+		render(ResultsTable, { ...base, table: cases(Array(20).fill(6)) });
+		// The first chunk (60 rows), then the next, a frame later.
+		await vi.waitFor(() => expect(groupHeadings()).toEqual(labels(20)));
+		expect(document.querySelectorAll('tbody th[scope="row"]')).toHaveLength(120);
+	});
+
+	it('Fields gives the focus back to its button when its menu closes from inside it, and Show all keeps it inside the menu (A11Y-S6-2)', async () => {
+		render(ResultsTable, { table: table(), caption: 'Results', first: 'Pump', flagLine });
+		const fields = screen.getByRole('button', { name: /^Fields/ });
+		await fireEvent.click(fields);
+		const menu = screen.getByRole('group', { name: 'Fields shown in Results' });
+		const head = within(menu).getByRole('checkbox', { name: /^Head/ });
+		head.focus();
+		await fireEvent.click(head);
+		await fireEvent.keyDown(head, { key: 'Escape' });
+		expect(fields).toHaveAttribute('aria-expanded', 'false');
+		expect(document.activeElement).toBe(fields);
+		// Done (the phone's sheet).
+		await fireEvent.click(fields);
+		const done = within(menu).getByRole('button', { name: 'Done' });
+		done.focus();
+		await fireEvent.click(done);
+		expect(fields).toHaveAttribute('aria-expanded', 'false');
+		expect(document.activeElement).toBe(fields);
+		// Show all goes as it is pressed: the focus stays in the menu, and Escape still closes it.
+		await fireEvent.click(fields);
+		const all = within(menu).getByRole('button', { name: 'Show all' });
+		all.focus();
+		await fireEvent.click(all);
+		expect(within(menu).queryByRole('button', { name: 'Show all' })).toBeNull();
+		expect(fields).toHaveAttribute('aria-expanded', 'true');
+		expect(menu.contains(document.activeElement)).toBe(true);
+		expect(document.activeElement).not.toBe(document.body);
+		await fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+		expect(fields).toHaveAttribute('aria-expanded', 'false');
+		expect(document.activeElement).toBe(fields);
+	});
+
+	it('two tables’ Fields and “Sort by” have names of their own, the visible words first (A11Y-S6-3; ui-guide: told apart after the visible words)', async () => {
+		render(ResultsTable, { table: table(), caption: 'Results per pump', first: 'Pump', flagLine });
+		render(ResultsTable, { ...base, table: cases([2]) });
+		const fields = screen.getAllByRole('button', { name: /^Fields/ });
+		expect(fields).toHaveLength(2);
+		expect(screen.getByRole('button', { name: 'Fields, Results per pump' })).toBe(fields[0]);
+		expect(screen.getByRole('button', { name: 'Fields, Running combinations' })).toBe(fields[1]);
+		// Its visible words start its name (WCAG 2.5.3), the table's name after them.
+		for (const button of fields) expect(squash(button.textContent)).toBe('Fields');
+		expect(screen.getAllByRole('combobox', { name: /^Sort by/ })).toEqual([
+			screen.getByRole('combobox', { name: 'Sort by, Results per pump' }),
+			screen.getByRole('combobox', { name: 'Sort by, Running combinations' })
+		]);
+		// A hidden field's count stays in the name, after the visible word, before the table's.
+		await fireEvent.click(fields[1]!);
+		const menu = screen.getByRole('group', { name: 'Fields shown in Running combinations' });
+		await fireEvent.click(within(menu).getByRole('checkbox', { name: /^Speed/ }));
+		expect(squash(fields[1]!.textContent)).toBe('Fields (1 of 2)');
+		expect(screen.getByRole('button', { name: 'Fields (1 of 2), Running combinations' })).toBe(
+			fields[1]
+		);
+	});
+});
+
+describe('S6, the second check: a pressed heading keeps its words where they were, and a tap is a press until its click (pumps-results-layout.md §9 S6; S6-FIX-1, S6-FIX-2)', () => {
+	afterEach(() => vi.restoreAllMocks());
+
+	/**
+	 * A box laid out as a browser would, by columns 100 px wide (jsdom lays nothing out): its sticky
+	 * first column 150 px wide and its heading row 40 px high; a heading's words 60 px wide at its
+	 * column's right in a numeric column, at its left in another, less the box's scroll; a sorted
+	 * heading's button 20 px wider for its arrow and gap, on its words' left in a numeric column
+	 * (flex-row-reverse), on their right in another. A column the sort adds (Case) is a column too.
+	 */
+	function layout(box: HTMLElement, width = 300) {
+		const rect = (left: number, top: number, w: number, h: number) =>
+			({
+				left,
+				top,
+				width: w,
+				height: h,
+				right: left + w,
+				bottom: top + h,
+				x: left,
+				y: top,
+				toJSON: () => ({})
+			}) as DOMRect;
+		Object.defineProperty(box, 'clientWidth', { configurable: true, get: () => width });
+		Object.defineProperty(box, 'clientHeight', { configurable: true, get: () => 200 });
+		const original = Element.prototype.getBoundingClientRect;
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: Element
+		) {
+			if (this === box) return rect(0, 0, width, 200);
+			const th = this.closest('thead th');
+			if (!th || !box.contains(th)) return original.call(this);
+			const i = [...th.parentElement!.children].indexOf(th);
+			const left = i === 0 ? 0 : 150 + 100 * (i - 1) - box.scrollLeft;
+			if (this === th) return rect(left, 0, i === 0 ? 150 : 100, 40);
+			const button = this.closest('button');
+			if (!button) return original.call(this);
+			const numeric = button.classList.contains('flex-row-reverse');
+			const words = numeric && i > 0 ? left + 32 : left + 8;
+			if (this !== button) return rect(words, 4, 60, 32);
+			const arrow = button.querySelector('svg') ? 20 : 0;
+			return rect(words - 4 - (numeric ? arrow : 0), 2, 68 + arrow, 36);
+		});
+	}
+	const tableBox = () => screen.getByRole('table').parentElement!;
+	const headingButton = (name: RegExp) =>
+		within(screen.getByRole('columnheader', { name })).getByRole('button');
+	const wordsLeft = (name: RegExp) =>
+		headingButton(name).firstElementChild!.getBoundingClientRect().left;
+
+	it('a numeric heading pressed three times at one point, its box scrolled from its start: the box keeps its scroll, the heading’s words where they were (S6-FIX-1)', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const box = tableBox();
+		layout(box);
+		box.scrollLeft = 60;
+		const heading = screen.getByRole('columnheader', { name: /^Head/ });
+		const before = wordsLeft(/^Head/);
+		for (const sort of ['ascending', 'descending', null]) {
+			await fireEvent.click(headingButton(/^Head/));
+			await tick();
+			if (sort) expect(heading).toHaveAttribute('aria-sort', sort);
+			else expect(heading).not.toHaveAttribute('aria-sort');
+			// The arrow grows the button on its words' left: the box does not scroll for it.
+			expect(box.scrollLeft, `pressed to ${sort ?? 'clear'}`).toBe(60);
+			expect(wordsLeft(/^Head/)).toBe(before);
+		}
+	});
+
+	it('a numeric heading pressed in a table of row groups: the box scrolls by the Case column the sort adds before it, and back as the sort clears, the words where they were (S6-FIX-1; LAYOUT-S6-2 kept)', async () => {
+		const groups: RowGroup[] = [
+			{ key: 'S0', label: 'Case 0' },
+			{ key: 'S1', label: 'Case 1' }
+		];
+		const rows: Row[] = groups.flatMap((g, i) =>
+			['PA', 'PB'].map((key, j) => ({
+				key,
+				group: g.key,
+				element: { kind: 'component' as const, id: key },
+				name: `Pump ${key}`,
+				detail: '',
+				cells: { flow: String(20 + j + i), head: String(40 - j - i) },
+				flags: []
+			}))
+		);
+		render(ResultsTable, {
+			table: { ...unflagged(), groups, rows },
+			caption: 'Running combinations',
+			first: 'Pump',
+			groupColumn: 'Case'
+		});
+		const box = tableBox();
+		layout(box);
+		box.scrollLeft = 60;
+		const heading = screen.getByRole('columnheader', { name: /^Head/ });
+		const before = wordsLeft(/^Head/);
+		for (const [sort, scroll] of [
+			['ascending', 160],
+			['descending', 160],
+			[null, 60]
+		] as const) {
+			await fireEvent.click(headingButton(/^Head/));
+			await tick();
+			if (sort) expect(heading).toHaveAttribute('aria-sort', sort);
+			else expect(heading).not.toHaveAttribute('aria-sort');
+			expect(
+				screen.queryByRole('columnheader', { name: 'Case' }) !== null,
+				`the Case column, ${sort ?? 'cleared'}`
+			).toBe(!!sort);
+			expect(box.scrollLeft, `pressed to ${sort ?? 'clear'}`).toBe(scroll);
+			expect(wordsLeft(/^Head/)).toBe(before);
+		}
+	});
+
+	it('a numeric heading whole in view whose arrow would fall under the sticky column: the box scrolls back just enough to show the button whole, its ring clear; a press after that moves nothing (S6-FIX-1 with LAYOUT-S6-2)', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const box = tableBox();
+		layout(box);
+		// Head's button from 278 − 120 = 158 to 226: whole, 8 px clear of the sticky column (150).
+		box.scrollLeft = 120;
+		const before = wordsLeft(/^Head/);
+		await fireEvent.click(headingButton(/^Head/));
+		await tick();
+		// Its arrow and gap (20 px) on its words' left: from 138, back to 150 + 4 (its ring).
+		expect(box.scrollLeft).toBe(120 - (150 + 4 - (278 - 20 - 120)));
+		expect(headingButton(/^Head/).getBoundingClientRect().left).toBe(154);
+		expect(wordsLeft(/^Head/)).toBe(before + 16);
+		await fireEvent.click(headingButton(/^Head/));
+		await tick();
+		expect(screen.getByRole('columnheader', { name: /^Head/ })).toHaveAttribute(
+			'aria-sort',
+			'descending'
+		);
+		expect(box.scrollLeft).toBe(104);
+	});
+
+	/**
+	 * A tap as Chromium sends it from a touch screen: pointerdown and pointerup, then the
+	 * compatibility mousedown that moves the focus, then the click; a mouse press as it sends it,
+	 * the focus at its mousedown, before its pointerup.
+	 */
+	async function tap(target: HTMLElement) {
+		await fireEvent.pointerDown(target, { pointerType: 'touch' });
+		await fireEvent.pointerUp(target, { pointerType: 'touch' });
+		target.focus();
+		await fireEvent.click(target);
+		await tick();
+	}
+
+	it('a tap on a heading with a few pixels showing beside the sticky column, or at the box’s right edge, sorts and scrolls nothing; the keyboard’s focus is kept clear after it (S6-FIX-2)', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const box = tableBox();
+		// Flow's button from 178 − 91 = 87 to 155: 5 px of it right of the sticky column (150).
+		layout(box);
+		box.scrollLeft = 91;
+		const flow = headingButton(/^Flow/);
+		await tap(flow);
+		expect(screen.getByRole('columnheader', { name: /^Flow/ })).toHaveAttribute(
+			'aria-sort',
+			'ascending'
+		);
+		expect(document.activeElement).toBe(flow);
+		expect(box.scrollLeft).toBe(91);
+		flow.blur();
+
+		// Head's button from 278 to 346 in a box 282 px wide: 4 px of it at the box's right edge.
+		cleanup();
+		vi.restoreAllMocks();
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const narrow = tableBox();
+		layout(narrow, 282);
+		narrow.scrollLeft = 0;
+		const head = headingButton(/^Head/);
+		await tap(head);
+		expect(screen.getByRole('columnheader', { name: /^Head/ })).toHaveAttribute(
+			'aria-sort',
+			'ascending'
+		);
+		expect(narrow.scrollLeft).toBe(0);
+
+		// The press over, the keyboard's focus on Flow, under the sticky column, is scrolled clear of
+		// it by its overlap and 4 px (its ring): the box keeps that rule for the keyboard.
+		narrow.scrollLeft = 40;
+		head.blur();
+		await fireEvent.keyDown(head, { key: 'ArrowLeft' });
+		headingButton(/^Flow/).focus();
+		expect(narrow.scrollLeft).toBe(40 - (150 + 4 - (178 - 40)));
+	});
+
+	it('a press with no click after it ends at its pointercancel (a touch that scrolls), a key pressed, or soon after it is lifted: the keyboard’s focus is kept clear then (S6-FIX-2)', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const box = tableBox();
+		layout(box);
+		const flow = headingButton(/^Flow/);
+		const kept = (how: string) => {
+			box.scrollLeft = 91;
+			flow.blur();
+			flow.focus();
+			expect(box.scrollLeft, how).toBe(91 - (150 + 4 - (178 - 91)));
+		};
+		await fireEvent.pointerDown(flow, { pointerType: 'touch' });
+		await fireEvent.pointerCancel(flow, { pointerType: 'touch' });
+		kept('after a pointercancel');
+		await fireEvent.pointerDown(flow);
+		await fireEvent.keyDown(flow, { key: 'Tab' });
+		kept('after a key pressed');
+		await fireEvent.pointerDown(flow);
+		await fireEvent.pointerUp(flow);
+		await new Promise((done) => setTimeout(done, 700));
+		kept('soon after a pointerup with no click');
 	});
 });

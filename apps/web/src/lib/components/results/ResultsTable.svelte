@@ -14,9 +14,12 @@
 
 	Sorting and filtering (proposal ui-ux-refinement.md item 9): a column heading is a button that
 	sorts by the values shown in that column, ascending, then descending, then back to the table's
-	order (the sorted column carries aria-sort); rows without a value stay last. "Flagged only"
-	shows the rows with flags, offered when some rows have flags and some do not. A `sortRequest`
-	(the Summary's links to a sorted table) sets the sort and shows every row.
+	order (the sorted column carries aria-sort); rows without a value stay last. From 640 px the
+	heading row is one Tab stop, ←, →, Home and End moving between its buttons, and a heading
+	pressed keeps its place under the pointer; a focused heading or name is scrolled clear of the
+	sticky column and heading row (pumps-results-layout.md §9 S6, its review).
+	"Flagged only" shows the rows with flags, offered when some rows have flags and some do not. A
+	`sortRequest` (the Summary's links to a sorted table) sets the sort and shows every row.
 
 	On phones (below 640 px) the same table reads as a list, as the Summary does (owner,
 	2026-10-31; proposal build-density.md §14): each row a block headed by the element's name, its
@@ -49,7 +52,7 @@
 	form. A cell's content may be the caller's (`cellContent`: a mark before an invalid value).
 -->
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { tick, type Snippet } from 'svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
@@ -152,6 +155,15 @@
 		}
 	}
 	const visibleColumns = $derived(table.columns.filter((c) => !hidden.includes(c.key)));
+	/**
+	 * Fields' count, and its name: its words, then its table's (an aria-label, since a browser puts
+	 * a space before a visually hidden suffix in a flex button), so two tables' Fields have names of
+	 * their own (the Pumps tab has three; S6 review A11Y-S6-3; ui-guide): "Fields (3 of 8), Results
+	 * per pump".
+	 */
+	const fieldsCount = $derived(
+		hidden.length ? ` (${visibleColumns.length} of ${table.columns.length})` : ''
+	);
 	let fieldsOpen = $state(false);
 	let fieldsButton: HTMLElement | undefined = $state();
 	let fieldsPanel: HTMLElement | undefined = $state();
@@ -165,6 +177,22 @@
 		document.addEventListener('pointerdown', outside);
 		return () => document.removeEventListener('pointerdown', outside);
 	});
+
+	/**
+	 * The menu closed from inside it (Escape, Done) gives the focus back to its button, so the
+	 * focus never falls to the page with the panel it was in (S6 review A11Y-S6-2; ui-guide,
+	 * Pickers; pumps-results-layout.md §7 Focus).
+	 */
+	function closeFields() {
+		const inside = !!fieldsPanel?.contains(document.activeElement);
+		fieldsOpen = false;
+		if (inside) fieldsButton?.focus();
+	}
+	/** Show all goes as it is pressed: the focus moves to the first field first, in the menu. */
+	function showAll() {
+		fieldsPanel?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.focus();
+		setHidden([]);
+	}
 
 	function toggle(key: string) {
 		expanded = expanded.includes(key) ? expanded.filter((k) => k !== key) : [...expanded, key];
@@ -227,6 +255,63 @@
 					: null;
 	}
 
+	/**
+	 * A heading pressed keeps its place in the box: a sort that flattens row groups adds the group
+	 * column before it (and clearing the sort takes it away), so the box scrolls by what the
+	 * heading moved, and a second press at the same place reverses the order (pumps-results-layout.md
+	 * §9 S6b; S6 review LAYOUT-S6-2; ui-guide, a press moves nothing under the pointer). What it
+	 * measures is the heading's words (its label and unit), which no sort resizes: the button grows
+	 * by its arrow, on its words' left in a numeric column, so its own edge moved with no column
+	 * moving (S6 second check S6-FIX-1). A column the arrow widens grows away from its words. A
+	 * button whole in view before the press stays whole, its arrow with it: where the arrow would
+	 * fall under the sticky column or past the box's edge, the box scrolls just enough to show it,
+	 * its ring clear (LAYOUT-S6-2). A heading pressed where it was partly hidden is left there.
+	 */
+	async function pressHeading(key: string, button: HTMLElement) {
+		const words = button.firstElementChild ?? button;
+		const before = words.getBoundingClientRect().left;
+		const whole = wholeInBox(button);
+		toggleSort(key);
+		await tick();
+		if (!box || !words.isConnected) return;
+		const moved = words.getBoundingClientRect().left - before;
+		if (Math.abs(moved) > 0.5) box.scrollLeft += moved;
+		if (whole && !phone.current && !wholeInBox(button)) clearSideways(button);
+	}
+
+	/**
+	 * From 640 px the headings' sort buttons are one Tab stop, a roving one (S6 review LAYOUT-S6-1,
+	 * S6-TABS-1: twelve in the group table made the card's §5.7 row 10 budget 29 stops against
+	 * 20): the one last focused, else the first; ←, →, Home and End move between them, and an
+	 * arrow at an end is the box's (ui-guide, a grid's rule). Below 640 px none is a Tab stop.
+	 */
+	const headKeys = $derived(
+		[NAME_SORT_KEY, ...visibleColumns.map((c) => c.key)].filter((key) => sortable.has(key))
+	);
+	let headWanted = $state<string | null>(null);
+	const headStop = $derived(
+		headWanted !== null && headKeys.includes(headWanted) ? headWanted : (headKeys[0] ?? null)
+	);
+	function headingKeys(event: KeyboardEvent) {
+		const row = (event.currentTarget as HTMLElement).closest('tr');
+		const buttons = [...(row?.querySelectorAll<HTMLElement>('button[data-sort-key]') ?? [])];
+		const at = buttons.indexOf(event.currentTarget as HTMLElement);
+		const to =
+			event.key === 'ArrowRight'
+				? at + 1
+				: event.key === 'ArrowLeft'
+					? at - 1
+					: event.key === 'Home'
+						? 0
+						: event.key === 'End'
+							? buttons.length - 1
+							: -1;
+		const target = to >= 0 && to !== at ? buttons[to] : undefined;
+		if (!target) return;
+		event.preventDefault();
+		target.focus();
+	}
+
 	/** The columns a phone's "Sort by" offers: those a heading sorts by, named with their unit. */
 	const sortChoices = $derived(
 		[
@@ -238,9 +323,17 @@
 		].filter((c) => sortable.has(c.key))
 	);
 
-	/** A field chosen sorts ascending first, as a heading does; the button then reverses it. */
-	function sortBy(key: string) {
-		sort = key ? { key, direction: 'ascending' } : null;
+	/**
+	 * A field chosen sorts ascending first, as a heading does; the button then reverses it. The
+	 * name's option has a value of its own, since its key (NAME_SORT_KEY) is "", Table order's
+	 * value: chosen, "Pump" sorts by name (S6 review STRUCT-3, TBL-1; build-density.md §14).
+	 */
+	const NAME_CHOICE = ':name';
+	const TABLE_ORDER = '';
+	const choiceOf = (key: string) => (key === NAME_SORT_KEY ? NAME_CHOICE : key);
+	function sortBy(choice: string) {
+		const key = choice === NAME_CHOICE ? NAME_SORT_KEY : choice;
+		sort = choice === TABLE_ORDER ? null : { key, direction: 'ascending' };
 	}
 
 	const rows = $derived(limit >= shown.length ? shown : shown.slice(0, limit));
@@ -277,10 +370,109 @@
 		return () => clearTimeout(timer);
 	});
 	const columns = $derived(visibleColumns.length + 1 + (flat ? 1 : 0));
-	// A sort on a column hidden since goes back to the table's order.
+	// A sort on a column hidden since, or one the table no longer has (Running combinations' Speed
+	// once no case runs a pump under control), goes back to the table's order: in a table of row
+	// groups, its groups (§9 S6b; S6 review STRUCT-5).
 	$effect.pre(() => {
-		if (sort && sort.key !== NAME_SORT_KEY && hidden.includes(sort.key)) sort = null;
+		if (
+			sort &&
+			sort.key !== NAME_SORT_KEY &&
+			(hidden.includes(sort.key) || !table.columns.some((c) => c.key === sort?.key))
+		) {
+			sort = null;
+		}
 	});
+
+	/**
+	 * The box keeps a focused control clear of what is pinned in it, the fixed first column and the
+	 * heading row (WCAG 2.4.11; pumps-results-layout.md §5.4, §7 Focus; S6 review A11Y-S6-1,
+	 * LAYOUT-S6-3, S6-TBL-2; ui-guide, a focus ring clear of sticky headers): as the focus comes in,
+	 * before the browser brings it into the box's view (which takes no account of them, and leaves
+	 * a control already in that view where it is), the box scrolls it clear of them, its ring too.
+	 * By the keyboard or a script, never by a press (a press moves nothing under the pointer).
+	 * Below 640 px the box does not scroll.
+	 *
+	 * A press lasts from its pointerdown to the click that follows it, not to its pointerup: a tap
+	 * on a touch screen moves the focus after its pointerup, with its compatibility mousedown (S6
+	 * second check S6-FIX-2). One with no click ends at a pointercancel (a touch that scrolls), a
+	 * context menu, a key pressed (whose focus is the keyboard's) or half a second after its
+	 * pointerup.
+	 */
+	let box: HTMLElement | undefined = $state();
+	let fixedHead: HTMLElement | undefined = $state();
+	let headRow: HTMLElement | undefined = $state();
+
+	let pressing = false;
+	let endPress: (() => void) | undefined;
+	const PRESS_ENDS = ['click', 'auxclick', 'contextmenu', 'pointercancel', 'keydown'] as const;
+	function pressStart() {
+		endPress?.();
+		pressing = true;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const lifted = () => {
+			clearTimeout(timer);
+			timer = setTimeout(end, 500);
+		};
+		const end = () => {
+			pressing = false;
+			clearTimeout(timer);
+			for (const type of PRESS_ENDS) window.removeEventListener(type, end, true);
+			window.removeEventListener('pointerup', lifted, true);
+			endPress = undefined;
+		};
+		for (const type of PRESS_ENDS) window.addEventListener(type, end, true);
+		window.addEventListener('pointerup', lifted, true);
+		endPress = end;
+	}
+	$effect(() => () => endPress?.());
+
+	/** The box's view across: from the sticky column's right edge to the box's inner right edge. */
+	function across(): [number, number] | null {
+		if (!box || !fixedHead) return null;
+		const b = box.getBoundingClientRect();
+		return [fixedHead.getBoundingClientRect().right, b.left + box.clientLeft + box.clientWidth];
+	}
+	/** Whether a control lies whole in that view, or is itself held in the sticky column. */
+	function wholeInBox(el: HTMLElement): boolean {
+		const view = across();
+		if (!view || inColumn(el)) return true;
+		const r = el.getBoundingClientRect();
+		return r.left >= view[0] - 0.5 && r.right <= view[1] + 0.5;
+	}
+	/**
+	 * Itself held at the box's start (the first column, a flag line, a details line): never moved
+	 * sideways.
+	 */
+	function inColumn(el: HTMLElement): boolean {
+		const held = el.closest('.left-0');
+		return !!held && !!box?.contains(held);
+	}
+	/** The box scrolled sideways so a control is clear of the sticky column and the box's edge. */
+	function clearSideways(el: HTMLElement) {
+		const view = across();
+		if (!box || !view || inColumn(el)) return;
+		const r = el.getBoundingClientRect();
+		// Clear by 4 px, the focus ring's (2 px at a 2 px offset).
+		const [clearLeft, right] = [view[0] + 4, view[1]];
+		if (r.left < clearLeft) box.scrollLeft -= clearLeft - r.left;
+		else if (r.right > right - 4)
+			box.scrollLeft += Math.min(r.right - right + 4, r.left - clearLeft);
+	}
+	function keepClear(event: FocusEvent) {
+		const el = event.target as HTMLElement;
+		if (pressing || phone.current || !box || !fixedHead || !headRow || el === box) return;
+		clearSideways(el);
+		// In the heading row: not moved down or up.
+		if (headRow.contains(el)) return;
+		const r = el.getBoundingClientRect();
+		const b = box.getBoundingClientRect();
+		const bottom = b.top + box.clientTop + box.clientHeight;
+		// The heading row's cells are what sticks (its row keeps its place in the table).
+		const clearTop = fixedHead.getBoundingClientRect().bottom + 4;
+		if (r.top < clearTop) box.scrollTop -= clearTop - r.top;
+		else if (r.bottom > bottom - 4)
+			box.scrollTop += Math.min(r.bottom - bottom + 4, r.top - clearTop);
+	}
 
 	// The fixed first column: a divider and a shadow on its right edge.
 	const FIXED =
@@ -296,8 +488,11 @@
 				'inline-flex min-h-11 items-end gap-1 rounded px-1 font-medium hover:bg-slate-200/70',
 				numeric ? 'flex-row-reverse text-right' : 'text-left'
 			]}
-			tabindex={phone.current ? -1 : undefined}
-			onclick={() => toggleSort(key)}
+			data-sort-key={key}
+			tabindex={phone.current || key !== headStop ? -1 : undefined}
+			onfocus={() => (headWanted = key)}
+			onkeydown={headingKeys}
+			onclick={(event) => pressHeading(key, event.currentTarget)}
 		>
 			<span>
 				<!-- The first column's heading wraps: that column keeps its fixed width on phones. -->
@@ -474,23 +669,30 @@
 {/snippet}
 
 <!-- One line on a phone: Sort (it takes what is left), its direction and Fields; Flagged only, when
-	offered, goes on the next (owner, 2026-10-31; proposal build-density.md §18). -->
+	offered, goes on the next (owner, 2026-10-31; proposal build-density.md §18). The field chosen
+	shows whole beside its direction and Fields, down to 320 px: while a sort is on, the word "Sort"
+	is for screen readers only (the field and its arrow say what is sorted), and the field keeps
+	no padding of its own for its arrow, which the browser draws beyond it (S6 review TBL-4;
+	pumps-results-layout.md §15 item 17). -->
 <div class="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
 	{#if sortChoices.length > 1}
 		<!-- Phones: the headings are not shown, so a field sorts the list (the same sort). -->
 		<div class="flex min-w-0 grow basis-0 items-center gap-1 sm:hidden">
-			<label for="{id}-sort" class="text-sm whitespace-nowrap text-slate-700">Sort</label>
-			<!-- Named "Sort by" (its visible label, Sort, is part of the name: WCAG 2.5.3). -->
+			<label for="{id}-sort" class={['text-sm whitespace-nowrap text-slate-700', sort && 'sr-only']}
+				>Sort</label
+			>
+			<!-- Named "Sort by" (its visible label, Sort, is part of the name: WCAG 2.5.3), then the
+				table's name, so two tables' fields differ (S6 review A11Y-S6-3). -->
 			<select
 				id="{id}-sort"
-				aria-label="Sort by"
-				class="input w-full min-w-0 py-0 pr-8 text-sm"
-				value={sort?.key ?? ''}
+				aria-label="Sort by, {caption}"
+				class="input w-full min-w-0 py-0 text-sm"
+				value={sort ? choiceOf(sort.key) : TABLE_ORDER}
 				onchange={(event) => sortBy(event.currentTarget.value)}
 			>
-				<option value="">Table order</option>
+				<option value={TABLE_ORDER}>Table order</option>
 				{#each sortChoices as choice (choice.key)}
-					<option value={choice.key}>{choice.label}</option>
+					<option value={choiceOf(choice.key)}>{choice.label}</option>
 				{/each}
 			</select>
 			{#if sort}
@@ -515,6 +717,7 @@
 				bind:this={fieldsButton}
 				type="button"
 				class="btn btn-quiet gap-1 px-2 text-sm"
+				aria-label="Fields{fieldsCount}, {caption}"
 				aria-expanded={fieldsOpen}
 				aria-controls="{id}-fields"
 				onclick={() => (fieldsOpen = !fieldsOpen)}
@@ -525,7 +728,7 @@
 				<Icon name="list" class="size-4" />
 				<!-- Below 360 px its icon and count carry it, so Sort keeps its room. -->
 				<span class="max-[22.5rem]:sr-only">Fields</span><span class="text-slate-600"
-					>{hidden.length ? ` (${visibleColumns.length} of ${table.columns.length})` : ''}</span
+					>{fieldsCount}</span
 				>
 			</button>
 			<!-- A phone: a sheet across the screen's width from its foot, over a dimmed page, as the
@@ -550,7 +753,7 @@
 				onkeydown={(event) => {
 					if (event.key === 'Escape') {
 						event.stopPropagation();
-						fieldsOpen = false;
+						closeFields();
 					}
 				}}
 			>
@@ -558,9 +761,7 @@
 					class="sticky -top-2 -mx-3 mb-1 flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-1 sm:hidden"
 				>
 					<span class="min-w-0 flex-1 text-base font-semibold">Fields shown</span>
-					<button type="button" class="btn btn-primary" onclick={() => (fieldsOpen = false)}
-						>Done</button
-					>
+					<button type="button" class="btn btn-primary" onclick={closeFields}>Done</button>
 				</div>
 				{#each table.columns as column (column.key)}
 					<label
@@ -588,7 +789,7 @@
 					<button
 						type="button"
 						class="btn btn-quiet mt-1 w-full text-sm text-blue-800"
-						onclick={() => setHidden([])}>Show all</button
+						onclick={showAll}>Show all</button
 					>
 				{/if}
 			</div>
@@ -605,12 +806,18 @@
 <!-- A size container, so the lines under a row can be exactly as wide as the visible box. Given
 	`labelledby`, a region by that name and a Tab stop only while it overflows (pumps-results-layout.md
 	§9 S7, §5.7: scrollRegion measures both axes), positioned so the flag lines' hidden words
-	(absolutely placed) scroll with it (§15 item 92). -->
+	(absolutely placed) scroll with it (§15 item 92). Its pointerdown and focusin only watch a press
+	and a focus, to keep a focused control clear of the sticky cells (§9 S6, its review); its role
+	is scrollRegion's, set while it overflows. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+	bind:this={box}
 	class={[
 		'scroll-shadow-x @container max-h-[max(16rem,calc(100dvh-12rem))] max-w-full overflow-auto overscroll-x-contain rounded-lg border border-slate-200 max-sm:max-h-none max-sm:overflow-visible',
 		labelledby && 'relative'
 	]}
+	onpointerdown={pressStart}
+	onfocusin={keepClear}
 	use:scrollRegion={labelledby}
 >
 	<!-- Explicit roles: below 640 px CSS lays the table out as a list (see the header comment). -->
@@ -620,8 +827,9 @@
 		<!-- svelte-ignore a11y_no_redundant_roles -->
 		<thead role="rowgroup" class="max-sm:sr-only">
 			<!-- svelte-ignore a11y_no_redundant_roles -->
-			<tr role="row" class="text-slate-700">
+			<tr bind:this={headRow} role="row" class="text-slate-700">
 				<th
+					bind:this={fixedHead}
 					role="columnheader"
 					scope="col"
 					aria-sort={sort?.key === NAME_SORT_KEY ? sort.direction : undefined}

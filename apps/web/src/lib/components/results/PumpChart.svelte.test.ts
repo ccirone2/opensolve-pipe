@@ -1139,6 +1139,32 @@ describe('pump chart layout (pumps-results-layout.md §5.3)', () => {
 		expect(onchecks).toHaveBeenCalledTimes(1);
 	});
 
+	it('lists the design-check limits under their label, the closing sentence after them (pumps-results-layout.md §5.7 row 7, S3)', async () => {
+		withCanvas();
+		render(PumpChart, {
+			result: full(),
+			name: 'P',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03] as [number, number],
+			checks: limits,
+			onchecks: vi.fn()
+		});
+		const block = document.querySelector<HTMLElement>('[data-pump-checks]')!;
+		const list = within(block).getByRole('list', { name: 'Design-check limits drawn' });
+		const items = within(list)
+			.getAllByRole('listitem')
+			.map((li) => li.textContent!.trim());
+		const paragraphs = [...block.querySelectorAll('p')].map((p) => p.textContent!.trim());
+		// The label, each limit an item, then the closing sentence alone, then Go to Checks.
+		expect(paragraphs[0]).toBe('Design-check limits drawn');
+		expect(items.length).toBeGreaterThan(0);
+		expect(paragraphs.slice(1, -1)).toEqual(items);
+		expect(paragraphs.at(-1)).toMatch(/^These are the limits of the design checks you turned on/);
+		expect(items.some((i) => /^These are the limits/.test(i))).toBe(false);
+		expect(list.nextElementSibling!.textContent!.trim()).toBe(paragraphs.at(-1));
+		expect(block.lastElementChild).toBe(screen.getByRole('button', { name: 'Go to Checks' }));
+	});
+
 	it('offers Go to Checks only with the limits shown and a way to go there', async () => {
 		withCanvas();
 		const props = {

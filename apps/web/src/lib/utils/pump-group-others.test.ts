@@ -65,12 +65,15 @@ import {
 	OTHER_CURVES_LABEL,
 	OTHER_SYMBOL,
 	otherCurveRows,
+	otherNoteLines,
+	otherNoteParts,
 	placeCurveLabels,
 	roundUpNice,
 	stationResponse,
 	SYSTEM_DUTY_CHECK_FLOOR,
 	type CurveLabelInput,
 	type GroupChartData,
+	type GroupNotes,
 	type PxBox,
 	type GroupMemberInput
 } from './pump-group-chart';
@@ -536,11 +539,14 @@ describe('the notes', () => {
 		expect(notes.others).not.toContain(DUTY_CLAIM_RULE);
 		expect(notes.others).toHaveLength(2);
 		expect(notesOf([]).others).toEqual([]);
-		// The 4a/4b notes are unchanged by the other cases.
-		const { others: _with, ...rest } = notesOf(others());
-		const { others: _without, ...plain } = notesOf([]);
+		// The 4a/4b notes are unchanged by the other cases (their notes are `others`, and since
+		// pumps-results-layout.md S3 the same as parts, `otherParts`).
+		const { others: _with, otherParts: _withParts, ...rest } = notesOf(others());
+		const { others: _without, otherParts: _withoutParts, ...plain } = notesOf([]);
 		void _with;
 		void _without;
+		void _withParts;
+		void _withoutParts;
 		expect(rest).toEqual(plain);
 	});
 
@@ -2285,6 +2291,282 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 			expect(seen[0]!).toMatchObject({ labels: [], leftOut: 0 });
 			expect(chart.written.some((w) => / running( \(this case\))?$/.test(w.text))).toBe(false);
 		}
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// The ring notes cut (pumps-results-layout.md §5.3 The parts helper, §9 S3, §10 "The rings'
+// parts"; the owner's answer 1, §12): the same notes as named parts for the screen, joined back
+// into today's lines for the footer, word for word.
+
+describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
+	const LEAD = 'Other cases on the chart (slate rings, numbered):';
+	const NONE = {
+		off: null,
+		frame: null,
+		clip: null,
+		claim: null,
+		rings: null,
+		notOn: null,
+		leftOut: null
+	};
+	/**
+	 * The parts of `notes`, checked as §10 asks of every state: joined they are the notes' lines in
+	 * today's order (the frame, the clip note, the rule, the ring list as one sentence, "Not on the
+	 * chart", the left-out count; the off line alone), and each ring's item is its entry.
+	 */
+	const partsOf = (notes: GroupNotes) => {
+		const parts = notes.otherParts;
+		expect(otherNoteLines(parts)).toEqual(notes.others);
+		if (parts.off) {
+			expect({ ...parts, off: null }).toEqual(NONE);
+			expect(notes.others).toEqual([parts.off]);
+			return parts;
+		}
+		const ringLine = parts.rings
+			? `${parts.rings.lead} ${parts.rings.items.map((i) => i.text).join('; ')}.`
+			: null;
+		expect(notes.others).toEqual(
+			[parts.frame, parts.clip, parts.claim, ringLine, parts.notOn, parts.leftOut].filter(
+				(line) => line !== null
+			)
+		);
+		if (parts.rings) {
+			expect(parts.rings.lead).toBe(LEAD);
+			// One item per ring number, in number order, each its entry word for word.
+			expect(parts.rings.items.map((i) => i.number)).toEqual(
+				parts.rings.items.map((_, k) => k + 1)
+			);
+			for (const item of parts.rings.items) {
+				expect(item.text).toBe(`${item.number} · ${item.name}, ${item.at}: ${item.words}`);
+				expect(item.at).toMatch(/^-?[\d.]+ L\/s at a rise of -?[\d.]+ m$/);
+			}
+		}
+		return parts;
+	};
+
+	it('gives the curve family’s notes as parts, which join into today’s lines (the base shown)', () => {
+		const view = lineupView('');
+		const notes = notesFor(view);
+		const parts = partsOf(notes);
+		// Today's lines, word for word (as pinned in “says the frame, the clip note’s clauses …”).
+		const ringEntries = [
+			entry(1, 'S1', ON, CROSSING('3 running')),
+			entry(2, 'S2', ON, CROSSING('2 running')),
+			entry(3, 'S3', ON, CROSSING('1 running')),
+			entry(4, 'S4', ON, CROSSING('3 running')),
+			entry(5, 'S5', ON, CROSSING('3 running')),
+			entry(6, 'S6', ON, CROSSING('3 running'))
+		];
+		const notOn = `Not on the chart: ${NAMES.S7} (unticked under Cases on this chart); ${NAMES.S8} (unticked under Cases on this chart).`;
+		const clip =
+			"The group system curve is cut at the top, above every pump's head; the data tables list all their points.";
+		expect(otherNoteLines(parts)).toEqual([
+			lineupFrame,
+			clip,
+			DUTY_CLAIM_RULE,
+			`Other cases on the chart (slate rings, numbered): ${ringEntries.join('; ')}.`,
+			notOn
+		]);
+		// Each part is its line: the frame (L3's form), the clip note, the rule, "Not on the chart".
+		expect(parts).toMatchObject({
+			off: null,
+			frame: lineupFrame,
+			clip,
+			claim: DUTY_CLAIM_RULE,
+			notOn
+		});
+		expect(parts.leftOut).toBeNull();
+		// Each ring's item: its entry, its name, where it is and its words.
+		expect(parts.rings!.items.map((i) => i.text)).toEqual(ringEntries);
+		const keys = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'] as const;
+		parts.rings!.items.forEach((item, k) => {
+			const key = keys[k]!;
+			expect(item.name).toBe(NAMES[key]);
+			expect(item.at).toBe(
+				`${f4(lps(lineupDuty(key).flow))} L/s at a rise of ${f4(lineupDuty(key).head)} m`
+			);
+		});
+		expect(parts.rings!.items[0]!.words).toBe(`${ON}; group curve: ${CROSSING('3 running')}`);
+		// The exported helper gives the same parts from the same inputs.
+		expect(
+			otherNoteParts(view.data, view.others, view.response, lineups.project, {
+				drawn: true,
+				pressureControl: false,
+				labelsLeftOut: 0
+			})
+		).toEqual(parts);
+		// The image's footer keeps the ring list as one sentence, after the system duty notes.
+		const lines = groupNoteLines(notes);
+		const at = lines.indexOf(lineupFrame);
+		expect(lines.slice(at, at + 5)).toEqual(otherNoteLines(parts));
+	});
+
+	it('gives each clip clause, a stale case, the base unticked and the left-out count as parts', () => {
+		// "1 of 4 running" shown: the other curves cut at the right edge.
+		const right =
+			"Other cases' group curves are cut at the chart's right edge, the largest flow of this case's own lines and the rings; the data tables list all their points.";
+		expect(partsOf(notesFor(lineupView('S3'))).clip).toBe(right);
+		expect(notesFor(lineupView('S3')).others[1]).toBe(right);
+		// "2 of 4 running" shown: both cuts, in one clip note.
+		const both =
+			"Other cases' group curves are cut at the chart's right edge, the largest flow of this case's own lines and the rings; the group system curve is cut at the top, above every pump's head; the data tables list all their points.";
+		expect(partsOf(notesFor(lineupView('S2'))).clip).toBe(both);
+		// A stale case: "(out of date)" in its item's name and so in its entry.
+		const stale = partsOf(notesFor(lineupView('', { unticked: ['S4', 'S5'], stale: ['S1'] })));
+		const first = stale.rings!.items[0]!;
+		expect(first.name).toBe(`${NAMES.S1} (out of date)`);
+		expect(first.text.startsWith(`1 · ${NAMES.S1} (out of date), `)).toBe(true);
+		expect(first.words).toMatch(/; group curve: drawn \(as last solved: 3 running\): /);
+		// The base unticked while another case is shown: "Not on the chart" names it.
+		const base = partsOf(notesFor(lineupView('S3', { unticked: [''] })));
+		expect(base.notOn).toMatch(
+			new RegExp(
+				`^Not on the chart: ${lineupCaseName('')} \\(unticked under Cases on this chart\\)`
+			)
+		);
+		expect(base.rings!.items.map((i) => i.name)).not.toContain(lineupCaseName(''));
+		// The left-out count, the last line.
+		const counted = notesFor(lineupView(''), 1);
+		const leftOut = partsOf(counted).leftOut;
+		expect(leftOut).toBe(
+			'Labels of 1 curve are left out for space; the data table lists every curve.'
+		);
+		expect(counted.others.at(-1)).toBe(leftOut);
+	});
+
+	it('gives 4d’s notes as parts: the frame’s other forms, the rule only with a group system curve, the off line, none', () => {
+		const notesOf = (list: OtherGroupCase[], withSystem = true) =>
+			groupNotes({
+				data: groupChartData(members, prefs, group, withSystem ? system : null, list),
+				members,
+				state: ready(oneOff.groupCurve),
+				system: withSystem ? ready(oneOff.systemCurve!) : undefined,
+				project: oneOff.project,
+				prefs,
+				others: list
+			});
+		// A group curve drawn, no curve states (4d): the frame's second form; no "; group curve".
+		const list = others();
+		list[3] = {
+			...list[3]!,
+			state: 'unticked',
+			onChart: false,
+			number: null,
+			duty: null,
+			claim: null,
+			words: 'not on the chart (unticked under Cases on this chart)'
+		};
+		const parts = partsOf(notesOf(list));
+		expect(parts.frame).toBe(frame('Tee T1 (run inlet)', 'Tee T2 (run outlet)', PARALLEL));
+		expect(parts.clip).toBeNull();
+		expect(parts.claim).toBe(DUTY_CLAIM_RULE);
+		expect(parts.rings!.items.map((i) => i.text)).toEqual([
+			`1 · Pump PA off, ${f4(duty('S1').flow * 1000)} L/s at a rise of ${f4(duty('S1').head)} m: Yes: the same rest of the network`,
+			`2 · Pump PB off, ${f4(duty('S2').flow * 1000)} L/s at a rise of ${f4(duty('S2').head)} m: Yes: the same rest of the network`,
+			`3 · Delivery tank 5 m higher, ${f4(duty('S3').flow * 1000)} L/s at a rise of ${f4(duty('S3').head)} m: No: the rest of the network differs from this case's; its own group system curve is not drawn`
+		]);
+		expect(parts.notOn).toBe(
+			'Not on the chart: Both pumps off (unticked under Cases on this chart).'
+		);
+		// Without a group system curve: no rule.
+		expect(partsOf(notesOf(others(['S1']), false)).claim).toBeNull();
+		// No other case: no part at all.
+		expect(partsOf(notesOf([])).off).toBeNull();
+		expect(notesOf([]).otherParts).toEqual(NONE);
+		// The duties not asked for: the off line alone.
+		const off = others().map((o) => ({
+			...o,
+			state: 'off' as const,
+			onChart: false,
+			number: null,
+			duty: null,
+			claim: null
+		}));
+		const offParts = partsOf(notesOf(off));
+		expect(offParts.off).toBe(
+			"Other cases' station duties are not on the chart: tick “Also show the other cases' station duties” to compute them (4 other cases with results)."
+		);
+	});
+
+	it('gives the frame’s PRV and no-flow forms as the frame part', () => {
+		// The forms “words the frame without a group curve drawn” pins, from the same inputs.
+		const flowless = structuredClone(group);
+		flowless.points = flowless.points.map((point) => ({ ...point, flow: null }));
+		const list = others(['S1']);
+		const plain = groupNotes({
+			data: groupChartData(members, prefs, flowless, system, list),
+			members,
+			state: { status: 'ready', response: flowless },
+			system: ready(oneOff.systemCurve!),
+			project: oneOff.project,
+			prefs,
+			others: list
+		});
+		expect(partsOf(plain).frame).toBe(
+			[
+				"Each numbered slate ring is another case's station duty: that case's station flow and its rise from Tee T1 (run inlet) to Tee T2 (run outlet), drawn against the station's flow as the group system curve is, not a pump's own point.",
+				PARALLEL,
+				"Each pump's own flow and head in each case are in Running combinations.",
+				"A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13); no group curve is drawn here."
+			].join(' ')
+		);
+		const prv = cases.find((c) => c.name === 'prv-inside')!;
+		const issues = (prv.groupCurve.body as { issues: TopologyIssue[] }).issues;
+		const refused: GroupCurveState = { status: 'refused', message: 'PRV', issues };
+		const answer = body(prv.systemCurve!);
+		const [ring] = otherGroupCases({
+			valued: [
+				{
+					key: 'S1',
+					caseId: 'S1',
+					name: 'Pump PA off',
+					stale: false,
+					group: refused,
+					system: ready(prv.systemCurve!),
+					shared: false,
+					solved: null
+				}
+			],
+			shownKeys: new Set(['S1']),
+			othersOn: true,
+			shownSettled: true,
+			station: answer.station,
+			systemShown: answer,
+			memberIds: prv.memberIds,
+			project: prv.project,
+			boxes: prv.memberIds
+		});
+		const prvMembers: GroupMemberInput[] = prv.memberIds.map((id, slot) => {
+			const pump = prv.project.components.find((x) => x.id === id)!;
+			return {
+				id,
+				name: pump.name,
+				result: prv.solve.solvedState.pumpResults[id] as PumpResult,
+				ratedRange: ratedCurveRange(prv.project, id),
+				curveId: pump.type === 'pump' ? pump.curveId : null,
+				slot,
+				flags: []
+			};
+		});
+		const prvPrefs = prv.project.settings.units;
+		const prvParts = partsOf(
+			groupNotes({
+				data: groupChartData(prvMembers, prvPrefs, null, answer, [ring!]),
+				members: prvMembers,
+				state: refused,
+				system: ready(prv.systemCurve!),
+				project: prv.project,
+				prefs: prvPrefs,
+				others: [ring!]
+			})
+		);
+		expect(prvParts.frame).toMatch(
+			/ With an active PRV or PSV inside, the station has no group curve, so none is drawn here; each ring is its case's duty from its group system curve where one is active in that case too, else from its group curve\.$/
+		);
+		// A ring needs a station, so the frame is there whenever a ring is (§5.3: never the rule alone).
+		expect(prvParts.rings!.items).toHaveLength(1);
+		expect(prvParts.claim).toBe(DUTY_CLAIM_RULE);
 	});
 });
 

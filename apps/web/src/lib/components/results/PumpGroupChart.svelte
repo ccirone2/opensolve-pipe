@@ -45,10 +45,11 @@
 	The card's sections (proposal pumps-results-layout.md §5.3, §9 S2): the members, then Station
 	(PumpGroupStation: the group table and the station), Group chart (PumpGroupFigure: the figure,
 	its actions under its legend, its notes, its reference and, after them, its data region; with
-	the other cases' controls, PumpGroupOthers), Add cases (PumpLineupsBlock) and Running
-	combinations (PumpGroupCombinations, with the extremes), each a plain div under an h4. The
-	section components are presentation only and take their values from here; the card's props
-	are as before. Closed, a second line under the heading says what opening it shows.
+	the other cases' controls, PumpGroupOthers), Add cases (PumpLineupsBlock, since S4 a framed
+	panel, §9 S4) and Running combinations (PumpGroupCombinations, with the extremes), the
+	others each a plain div under an h4. The section components are presentation only and take
+	their values from here; the card's props are as before. Closed, a second line under the
+	heading says what opening it shows.
 
 	The section nav (§5.4): the card's toggle is the target of the nav's "Pumps together" (so a
 	press lands on the control, its expanded state announced), and each section registers its own
@@ -563,11 +564,9 @@
 				/>
 				{#if lineups && stationShown}
 					<!-- 3. Add cases (D24 slice L1): the cases of the base case with pumps off, the one
-						part that changes the project, after the group chart (§6.4 item 1), under the
-						rule every h4 section has (§5.2); S4 frames it. -->
-					<div class="border-t border-slate-200 pt-3" data-group-add-cases>
-						<PumpLineupsBlock {...lineups} />
-					</div>
+						part that changes the project, after the group chart (§6.4 item 1), a framed
+						panel in place of the rule every other h4 section has (§5.3, §9 S4). -->
+					<PumpLineupsBlock {...lineups} />
 				{/if}
 				{#if combinations && stationShown}
 					<!-- 4. Running combinations (slice 4d), with the extremes over the cases. -->

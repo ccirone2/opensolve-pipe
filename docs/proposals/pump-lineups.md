@@ -657,7 +657,7 @@ In 4d's order. The words of gates 1, 2, 3 and 6 change.
 | 5 | Fewer than two on | 4d's: `Needs two or more of these pumps switched on in the base case: {A and B} {is/are} off.` |
 | 6 | None carries flow | `No pump of the group carries flow in the base case, so switching pumps off changes nothing.` The test is §3.5's: no member is on with its flow above the floor. |
 
-While a gate holds, only its sentence, Solve all (gates 4 to 6) and, from slice L2 on, the "Pump lineups table…" button (§8.1) show.
+While a gate holds, only its sentence, Solve all (gates 4 to 6) and, from slice L2 on, the "Pump lineups table…" button (§8.1) show (since `pumps-results-layout.md` S4, Solve all with its lasting reason visible, as outside a gate; its §6.4 item 7, §15 item 116).
 
 ### 7.3 The preset control
 
@@ -799,7 +799,8 @@ Under Each pump off the items are the same kinds. 4d's idle sentence and its "ha
 **After it:**
 - `ws.pumpGroupOthers = true`, as in 4d;
 - the notice. By number running: `Added {n} {case|cases} by number running: {«A», «B» and «C»}. Solve all solves every case not yet solved; Undo removes them.` Each pump off: 4d's `addedNotice`;
-- focus moves to the block's Solve all (4d's `tick().then(...)`).
+- focus moves to the block's Solve all (4d's `tick().then(...)`);
+- since `pumps-results-layout.md` S4, when the add ticked the box, "Now ticked: “Also show the other cases' station duties” (Group chart)." on screen and in the block's polite line (its §15 item 127).
 
 **Requests.** Solve all solves each new case. Then the ticked box asks each charted case's group curve, one at a time, as in 4d. Four pumps by number running is 3 solves and 3 group curves.
 
@@ -826,7 +827,7 @@ Under Each pump off the items are the same kinds. 4d's idle sentence and its "ha
 
 ### 7.11 Layout
 
-Estimated, not measured in a browser; the build measures it at 1280×800, 390×844 and 320 px, as the ui-guide asks.
+Estimated, not measured in a browser; the build measures it at 1280×800, 390×844 and 320 px, as the ui-guide asks. Since `pumps-results-layout.md` S4 the block is a framed panel in this order, items 3 to 6 and the frame line inside one disclosure, "The plan: …", folded once every case exists, measured there (its §6.4 item 7, §15 items 118 to 131).
 
 **Desktop**, top to bottom:
 1. the h4;

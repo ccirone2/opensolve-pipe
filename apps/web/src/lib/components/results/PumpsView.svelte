@@ -756,7 +756,10 @@
 			count,
 			canRun: !reason,
 			reason,
-			hint: `Solves each case whose results are missing or out of date, one after another: up to ${count} solve${count === 1 ? '' : 's'}.`
+			hint: `Solves each case whose results are missing or out of date, one after another: up to ${count} solve${count === 1 ? '' : 's'}.`,
+			// solveAllReason's reasons while a solve, Solve all or a goal seek runs pass; the others
+			// last, and the block shows them (pumps-results-layout.md §5.3 item 5).
+			passing: !!reason && ws.store.calculating !== null
 		};
 	});
 	/**
@@ -821,6 +824,7 @@
 					onmove: moveStop,
 					ondefaultorder: resetStopOrder,
 					onadd: addLineups,
+					othersOn: ws.pumpGroupOthers,
 					onsolveall: solveAllCases,
 					ontable: openTable
 				}

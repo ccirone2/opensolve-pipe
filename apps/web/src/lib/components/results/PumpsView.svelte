@@ -288,6 +288,24 @@
 	});
 
 	/**
+	 * The other cases whose last solve converged, by Compare's rule as `others`, whatever the pump:
+	 * the cases a pump's chart draws are among them, and their places are the same for every pump,
+	 * though a case can give one pump no result (a pump closed off on both sides, SDD §4.10) and
+	 * another one a result. caseMarkers' `all` (§9 S8 Markers; S8 second check MARK-2).
+	 */
+	const solvedOthers = $derived(
+		hasScenarios
+			? ws.store.caseIds
+					.filter((c) => c !== ws.store.activeCase)
+					.filter((c) => {
+						const response = caseResponse(ws.store.caseStatus(c), ws.store.resultsFor(c));
+						return !!response && response.success && response.solvedState.converged;
+					})
+					.map((c) => c ?? '')
+			: []
+	);
+
+	/**
 	 * One choice of cases for both charts (pumps-results-layout.md §9 S8, the owner's answer 2):
 	 * the cases the user unticked under either list, and each chart's own (past its cap at an
 	 * untick), page state, so the pump chart's list is kept when another pump is shown.
@@ -307,9 +325,9 @@
 	const overlayKeys = $derived(pumpCases.shown.map((o) => o.key));
 	/**
 	 * Their markers (§9 S8 Markers, pump-chart.ts caseMarkers): while five other cases or fewer
-	 * have a result for this pump, each its place's among them, fixed by case; past five, a case
-	 * keeps its marker while it stays drawn, through an untick, the other cases' system curves
-	 * switched and another pump shown (the markers drawn last are page state,
+	 * have a converged result (solvedOthers, whatever the pump), each its place's among them, fixed
+	 * by case; past five, a case keeps its marker while it stays drawn, through an untick, the other
+	 * cases' system curves switched and another pump shown (the markers drawn last are page state,
 	 * ws.pumpChartMarkers).
 	 */
 	const pumpMarkers = $derived.by(() => {
@@ -317,7 +335,7 @@
 			overlayKeys,
 			pumpCases.listed.map((o) => o.key),
 			ws.pumpChartMarkers,
-			others.map((o) => o.key)
+			solvedOthers
 		);
 		ws.pumpChartMarkers = markers;
 		return markers;
@@ -747,10 +765,13 @@
 	 * Tick or untick a case under "Cases on the chart" (`pump`) or "Cases on this chart" (`group`):
 	 * one choice for both lists (§9 S8, pump-chart.ts untickCase and tickCase). Unticking leaves
 	 * its place free on each chart that drew it; ticking brings it back on each chart with room.
-	 * The card's list counts only while its chart draws the other cases (the card open, "Also
-	 * show the other cases' station duties" ticked): a chart that draws no case keeps no place
-	 * free and holds none past its cap, so its own unticks never change then (§12 answer 2: no
-	 * ring the user never touched is unticked). A case leaving the card's chart has its requests
+	 * The card's list counts while its chart draws the other cases (the card open, "Also show the
+	 * other cases' station duties" ticked), or while its cases are a set the user chose under
+	 * "Cases on this chart" (ws.pumpGroupChosen), which it keeps as drawn: a case ticked again
+	 * under "Cases on the chart" then never takes the place of one the user ticked on the card
+	 * (S8 second check CHOICE-2). Otherwise a chart that draws no case keeps no place free and
+	 * holds none past its cap, so its own unticks never change then (§12 answer 2: no ring the
+	 * user never touched is unticked). A case leaving the card's chart has its requests
 	 * cancelled, as before.
 	 */
 	function tickChoice(chart: CaseChart, key: string, on: boolean) {
@@ -760,7 +781,7 @@
 				shown: overlayKeys,
 				cap: MAX_CHART_CASES - 1
 			},
-			...(ws.pumpGroupOpen && ws.pumpGroupOthers
+			...((ws.pumpGroupOpen && ws.pumpGroupOthers) || ws.pumpGroupChosen
 				? {
 						group: {
 							listed: valuedOthers.map((o) => o.key),
@@ -775,6 +796,7 @@
 		ws.casesUnticked = next.unticked;
 		ws.pumpChartUnticked = next.pump;
 		ws.pumpGroupUnticked = next.group;
+		if (chart === 'group') ws.pumpGroupChosen = true;
 		if (!on && onGroupChart) cancelCase(caseOf(key));
 	}
 	function cancelOthers() {

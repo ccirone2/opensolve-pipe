@@ -6547,3 +6547,52 @@ test('S8 review: “Also show the other cases’ system curves” stays under th
 	}
 	await page.setViewportSize(viewport);
 });
+
+test('S8 second check: “Also show the other cases’ system curves” stays under the pointer with the data table shown, as each curve’s table arrives above it (ui-guide, a press moves nothing under the pointer; S8 second check LAYOUT-2)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(240_000);
+	const soft = expect.configure({ soft: true });
+	await oneOff(page);
+	const figure = await pumpFigure(page);
+	const box = figure.getByRole('checkbox', { name: "Also show the other cases' system curves" });
+	// The data table shown (remembered in this browser since S7): each other case's system curve
+	// has its table there, above the switch, inserted when its curve answers (§5.3 The data
+	// region). The curves are asked for by this press, for the first time in this solve.
+	await figure.getByRole('button', { name: /^Show data table/ }).click();
+	await expect(figure.getByRole('button', { name: /^Hide data table/ })).toBeVisible();
+	await settle(page);
+	const tables = figure.locator('[data-curve-table^="system-"]');
+	await expect(tables).toHaveCount(0);
+	for (const on of [true, false]) {
+		const where = `switched ${on ? 'on' : 'off'} at ${sizeOf(page)}, the data table shown`;
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await page.waitForTimeout(200);
+		const r = (await box.boundingBox())!;
+		const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+		const before = await box.evaluate(readSwitch, point);
+		expect(before.hit, `the switch at the point pressed before the press, ${where}`).toBe(true);
+		if (isMobile) await page.touchscreen.tap(point.x, point.y);
+		else await page.mouse.click(point.x, point.y);
+		await expect(box).toBeChecked({ checked: on });
+		await page.waitForTimeout(300);
+		const soon = await box.evaluate(readSwitch, point);
+		console.log(`${where}: the switch's top ${before.top} -> ${soon.top} at 300 ms`);
+		soft(
+			Math.abs(soon.top - before.top),
+			`the switch moved by 300 ms, ${where}`
+		).toBeLessThanOrEqual(1);
+		soft(soon.hit, `the switch still under the point pressed at 300 ms, ${where}`).toBe(true);
+		// Every curve answered, each table drawn: Pump PA's four other cases, its off ones too.
+		await settle(page);
+		await expect(tables).toHaveCount(on ? 4 : 0);
+		const settled = await box.evaluate(readSwitch, point);
+		console.log(`${where}: the switch's top ${before.top} -> ${settled.top} once settled`);
+		soft(
+			Math.abs(settled.top - before.top),
+			`the switch moved once the curves settled, ${where}`
+		).toBeLessThanOrEqual(1);
+		soft(settled.hit, `the switch still under the point pressed once settled, ${where}`).toBe(true);
+	}
+});

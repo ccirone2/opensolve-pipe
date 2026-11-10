@@ -207,21 +207,59 @@
 		return document.scrollingElement ?? document.documentElement;
 	}
 	/**
+	 * The switch held at the place it was pressed while the curves that press asked for arrive
+	 * (S8 second check LAYOUT-2): `keep` scrolls it back, `end` lets it go. Not reactive.
+	 */
+	let held: { keep: () => void; end: () => void } | null = null;
+	/** The user's own next step, whatever it is: a press, a key, a wheel or a touch ends a hold. */
+	const OWN_STEPS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+	/**
 	 * "Also show the other cases' system curves" keeps its place under the pointer (ui-guide, a
 	 * press moves nothing under the pointer; S8 review LAYOUT-1): switching the curves changes the
 	 * boxes above it, since a case in which this pump is off has a box and a slot only while they
 	 * are on (pumps-results-layout.md §9 S8 Slots). So its scroller scrolls by what it moved, as a
 	 * pressed heading's box does (ResultsTable pressHeading); where the browser already kept it in
-	 * place (scroll anchoring) it moved nothing, and nothing scrolls.
+	 * place (scroll anchoring) it moved nothing, and nothing scrolls. With the data table shown,
+	 * each curve the press asked for adds its table above the switch as it answers (§5.3 The data
+	 * region), so while they are computed the switch is held (S8 second check LAYOUT-2): each
+	 * change of the figure's size scrolls it back, before it is painted, until the last curve
+	 * has answered or the user takes a step of their own (then a press lands where they aim).
 	 */
 	async function switchOverlay(input: HTMLInputElement) {
 		const before = input.getBoundingClientRect().top;
+		const keep = () => {
+			if (!input.isConnected) return;
+			const moved = input.getBoundingClientRect().top - before;
+			if (Math.abs(moved) > 0.5) scrollerOf(input).scrollTop += moved;
+		};
 		onoverlay?.(input.checked);
 		await tick();
-		if (!input.isConnected) return;
-		const moved = input.getBoundingClientRect().top - before;
-		if (Math.abs(moved) > 0.5) scrollerOf(input).scrollTop += moved;
+		keep();
+		const figure = input.closest('figure');
+		if (!input.checked || !overlayProgress || !figure || !input.isConnected) return;
+		if (typeof ResizeObserver === 'undefined') return;
+		const observer = new ResizeObserver(keep);
+		observer.observe(figure);
+		const end = () => {
+			observer.disconnect();
+			for (const type of OWN_STEPS) window.removeEventListener(type, end, true);
+			if (held?.end === end) held = null;
+		};
+		for (const type of OWN_STEPS)
+			window.addEventListener(type, end, { capture: true, passive: true });
+		held = { keep, end };
 	}
+	// The last curve answered (or the rest cancelled): its table is drawn, so keep the switch in
+	// place once more and let it go.
+	$effect(() => {
+		if (overlayProgress) return;
+		untrack(() => {
+			held?.keep();
+			held?.end();
+		});
+	});
+	// Another pump shown, or the chart gone: nothing more to hold.
+	$effect(() => () => held?.end());
 
 	// The range as numbers, so a new array with the same values does not rebuild the chart.
 	const low = $derived(ratedRange?.[0] ?? null);

@@ -1868,6 +1868,116 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		expect(row).toHaveClass('sr-only');
 	});
 
+	it('holds “Also show the other cases’ system curves” where it was pressed while the curves it asked for arrive, until the last has answered or the user takes a step of their own (S8 second check LAYOUT-2)', async () => {
+		withCanvas();
+		const observers = fakeResizeObserver();
+		// The pane that scrolls (the Results pane): its scroll the test's; the switch's top 300 px
+		// down it, lower by what the content above it has grown and higher by what it scrolled.
+		const pane = document.createElement('div');
+		pane.style.overflowY = 'auto';
+		document.body.append(pane);
+		sizeBox(pane, { clientHeight: 600, scrollHeight: 4000 });
+		let scrolled = 0;
+		let grown = 0;
+		Object.defineProperty(pane, 'scrollTop', {
+			configurable: true,
+			get: () => scrolled,
+			set: (v: number) => (scrolled = v)
+		});
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			others: [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')],
+			oncanceloverlay: vi.fn()
+		};
+		// As the Pumps view: the curves asked for are computed one at a time when switched on;
+		// once computed (`cached`), each is drawn at the press, its table with it.
+		let cached = false;
+		const onoverlay = (on: boolean) => {
+			if (cached) grown += on ? 168 : -168;
+			void view.rerender({
+				...props,
+				overlayCurves: on,
+				overlayProgress: on && !cached ? { done: 0, total: 3 } : null,
+				onoverlay
+			});
+		};
+		const view = render(PumpChart, {
+			target: pane,
+			props: { ...props, overlayCurves: false, overlayProgress: null, onoverlay }
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const figure = screen.getByRole('figure');
+		const box = screen.getByRole('checkbox', { name: "Also show the other cases' system curves" });
+		box.getBoundingClientRect = () => ({ top: 300 + grown - scrolled }) as DOMRect;
+		// With its data table hidden the chart watches no box of its own.
+		const watchedBefore = observers.watched();
+		expect(watchedBefore).toBe(0);
+		/** Switch the curves on, a press; held while they are computed. */
+		const switchOn = async () => {
+			await fireEvent.click(box);
+			expect(box).toBeChecked();
+			await vi.waitFor(() => expect(observers.watched()).toBe(watchedBefore + 1));
+		};
+		/** A curve answers: its table above the switch (56 px), the figure taller. */
+		const answer = () => {
+			grown += 56;
+			observers.resize(figure);
+		};
+		const top = () => box.getBoundingClientRect().top;
+
+		for (const step of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
+			await switchOn();
+			answer();
+			expect(top(), `held as a curve answers, before a ${step}`).toBe(300);
+			// The user's own step: the switch let go, so their scroll and their next press are their
+			// own; a curve answering after it moves it as the browser would.
+			window.dispatchEvent(new Event(step));
+			expect(observers.watched(), `let go at a ${step}`).toBe(watchedBefore);
+			const at = scrolled;
+			answer();
+			expect(scrolled, `not scrolled after a ${step}`).toBe(at);
+			// Back where it was, then off: nothing held while they are off.
+			grown -= 112;
+			scrolled -= 56;
+			await fireEvent.click(box);
+			expect(box).not.toBeChecked();
+			await tick();
+			expect(observers.watched()).toBe(watchedBefore);
+		}
+		// The last curve answered: its table is drawn, the switch kept in place once more and let go.
+		await switchOn();
+		answer();
+		expect(top()).toBe(300);
+		grown += 56;
+		await view.rerender({ ...props, overlayCurves: true, overlayProgress: null, onoverlay });
+		expect(top(), 'held as the last curve answers').toBe(300);
+		expect(observers.watched(), 'let go once every curve has answered').toBe(watchedBefore);
+		// Every curve computed: drawn at the press, which keeps the switch in place itself (S8
+		// review LAYOUT-1); nothing is held, since nothing is left to arrive.
+		await fireEvent.click(box);
+		expect(top()).toBe(300);
+		cached = true;
+		await fireEvent.click(box);
+		expect(box).toBeChecked();
+		await tick();
+		await tick();
+		expect(top(), 'kept in place by the press').toBe(300);
+		expect(observers.watched(), 'nothing held with every curve computed').toBe(watchedBefore);
+		await fireEvent.click(box);
+		await tick();
+		expect(top()).toBe(300);
+		// Switched on with curves to compute, then the chart gone (another pump shown): let go.
+		cached = false;
+		await switchOn();
+		view.unmount();
+		expect(observers.watched()).toBe(0);
+		observers.restore();
+		pane.remove();
+	});
+
 	it('draws the other cases’ line empty before it speaks, when mounted with their curves being computed (F17)', async () => {
 		// A pump chosen whose own curve is ready, with the other cases' curves asked for: the chart is
 		// mounted as their requests start (§7 Live regions).

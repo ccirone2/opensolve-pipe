@@ -662,6 +662,19 @@ describe('the pump chart’s cases: slots and markers (pumps-results-layout.md �
 		);
 	});
 
+	it('gives each case its place’s marker among exactly five cases with a result, whatever is listed or remembered (S8 second check MARK-3)', () => {
+		const all = ['A', 'B', 'C', 'D', 'E'];
+		// Two of the five listed and drawn, the markers remembered otherwise: each its place's.
+		expect(caseMarkers(['B', 'E'], ['B', 'E'], { B: 'star', E: 'triangle' }, all)).toEqual({
+			B: 'rect',
+			E: 'triangleDown'
+		});
+		// Six: past five, the markers remembered are kept.
+		expect(
+			caseMarkers(['B', 'E'], ['B', 'E'], { B: 'star', E: 'triangle' }, [...all, 'F'])
+		).toEqual({ B: 'star', E: 'triangle' });
+	});
+
 	it('names the cases that take no slot in one line, the screen’s and the image’s', () => {
 		expect(offCasesNote(['Pump PA off', 'Both pumps off (out of date)'])).toBe(
 			'Off in this case (no operating point): Pump PA off; Both pumps off (out of date).'

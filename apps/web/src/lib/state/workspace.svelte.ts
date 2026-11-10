@@ -277,6 +277,13 @@ export class Workspace {
 	 */
 	pumpGroupUnticked = $state.raw<readonly string[]>([]);
 	/**
+	 * The user has ticked or unticked a case under "Cases on this chart": the card's cases are then
+	 * a set the user chose, which a tick or an untick under "Cases on the chart" keeps while the
+	 * card is closed or draws no other case (PumpsView tickChoice; §9 S8, §12 answer 2). Page state.
+	 * Not reactive: only a tick or an untick reads it.
+	 */
+	pumpGroupChosen = false;
+	/**
 	 * The Add cases block's preset on the Pumps together card (CLAUDE.md D24, proposal
 	 * pump-lineups.md §7.3): By number running by default, or Each pump off. Page state.
 	 */
@@ -363,6 +370,7 @@ export class Workspace {
 		this.pumpChartUnticked = [];
 		this.pumpChartMarkers = {};
 		this.pumpGroupUnticked = [];
+		this.pumpGroupChosen = false;
 		this.lineupPreset = 'running';
 		this.pumpStopOrder = [];
 	}

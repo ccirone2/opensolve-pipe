@@ -884,15 +884,16 @@ export function pumpChartCases<T extends { key: string; result: Pick<PumpResult,
 
 /**
  * The markers of the cases drawn (§9 S8 Markers). While five other cases or fewer have a result
- * for this pump (`all`, the same cases for every pump, since scenarios never change topology),
- * each has the marker of its place among them: fixed by case, whatever is ticked, the other cases'
- * system curves switched or another pump shown. Past five, five markers cannot be fixed by case:
- * a case drawn `before` keeps its marker for as long as it stays drawn, and a case newly drawn
- * takes the marker of its place in `listed` when no case drawn holds it, else the first one free.
- * Then an untick, a tick, the curves switched or another pump shown never changes the marker of a
- * case that stays drawn, but a case's marker follows the order of the steps, not its place, once
- * the cases listed or drawn have changed. Five markers, at most five other cases drawn: one is
- * always free.
+ * (`all`, by default those listed; the Pumps view gives the cases with a converged result
+ * whatever the pump, the same for every pump, since a case can give one pump no result, a pump
+ * closed off on both sides, and another one a result), each has the marker of its place among
+ * them: fixed by case, whatever is ticked, the other cases' system curves switched or another
+ * pump shown. Past five, five markers cannot be fixed by case: a case drawn `before` keeps its
+ * marker for as long as it stays drawn, and a case newly drawn takes the marker of its place in
+ * `listed` when no case drawn holds it, else the first one free. Then an untick, a tick, the
+ * curves switched or another pump shown never changes the marker of a case that stays drawn, but
+ * a case's marker follows the order of the steps, not its place, once the cases listed or drawn
+ * have changed. Five markers, at most five other cases drawn: one is always free.
  */
 export function caseMarkers(
 	drawn: readonly string[],

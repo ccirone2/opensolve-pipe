@@ -251,3 +251,11 @@ They are one row at every width (they wrapped from 1024 px; `ui-ux-refinement.md
 Quoted in substance, from a phone screenshot of a list's controls (Sort by, its direction, Fields on a second line): condense this group; these controls could stay on one line only.
 
 On a phone they share one line at 412, 390 and 320 px: the label reads "Sort" (the field is still named "Sort by", which holds the visible word: WCAG 2.5.3), the field takes the room that is left, the direction button and Fields keep theirs; below 360 px Fields shows its icon and count, its word for screen readers only. Flagged only, when a table offers it, takes the next line. The phone's e2e flow checks the three share a line.
+
+**Since `pumps-results-layout.md` S6** (2026-11-09; its §15 items 176 to 183), every results table, the two tables of the Pumps together card among them, which became results tables then:
+
+- Below 640 px the headings' sort buttons are out of the Tab order: hidden there, a focus on one was unseen (§14's headings stay for screen readers). From 640 px the heading row is one Tab stop, ←, →, Home and End moving between its buttons.
+- A focus by the keyboard or a script is scrolled clear of the sticky name column and heading row; a pressed heading stays under the pointer.
+- Fields is named "Fields{ (n of m)}, {caption}" and a phone's field "Sort by, {caption}", so two tables' controls are told apart; their visible words are unchanged. Escape and Done give the focus back to Fields; Show all keeps it in the menu.
+- While a sort is on, the visible word "Sort" is for screen readers only, so the field chosen shows whole beside its direction and Fields, on §18's one line. With no sort the label reads "Sort", as §18 says. A designers' choice, for the owner to confirm.
+- "Pump" chosen in "Sort by" sorts by name, as the name's heading does (§14: a field chosen sorts as a heading does).

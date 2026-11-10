@@ -162,7 +162,7 @@ Proof: `utils/pump-chart-panels.test.ts` (9 tests), new cases in `PumpChart.svel
 
 Proof: `utils/pump-chart-facts.test.ts`, the updated chart, image and component tests, the `pump-chart-facts` e2e flow on desktop and phone, and a clean axe scan of the chart with a drooping curve and a speed range.
 
-## 11. In the Pumps tab's anatomy (`pumps-results-layout.md` S1 and S7, as built)
+## 11. In the Pumps tab's anatomy (`pumps-results-layout.md` S1, S7 and S8, as built)
 
 The chart's parts kept their contents and moved into the section anatomy of [`pumps-results-layout.md`](pumps-results-layout.md) (§5.1, §5.3; its §15 items 16 to 46 record the build). Where this text placed them:
 
@@ -172,4 +172,5 @@ The chart's parts kept their contents and moved into the section anatomy of [`pu
 - **The notes:** each rising-head range and the NPSHa crossing first, then the best efficiency point, the shutoff head and the speed range, the panels' notes, the dashed note, and the method sentence with "Trace of {pump}" as an inline link. The design checks' limits follow under "Design-check limits drawn". chartNotes' words and the image's footer are unchanged.
 - **The data table** (§4.4) opens after the notes: the operating point first, then "Operating points by case" ("Speed (%)", bare numbers), the case shown's tables, two-up only from a 40 rem container, and the other cases' system curves last. Each Why no head Details is named for its point.
 - **Since S7** (its §15 items 190 to 210), each curve's table is its own disclosure, "{caption} ({n} points)", full height when open: the pump curve, the system curve, the panels' curves, the speed range and each other case's system curve. It opens by default where the chart cannot be drawn, and a system curve's also when a point has no head, so the reasons the strip points to are one press away. Whether the data table is shown is remembered in this browser, and each box is a Tab stop and a region named by its table only while it overflows.
+- **Since S8** (its §15 items 211 to 231): the other cases' markers (§6.13 of `scenario-manager.md`) are △ □ ✳ × ▽, the shapes the chart draws, each fixed by case. A case in which the pump is off has a box only while the other cases' system curves are on; otherwise "Off in this case (no operating point): {names}." under the list names it, and ends the image's footer. The cases the user unticks are page state shared with the Pumps together card's "Cases on this chart", so the list is kept when another pump is shown. "Also show the other cases' system curves" keeps its place under the pointer.
 - **`aria-busy`** is the canvas's, not the figure's, and the system curve's state is an always-present polite line with its button after it.

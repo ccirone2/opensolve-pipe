@@ -737,7 +737,7 @@ Every base edit runs inside `carryChanges(change)`, a wrapper applied in `store.
 
 - **Active case.** Drawn as today: pump curve `#2a78d6` (dashed where extrapolated), system curve `#eb6834`, operating point in ink.
 - **Other cases.**
-  - Drawn in slate-600 `#475569` (7.6:1), each with its own hollow marker (triangle, rect, star, crossRot, rectRounded; `rectRot` stays "held at zero flow") and a direct label drawn by a small Chart.js plugin.
+  - Drawn in slate-600 `#475569` (7.6:1), each with its own hollow marker (triangle, rect, star, crossRot, rectRounded; `rectRot` stays "held at zero flow") and a direct label drawn by a small Chart.js plugin. Since the Pumps tab's S8 (`pumps-results-layout.md` §15 items 212 and 213), the triangle turned over takes rectRounded's place, the text glyphs are △ □ ✳ × ▽, and each case's marker is fixed by case.
   - Identity is never colour alone: shape, label, legend, tooltip and table carry it. No new hues are used, so no new palette needs checking. Case hues, if ever wanted, need an all-pairs distinctness check in both themes (at most 3 slots).
 - **Shown by default.**
   - The operating point of every solved case, with stale ones labelled "(out of date)".
@@ -747,7 +747,7 @@ Every base edit runs inside `carryChanges(change)`, a wrapper applied in `store.
   - Ticking it queues `POST /system-curve` with the case's `solvedProject`, `scenarioId` and the active curve's `flowMin`/`flowMax`, for the other cases the chart shows: after a case switch, for the case that became another, never for the case shown.
   - While the curves load: "Computing system curves: 1 of 3…" [Cancel]. Cancel stops the queued overlays only.
   - The cache is per (case, pump) and is dropped with that case's next solve. A curve is never shown with another solve's results (D10).
-- **Controls.** These appear when at least 2 cases have a result for this pump: a fieldset "Cases on the chart" with one 44 px checkbox per solved case and its marker swatch. All are ticked by default, at most 6 at once; past 6 the rest are disabled with the reason "At most 6 cases at once."
+- **Controls.** These appear when at least 2 cases have a result for this pump: a fieldset "Cases on the chart" with one 44 px checkbox per solved case and its marker swatch. All are ticked by default, at most 6 at once; past 6 the rest are disabled with the reason "At most 6 cases at once." Since the Pumps tab's S8 (`pumps-results-layout.md` §15 items 214 to 220), a case in which the pump is off has a box only while the other cases' system curves are on, else a line under the list names it; and the cases the user unticks are page state shared with the Pumps together card's "Cases on this chart", kept when another pump is shown.
 - **Accessibility.** The `role="img"` summary adds "other cases' operating points: Winter 10.1 L/s at 32.0 m; …". The data table adds "Operating points by case" (Case, Flow, Head, Speed, State), plus one system-curve table per case shown. The chart's height is unchanged, and the legend wraps at 390 px.
 
 ### 6.14 Sharing

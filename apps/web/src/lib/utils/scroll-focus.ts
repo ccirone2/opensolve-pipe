@@ -32,12 +32,19 @@ function mark(node: HTMLElement, scrolls: boolean, labelledBy: string, focused =
 /**
  * Measure the box again when the focus leaves it, as no longer focused (during `focusout` the
  * browser may still report it as the focused element), so a box kept focusable for the focus it
- * held is then neither. Returns the remover.
+ * held is then neither. The page losing the system focus (a tab, app or find-bar switch) is no
+ * leaving: the browser fires `focusout` on the box but keeps it the document's focused element and
+ * focuses it again when the page returns, so it is left focusable, or the browser would drop the
+ * focus to the page then (S7 second check A11Y-1-BLUR); the next real `focusout` measures it.
+ * Returns the remover.
  */
 function left(node: HTMLElement, update: (focused: boolean) => void) {
-	// The box's own focus, not a control's inside it (focusout bubbles).
 	const measure = (event: FocusEvent) => {
-		if (event.target === node) update(false);
+		// The box's own focus, not a control's inside it (focusout bubbles).
+		if (event.target !== node) return;
+		const doc = node.ownerDocument;
+		if (!doc.hasFocus() && doc.activeElement === node) return;
+		update(false);
 	};
 	node.addEventListener('focusout', measure);
 	return () => node.removeEventListener('focusout', measure);

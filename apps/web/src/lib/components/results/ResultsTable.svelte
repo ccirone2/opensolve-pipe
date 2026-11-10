@@ -254,11 +254,13 @@
 	}
 
 	/**
-	 * A sorted column held wider by a press (below), by less than a pixel: a min-width on its
-	 * heading cell, dropped as the sort leaves its column, so an unsorted table is never held, and
-	 * when new results or Flagged only change the rows it was measured on. Never the sticky
-	 * column's, whose words a press never moves, nor on a phone, whose list keeps the table's
-	 * width.
+	 * A column held wider by a press (below), by less than a pixel: a min-width on its heading
+	 * cell. Dropped as the sorted column changes (the press that changes it may hold its own
+	 * column again), and when new results or Flagged only change the rows it was measured on. A
+	 * press to clear may hold the column it cleared, so an unsorted table can be held until the
+	 * next sort or change of rows (S6, the CI fix's review CIFIX-1, TEST-CI-1). Only the heading
+	 * cells after the sticky column bind it: the sticky column's words a press never moves. A
+	 * phone's list keeps the table's width, so a press there holds nothing.
 	 */
 	const sortedKey = $derived(sort?.key);
 	let held = $derived.by((): { key: string; width: number } | null => {
@@ -287,8 +289,11 @@
 	 * needs beyond those values, often a fraction of a pixel; at the end of the box's scroll the
 	 * range may not grow with the table, and the box could not follow: in CI's Chromium Nodes'
 	 * "HGL (m)" grew 0.8 px, and its words and every other column moved 0.8 px (1.0 on the clear).
-	 * So where the table grew by a fraction, the sorted column takes the rest of a pixel (`held`),
-	 * and the box scrolls to the whole pixel nearest the words' move.
+	 * So where the table grew by a fraction, the pressed column takes the rest of a pixel (`held`),
+	 * and the box scrolls to the whole pixel nearest the words' move. A press to clear is held as
+	 * well (the CI fix's review CIFIX-1, TEST-CI-1): a sort whose hold new results or Flagged only
+	 * dropped, or which the Summary's link set, is a fraction of a pixel wider than the table
+	 * unsorted, and clearing it at the end of the box's scroll moved everything 0.8 px.
 	 */
 	async function pressHeading(key: string, button: HTMLElement) {
 		const words = button.firstElementChild ?? button;
@@ -302,7 +307,7 @@
 		const grew = grid.getBoundingClientRect().width - wide;
 		const rest = Math.ceil(grew - 0.01) - grew;
 		const cell = button.closest('th');
-		if (rest > 0.01 && sort?.key === key && cell && !inColumn(button)) {
+		if (rest > 0.01 && cell) {
 			held = { key, width: cell.getBoundingClientRect().width + rest };
 			await tick();
 		}
@@ -514,10 +519,16 @@
 {#snippet heading(key: string, label: string, unit: string | undefined, numeric: boolean)}
 	{@const active = sort?.key === key}
 	{#if sortable.has(key)}
+		<!-- Set on its line by its foot, not its baseline: a numeric heading's row is reversed, and a
+			browser takes an inline flex box's baseline from its first item along the line, so sorted,
+			the arrow's foot gave it, the line's strut hung below the button, and the heading row grew
+			(53 to 56 px in the e2e Chromium); the rows under it moved down, and the Results pane,
+			anchored on them, scrolled with them under the pointer (S6, the CI fix's review PRE-1;
+			ui-guide, a press moves nothing under the pointer). -->
 		<button
 			type="button"
 			class={[
-				'inline-flex min-h-11 items-end gap-1 rounded px-1 font-medium hover:bg-slate-200/70',
+				'inline-flex min-h-11 items-end gap-1 rounded px-1 align-bottom font-medium hover:bg-slate-200/70',
 				numeric ? 'flex-row-reverse text-right' : 'text-left'
 			]}
 			data-sort-key={key}

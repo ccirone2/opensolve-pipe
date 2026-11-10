@@ -753,8 +753,12 @@ describe('the card', () => {
 			/Duty check: not known, its point at the duty’s rise was not computed \(the time budget ran out\)\.\s*Details/
 		);
 		expect(screen.queryByText(/the group curve does not pass through it/)).toBeNull();
-		// The duty's row: its mark and the point's reason, two sentences.
-		const samples = await openTable("Group curve (station's flow at each rise)");
+		// The duty's row: its mark and the point's reason, two sentences, in a table open by
+		// default, since its point has no flow (§9 S7; S7 review STRUCT-2, W1, REG-1).
+		expect(disclosureOf("Group curve (station's flow at each rise)").open).toBe(true);
+		const samples = screen.getByRole('table', {
+			name: "Group curve (station's flow at each rise)"
+		});
 		expect(
 			within(samples).getByText(
 				"The duty's rise (the duty check). Not computed: the time budget ran out before this point."
@@ -4014,6 +4018,78 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		expect(details.querySelectorAll('tbody tr:not(:has(th[scope="rowgroup"]))')).toHaveLength(
 			points
 		);
+		// Its words in sight, the count with them (S7 review W2, MUT-SUMMARY-HIDDEN).
+		expect(
+			wordsInSight(details.querySelector(':scope > summary')!).replace(/\s+/g, ' ').trim()
+		).toBe(`${OTHER_CURVES_CAPTION} (${points} points)`);
+	});
+
+	it('opens every curve table by default where the chart cannot be drawn, “Other cases’ group curves” too (§9 S7; S7 review MUT-OTHERCURVES-DEFAULT)', async () => {
+		HTMLCanvasElement.prototype.getContext = (() => null) as unknown as typeof getContext;
+		render(PumpGroupChart, family().props);
+		await vi.waitFor(
+			() => expect(screen.getByText(/The chart cannot be drawn in this browser/)).toBeVisible(),
+			{ timeout: 10_000 }
+		);
+		const folds = [...document.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')];
+		expect(folds.map((d) => [d.dataset.curveTable, d.open])).toEqual([
+			['group-curve', true],
+			['group-system', true],
+			['other-curves', true]
+		]);
+	});
+
+	it('keeps the user’s opening of “Other cases’ group curves” while the data region is hidden and shown (S7 review MUT-BIND)', async () => {
+		await renderDrawn(family().props);
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		await openTable(OTHER_CURVES_CAPTION);
+		await new Promise((resolve) => setTimeout(resolve, 0)); // the toggle event's task
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Hide data table of the group chart' })
+		);
+		expect(screen.queryByRole('table', { name: OTHER_CURVES_CAPTION })).toBeNull();
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		expect(disclosureOf(OTHER_CURVES_CAPTION).open).toBe(true);
+	});
+
+	it('gives every box of the group data region its sideways shadows, and makes “Other cases’ station duties” a Tab stop and a named region only while it overflows (§5.3, §9 S7; S7 review LAYOUT-3, MUT-DUTIES-REGION)', async () => {
+		await renderDrawn(family().props);
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		const data = document.querySelector<HTMLElement>('[data-group-data]')!;
+		const boxes = [...data.querySelectorAll('table')].map((t) => t.parentElement!);
+		expect(
+			boxes.map((b) =>
+				b.querySelector(':scope > table > caption')!.textContent!.replace(/\s+/g, ' ').trim()
+			)
+		).toEqual([
+			"Each pump's point (flow through it)",
+			"Group curve (station's flow at each rise)",
+			"Group system curve (rise the rest of the network needs at each station's flow)",
+			"Other cases' station duties",
+			OTHER_CURVES_CAPTION
+		]);
+		for (const box of boxes) expect(box).toHaveClass('scroll-shadow-x', 'relative');
+		// The duties' box: wider than it holds (a long case name in its Case column), a region and a
+		// Tab stop; given room, neither.
+		const duties = boxOf("Other cases' station duties");
+		expect(duties).toBe(boxes[3]);
+		sizeBox(duties, { clientWidth: 452, scrollWidth: 452, clientHeight: 300, scrollHeight: 300 });
+		observers.resize(duties);
+		expect(duties).not.toHaveAttribute('tabindex');
+		expect(within(data).queryByRole('region', { name: "Other cases' station duties" })).toBeNull();
+		overflowSideways(duties);
+		expect(within(data).getByRole('region', { name: "Other cases' station duties" })).toBe(duties);
+		expect(duties).toHaveAttribute('tabindex', '0');
+		sizeBox(duties, { clientWidth: 900 });
+		observers.resize(duties);
+		expect(duties).not.toHaveAttribute('tabindex');
+		expect(duties).not.toHaveAttribute('role');
 	});
 
 	it('lists every point of each curve drawn in "Other cases’ group curves": a row group per case, a list below 640 px', async () => {
@@ -4674,6 +4750,11 @@ describe('the group chart’s data without scroll traps (pumps-results-layout.md
 			expect(box).toHaveClass('overflow-x-auto', 'scroll-shadow-x', 'relative');
 			expect(box.className).not.toMatch(/max-h-/);
 			expect(d.querySelector('caption')).toHaveClass('sr-only');
+			// The summary's words in sight, its count with them: the table's one visible title
+			// (S7 review W2, MUT-SUMMARY-HIDDEN).
+			const summary = d.querySelector(':scope > summary')!;
+			const caption = squash(d.querySelector('caption')!.textContent);
+			expect(squash(wordsInSight(summary))).toBe(`${caption} (42 points)`);
 		}
 		// Opened, its rows in sight.
 		expect(outOfSight(screen.getByRole('table', { name: GROUP }).querySelector('td')!)).toBe(true);
@@ -4700,6 +4781,121 @@ describe('the group chart’s data without scroll traps (pumps-results-layout.md
 		);
 		expect(reasons).toHaveLength(21);
 		for (const r of reasons) expect(outOfSight(r.querySelectorAll('td')[2]!)).toBe(false);
+	});
+
+	/** parallel-ideal's group curve with three points other than the duty's without a flow. */
+	function withoutFlow(c: FixtureCase) {
+		// Made-up, as the API reports points its 45 s budget did not reach.
+		const response = structuredClone(c.groupCurve.body as PumpGroupCurveResponse);
+		for (const p of response.points.filter((p) => !p.isDuty).slice(0, 3)) {
+			Object.assign(p, {
+				flow: null,
+				converged: false,
+				reason: 'not_computed',
+				message: "not computed: the request's 45 s budget ran out",
+				members: []
+			});
+		}
+		return { status: 'ready', response } satisfies GroupCurveState;
+	}
+
+	it('opens the group curve’s table by default when some of its points have no flow: the reasons its coverage line points to, one press away (§9 S7, §5.3; S7 review STRUCT-2, W1, REG-1)', async () => {
+		const c = named('parallel-ideal');
+		render(PumpGroupChart, props(c, { system: systemReady(c), curve: withoutFlow(c) }));
+		await drawn();
+		// The strip's coverage line sends the user to the data table.
+		const line = screen.getByText(
+			'3 of 42 group-curve points have no flow: the line has gaps there, and the data table says why for each.'
+		);
+		expect(outOfSight(line)).toBe(false);
+		await showTable();
+		expect(disclosures().map(({ table, open }) => [table, open])).toEqual([
+			[GROUP, true],
+			[SYSTEM, false]
+		]);
+		// Its Note column's reasons, in sight once the data table is shown.
+		const reasons = within(screen.getByRole('table', { name: GROUP })).getAllByText(
+			'Not computed: the time budget ran out before this point.'
+		);
+		expect(reasons).toHaveLength(3);
+		for (const r of reasons) expect(outOfSight(r)).toBe(false);
+	});
+
+	it('never closes a table it opened by default while it is drawn: a new default leaves it open, and only the next drawing of the data region takes the default afresh (§7 Disclosures “None closes itself”; S7 review DATA-1, MUT-TOGGLE)', async () => {
+		const c = named('parallel-ideal');
+		const all = systemReady(c);
+		// Made-up: two points of the same group system curve without a rise.
+		const some = structuredClone(all) as Extract<GroupCurveState, { status: 'ready' }>;
+		for (const p of some.response.systemPoints.filter((p) => !p.isDuty).slice(0, 2)) {
+			Object.assign(p, {
+				head: null,
+				converged: false,
+				reason: 'not_converged',
+				message: 'not converged: made-up reason'
+			});
+		}
+		const view = render(PumpGroupChart, props(c, { system: all }));
+		await drawn();
+		await showTable();
+		const task = () => new Promise((resolve) => setTimeout(resolve, 0)); // a toggle event's task
+		await task();
+		expect(disclosureOf(SYSTEM).open).toBe(false);
+		// Points without a rise: opened by default, in place.
+		await view.rerender(props(c, { system: some }));
+		await task();
+		expect(disclosureOf(SYSTEM).open).toBe(true);
+		// Every point with a rise again: it stays open while drawn (it never closes itself).
+		await view.rerender(props(c, { system: all }));
+		await task();
+		expect(disclosureOf(SYSTEM).open).toBe(true);
+		// Drawn again, hidden and shown: no choice was made, so the default holds (closed).
+		const hide = screen.getByRole('button', { name: 'Hide data table of the group chart' });
+		await fireEvent.click(hide);
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		await task();
+		expect(disclosureOf(SYSTEM).open).toBe(false);
+		// The group curve's likewise: opened by default by points without a flow, kept open while
+		// drawn, and its default again once drawn anew.
+		await view.rerender(props(c, { system: all, curve: withoutFlow(c) }));
+		await task();
+		expect(disclosureOf(GROUP).open).toBe(true);
+		await view.rerender(props(c, { system: all }));
+		await task();
+		expect(disclosureOf(GROUP).open).toBe(true);
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Hide data table of the group chart' })
+		);
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		await task();
+		expect(disclosureOf(GROUP).open).toBe(false);
+	});
+
+	it('keeps the user’s closing of the group system curve’s table, open by default, while the data region is hidden and shown and the card closed and opened (S7 review MUT-BIND)', async () => {
+		const c = named('fcv-outside');
+		const view = render(PumpGroupChart, props(c, { system: systemReady(c) }));
+		await drawn();
+		await showTable();
+		const system = disclosureOf(SYSTEM);
+		expect(system.open).toBe(true);
+		await fireEvent.click(system.querySelector(':scope > summary')!);
+		expect(system.open).toBe(false);
+		await new Promise((resolve) => setTimeout(resolve, 0)); // the toggle event's task
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Hide data table of the group chart' })
+		);
+		expect(screen.queryByRole('table', { name: SYSTEM })).toBeNull();
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		expect(disclosureOf(SYSTEM).open).toBe(false);
+		await view.rerender(props(c, { system: systemReady(c), open: false }));
+		expect(screen.queryByRole('table', { name: SYSTEM })).toBeNull();
+		await view.rerender(props(c, { system: systemReady(c), open: true }));
+		expect(disclosureOf(SYSTEM).open).toBe(false);
 	});
 
 	it('opens every curve table by default where the chart cannot be drawn', async () => {

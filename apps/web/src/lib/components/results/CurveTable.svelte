@@ -4,11 +4,15 @@
 	its points; open, the table is full height, so no box scrolls down inside the scrolling pane
 	(F23: no scroll trap). It is open by default where the chart cannot be drawn, or where its
 	reason column has entries, the reasons a note points to ("the data table says why"), so they
-	stay one press away (D10's owner rule); the user's opening or closing then holds, kept by the
-	chart (`choice`, bindable) while its data region is hidden. Its box scrolls sideways where the
-	table is wider, and is a Tab stop and a region named by the caption only while it overflows
-	(scrollRegion, §5.7). The caption is visually hidden: the summary shows the same words, and the
-	caption stays the table's name.
+	stay one press away (D10's owner rule). The default only ever opens it: while drawn, a table it
+	opened stays open when the default turns (a case switched, the curve computed again), since a
+	disclosure never closes itself (§7 Disclosures; S7 review DATA-1). The user's opening or
+	closing then holds, kept by the chart (`choice`, bindable) while its data region is hidden.
+	The disclosure is a grid item that may shrink below its table (`min-w-0`), so a wide table
+	scrolls in its own box and never widens the pane (§7 Targets; S7 review STRUCT-1). Its box
+	scrolls sideways where the table is wider, and is a Tab stop and a region named by the caption
+	only while it overflows (scrollRegion, §5.7). The caption is visually hidden: the summary shows
+	the same words, and the caption stays the table's name.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -50,7 +54,12 @@
 
 	/** "(41 points)", "(1 point)". */
 	const count = $derived(`(${points} ${points === 1 ? 'point' : 'points'})`);
-	const open = $derived(choice ?? openByDefault);
+	/** Opened by the default while drawn: it stays open, the default never closing it (DATA-1). */
+	let openedByDefault = $state(false);
+	$effect.pre(() => {
+		if (openByDefault) openedByDefault = true;
+	});
+	const open = $derived(choice ?? (openByDefault || openedByDefault));
 	/**
 	 * A toggle the user made becomes their choice. One that only draws what `open` says (the
 	 * default drawn, or changed while no choice is made) is not a choice: the toggle event fires
@@ -62,14 +71,17 @@
 	}
 </script>
 
-<details class="group" {open} ontoggle={toggled} data-curve-table={key}>
+<!-- A named group, so its chevron turns with this disclosure only, never a Details' inside it
+	(§15 item 122's rule; S7 review A11Y-2). The count unbroken, "(42 points)" on one line
+	(S7 review LAYOUT-4). -->
+<details class="group/curve min-w-0" {open} ontoggle={toggled} data-curve-table={key}>
 	<summary class="more-summary">
 		<Icon
 			name="right"
-			class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+			class="size-4 shrink-0 text-slate-500 transition-transform group-open/curve:rotate-90 motion-reduce:transition-none"
 		/>
 		<span class="min-w-0 flex-1 break-words"
-			>{caption} <span class="font-normal text-slate-600">{count}</span></span
+			>{caption} <span class="font-normal whitespace-nowrap text-slate-600">{count}</span></span
 		>
 	</summary>
 	<div

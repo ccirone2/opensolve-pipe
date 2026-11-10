@@ -6,17 +6,41 @@
  * it overflows").
  */
 
-/** Make the box a named region and a Tab stop, or neither. */
-function mark(node: HTMLElement, scrolls: boolean, labelledBy: string) {
+/** The box itself holds the focus (not a control inside it). */
+const isFocused = (node: HTMLElement) => node.ownerDocument.activeElement === node;
+
+/**
+ * Make the box a named region and a Tab stop, or neither. A box that holds the focus is never
+ * made unfocusable, or the browser would drop the focus to the page (a control in use keeps the
+ * focus: ui-guide; S7 review A11Y-1): it stays a focusable, named region with `tabindex="-1"`, no
+ * Tab stop, until the focus leaves it (`left`), and is measured again then.
+ */
+function mark(node: HTMLElement, scrolls: boolean, labelledBy: string, focused = isFocused(node)) {
 	if (scrolls) {
 		node.setAttribute('tabindex', '0');
 		node.setAttribute('role', 'region');
 		node.setAttribute('aria-labelledby', labelledBy);
+	} else if (focused) {
+		node.setAttribute('tabindex', '-1');
 	} else {
 		node.removeAttribute('tabindex');
 		node.removeAttribute('role');
 		node.removeAttribute('aria-labelledby');
 	}
+}
+
+/**
+ * Measure the box again when the focus leaves it, as no longer focused (during `focusout` the
+ * browser may still report it as the focused element), so a box kept focusable for the focus it
+ * held is then neither. Returns the remover.
+ */
+function left(node: HTMLElement, update: (focused: boolean) => void) {
+	// The box's own focus, not a control's inside it (focusout bubbles).
+	const measure = (event: FocusEvent) => {
+		if (event.target === node) update(false);
+	};
+	node.addEventListener('focusout', measure);
+	return () => node.removeEventListener('focusout', measure);
 }
 
 /**
@@ -50,12 +74,14 @@ function watch(node: HTMLElement, update: () => void) {
  * A Svelte action for a box that may scroll down (a dialog's body), measured on its height.
  */
 export function focusableWhenScrollable(node: HTMLElement, labelledBy: string) {
-	const watching = watch(node, () =>
-		mark(node, node.scrollHeight > node.clientHeight + 1, labelledBy)
-	);
+	const update = (focused = isFocused(node)) =>
+		mark(node, node.scrollHeight > node.clientHeight + 1, labelledBy, focused);
+	const watching = watch(node, () => update());
+	const unlisten = left(node, update);
 	return {
 		destroy() {
 			watching.disconnect();
+			unlisten();
 		}
 	};
 }
@@ -110,12 +136,17 @@ export function drawn(node: HTMLElement): boolean {
  */
 export function scrollRegion(node: HTMLElement, labelledBy: string | undefined) {
 	let label = labelledBy;
-	const update = () => {
-		if (label) mark(node, drawn(node) && overflows(node), label);
+	const update = (focused = isFocused(node)) => {
+		if (label) mark(node, drawn(node) && overflows(node), label, focused);
 	};
-	const watching = watch(node, update);
+	const measure = () => update();
+	const watching = watch(node, measure);
+	// Its name taken away while focused, it was kept focusable: neither once the focus leaves.
+	const unlisten = left(node, (focused) =>
+		label ? update(focused) : mark(node, false, '', focused)
+	);
 	const folds = foldsOf(node);
-	for (const d of folds) d.addEventListener('toggle', update);
+	for (const d of folds) d.addEventListener('toggle', measure);
 	return {
 		update(next: string | undefined) {
 			if (label && !next) mark(node, false, label);
@@ -124,7 +155,8 @@ export function scrollRegion(node: HTMLElement, labelledBy: string | undefined) 
 		},
 		destroy() {
 			watching.disconnect();
-			for (const d of folds) d.removeEventListener('toggle', update);
+			unlisten();
+			for (const d of folds) d.removeEventListener('toggle', measure);
 		}
 	};
 }

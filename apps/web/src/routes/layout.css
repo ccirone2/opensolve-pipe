@@ -169,7 +169,10 @@
 
 	/*
 	 * A box that scrolls sideways: shadows at the edges show that there is more to see (pure CSS:
-	 * white covers move with the content, the shadows stay with the box).
+	 * white covers move with the content, the shadows stay with the box). Each shadow is as dark
+	 * from the box's top to its foot, so a full-height table shows it in its first rows too
+	 * (pumps-results-layout.md §5.3, F23; S7 review LAYOUT-2: an ellipse half the box's height
+	 * faded to nothing there).
 	 */
 	.scroll-shadow-x {
 		background:
@@ -177,10 +180,10 @@
 				local,
 			linear-gradient(to left, white 30%, rgb(255 255 255 / 0)) right center / 2.5rem 100% no-repeat
 				local,
-			radial-gradient(farthest-side at 0 50%, rgb(15 23 42 / 0.18), rgb(15 23 42 / 0)) left center /
-				0.75rem 100% no-repeat scroll,
-			radial-gradient(farthest-side at 100% 50%, rgb(15 23 42 / 0.18), rgb(15 23 42 / 0)) right
-				center / 0.75rem 100% no-repeat scroll,
+			linear-gradient(to right, rgb(15 23 42 / 0.18), rgb(15 23 42 / 0)) left center / 0.75rem 100%
+				no-repeat scroll,
+			linear-gradient(to left, rgb(15 23 42 / 0.18), rgb(15 23 42 / 0)) right center / 0.75rem 100%
+				no-repeat scroll,
 			white;
 	}
 }

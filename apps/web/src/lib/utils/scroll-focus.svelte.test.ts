@@ -71,7 +71,7 @@ describe('scrollRegion (§9 S7: a Tab stop only while it overflows)', () => {
 		action.destroy();
 	});
 
-	it('measures when its content changes size: the table it holds is watched, and a child added', () => {
+	it('measures when its content changes size: the table it holds is watched, and a child added', async () => {
 		const { el, table } = box();
 		sizeBox(el, { clientWidth: 400, scrollWidth: 400, clientHeight: 200, scrollHeight: 200 });
 		const action = scrollRegion(el, 'made-up-caption');
@@ -80,8 +80,76 @@ describe('scrollRegion (§9 S7: a Tab stop only while it overflows)', () => {
 		sizeBox(el, { scrollHeight: 400 });
 		observers.resize(table);
 		expect(stop(el)).toBe(true);
+		sizeBox(el, { scrollHeight: 200 });
+		observers.resize(table);
+		expect(stop(el)).toBe(false);
+		// A child added, wider than the box: measured as it is added, with no resize of the box or
+		// its table, and watched from then on (S7 review MUT-MUTATION-OBSERVER).
+		const wide = document.createElement('div');
+		sizeBox(el, { scrollWidth: 900 });
+		el.append(wide);
+		await new Promise((resolve) => setTimeout(resolve, 0)); // the mutation records
+		expect(stop(el)).toBe(true);
+		expect(observers.watched()).toBe(3);
+		sizeBox(el, { scrollWidth: 400 });
+		observers.resize(wide);
+		expect(stop(el)).toBe(false);
 		action.destroy();
 		expect(observers.watched()).toBe(0);
+	});
+
+	it('keeps the focus on a box that stops overflowing while it holds it: still focusable and named, no Tab stop, until the focus leaves; then neither (S7 review A11Y-1)', () => {
+		const { el } = box();
+		const after = document.createElement('button');
+		document.body.append(after);
+		sizeBox(el, { clientWidth: 300, scrollWidth: 400, clientHeight: 200, scrollHeight: 200 });
+		const action = scrollRegion(el, 'made-up-caption');
+		expect(stop(el)).toBe(true);
+		el.focus();
+		expect(document.activeElement).toBe(el);
+		const attributes = () => ['tabindex', 'role', 'aria-labelledby'].map((a) => el.getAttribute(a));
+		// The window widened: it fits while focused.
+		sizeBox(el, { clientWidth: 400 });
+		observers.resize(el);
+		expect(attributes()).toEqual(['-1', 'region', 'made-up-caption']);
+		expect(document.activeElement).toBe(el);
+		// Narrowed again while focused: a Tab stop again.
+		sizeBox(el, { clientWidth: 300 });
+		observers.resize(el);
+		expect(stop(el)).toBe(true);
+		sizeBox(el, { clientWidth: 400 });
+		observers.resize(el);
+		expect(attributes()).toEqual(['-1', 'region', 'made-up-caption']);
+		// The focus moves on: measured again, it is neither.
+		after.focus();
+		expect(stop(el)).toBe(false);
+		action.destroy();
+		// Destroyed, it listens no more.
+		sizeBox(el, { clientWidth: 300 });
+		el.setAttribute('tabindex', '0');
+		el.focus();
+		after.focus();
+		expect(el.getAttribute('role')).toBeNull();
+	});
+
+	it('keeps the focus on a dialog’s body that stops overflowing while it holds it (S7 review A11Y-1)', () => {
+		const { el } = box();
+		const after = document.createElement('button');
+		document.body.append(after);
+		sizeBox(el, { clientWidth: 300, scrollWidth: 300, clientHeight: 200, scrollHeight: 900 });
+		const action = focusableWhenScrollable(el, 'made-up-caption');
+		expect(stop(el)).toBe(true);
+		el.focus();
+		sizeBox(el, { scrollHeight: 200 });
+		observers.resize(el);
+		expect(['tabindex', 'role', 'aria-labelledby'].map((a) => el.getAttribute(a))).toEqual([
+			'-1',
+			'region',
+			'made-up-caption'
+		]);
+		after.focus();
+		expect(stop(el)).toBe(false);
+		action.destroy();
 	});
 
 	it('ignores an overflow on an axis it does not scroll (a phone’s list, overflow visible)', () => {

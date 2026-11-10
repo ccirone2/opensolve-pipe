@@ -2147,6 +2147,11 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 			const summary = d.querySelector(':scope > summary')!;
 			expect(summary).toHaveClass('more-summary');
 			expect(summary.querySelector('.font-normal')!.textContent).toMatch(/^\(\d+ points?\)$/);
+			// Its words and count in sight: since the caption is hidden, the table's one visible
+			// title (S7 review W2, MUT-SUMMARY-HIDDEN).
+			const caption = squash(d.querySelector('caption')!.textContent);
+			const rows = d.querySelectorAll('tbody tr').length;
+			expect(squash(wordsInSight(summary))).toBe(`${caption} (${rows} points)`);
 			// Full height when open: its box scrolls sideways only, never down inside the pane.
 			const box = d.querySelector('table')!.parentElement!;
 			expect(box).toHaveClass('overflow-x-auto', 'scroll-shadow-x');
@@ -2220,14 +2225,34 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 			'made-up reason: not converged'
 		);
 		expect(outOfSight(reason)).toBe(false);
-		// While the user has made no choice the default follows the curve: computed again with
-		// every point solved, it closes.
+		// The default only ever opens a table (§7 Disclosures: "None closes itself"; S7 review
+		// DATA-1): computed again with every point solved, the table stays open while drawn. Each
+		// step waits a task, for the toggle event a drawn opening fires (S7 review MUT-TOGGLE).
+		const task = () => new Promise((resolve) => setTimeout(resolve, 0));
+		await task();
 		await view.rerender({ system: READY });
 		await tick();
+		await task();
+		expect(disclosureOf('System curve').open).toBe(true);
+		// Drawn anew (the data region hidden and shown): no choice was made, so it takes the
+		// default afresh, closed with every point solved.
+		const hide = screen.getByRole('button', { name: 'Hide data table of the pump chart' });
+		await fireEvent.click(hide);
+		await showTable();
+		await task();
 		expect(disclosureOf('System curve').open).toBe(false);
+		// A point without a head again: opened by default in place, which is no choice either.
 		await view.rerender({ system: { status: 'ready', curve: systemCurveResponse('P1', [1]) } });
 		await tick();
+		await task();
 		expect(disclosureOf('System curve').open).toBe(true);
+		await view.rerender({ system: READY });
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Hide data table of the pump chart' })
+		);
+		await showTable();
+		await task();
+		expect(disclosureOf('System curve').open).toBe(false);
 	});
 
 	it('keeps the user’s choice of each curve table while the data region is hidden and shown, and over a new default', async () => {
@@ -2260,6 +2285,45 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 		await tick();
 		expect(disclosureOf('System curve').open).toBe(false);
 		expect(disclosureOf('Pump curve at 100 % speed').open).toBe(true);
+	});
+
+	it('keeps the choice of every kind of curve table: a panel’s, a speed range’s and another case’s system curve, while the data region is hidden and shown (S7 review MUT-BIND)', async () => {
+		withCanvas();
+		render(PumpChart, {
+			result: everyPanel(),
+			name: 'P',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03],
+			system: READY,
+			caseName: 'Base case',
+			others: [winter(systemCurveResponse('P1', [3]))],
+			onoverlay: vi.fn()
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		await showTable();
+		// Opened by the user: a panel's table and a speed range's; closed by the user: another
+		// case's system curve, open by default (a point without a head).
+		await openTable('Efficiency curve at 100 % speed');
+		await openTable('Pump curve at 50 % speed (minimum)');
+		const winterFold = disclosureOf('System curve, Winter');
+		expect(winterFold.open).toBe(true);
+		await fireEvent.click(winterFold.querySelector(':scope > summary')!);
+		expect(winterFold.open).toBe(false);
+		await new Promise((resolve) => setTimeout(resolve, 0)); // the toggle events' task
+		const hide = screen.getByRole('button', { name: 'Hide data table of the pump chart' });
+		await fireEvent.click(hide);
+		expect(screen.queryByRole('table', { name: 'System curve, Winter' })).toBeNull();
+		await fireEvent.click(hide);
+		expect(disclosures().map(({ table, open }) => [table, open])).toEqual([
+			['Pump curve at 100 % speed', false],
+			['System curve', false],
+			['Efficiency curve at 100 % speed', true],
+			['Shaft power curve at 100 % speed', false],
+			['NPSHr curve at 100 % speed', false],
+			['Pump curve at 50 % speed (minimum)', true],
+			['Pump curve at 100 % speed (maximum)', false],
+			['System curve, Winter', false]
+		]);
 	});
 
 	it('remembers in this browser whether the data table is shown, and starts hidden with nothing remembered', async () => {

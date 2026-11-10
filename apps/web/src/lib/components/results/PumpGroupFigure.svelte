@@ -866,12 +866,14 @@
 		<!-- The data region after the reference (§5.1 item 9, §9 S2; F3: it opened at the card's
 			foot), so opening it never pushes a note or a check away from the chart. Each curve table
 			a disclosure, "{caption} ({n} points)", full height when open, and open by default where
-			the chart cannot be drawn or the group system curve has points without a rise (§9 S7:
-			CurveTable); every box a Tab stop and a named region only while it overflows (§5.7). -->
+			the chart cannot be drawn or its reason column has entries: the group curve's points
+			without a flow, the group system curve's without a rise (§9 S7: CurveTable); every box
+			with its sideways shadows (§5.3), a Tab stop and a named region only while it overflows
+			(§5.7). -->
 		{#if tableShown}
 			<div id="{id}-data" class="space-y-3" data-group-data>
 				<div
-					class="relative overflow-auto rounded-md border border-slate-200 bg-white"
+					class="scroll-shadow-x relative overflow-auto rounded-md border border-slate-200 bg-white"
 					use:scrollRegion={`${id}-points-caption`}
 				>
 					<table class="w-full text-sm">
@@ -939,11 +941,14 @@
 					{/if}
 				{/if}
 				{#if samples.length}
+					<!-- Open by default when a point has no flow: the reasons its coverage line and the
+						readout point to ("the data table says why"), one press away (§9 S7, D10's owner
+						rule; S7 review STRUCT-2). A sample's note is '' only when it has a flow. -->
 					<CurveTable
 						key="group-curve"
 						caption="Group curve (station's flow at each rise)"
 						points={samples.length}
-						openByDefault={cannotDraw}
+						openByDefault={cannotDraw || samples.some((sample) => sample.note !== '')}
 						bind:choice={tablesOpen['group-curve']}
 					>
 						<thead class="bg-slate-50">
@@ -1028,7 +1033,7 @@
 						::before content, so a cell's text is the same at every width), the roles
 						kept. -->
 					<div
-						class="relative overflow-auto rounded-md border border-slate-200 bg-white"
+						class="scroll-shadow-x relative overflow-auto rounded-md border border-slate-200 bg-white"
 						use:scrollRegion={`${id}-others-caption`}
 						data-other-duties
 					>

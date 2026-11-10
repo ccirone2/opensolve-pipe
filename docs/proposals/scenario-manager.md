@@ -737,7 +737,7 @@ Every base edit runs inside `carryChanges(change)`, a wrapper applied in `store.
 
 - **Active case.** Drawn as today: pump curve `#2a78d6` (dashed where extrapolated), system curve `#eb6834`, operating point in ink.
 - **Other cases.**
-  - Drawn in slate-600 `#475569` (7.6:1), each with its own hollow marker (triangle, rect, star, crossRot, rectRounded; `rectRot` stays "held at zero flow") and a direct label drawn by a small Chart.js plugin. Since the Pumps tab's S8 (`pumps-results-layout.md` §15 items 212 and 213), the triangle turned over takes rectRounded's place, the text glyphs are △ □ ✳ × ▽, and each case's marker is fixed by case.
+  - Drawn in slate-600 `#475569` (7.6:1), each with its own hollow marker (triangle, rect, star, crossRot, rectRounded; `rectRot` stays "held at zero flow") and a direct label drawn by a small Chart.js plugin. Since the Pumps tab's S8 (`pumps-results-layout.md` §15 items 212 and 213), the triangle turned over takes rectRounded's place, the text glyphs are △ □ ✳ × ▽, and each case's marker is fixed by case while five other cases or fewer have a result; past five a case keeps its marker while it stays drawn.
   - Identity is never colour alone: shape, label, legend, tooltip and table carry it. No new hues are used, so no new palette needs checking. Case hues, if ever wanted, need an all-pairs distinctness check in both themes (at most 3 slots).
 - **Shown by default.**
   - The operating point of every solved case, with stale ones labelled "(out of date)".

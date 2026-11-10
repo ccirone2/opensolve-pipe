@@ -612,7 +612,9 @@
 	rules, §7).
 -->
 <figure bind:this={figure} class="space-y-2" aria-labelledby="{id}-caption" tabindex="-1">
-	<figcaption id="{id}-caption" class="text-sm font-medium">
+	<!-- Its words wrap, a 40-character unbroken name too, as the group chart's figcaption (§7
+		Targets: text reflows at 320 px; S7 review LAYOUT-5). -->
+	<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">
 		Pump and system curves: {name}{caseName ? `, ${caseName}` : ''}
 	</figcaption>
 	{#if loadFailed}
@@ -922,10 +924,13 @@
 									role="row"
 									class="border-t border-slate-100 max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5"
 								>
+									<!-- Below 640 px the case's name heads its block, wrapping anywhere (a name
+										with no space too), as "Other cases' station duties" (S7 review
+										PRE-OPPOINTS-LONGCASE). -->
 									<th
 										role="rowheader"
 										scope="row"
-										class="px-2 py-1 text-left font-normal max-sm:block max-sm:w-full max-sm:px-0 max-sm:pt-1 max-sm:font-medium"
+										class="px-2 py-1 text-left font-normal max-sm:block max-sm:w-full max-sm:px-0 max-sm:pt-1 max-sm:font-medium max-sm:wrap-anywhere"
 										>{#if row.marker}<span aria-hidden="true" class="text-slate-600"
 												>{row.marker}</span
 											>

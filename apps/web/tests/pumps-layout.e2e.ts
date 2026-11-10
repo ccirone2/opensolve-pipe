@@ -30,10 +30,12 @@ import { gzip } from 'pako';
 import type { Project } from '../src/lib/api/types';
 import { exampleProject, pumpTransferExample } from '../src/lib/utils/examples';
 import { canonicalJson } from '../src/lib/utils/json';
+import { IMPERIAL_UNITS } from '../src/lib/utils/units';
 import {
 	buildPane,
 	caseGroup,
 	chooseCase,
+	curveTableFold,
 	openCases,
 	openCurveTable,
 	resultsPane,
@@ -1918,6 +1920,40 @@ async function axeClean(page: Page, where: string) {
 	expect
 		.soft(wcag.passes.length, `axe's rules that passed over the Pumps tab, ${where}`)
 		.toBeGreaterThan(0);
+	// Every table's Fields menu open too, one at a time (a menu under its button from 640 px, a
+	// sheet on a phone): a disclosure axe never sees while it is hidden (§9 S6, §10 axe; S6 review
+	// MUT-01). Each closed again by Escape from its button.
+	const fieldsButtons = page.locator(`${panel} button[aria-controls][aria-expanded]`);
+	const menus = await fieldsButtons.evaluateAll((all) =>
+		all
+			.map((b, i) => ({
+				i,
+				menu: document
+					.getElementById(b.getAttribute('aria-controls') ?? '')
+					?.getAttribute('aria-label')
+			}))
+			.filter((b) => b.menu?.startsWith('Fields shown in '))
+	);
+	expect.soft(menus.length, `the Fields menus in the Pumps tab, ${where}`).toBeGreaterThan(0);
+	for (const { i, menu } of menus) {
+		const button = fieldsButtons.nth(i);
+		await button.scrollIntoViewIfNeeded();
+		await button.click();
+		await expect(page.getByRole('group', { name: menu! })).toBeVisible();
+		const open = await new AxeBuilder({ page })
+			.include(panel)
+			.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+			.analyze();
+		expect
+			.soft(
+				open.violations.map((v) => `${v.id} (${v.nodes.length})`),
+				`axe over the Pumps tab, "${menu}" open, ${where}`
+			)
+			.toEqual([]);
+		await button.focus();
+		await page.keyboard.press('Escape');
+		await expect(button).toHaveAttribute('aria-expanded', 'false');
+	}
 	const outline = await new AxeBuilder({ page })
 		.include(panel)
 		.withRules(['heading-order', 'landmark-unique'])
@@ -2850,6 +2886,9 @@ function readCombinations() {
 			return {
 				lines: [...heading.children].map((line) => ({
 					text: squash(line.textContent),
+					// On screen, not only in its place (S6 review MUT-03: a line made invisible kept
+					// its text, position and box).
+					seen: seen(line),
 					position: getComputedStyle(line).position,
 					inView: inView(line),
 					shown: shownWhole(line)
@@ -3000,6 +3039,7 @@ async function combinationsPart(
 		for (const [g, group] of groups.entries()) {
 			const what = `"${cases[g]}" ${label}, ${where}`;
 			for (const line of group.lines) {
+				soft(line.seen, `${what}: "${line.text.slice(0, 40)}" on screen`).toBe(true);
 				soft(line.position, `${what}: "${line.text.slice(0, 40)}" sticky`).toBe(
 					m.list ? 'static' : 'sticky'
 				);
@@ -3141,14 +3181,21 @@ function readCombinationsTable() {
 		const r = el.getBoundingClientRect();
 		return r.left >= left - 0.5 && r.right <= right + 0.5;
 	};
-	const select = block.querySelector<HTMLSelectElement>('select[aria-label="Sort by"]');
+	const select = block.querySelector<HTMLSelectElement>(
+		'select[aria-label="Sort by, Running combinations"]'
+	);
 	const fields = [...block.querySelectorAll('button')].find((x) =>
 		squash(x.textContent).startsWith('Fields')
 	);
 	const flagged = [...block.querySelectorAll('label')].find((l) =>
 		squash(l.textContent).startsWith('Flagged only')
 	);
-	let sortRoom: { name: string; text: number; room: number } | null = null;
+	let sortRoom: {
+		name: string;
+		text: number;
+		room: number;
+		chosen: { name: string; text: number };
+	} | null = null;
 	if (select && seen(select)) {
 		const css = getComputedStyle(select);
 		const context = document.createElement('canvas').getContext('2d')!;
@@ -3160,12 +3207,15 @@ function readCombinationsTable() {
 			},
 			{ name: '', width: 0 }
 		);
+		const chosen = select.selectedOptions[0]?.text ?? '';
 		sortRoom = {
 			name: longest.name,
 			text: Math.ceil(longest.width),
 			room: Math.floor(
 				select.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
-			)
+			),
+			// The field shown while sorted, beside its direction button (S6 review TBL-4).
+			chosen: { name: chosen, text: Math.ceil(context.measureText(chosen).width) }
 		};
 	}
 	const headings = [...table.querySelectorAll('thead th')].map((h) => ({
@@ -3347,6 +3397,13 @@ async function combinationsTablePart(page: Page, where: string, form: 'grouped' 
 				`room in its "Sort by" for "${m.sortRoom.name}", ${where}`
 			).toBeGreaterThanOrEqual(m.sortRoom.text);
 		}
+		// Sorted, the field it shows whole beside its direction button (S6 review TBL-4).
+		if (m.sortRoom && form === 'flat') {
+			soft(
+				m.sortRoom.room - MENULIST_INNER,
+				`room in its "Sort by" for "${m.sortRoom.chosen.name}" chosen, ${where}`
+			).toBeGreaterThanOrEqual(m.sortRoom.chosen.text);
+		}
 	} else {
 		soft(m.select?.seen ?? false, `its "Sort by" out of sight from 640 px, ${where}`).toBe(false);
 	}
@@ -3423,7 +3480,7 @@ function readGroupTable() {
 	// The table's box (a region only while it overflows since S7, §9 S7).
 	const box = block.querySelector<HTMLElement>('table[role="table"]')?.parentElement;
 	const table = box?.querySelector('table');
-	const select = block.querySelector<HTMLSelectElement>('select[aria-label="Sort by"]');
+	const select = block.querySelector<HTMLSelectElement>('select[aria-label^="Sort by, The pumps"]');
 	const fields = [...block.querySelectorAll('button')].find((b) =>
 		squash(b.textContent).startsWith('Fields')
 	);
@@ -3508,7 +3565,9 @@ function readGroupTable() {
 					name: squash(name?.textContent),
 					seen: seen(name),
 					whole: !!name && name.scrollWidth <= name.clientWidth + 1,
-					button: !!th.querySelector('button')
+					button: !!th.querySelector('button'),
+					// Where its words start, after its slot symbol's 1 rem column (§15 item 157).
+					left: name ? name.getBoundingClientRect().left : null
 				};
 			}),
 		lines: [...(table?.querySelectorAll('[data-row-notes]') ?? [])].map((line) => {
@@ -3600,6 +3659,13 @@ async function groupTablePart(page: Page, where: string) {
 		soft(member.whole, `the name "${member.name}" shown to its end, ${where}`).toBe(true);
 		soft(member.button, `the name "${member.name}" a trace button, ${where}`).toBe(true);
 	}
+	// Every name starts at one edge, whatever its slot symbol's width (§15 item 157; S6 review
+	// MUT-04: the symbols' 1 rem column taken away failed nothing).
+	const lefts = m.members.map((member) => member.left ?? 0);
+	soft(
+		Math.max(...lefts) - Math.min(...lefts),
+		`the group table's names start at one edge, ${where}`
+	).toBeLessThanOrEqual(0.5);
 	for (const line of m.lines) {
 		const what = `the flag line of ${line.id}, ${where}`;
 		soft(line.label, `${what}: labelled`).toBe('Flags');
@@ -4547,36 +4613,31 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		await sortCombinations(page, /^NPSH margin/, 'npshMargin', true);
 		// Each line of a long name ends inside the card, outside a box that scrolls (the data
 		// tables, and the group table at 640 px and over, whose name column wraps at 12 rem).
-		const past = await card.evaluate(
-			(c, names) => {
-				const edge = c.getBoundingClientRect().right;
-				const walker = document.createTreeWalker(c, NodeFilter.SHOW_TEXT);
-				const found: string[] = [];
-				for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
-					const el = n.parentElement!;
-					if (!names.some((name) => n!.data.includes(name))) continue;
-					const r = el.getBoundingClientRect();
-					if (!el.checkVisibility() || r.width <= 1 || r.height <= 1) continue;
-					let scrolls = false;
-					for (let a: Element | null = el; a && a !== c; a = a.parentElement) {
-						if (/(auto|scroll)/.test(getComputedStyle(a).overflowX)) scrolls = true;
-					}
-					if (scrolls) continue;
-					const range = document.createRange();
-					range.selectNodeContents(n);
-					const right = Math.max(...[...range.getClientRects()].map((b) => b.right));
-					if (right > edge + 0.5) {
-						found.push(
-							`${el.tagName.toLowerCase()} "${n.data.trim().slice(0, 50)}" to ${Math.round(right)} past ${Math.round(edge)}`
-						);
-					}
-				}
-				return found;
-			},
-			[LONG_PUMP, LONG_CASE]
-		);
+		const past = await card.evaluate(namesPast, [LONG_PUMP, LONG_CASE]);
 		console.log(`${where}: past the card ${JSON.stringify(past)}`);
 		expect.soft(past, `a long name's line past the card's edge, ${where}`).toEqual([]);
+		// And inside the pump chart's figure: its caption and, on a phone, the case's row header in
+		// the list "Operating points by case" (S7 review LAYOUT-5, PRE-OPPOINTS-LONGCASE). Pump P1 is
+		// off in the long-named case, which since S8 takes a slot (and a row there) only while the
+		// other cases' system curves are on (§9 S8 Slots): on for these checks, then off again.
+		const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+		await expect(figure.locator('figcaption')).toContainText(LONG_PUMP);
+		const curves = figure.getByRole('checkbox', {
+			name: "Also show the other cases' system curves"
+		});
+		await curves.check();
+		await expect(curveTableFold(figure, `System curve, ${LONG_CASE}`)).toHaveCount(1, {
+			timeout: 120_000
+		});
+		await settle(page);
+		await expect(
+			figure.getByRole('table', { name: 'Operating points by case' }).getByRole('rowheader')
+		).toContainText([LONG_CASE]);
+		const pastFigure = await figure.evaluate(namesPast, [LONG_PUMP, LONG_CASE]);
+		console.log(`${where}: past the pump chart ${JSON.stringify(pastFigure)}`);
+		expect.soft(pastFigure, `a long name's line past the pump chart's edge, ${where}`).toEqual([]);
+		await curves.uncheck();
+		await settle(page);
 		// S8 (§9 S8, §6.2): Pump P1 is off in the long-named case, so on its chart the case takes
 		// no slot and the line under the list names it, every line of it inside the chart's card.
 		const offLine = tab.locator('[data-pump-chart] [data-pump-off-cases]');
@@ -4594,6 +4655,36 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 	}
 	await page.setViewportSize(viewport);
 });
+
+/**
+ * The lines of `names` drawn past the right edge of `scope`, outside a box that scrolls sideways
+ * (where a line may run past the box's view by design), each as "tag "words" to x past edge".
+ */
+function namesPast(scope: Element, names: string[]): string[] {
+	const edge = scope.getBoundingClientRect().right;
+	const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+	const found: string[] = [];
+	for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+		const el = n.parentElement!;
+		if (!names.some((name) => n!.data.includes(name))) continue;
+		const r = el.getBoundingClientRect();
+		if (!el.checkVisibility() || r.width <= 1 || r.height <= 1) continue;
+		let scrolls = false;
+		for (let a: Element | null = el; a && a !== scope; a = a.parentElement) {
+			if (/(auto|scroll)/.test(getComputedStyle(a).overflowX)) scrolls = true;
+		}
+		if (scrolls) continue;
+		const range = document.createRange();
+		range.selectNodeContents(n);
+		const right = Math.max(...[...range.getClientRects()].map((b) => b.right));
+		if (right > edge + 0.5) {
+			found.push(
+				`${el.tagName.toLowerCase()} "${n.data.trim().slice(0, 50)}" to ${Math.round(right)} past ${Math.round(edge)}`
+			);
+		}
+	}
+	return found;
+}
 
 // ---- S6a: the group table's sort, Fields and Flagged only in the browser ------------------------
 
@@ -4680,46 +4771,18 @@ test('the group table sorts, chooses its fields and shows the flagged pumps only
 	await fields.click();
 	const sheet = page.getByRole('group', { name: 'Fields shown in The pumps in the group' });
 	await expect(sheet).toBeVisible();
-	const viewport = page.viewportSize()!;
-	const box = (await sheet.boundingBox())!;
-	const button = (await fields.boundingBox())!;
-	const over = await sheet.evaluate((el) => {
-		const r = el.getBoundingClientRect();
-		const containers: string[] = [];
-		for (let e = el.parentElement; e; e = e.parentElement) {
-			const s = getComputedStyle(e);
-			if (s.containerType !== 'normal' || s.transform !== 'none' || s.filter !== 'none') {
-				containers.push(`<${e.tagName.toLowerCase()} class="${e.className}">`);
-			}
-		}
-		const top = document.elementFromPoint(r.left + r.width / 2, r.top + 12);
-		return {
-			containers,
-			onTop: !!top && el.contains(top),
-			position: getComputedStyle(el).position
-		};
-	});
-	expect(over.containers).toEqual([]);
-	expect(over.onTop).toBe(true);
-	if (phone) {
-		expect(over.position).toBe('fixed');
-		expect(box.x).toBeCloseTo(0, 0);
-		expect(box.width).toBeCloseTo(viewport.width, 0);
-		expect(box.y + box.height).toBeCloseTo(viewport.height, 0);
-	} else {
-		expect(over.position).toBe('absolute');
-		expect(box.y).toBeGreaterThanOrEqual(button.y + button.height - 0.5);
-		expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
-	}
+	await fieldsMenuInPlace(page, sheet, fields, `the ladder's group table at ${sizeOf(page)}`);
 	await shot('fields');
 	await sheet.getByRole('checkbox', { name: /^Shaft power/ }).uncheck();
 	await expect(region.locator('td[data-label^="Shaft power"]')).toHaveCount(0);
 	await expect(region.getByRole('columnheader', { name: /^Shaft power/ })).toHaveCount(0);
-	await expect(fields).toContainText(/of/);
+	await expect(fields).toContainText(/\(\d+ of \d+\)/);
 	if (phone) await sheet.getByRole('button', { name: 'Done' }).click();
 	else await page.keyboard.press('Escape');
 	await expect(sheet).toBeHidden();
 	await expect(fields).toHaveAttribute('aria-expanded', 'false');
+	// Closed from inside it, its button has the focus back (S6 review A11Y-S6-2).
+	await expect(fields).toBeFocused();
 	// Its flag lines still span the row, inside the box's visible width.
 	const width = (await region.boundingBox())!;
 	for (const text of await region.locator('[data-flag-text]').all()) {
@@ -4730,8 +4793,67 @@ test('the group table sorts, chooses its fields and shows the flagged pumps only
 	await fields.click();
 	await sheet.getByRole('button', { name: 'Show all' }).click();
 	await expect(region.locator('td[data-label^="Shaft power"]')).toHaveCount(3);
+	// "Show all" goes as it is pressed: the focus stays in the menu, which Escape still closes.
+	await expect(sheet).toBeVisible();
+	expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+	await page.keyboard.press('Escape');
+	await expect(sheet).toBeHidden();
+	await expect(fields).toBeFocused();
 	await noSidewaysScroll(page, `the ladder's group table at ${sizeOf(page)}`);
 });
+
+/**
+ * A table's Fields menu where it belongs (§5.5; build-density.md §16): on a phone a sheet fixed to
+ * the screen, across its width from its foot, drawn over the pinned nav and the page; from 640 px
+ * a menu under its button, inside the window; under no container, transform, filter or
+ * will-change that would trap a fixed sheet. S6a's check, for every Fields of the card (S6 review
+ * MUT-02: Running combinations' sheet could open 6,300 px down the page with every test green).
+ */
+async function fieldsMenuInPlace(page: Page, sheet: Locator, fields: Locator, where: string) {
+	const phone = (page.viewportSize()?.width ?? 1280) < 640;
+	const viewport = page.viewportSize()!;
+	const box = (await sheet.boundingBox())!;
+	const button = (await fields.boundingBox())!;
+	const over = await sheet.evaluate((el) => {
+		const r = el.getBoundingClientRect();
+		const containers: string[] = [];
+		for (let e = el.parentElement; e; e = e.parentElement) {
+			const s = getComputedStyle(e);
+			if (
+				s.containerType !== 'normal' ||
+				s.transform !== 'none' ||
+				s.filter !== 'none' ||
+				s.willChange !== 'auto'
+			) {
+				containers.push(`<${e.tagName.toLowerCase()} class="${e.className}">`);
+			}
+		}
+		const top = document.elementFromPoint(r.left + r.width / 2, r.top + 12);
+		return {
+			containers,
+			onTop: !!top && el.contains(top),
+			position: getComputedStyle(el).position
+		};
+	});
+	expect(over.containers, `containers above the Fields menu, ${where}`).toEqual([]);
+	expect(over.onTop, `the Fields menu on top, ${where}`).toBe(true);
+	if (phone) {
+		expect(over.position, `the Fields sheet fixed, ${where}`).toBe('fixed');
+		expect(box.x, `the Fields sheet from the screen's left, ${where}`).toBeCloseTo(0, 0);
+		expect(box.width, `the Fields sheet across the screen, ${where}`).toBeCloseTo(
+			viewport.width,
+			0
+		);
+		expect(box.y + box.height, `the Fields sheet at the screen's foot, ${where}`).toBeCloseTo(
+			viewport.height,
+			0
+		);
+	} else {
+		expect(over.position, `the Fields menu under its button, ${where}`).toBe('absolute');
+		expect(box.y).toBeGreaterThanOrEqual(button.y + button.height - 0.5);
+		expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+	}
+}
 
 // ---- S6b: Running combinations sorted, its fields and its flagged rows, in the browser ---------
 
@@ -4858,16 +4980,18 @@ test('Running combinations sorts into one table with a Case column, its first ro
 		// Fields: Head hidden in both forms, then every field back.
 		const fields = block.getByRole('button', { name: /^Fields/ });
 		const sheet = page.getByRole('group', { name: 'Fields shown in Running combinations' });
-		// Closed by Done on a phone; from 640 px by Escape from inside it, or by Fields again once
-		// "Show all", which goes as it is pressed, has taken the focus with it.
-		const closeSheet = async (by: 'Escape' | 'Fields' = 'Escape') => {
+		// Closed by Done on a phone, from 640 px by Escape from inside it: its button has the focus
+		// back (S6 review A11Y-S6-2).
+		const closeSheet = async () => {
 			if (phone) await sheet.getByRole('button', { name: 'Done' }).click();
-			else if (by === 'Escape') await page.keyboard.press('Escape');
-			else await fields.click();
+			else await page.keyboard.press('Escape');
 			await expect(sheet).toBeHidden();
 			await expect(fields).toHaveAttribute('aria-expanded', 'false');
+			await expect(fields).toBeFocused();
 		};
 		await fields.click();
+		await expect(sheet).toBeVisible();
+		await fieldsMenuInPlace(page, sheet, fields, `Running combinations, ${where}`);
 		await sheet.getByRole('checkbox', { name: /^Head/ }).uncheck();
 		await closeSheet();
 		const noHead = async (form: string) => {
@@ -4881,7 +5005,10 @@ test('Running combinations sorts into one table with a Case column, its first ro
 		await sortCombinations(page, /^Flow/, 'flow', true);
 		await fields.click();
 		await sheet.getByRole('button', { name: 'Show all' }).click();
-		await closeSheet('Fields');
+		// "Show all" goes as it is pressed: the focus stays in the menu, never on the page.
+		await expect(sheet).toBeVisible();
+		expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+		await closeSheet();
 
 		// Back as it was: every case, in S5's order, every row.
 		const after = (await combinationsTablePart(page, `${where}, again`, 'grouped'))!;
@@ -4890,6 +5017,515 @@ test('Running combinations sorts into one table with a Case column, its first ro
 		await noSidewaysScroll(page, `Running combinations, ${where}`);
 	}
 	await page.setViewportSize(viewport);
+});
+
+// ---- S6 review: the card's tables in the browser ----------------------------------------------
+
+/**
+ * The focused element against what its table's box pins (ResultsTable: the sticky first column
+ * and the sticky heading row): whether the point at its centre is its own, and whether it lies
+ * whole in the box's view, right of the first column (but a name or the first heading, which are
+ * in it) and below the heading row (but a heading). WCAG 2.4.11 (S6 review A11Y-S6-1,
+ * LAYOUT-S6-3, S6-TBL-2).
+ */
+function focusedInBox() {
+	const a = document.activeElement as HTMLElement | null;
+	const box = a?.closest<HTMLElement>('.scroll-shadow-x');
+	const table = box?.querySelector('table');
+	if (!a || !box || !table) return null;
+	const r = a.getBoundingClientRect();
+	const b = box.getBoundingClientRect();
+	const [boxLeft, boxTop] = [b.left + box.clientLeft, b.top + box.clientTop];
+	const [boxRight, boxBottom] = [boxLeft + box.clientWidth, boxTop + box.clientHeight];
+	const fixed = table.querySelector('thead th')!;
+	const inFixed = !!a.closest('th[scope="row"]') || fixed.contains(a);
+	const inHead = !!a.closest('thead');
+	const left = inFixed ? boxLeft : fixed.getBoundingClientRect().right;
+	// The heading row's cells stick, not its row group, which keeps its place in the table.
+	const top = inHead ? boxTop : fixed.getBoundingClientRect().bottom;
+	const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+	return {
+		name: (a.textContent ?? '').replace(/\s+/g, ' ').trim(),
+		own: !!hit && a.contains(hit),
+		whole:
+			r.left >= left - 0.5 &&
+			r.right <= boxRight + 0.5 &&
+			r.top >= top - 0.5 &&
+			r.bottom <= boxBottom + 0.5,
+		at: [r.left, r.top, r.right, r.bottom].map(Math.round),
+		clear: [left, top].map(Math.round)
+	};
+}
+
+test('S6 review: in the card’s tables a focus is never under what they pin, a pressed heading stays under the pointer, “Pump” sorts on a phone and the field chosen shows whole, each table’s controls named apart (§5.4, §7; WCAG 2.4.11)', async ({
+	page
+}, info) => {
+	test.setTimeout(480_000);
+	await condenser(page);
+	const tab = await pumpsTab(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const phone = info.project.name === 'mobile';
+	const soft = expect.configure({ soft: true });
+	const groupBlock = card.locator('[data-group-table]');
+	const combos = card.locator('[data-running-combinations]');
+	const groupTitle = (await groupBlock.locator('p').first().innerText()).trim();
+	expect(groupTitle).toMatch(/^The pumps in the group, /);
+
+	// Each table's Fields and, on a phone, its "Sort by" named apart: the visible words, then the
+	// table's name, visually hidden (A11Y-S6-3; ui-guide).
+	const captions = ['Results per pump', groupTitle, 'Running combinations'];
+	await expect(tab.getByRole('button', { name: /^Fields/ })).toHaveCount(3);
+	for (const caption of captions) {
+		await expect
+			.soft(
+				tab.getByRole('button', { name: `Fields, ${caption}`, exact: true }),
+				`Fields of ${caption}`
+			)
+			.toHaveCount(1);
+		if (phone) {
+			await expect
+				.soft(
+					tab.getByRole('combobox', { name: `Sort by, ${caption}`, exact: true }),
+					`"Sort by" of ${caption}`
+				)
+				.toHaveCount(1);
+		}
+	}
+
+	if (!phone) {
+		const boxes = {
+			'Results per pump': tab.getByRole('table', { name: 'Results per pump' }).locator('xpath=..'),
+			'the group table': groupBlock.getByRole('region'),
+			'Running combinations': combos.getByRole('region')
+		};
+		// Every heading focused from the last to the first (as Shift+Tab reached them, S6's
+		// findings), the box scrolled to its right end: in sight, never under the sticky column.
+		const hidden: string[] = [];
+		const walk = async (label: string, box: Locator) => {
+			await box.evaluate((el) => {
+				el.scrollIntoView({ block: 'center' });
+				el.scrollLeft = el.scrollWidth;
+			});
+			const buttons = box.locator('thead button');
+			const n = await buttons.count();
+			for (let i = n - 1; i >= 0; i--) {
+				await buttons.nth(i).evaluate((b) => b.focus());
+				await frames(page);
+				const f = await page.evaluate(focusedInBox);
+				if (!f?.own || !f.whole) hidden.push(`${label}: "${f?.name}" ${JSON.stringify(f)}`);
+			}
+		};
+		for (const [label, box] of Object.entries(boxes)) await walk(label, box);
+		// Running combinations sorted (one table with a Case column) too.
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin');
+		await walk('Running combinations sorted', boxes['Running combinations']);
+		soft(hidden, 'focused headings under the sticky column or out of the box').toEqual([]);
+
+		// The heading row one Tab stop: End and the arrows walk it, each heading in sight.
+		const arrows: string[] = [];
+		for (const [label, box] of Object.entries(boxes)) {
+			const stop = box.locator('thead button:not([tabindex="-1"])');
+			soft(await stop.count(), `${label}: its heading row's Tab stops`).toBe(1);
+			const names = (await box.locator('thead button').allInnerTexts()).map((t) =>
+				t.replace(/\s+/g, ' ').trim()
+			);
+			await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+			await stop.first().focus();
+			await page.keyboard.press('End');
+			for (let i = names.length - 1; i >= 0; i--) {
+				await frames(page);
+				const f = await page.evaluate(focusedInBox);
+				if (!f || f.name !== names[i] || !f.own || !f.whole) {
+					arrows.push(`${label}: "${names[i]}" ${JSON.stringify(f)}`);
+				}
+				if (i > 0) await page.keyboard.press('ArrowLeft');
+			}
+		}
+		soft(arrows, 'headings walked by the arrows, from End back to the first').toEqual([]);
+
+		// The trace buttons of the sorted table, Shift+Tab from after its box scrolled to its foot:
+		// never under the sticky heading row (S6-TBL-2).
+		const box = boxes['Running combinations'];
+		await box.evaluate((el) => (el.scrollTop = el.scrollHeight));
+		await card.getByRole('button', { name: 'Back to the sections' }).focus();
+		const under: string[] = [];
+		let traced = 0;
+		for (let i = 0; i < 80; i++) {
+			await page.keyboard.press('Shift+Tab');
+			await frames(page);
+			const where = await page.evaluate(() => {
+				const a = document.activeElement;
+				const block = document.querySelector('[data-running-combinations]');
+				return !a || !block?.contains(a) ? 'out' : a.closest('tbody') ? 'body' : 'other';
+			});
+			if (where !== 'body') {
+				if (traced) break;
+				continue;
+			}
+			traced++;
+			const f = await page.evaluate(focusedInBox);
+			if (!f?.own || !f.whole) under.push(JSON.stringify(f));
+		}
+		soft(traced, 'trace buttons reached by Shift+Tab').toBeGreaterThan(0);
+		soft(under, 'focused trace buttons under the heading row').toEqual([]);
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin', true);
+
+		// A heading pressed by the pointer stays under it as the table flattens and groups again:
+		// a second press at the same point reverses, a third clears (LAYOUT-S6-2).
+		const jumps: string[] = [];
+		for (const [column, words, end] of [
+			[/^Flow/, 'Flow', false],
+			[/^NPSH margin/, 'NPSH margin', true]
+		] as const) {
+			const heading = box.getByRole('columnheader', { name: column });
+			await box.evaluate((el, toEnd) => {
+				el.scrollIntoView({ block: 'center' });
+				el.scrollLeft = toEnd ? el.scrollWidth : 0;
+			}, end);
+			await frames(page);
+			const b = (await heading.getByRole('button').boundingBox())!;
+			const [x, y] = [b.x + b.width / 2, b.y + b.height / 2];
+			for (const sort of ['ascending', 'descending', null]) {
+				await page.mouse.click(x, y);
+				await frames(page);
+				const now = await heading.getAttribute('aria-sort');
+				const f = await page.evaluate(focusedInBox);
+				const what = `${words} at the box's ${end ? 'end' : 'start'}, pressed to ${sort ?? 'clear'}`;
+				if (now !== sort) jumps.push(`${what}: aria-sort ${now}`);
+				if (!f?.own || !f.whole || !f.name.startsWith(words)) {
+					jumps.push(`${what}: the focus ${JSON.stringify(f)}`);
+				}
+				if (now !== sort) break;
+			}
+			if ((await heading.getAttribute('aria-sort')) !== null) {
+				await sortCombinations(page, column, '', true);
+			}
+		}
+		soft(jumps, 'a heading pressed three times at one point').toEqual([]);
+	} else {
+		// A phone's "Sort by": "Pump" sorts by name in both card tables (STRUCT-3, TBL-1), and
+		// every field chosen shows whole beside its direction button, on one line with Fields, at
+		// 390 and 320 px (TBL-4).
+		const viewport = page.viewportSize()!;
+		const cut: string[] = [];
+		for (const size of [viewport, { width: 320, height: 640 }]) {
+			await page.setViewportSize(size);
+			await settle(page, 1000);
+			for (const [label, block] of [
+				['the group table', groupBlock],
+				['Running combinations', combos]
+			] as const) {
+				const where = `${label} at ${sizeOf(page)}`;
+				const select = block.getByRole('combobox', { name: /^Sort by/ });
+				const fields = block.getByRole('button', { name: /^Fields/ });
+				const direction = block.getByRole('button', { name: /lowest first|highest first/ });
+				await select.selectOption({ label: 'Pump' });
+				await expect
+					.soft(
+						block.getByRole('columnheader', { name: 'Pump', exact: true }),
+						`${where}: sorted by name`
+					)
+					.toHaveAttribute('aria-sort', 'ascending');
+				soft(
+					await select.evaluate((el) => (el as HTMLSelectElement).selectedOptions[0]?.text),
+					`${where}: "Pump" shown`
+				).toBe('Pump');
+				soft(await direction.count(), `${where}: "Pump" chosen, its direction`).toBe(1);
+				if (label === 'Running combinations') {
+					await expect
+						.soft(
+							block.getByRole('columnheader', { name: 'Case', exact: true }),
+							`${where}: one table with a Case column`
+						)
+						.toHaveCount(1);
+				}
+				const options = (await select.locator('option').allInnerTexts()).filter(
+					(o) => o !== 'Table order'
+				);
+				for (const option of options) {
+					await select.selectOption({ label: option });
+					const m = await select.evaluate((el) => {
+						const s = el as HTMLSelectElement;
+						const css = getComputedStyle(s);
+						const context = document.createElement('canvas').getContext('2d')!;
+						context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+						const text = s.selectedOptions[0]?.text ?? '';
+						return {
+							text,
+							width: Math.ceil(context.measureText(text).width),
+							room: Math.floor(
+								s.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+							)
+						};
+					});
+					if (m.room - MENULIST_INNER < m.width) {
+						cut.push(`${where}: "${m.text}" ${m.width} px in ${m.room - MENULIST_INNER}`);
+					}
+					if (!(await direction.count())) {
+						cut.push(`${where}: "${m.text}" chosen, no sort`);
+						continue;
+					}
+					const tops = await Promise.all(
+						[select, direction, fields].map(async (c) => (await c.boundingBox())!.y)
+					);
+					if (Math.max(...tops) - Math.min(...tops) > 2) {
+						cut.push(`${where}: "${m.text}" chosen, Sort, its direction and Fields on ${tops}`);
+					}
+				}
+				await select.selectOption({ label: 'Table order' });
+				await expect(direction).toHaveCount(0);
+			}
+		}
+		soft(cut, 'a field chosen cut short, or its line broken').toEqual([]);
+		await page.setViewportSize(viewport);
+	}
+});
+
+// ---- S6, the second check: a pressed heading's words stay put; a tap is a press ---------------
+
+/**
+ * Heading `i` of a results table's heading row (its sort buttons in order), the box placed so the
+ * heading lies whole in its view, 8 px clear of the box's right edge and 32 px clear of the sticky
+ * column (room for the arrow and gap a sort adds on a numeric heading's left, 20 px, and its ring,
+ * 4 px, so the box need not scroll to show them), as far from the box's start as that allows and
+ * at least 24 px from it, so a press that scrolled the box back by the arrow's 20 px would show
+ * (S6-FIX-1). `placed` is false where no such place is.
+ */
+function placeHeading(el: Element, i: number) {
+	const box = el as HTMLElement;
+	const button = box.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[i]!;
+	const name = (button.textContent ?? '').replace(/\s+/g, ' ').trim();
+	const numeric = button.classList.contains('flex-row-reverse');
+	box.scrollLeft = 0;
+	const fixed = box.querySelector('thead th')!.getBoundingClientRect().right;
+	const b = box.getBoundingClientRect();
+	const right = b.left + box.clientLeft + box.clientWidth;
+	const r = button.getBoundingClientRect();
+	const hi = Math.min(box.scrollWidth - box.clientWidth, Math.floor(r.left - fixed - 32));
+	const lo = Math.max(24, Math.ceil(r.right - right + 8));
+	if (hi < lo) return { name, numeric, placed: false };
+	box.scrollLeft = hi;
+	return { name, numeric, placed: true };
+}
+
+/**
+ * What a press on heading `i` may move (S6-FIX-1): the left of its words (the button's first
+ * child, its label and unit, whose size no sort changes), its column's width, its sort, and the
+ * edges of each value's cell in the first row of values, by its column's label, in their order.
+ * `own` is the pressed column's label. `hit` says whether the point at the button's centre is the
+ * button's (no pinned nav over it); `whole`, whether the button, its arrow with it, lies whole in
+ * the box's view right of the sticky column (LAYOUT-S6-2).
+ */
+function readPress(el: Element, i: number) {
+	const button = el.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[i]!;
+	const th = button.closest('th')!;
+	const row = el.querySelector('tbody tr:has(> td[data-label])')!;
+	const tds = [...row.querySelectorAll<HTMLElement>(':scope > td[data-label]')];
+	const cells: Record<string, [number, number]> = {};
+	for (const td of tds) {
+		const r = td.getBoundingClientRect();
+		cells[td.dataset.label!] = [r.left, r.right];
+	}
+	const own = (row.children[[...th.parentElement!.children].indexOf(th)] as HTMLElement).dataset
+		.label!;
+	const b = button.getBoundingClientRect();
+	const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+	const box = el as HTMLElement;
+	const fixed = box.querySelector('thead th')!.getBoundingClientRect().right;
+	const right = box.getBoundingClientRect().left + box.clientLeft + box.clientWidth;
+	return {
+		words: button.firstElementChild!.getBoundingClientRect().left,
+		width: th.getBoundingClientRect().width,
+		sort: th.getAttribute('aria-sort'),
+		cells,
+		order: tds.map((td) => td.dataset.label!),
+		own,
+		hit: !!at && button.contains(at),
+		whole: b.left >= fixed - 0.5 && b.right <= right + 0.5
+	};
+}
+
+/**
+ * A press read against the table before the first press: the heading's words keep their x; only
+ * the pressed column may change width, by its arrow and gap (20 px) at most, and then it grows
+ * away from its words, so the columns before it move back by as much and those after it stay;
+ * every other column stays (S6-FIX-1). The Case column a sort adds is in neither reading's place.
+ */
+function pressMoves(
+	before: ReturnType<typeof readPress>,
+	after: ReturnType<typeof readPress>,
+	what: string
+): string[] {
+	const out: string[] = [];
+	const words = after.words - before.words;
+	if (Math.abs(words) > 0.5) out.push(`${what}: its words moved ${words.toFixed(1)} px`);
+	const grew = after.width - before.width;
+	if (grew < -0.5 || grew > 20.5) out.push(`${what}: its column grew ${grew.toFixed(1)} px`);
+	const at = before.order.indexOf(before.own);
+	before.order.forEach((label, k) => {
+		const [then, now] = [before.cells[label]!, after.cells[label]];
+		if (!now) return;
+		const [edge, shift] = k < at ? [0, -grew] : k === at ? [1, 0] : [0, 0];
+		const moved = now[edge]! - then[edge]! - shift;
+		if (Math.abs(moved) > 0.5) {
+			out.push(`${what}: "${label}" ${edge ? 'right' : 'left'} edge moved ${moved.toFixed(1)} px`);
+		}
+	});
+	return out;
+}
+
+/** Clear a results table's sort from a script (its sorted heading's button pressed until none). */
+async function clearSort(box: Locator) {
+	for (let k = 0; k < 3; k++) {
+		const sorted = box.locator('thead th[aria-sort] button');
+		if (!(await sorted.count())) return;
+		await sorted.evaluate((b) => (b as HTMLElement).click());
+	}
+}
+
+test('S6, the second check: a numeric heading pressed three times at one point, its box scrolled from its start, keeps its words and every other column in place, but for its own column’s growth by its arrow (Links, Nodes and the Pumps tab’s three tables; S6-FIX-1)', async ({
+	page
+}, info) => {
+	test.skip(
+		info.project.name === 'mobile',
+		'the headings show from 640 px; a phone sorts by Sort by'
+	);
+	test.setTimeout(480_000);
+	const moved: string[] = [];
+	const pressed: Record<string, number> = {};
+	const pressEach = async (label: string, box: Locator) => {
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await clearSort(box);
+		const n = await box.locator('thead button[data-sort-key]').count();
+		pressed[label] = 0;
+		for (let i = 1; i < n; i++) {
+			const place = await box.evaluate(placeHeading, i);
+			if (!place.numeric || !place.placed) continue;
+			await frames(page);
+			const before = await box.evaluate(readPress, i);
+			if (!before.hit) {
+				moved.push(`${label}, "${place.name}": its button's centre covered`);
+				continue;
+			}
+			pressed[label]++;
+			const b = (await box.locator('thead button[data-sort-key]').nth(i).boundingBox())!;
+			for (const sort of ['ascending', 'descending', null]) {
+				await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+				await frames(page);
+				const after = await box.evaluate(readPress, i);
+				const what = `${label}, "${place.name}" pressed to ${sort ?? 'clear'}`;
+				if (after.sort !== sort) {
+					moved.push(`${what}: aria-sort ${after.sort}`);
+					break;
+				}
+				moved.push(...pressMoves(before, after, what));
+				if (!after.whole) moved.push(`${what}: the button not whole in the box's view`);
+			}
+			await clearSort(box);
+		}
+	};
+
+	await open(page, exampleProject('gravity-branch')!);
+	await solveConverged(page);
+	await showPane(page, 'Results');
+	const links = await resultsView(page, 'Links');
+	await pressEach(
+		'Links',
+		links.getByRole('table', { name: 'Results per pipe connection' }).locator('xpath=..')
+	);
+	const nodes = await resultsView(page, 'Nodes');
+	await pressEach('Nodes', nodes.getByRole('table').first().locator('xpath=..'));
+
+	await condenser(page);
+	const tab = await pumpsTab(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	await pressEach(
+		'Results per pump',
+		tab.getByRole('table', { name: 'Results per pump' }).locator('xpath=..')
+	);
+	await pressEach('the group table', card.locator('[data-group-table]').getByRole('region'));
+	await pressEach(
+		'Running combinations',
+		card.locator('[data-running-combinations]').getByRole('region')
+	);
+	expect.soft(moved, 'what a press on a numeric heading moved').toEqual([]);
+	// Each table's headings pressed where its box scrolls from its start: at least two in each.
+	for (const [label, n] of Object.entries(pressed)) {
+		expect.soft(n, `${label}: numeric headings pressed`).toBeGreaterThanOrEqual(2);
+	}
+	expect(Object.keys(pressed)).toHaveLength(5);
+});
+
+test.describe('a touch screen from 640 px', () => {
+	test.use({ hasTouch: true });
+
+	test('S6, the second check: a tap on a heading with 6 px of it showing, beside the sticky column or at the box’s right edge, sorts by it and moves nothing under the finger (Links; S6-FIX-2)', async ({
+		page
+	}, info) => {
+		test.skip(
+			info.project.name === 'mobile',
+			'the headings show from 640 px; a phone sorts by Sort by'
+		);
+		test.setTimeout(240_000);
+		await open(page, exampleProject('gravity-branch')!);
+		await solveConverged(page);
+		await showPane(page, 'Results');
+		const links = await resultsView(page, 'Links');
+		const box = links
+			.getByRole('table', { name: 'Results per pipe connection' })
+			.locator('xpath=..');
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		const n = await box.locator('thead button[data-sort-key]').count();
+		const lost: string[] = [];
+		let tapped = 0;
+		for (let i = 1; i < n; i++) {
+			for (const edge of ['left', 'right'] as const) {
+				await clearSort(box);
+				await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+				// 6 px of the button in view, right of the sticky column or left of the box's edge.
+				const p = await box.evaluate(
+					(el, [i, edge]) => {
+						const b = el as HTMLElement;
+						const button = b.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[
+							i as number
+						]!;
+						b.scrollLeft = 0;
+						const fixed = b.querySelector('thead th')!.getBoundingClientRect().right;
+						const right = b.getBoundingClientRect().left + b.clientLeft + b.clientWidth;
+						const r0 = button.getBoundingClientRect();
+						const want = edge === 'left' ? r0.right - fixed - 6 : r0.left + 6 - right;
+						if (want < 0 || want > b.scrollWidth - b.clientWidth) return null;
+						b.scrollLeft = want;
+						const r = button.getBoundingClientRect();
+						const [lo, hi] = [Math.max(fixed, r.left), Math.min(right, r.right)];
+						return {
+							name: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+							shown: hi - lo,
+							x: (lo + hi) / 2,
+							y: r.top + r.height / 2
+						};
+					},
+					[i, edge] as const
+				);
+				if (!p) continue;
+				await frames(page);
+				const before = await box.evaluate(readPress, i);
+				tapped++;
+				await page.touchscreen.tap(p.x, p.y);
+				await frames(page);
+				await frames(page);
+				const after = await box.evaluate(readPress, i);
+				const what = `"${p.name}", ${p.shown.toFixed(1)} px of it showing at the ${edge}`;
+				if (after.sort !== 'ascending') lost.push(`${what}: aria-sort ${after.sort}`);
+				const words = after.words - before.words;
+				if (Math.abs(words) > 0.5) lost.push(`${what}: its words moved ${words.toFixed(1)} px`);
+			}
+		}
+		await clearSort(box);
+		expect.soft(lost, 'a tap on a heading partly in view').toEqual([]);
+		// Each side tapped: Links' six headings after the name give both at 1280×800.
+		expect(tapped).toBeGreaterThanOrEqual(6);
+	});
 });
 
 // ---- S5 review: a measure no case gives, the trace's focus, a stale group on a phone ----------
@@ -5347,35 +5983,52 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 
 // ---- S7: the curve tables folded, the boxes measured, the choice remembered (§9 S7) -------------
 
-/** Each curve table's disclosure in `scope`: its caption, its summary, its rows, open or not. */
+/**
+ * Each curve table's disclosure in `scope`: its caption, its summary, its rows, open or not, its
+ * summary's words and count in sight, and on how many lines the count is drawn.
+ */
 function readFolds(scope: Element) {
 	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	// In sight as text: a box of its own, no sr-only at or above it, 12 px at least.
+	const inSight = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			!el.closest('.sr-only') &&
+			r.width > 1 &&
+			r.height >= 12
+		);
+	};
 	return [...scope.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')].map((d) => {
 		const summary = d.querySelector(':scope > summary')!;
-		const r = summary.getBoundingClientRect();
+		const words = summary.querySelector(':scope > span')!;
+		const count = words.querySelector(':scope > span')!;
 		const table = d.querySelector('table')!;
+		const caption = squash(table.querySelector('caption')?.textContent);
+		// A column of a row, '—' where it has no value.
+		const none = (column: number) =>
+			[...table.querySelectorAll('tbody tr')].some(
+				(tr) => squash(tr.querySelectorAll('td')[column]?.textContent) === '—'
+			);
 		return {
-			caption: squash(table.querySelector('caption')?.textContent),
+			caption,
 			summary: squash(summary.textContent),
-			// What its reason column holds: the pump chart's "Why no head", the group system
-			// curve's rows without a rise (§9 S7).
+			// What its reason column holds (§9 S7): the pump chart's "Why no head", the group
+			// system curve's rows without a rise, the group curve's points without a flow (S7
+			// review STRUCT-2).
 			reasons:
 				[...table.querySelectorAll('thead th')].some(
 					(th) => squash(th.textContent) === 'Why no head'
 				) ||
-				[...table.querySelectorAll('tbody tr')].some(
-					(tr) =>
-						squash(table.querySelector('caption')?.textContent).startsWith('Group system curve') &&
-						squash(tr.querySelectorAll('td')[1]?.textContent) === '—'
-				),
+				(caption.startsWith('Group system curve') && none(1)) ||
+				(caption.startsWith('Group curve') && none(1)),
 			rows: table.querySelectorAll('tbody tr').length,
 			open: d.open,
-			// The summary in sight: a box of its own, no sr-only, 12 px at least.
-			seen:
-				summary.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
-				!summary.closest('.sr-only') &&
-				r.width > 1 &&
-				r.height >= 12
+			// The summary's words and its count in sight, each measured itself: the chevron keeps
+			// the summary drawn without them (S7 review W2, MUT-SUMMARY-HIDDEN).
+			seen: inSight(words) && inSight(count),
+			// The count whole, "(42 points)" on one line (S7 review LAYOUT-4).
+			countLines: count.getClientRects().length
 		};
 	});
 }
@@ -5400,6 +6053,7 @@ test('S7: each curve table a disclosure “{caption} ({n} points)” in sight, o
 		expect(f.summary, f.caption).toBe(`${f.caption} (${f.rows} point${f.rows === 1 ? '' : 's'})`);
 		expect(f.rows, f.caption).toBeGreaterThan(1);
 		expect(f.seen, `"${f.summary}" in sight`).toBe(true);
+		expect(f.countLines, `"${f.summary}": its count on one line`).toBe(1);
 		// The chart drawn: open exactly where its Why no head column has entries.
 		expect(f.open, `"${f.caption}" open`).toBe(f.reasons);
 	}
@@ -5416,6 +6070,7 @@ test('S7: each curve table a disclosure “{caption} ({n} points)” in sight, o
 	for (const f of groupFolds) {
 		expect(f.summary).toBe(`${f.caption} (${f.rows} points)`);
 		expect(f.seen, `"${f.summary}" in sight`).toBe(true);
+		expect(f.countLines, `"${f.summary}": its count on one line`).toBe(1);
 	}
 	// The rule with the curve tables at their defaults, most folded (§9 S7): only drawn boxes
 	// that overflow are Tab stops.
@@ -5443,6 +6098,10 @@ test('S7: each curve table a disclosure “{caption} ({n} points)” in sight, o
 	await expect(
 		data.getByRole('region', { name: "Group curve (station's flow at each rise)" })
 	).toHaveCount(1);
+	// Its right shadow drawn in its first rows, the box full height (S7 review LAYOUT-2).
+	const shadow = await edgeShadow(page, box);
+	console.log(`the group curve's right shadow in its first row, ${sizeOf(page)}: ${shadow}`);
+	expect(shadow, 'the right shadow in the first row').toBeGreaterThan(15);
 	// Its keyboard scroll: focused by Tab from its summary, → moves it sideways.
 	await card.locator('details[data-curve-table="group-curve"] > summary').focus();
 	await page.keyboard.press('Tab');
@@ -5453,6 +6112,14 @@ test('S7: each curve table a disclosure “{caption} ({n} points)” in sight, o
 		el.style.maxWidth = 'none';
 		el.style.width = `${el.scrollWidth + 400}px`;
 	});
+	// It fits while it holds the focus: no Tab stop, but still focusable and named, so the focus
+	// stays on it rather than falling to the page (S7 review A11Y-1); once the focus leaves, it
+	// is neither.
+	await expect.poll(state).toEqual({ tabindex: '-1', role: 'region', sideways: false });
+	await expect(box).toBeFocused();
+	expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+	await page.keyboard.press('Shift+Tab');
+	await expect(card.locator('details[data-curve-table="group-curve"] > summary')).toBeFocused();
 	await expect.poll(state).toEqual({ tabindex: null, role: null, sideways: false });
 	await box.evaluate((el) => {
 		el.style.maxWidth = '';
@@ -5503,4 +6170,301 @@ test('S7: each curve table a disclosure “{caption} ({n} points)” in sight, o
 	await expect(
 		closedAgain.getByRole('button', { name: 'Show data table of the group chart' })
 	).toHaveAttribute('aria-expanded', 'false');
+});
+
+// ---- S7 review: the curve tables with long names, their marks, shadows and focus ----------------
+
+/**
+ * The pump-transfer example in US units, its isolation valve an FCV held at 15 L/s and named by
+ * a 40-character unbroken name (made-up test inputs, as pump-system.e2e.ts's): every forced flow
+ * above 15 L/s has no steady state, so the System curve's Why no head reasons name the valve, and
+ * the table is open by default (§9 S7).
+ */
+const LONG_VALVE = 'FlowLimiterOnTheTransferPumpDischarge001';
+function limitedTransfer(): Project {
+	const project = pumpTransferExample();
+	project.settings.units = { ...IMPERIAL_UNITS };
+	project.components[2] = {
+		type: 'valve',
+		valveType: 'fcv',
+		id: 'V1',
+		name: LONG_VALVE,
+		elevation: 0,
+		status: 'active',
+		setpoint: 0.015,
+		ports: project.components[2]!.ports
+	} as Project['components'][number];
+	return project;
+}
+
+/**
+ * The curve tables of a data region at the size shown: each fold's right edge against the
+ * region's, its words' end against its summary's, its words and count in sight, the count's
+ * lines, its chevron's turn and those of the Details inside its table, and its box: overflowing
+ * sideways, a Tab stop, a region.
+ */
+function readCurveFolds(region: Element) {
+	const inSight = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			!el.closest('.sr-only') &&
+			r.width > 1 &&
+			r.height >= 12
+		);
+	};
+	const turn = (svg: Element | null) => (svg ? getComputedStyle(svg).rotate : 'no chevron');
+	return [...region.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')].map((d) => {
+		const summary = d.querySelector(':scope > summary')!;
+		const words = summary.querySelector(':scope > span')!;
+		const count = words.querySelector(':scope > span')!;
+		const box = d.querySelector('table')!.parentElement!;
+		const range = document.createRange();
+		range.selectNodeContents(words);
+		const wordsEnd = Math.max(...[...range.getClientRects()].map((b) => b.right));
+		return {
+			key: d.dataset.curveTable!,
+			open: d.open,
+			right: Math.round(d.getBoundingClientRect().right),
+			regionRight: Math.round(region.getBoundingClientRect().right),
+			wordsInside: wordsEnd <= summary.getBoundingClientRect().right + 0.5,
+			seen: inSight(words) && inSight(count),
+			countLines: count.getClientRects().length,
+			chevron: turn(summary.querySelector('svg')),
+			details: [...box.querySelectorAll<HTMLDetailsElement>('details[data-issue-detail]')].map(
+				(x) => ({ open: x.open, chevron: turn(x.querySelector(':scope > summary svg')) })
+			),
+			sideways: box.scrollWidth > box.clientWidth + 1,
+			// How far it scrolls sideways, px.
+			more: box.scrollWidth - box.clientWidth,
+			tabindex: box.getAttribute('tabindex'),
+			role: box.getAttribute('role')
+		};
+	});
+}
+
+/**
+ * The mean colour of a clip of the screen, in CSS pixels, its screenshot decoded in the page (no
+ * image library): [red, green, blue], 0 to 255.
+ */
+async function meanColour(
+	page: Page,
+	clip: { x: number; y: number; width: number; height: number }
+): Promise<number[]> {
+	const png = (await page.screenshot({ clip })).toString('base64');
+	return page.evaluate(async (b64) => {
+		const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+		const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+		const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+		const context = canvas.getContext('2d')!;
+		context.drawImage(bitmap, 0, 0);
+		const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+		let [red, green, blue] = [0, 0, 0];
+		for (let i = 0; i < data.length; i += 4) {
+			red += data[i]!;
+			green += data[i + 1]!;
+			blue += data[i + 2]!;
+		}
+		const n = data.length / 4;
+		return [red / n, green / n, blue / n];
+	}, png);
+}
+
+/**
+ * How much the sideways edge shadow darkens a box that scrolls sideways at its inner right edge,
+ * in its first body row, scrolled to its start (§5.3 "Every box gets scroll-shadow-x"; S7 review
+ * LAYOUT-2): 255 less the mean of the clip's channels, its words made transparent while read so
+ * only the box's background is measured. A white edge gives 0; the shadow about 35.
+ */
+async function edgeShadow(page: Page, box: Locator): Promise<number> {
+	const clip = await box.evaluate((el) => {
+		el.querySelector('thead')!.scrollIntoView({
+			block: 'center',
+			inline: 'start',
+			behavior: 'instant'
+		});
+		el.scrollLeft = 0;
+		for (const e of el.querySelectorAll<HTMLElement>('*')) {
+			e.style.setProperty('color', 'transparent');
+		}
+		const row = el.querySelector('tbody tr')!.getBoundingClientRect();
+		const r = el.getBoundingClientRect();
+		const right = r.left + el.clientLeft + el.clientWidth;
+		return { x: right - 3, y: row.top + row.height / 2 - 2, width: 2, height: 4 };
+	});
+	const colour = await meanColour(page, clip);
+	await box.evaluate((el) => {
+		for (const e of el.querySelectorAll<HTMLElement>('*')) e.style.removeProperty('color');
+	});
+	return 255 - colour.reduce((a, b) => a + b, 0) / 3;
+}
+
+test('S7 review: a curve table never widens the pane: with a 40-character unbroken name in the System curve’s reasons nothing scrolls sideways and its box scrolls in itself, a named Tab stop that keeps the focus as it stops overflowing; each summary’s words and count whole and in sight; each chevron its own disclosure’s; the edge shadow in the first rows (§7 Targets, §5.3, §9 S7; S7 review STRUCT-1, LAYOUT-1, DATA-2, A11Y-1, A11Y-2, LAYOUT-2, LAYOUT-4, W2)', async ({
+	page
+}, info) => {
+	test.setTimeout(240_000);
+	const soft = expect.configure({ soft: true });
+	await open(page, limitedTransfer());
+	await solveConverged(page);
+	const tab = await pumpsTab(page);
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	await expect(figure.locator('[data-pump-method]')).toBeVisible({ timeout: 60_000 });
+	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	const region = figure.locator('[data-pump-data]');
+	// The System curve open by default, its reasons naming the valve.
+	const system = curveTableFold(figure, 'System curve');
+	await expect(system).toHaveAttribute('open', '');
+	await expect(system.getByRole('table', { name: 'System curve', exact: true })).toContainText(
+		LONG_VALVE
+	);
+	const box = system.locator('table').locator('..');
+	const viewport = page.viewportSize()!;
+	const sizes =
+		info.project.name === 'mobile' ? [viewport, { width: 320, height: 640 }] : [viewport];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `the long valve name at ${sizeOf(page)}`;
+		await noSidewaysScroll(page, where);
+		const folds = await region.evaluate(readCurveFolds);
+		console.log(`${where}: ${JSON.stringify(folds)}`);
+		soft(folds.map((f) => f.key).slice(0, 2), where).toEqual(['pump', 'system']);
+		for (const f of folds) {
+			// Never wider than the data region: a wide table scrolls in its own box.
+			soft(f.right, `"${f.key}" inside the data region, ${where}`).toBeLessThanOrEqual(
+				f.regionRight
+			);
+			soft(f.seen, `"${f.key}": its words and count in sight, ${where}`).toBe(true);
+			soft(f.wordsInside, `"${f.key}": its words end inside its summary, ${where}`).toBe(true);
+			soft(f.countLines, `"${f.key}": its count on one line, ${where}`).toBe(1);
+			// Each chevron turns with its own disclosure only.
+			soft(f.chevron, `"${f.key}"'s chevron, ${where}`).toBe(f.open ? '90deg' : 'none');
+			for (const [i, d] of f.details.entries()) {
+				soft(d.chevron, `"${f.key}": Details ${i + 1}'s chevron, ${where}`).toBe(
+					d.open ? '90deg' : 'none'
+				);
+			}
+			// A Tab stop and a region only while drawn and overflowing.
+			const stop = f.open && f.sideways;
+			soft(f.tabindex, `"${f.key}" a Tab stop only while it overflows, ${where}`).toBe(
+				stop ? '0' : null
+			);
+			soft(f.role, `"${f.key}" a region only while it overflows, ${where}`).toBe(
+				stop ? 'region' : null
+			);
+		}
+		const curve = folds.find((f) => f.key === 'system')!;
+		soft(curve.details.length, `Details in the System curve, ${where}`).toBeGreaterThan(0);
+		// On a phone its table is wider than the pane: it scrolls in its box, named by its caption.
+		if (size.width < 640) {
+			soft(curve.sideways, `the System curve's box scrolls sideways, ${where}`).toBe(true);
+			// Far enough for its shadow to be read below.
+			soft(curve.more, `how far the System curve's box scrolls, ${where}`).toBeGreaterThanOrEqual(
+				40
+			);
+		}
+		if (curve.sideways) {
+			await expect(region.getByRole('region', { name: 'System curve', exact: true })).toHaveCount(
+				1
+			);
+		}
+		// Its right shadow in its first row, where it scrolls past the end's white cover (2.5 rem,
+		// which hides the shadow by design as the table's end comes into view).
+		if (curve.more >= 40) {
+			const shadow = await edgeShadow(page, box);
+			console.log(`${where}: the System curve's right shadow in its first row: ${shadow}`);
+			soft(shadow, `the right shadow in the first row, ${where}`).toBeGreaterThan(15);
+		}
+	}
+	// A Details opened turns its own chevron, and only its own.
+	const detail = system.locator('details[data-issue-detail]').first();
+	const chevrons = () =>
+		system.evaluate((d) =>
+			[...d.querySelectorAll('details[data-issue-detail]')]
+				.slice(0, 2)
+				.map((x) => getComputedStyle(x.querySelector(':scope > summary svg')!).rotate)
+		);
+	expect(await chevrons()).toEqual(['none', 'none']);
+	await detail.locator('summary').click();
+	await expect.poll(chevrons).toEqual(['90deg', 'none']);
+	await detail.locator('summary').click();
+	await expect.poll(chevrons).toEqual(['none', 'none']);
+	// A box that holds the focus as it stops overflowing keeps it (S7 review A11Y-1): focused by
+	// Tab from its summary on a phone, the window widened until the table fits.
+	if (info.project.name === 'mobile') {
+		const state = () =>
+			box.evaluate((el) => ({
+				tabindex: el.getAttribute('tabindex'),
+				role: el.getAttribute('role'),
+				sideways: el.scrollWidth > el.clientWidth + 1
+			}));
+		await page.setViewportSize({ width: 320, height: 640 });
+		await expect.poll(state).toEqual({ tabindex: '0', role: 'region', sideways: true });
+		await system.locator(':scope > summary').focus();
+		await page.keyboard.press('Tab');
+		await expect(box).toBeFocused();
+		await page.setViewportSize({ width: 1920, height: 1080 });
+		await expect.poll(state).toEqual({ tabindex: '-1', role: 'region', sideways: false });
+		await expect(box).toBeFocused();
+		expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+		await page.keyboard.press('Shift+Tab');
+		await expect(system.locator(':scope > summary')).toBeFocused();
+		await expect.poll(state).toEqual({ tabindex: null, role: null, sideways: false });
+	}
+	await page.setViewportSize(viewport);
+});
+
+test('S7 review: a 40-character unbroken case name ends inside the pump chart’s data region at each size, in “System curve, {case}”’s summary and in its row of “Operating points by case”, and nothing scrolls sideways (§5.5, §5.7 row 1; S7 review MUT-SUMMARY-NOBREAK, PRE-OPPOINTS-LONGCASE)', async ({
+	page
+}, info) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	const project = projectOf('one-off');
+	project.scenarios!.find((s) => s.id === 'S3')!.name = LONG_CASE;
+	const counter = solveCounter(page);
+	await open(page, project);
+	await solveAll(page, counter, 5);
+	const tab = await pumpsTab(page);
+	await tab.getByRole('combobox', { name: 'Pump chart' }).selectOption('PA');
+	await settle(page);
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	await figure.getByRole('checkbox', { name: "Also show the other cases' system curves" }).check();
+	const fold = curveTableFold(figure, `System curve, ${LONG_CASE}`);
+	await expect(fold).toHaveCount(1, { timeout: 120_000 });
+	await settle(page);
+	const header = figure
+		.getByRole('table', { name: 'Operating points by case' })
+		.getByRole('rowheader')
+		.filter({ hasText: LONG_CASE });
+	await expect(header).toHaveCount(1);
+	const viewport = page.viewportSize()!;
+	const sizes =
+		info.project.name === 'mobile' ? [viewport, { width: 320, height: 640 }] : [viewport];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `the long case name at ${sizeOf(page)}`;
+		await noSidewaysScroll(page, where);
+		const summary = await fold.evaluate((d) => {
+			const s = d.querySelector(':scope > summary')!;
+			const range = document.createRange();
+			range.selectNodeContents(s.querySelector(':scope > span')!);
+			return {
+				wordsEnd: Math.round(Math.max(...[...range.getClientRects()].map((b) => b.right))),
+				right: Math.round(s.getBoundingClientRect().right)
+			};
+		});
+		console.log(`${where}: the summary ${JSON.stringify(summary)}`);
+		soft(
+			summary.wordsEnd,
+			`"System curve, {case}"'s words end inside it, ${where}`
+		).toBeLessThanOrEqual(summary.right);
+		// Its row header in "Operating points by case" (a list below 640 px, a table that scrolls
+		// sideways in its box above) and every other line of the name inside the pump chart.
+		const past = await figure.evaluate(namesPast, [LONG_CASE]);
+		console.log(`${where}: past the pump chart ${JSON.stringify(past)}`);
+		soft(past, `a line of the long case name past the pump chart's edge, ${where}`).toEqual([]);
+	}
+	await page.setViewportSize(viewport);
 });

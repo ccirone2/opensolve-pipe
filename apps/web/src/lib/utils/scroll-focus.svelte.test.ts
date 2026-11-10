@@ -4,7 +4,7 @@
  * replaced by one whose callbacks the test runs (jsdom lays nothing out), and the sizes given as a
  * browser would. `focusableWhenScrollable` (a dialog's body) keeps measuring its height alone.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeResizeObserver, sizeBox } from '$lib/testing/resize';
 import { drawn, focusableWhenScrollable, overflows, scrollRegion } from './scroll-focus';
 
@@ -14,6 +14,7 @@ beforeEach(() => {
 });
 afterEach(() => {
 	observers.restore();
+	vi.restoreAllMocks();
 	document.body.replaceChildren();
 });
 
@@ -23,6 +24,18 @@ function box() {
 	el.innerHTML = '<table><caption id="made-up-caption">System curve</caption></table>';
 	document.body.append(el);
 	return { el, table: el.querySelector('table')! };
+}
+
+/**
+ * The page loses the system focus (a tab, app or find-bar switch): the browser fires `focusout` on
+ * the focused box, which stays the document's active element, and `document.hasFocus()` is false
+ * (S7 second check A11Y-1-BLUR). `back` is the page's return: the browser focuses the box again.
+ */
+function pageBlurred(el: HTMLElement) {
+	const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+	el.dispatchEvent(new FocusEvent('blur'));
+	el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+	return { back: () => hasFocus.mockRestore() };
 }
 
 /** The box is a Tab stop and a region named by the caption: all three attributes, or none. */
@@ -71,7 +84,7 @@ describe('scrollRegion (§9 S7: a Tab stop only while it overflows)', () => {
 		action.destroy();
 	});
 
-	it('measures when its content changes size: the table it holds is watched, and a child added', () => {
+	it('measures when its content changes size: the table it holds is watched, and a child added', async () => {
 		const { el, table } = box();
 		sizeBox(el, { clientWidth: 400, scrollWidth: 400, clientHeight: 200, scrollHeight: 200 });
 		const action = scrollRegion(el, 'made-up-caption');
@@ -80,8 +93,141 @@ describe('scrollRegion (§9 S7: a Tab stop only while it overflows)', () => {
 		sizeBox(el, { scrollHeight: 400 });
 		observers.resize(table);
 		expect(stop(el)).toBe(true);
+		sizeBox(el, { scrollHeight: 200 });
+		observers.resize(table);
+		expect(stop(el)).toBe(false);
+		// A child added, wider than the box: measured as it is added, with no resize of the box or
+		// its table, and watched from then on (S7 review MUT-MUTATION-OBSERVER).
+		const wide = document.createElement('div');
+		sizeBox(el, { scrollWidth: 900 });
+		el.append(wide);
+		await new Promise((resolve) => setTimeout(resolve, 0)); // the mutation records
+		expect(stop(el)).toBe(true);
+		expect(observers.watched()).toBe(3);
+		sizeBox(el, { scrollWidth: 400 });
+		observers.resize(wide);
+		expect(stop(el)).toBe(false);
 		action.destroy();
 		expect(observers.watched()).toBe(0);
+	});
+
+	it('keeps the focus on a box that stops overflowing while it holds it: still focusable and named, no Tab stop, until the focus leaves; then neither (S7 review A11Y-1)', () => {
+		const { el } = box();
+		const after = document.createElement('button');
+		document.body.append(after);
+		sizeBox(el, { clientWidth: 300, scrollWidth: 400, clientHeight: 200, scrollHeight: 200 });
+		const action = scrollRegion(el, 'made-up-caption');
+		expect(stop(el)).toBe(true);
+		el.focus();
+		expect(document.activeElement).toBe(el);
+		const attributes = () => ['tabindex', 'role', 'aria-labelledby'].map((a) => el.getAttribute(a));
+		// The window widened: it fits while focused.
+		sizeBox(el, { clientWidth: 400 });
+		observers.resize(el);
+		expect(attributes()).toEqual(['-1', 'region', 'made-up-caption']);
+		expect(document.activeElement).toBe(el);
+		// Narrowed again while focused: a Tab stop again.
+		sizeBox(el, { clientWidth: 300 });
+		observers.resize(el);
+		expect(stop(el)).toBe(true);
+		sizeBox(el, { clientWidth: 400 });
+		observers.resize(el);
+		expect(attributes()).toEqual(['-1', 'region', 'made-up-caption']);
+		// The focus moves on: measured again, it is neither.
+		after.focus();
+		expect(stop(el)).toBe(false);
+		action.destroy();
+		// Destroyed, it listens no more.
+		sizeBox(el, { clientWidth: 300 });
+		el.setAttribute('tabindex', '0');
+		el.focus();
+		after.focus();
+		expect(el.getAttribute('role')).toBeNull();
+	});
+
+	it('keeps a fitting box that holds the focus focusable and named while the page loses the system focus, then measures it when the focus really leaves (S7 second check A11Y-1-BLUR)', () => {
+		const { el } = box();
+		const after = document.createElement('button');
+		document.body.append(after);
+		sizeBox(el, { clientWidth: 300, scrollWidth: 400, clientHeight: 200, scrollHeight: 200 });
+		const action = scrollRegion(el, 'made-up-caption');
+		el.focus();
+		const attributes = () => ['tabindex', 'role', 'aria-labelledby'].map((a) => el.getAttribute(a));
+		// The window widened: it fits while focused.
+		sizeBox(el, { clientWidth: 400 });
+		observers.resize(el);
+		expect(attributes()).toEqual(['-1', 'region', 'made-up-caption']);
+		// Another tab brought to the front: the page's own focusout is no focus leaving the box.
+		const page = pageBlurred(el);
+		expect(document.activeElement).toBe(el);
+		expect(attributes()).toEqual(['-1', 'region', 'made-up-caption']);
+		page.back();
+		expect(attributes()).toEqual(['-1', 'region', 'made-up-caption']);
+		// The focus moves on: measured again, it is neither.
+		after.focus();
+		expect(stop(el)).toBe(false);
+		action.destroy();
+	});
+
+	it('measures a fitting box as left at a focusout during which the browser still reports it focused while the page has the system focus (S7 second check A11Y-1-BLUR)', () => {
+		const { el } = box();
+		sizeBox(el, { clientWidth: 300, scrollWidth: 400, clientHeight: 200, scrollHeight: 200 });
+		const action = scrollRegion(el, 'made-up-caption');
+		el.focus();
+		sizeBox(el, { clientWidth: 400 });
+		observers.resize(el);
+		expect(['tabindex', 'role', 'aria-labelledby'].map((a) => el.getAttribute(a))).toEqual([
+			'-1',
+			'region',
+			'made-up-caption'
+		]);
+		// jsdom keeps the box its active element through a dispatched focusout, and the page focused.
+		el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+		expect(document.activeElement).toBe(el);
+		expect(document.hasFocus()).toBe(true);
+		expect(stop(el)).toBe(false);
+		action.destroy();
+	});
+
+	it('keeps the focus on a dialog’s body that stops overflowing while it holds it (S7 review A11Y-1)', () => {
+		const { el } = box();
+		const after = document.createElement('button');
+		document.body.append(after);
+		sizeBox(el, { clientWidth: 300, scrollWidth: 300, clientHeight: 200, scrollHeight: 900 });
+		const action = focusableWhenScrollable(el, 'made-up-caption');
+		expect(stop(el)).toBe(true);
+		el.focus();
+		sizeBox(el, { scrollHeight: 200 });
+		observers.resize(el);
+		expect(['tabindex', 'role', 'aria-labelledby'].map((a) => el.getAttribute(a))).toEqual([
+			'-1',
+			'region',
+			'made-up-caption'
+		]);
+		after.focus();
+		expect(stop(el)).toBe(false);
+		action.destroy();
+	});
+
+	it('keeps a dialog’s body that fits and holds the focus focusable and named while the page loses the system focus, then measures it when the focus really leaves (S7 second check A11Y-1-BLUR)', () => {
+		const { el } = box();
+		const after = document.createElement('button');
+		document.body.append(after);
+		sizeBox(el, { clientWidth: 300, scrollWidth: 300, clientHeight: 200, scrollHeight: 900 });
+		const action = focusableWhenScrollable(el, 'made-up-caption');
+		el.focus();
+		const attributes = () => ['tabindex', 'role', 'aria-labelledby'].map((a) => el.getAttribute(a));
+		sizeBox(el, { scrollHeight: 200 });
+		observers.resize(el);
+		expect(attributes()).toEqual(['-1', 'region', 'made-up-caption']);
+		const page = pageBlurred(el);
+		expect(document.activeElement).toBe(el);
+		expect(attributes()).toEqual(['-1', 'region', 'made-up-caption']);
+		page.back();
+		expect(attributes()).toEqual(['-1', 'region', 'made-up-caption']);
+		after.focus();
+		expect(stop(el)).toBe(false);
+		action.destroy();
 	});
 
 	it('ignores an overflow on an axis it does not scroll (a phone’s list, overflow visible)', () => {

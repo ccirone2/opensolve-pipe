@@ -132,7 +132,7 @@ describe('results tables sort and filter', () => {
 		const original = rowNames();
 		const [l1, l2, l3] = original;
 		const heading = columnHeading(/^Head loss/);
-		const field = panel.getByRole('combobox', { name: 'Sort by' });
+		const field = panel.getByRole('combobox', { name: 'Sort by, Results per pipe connection' });
 		await fireEvent.change(field, { target: { value: 'headLoss' } });
 		expect(heading).toHaveAttribute('aria-sort', 'ascending');
 		expect(rowNames()).toEqual([l1, l2, l3]);

@@ -823,7 +823,7 @@ Under Each pump off the items are the same kinds. 4d's idle sentence and its "ha
 
 **The words.** The line never says "running": in a name, running means switched on (the owner's form), and the line answers which pumps carry flow, from the solve. A pump on behind a closed valve reads "Running" in the State column at 0 flow (`pumpStatusLabel`, `results.ts:851`) and "on, carrying no flow" here; the State column's word is outside this proposal (§12). The About sentence names the line (§7.7).
 
-**Order.** Groups keep 4d's order: the shown case first, then case order. The add appends in descending count, so the family reads top down. Since `pumps-results-layout.md` S5 the groups follow the chart's order after the shown case, `lineupChartPriority`'s, ticked or not, the cases without values last in case order (its §6.4 item 5, §15 item 147).
+**Order.** Groups keep 4d's order: the shown case first, then case order. The add appends in descending count, so the family reads top down. Since `pumps-results-layout.md` S5 the groups follow the chart's order after the shown case, `lineupChartPriority`'s, ticked or not, the cases without values last in case order (its §6.4 item 5, §15 item 147). Since its S6 they do while the table is unsorted: a sort makes one flat table with a Case column, without this line, and clearing the sort brings the groups back (its §15 items 167 to 169).
 
 ### 7.11 Layout
 
@@ -1310,7 +1310,7 @@ For a stale case, `({k} running)` reads `(as last solved: {k} running)`.
   - columns `Rise ({unit})` | `Flow ({unit})` | `Note`;
   - the duty's rise noted `Its duty's rise (its duty check).`, and a point without flow by its message, as `groupSampleRows` gives;
   - every point listed, those cut from the chart included;
-  - the same scrolling region (`max-h-72 overflow-auto`), a list below 640 px as Running combinations is.
+  - the same scrolling region (`max-h-72 overflow-auto`), a list below 640 px as Running combinations is. Since `pumps-results-layout.md` S7 the table is its own disclosure, "Other cases' group curves (station's flow at each rise) ({n} points)", counting every point of every case's curve; closed by default, open where the chart cannot be drawn, full height when open, and its box a Tab stop and a region only while it overflows (its §15 items 191, 193 and 198).
 
 **The image** has the same datasets, labels and clip, with desktop text at 14 px on the 800 px plot. Its notes are `groupNoteLines`: the frame sentence, the clip note and the list.
 

@@ -5164,6 +5164,165 @@ test('S6, the second check: a numeric heading pressed three times at one point, 
 	expect(Object.keys(pressed)).toHaveLength(5);
 });
 
+/**
+ * The end of a box's scroll, a column a sort's arrow widens by a fraction of a pixel (S6, the CI
+ * fix; PR #273's desktop run): CI's Chromium drew Nodes' "HGL (m)" in the gravity-branch example
+ * 0.8 px narrower than its heading with its arrow and gap, and the table ending more than 0.5 px
+ * past a whole pixel, where the box's scroll range is a whole number of pixels. Placed at the end
+ * of the box's scroll, the press widened the table 0.8 px but not the range, the box could not
+ * follow, and its words and every other column moved 0.8 px (1.0 on the clear).
+ *
+ * This draws that in any Chromium, by styles on box `el` (`data-fraction`): heading `name`'s
+ * words a min-width of its column's width rounded up, so its heading (words, button and cell
+ * padding) sets the column's width and a sort's arrow and gap (20 px) widen it; its values cells
+ * a min-width `growth` px short of that, so a sort widens the column by exactly `growth`; with
+ * `caseWidth`, the Case column a sort adds to a table of row groups that wide; and the first other
+ * column's cells a min-width up to 63/64 px over their width, chosen so a table wider by what
+ * the sort adds gets the least scroll range (`short`, what it lacks). Widths are in 64ths of a
+ * pixel, as layout keeps them. `index` is the heading's among the heading row's sort buttons.
+ */
+function fractionAtEnd(el: Element, [name, growth, caseWidth]: readonly [string, number, number]) {
+	const box = el as HTMLElement;
+	box.dataset.fraction = '';
+	let style = document.getElementById('fraction-at-end') as HTMLStyleElement | null;
+	if (!style) {
+		style = document.createElement('style');
+		style.id = 'fraction-at-end';
+		document.head.append(style);
+	}
+	style.textContent = '';
+	const buttons = [...box.querySelectorAll<HTMLElement>('thead button[data-sort-key]')];
+	const index = buttons.findIndex((b) => (b.textContent ?? '').trim().startsWith(name));
+	const button = buttons[index]!;
+	const th = button.closest('th')!;
+	const row = box.querySelector('tbody tr:has(> td[data-label])')!;
+	const own = (row.children[[...th.parentElement!.children].indexOf(th)] as HTMLElement).dataset
+		.label!;
+	const knob = [...row.querySelectorAll<HTMLElement>(':scope > td[data-label]')].find(
+		(td) => td.dataset.label !== own
+	)!;
+	const rule = (selector: string, width: number) =>
+		`[data-fraction] ${selector} { min-width: ${width}px; }`;
+	const cells = (label: string) => `td[data-label="${CSS.escape(label)}"]`;
+	const key = CSS.escape(button.dataset.sortKey!);
+	const rules = [
+		rule(
+			`thead button[data-sort-key="${key}"] > span:first-child`,
+			Math.ceil(th.getBoundingClientRect().width)
+		)
+	];
+	style.textContent = rules.join('\n');
+	const heading = th.getBoundingClientRect().width;
+	rules.push(rule(cells(own), heading + 20 - growth));
+	if (caseWidth) rules.push(rule(cells('Case'), caseWidth));
+	const knobWidth = knob.getBoundingClientRect().width;
+	const range = (extra: number) => {
+		style.textContent = [...rules, rule(cells(knob.dataset.label!), knobWidth + extra)].join('\n');
+		return box.scrollWidth - box.clientWidth;
+	};
+	const lacks = Array.from({ length: 64 }, (_, k) => {
+		const from = range(k / 64);
+		return growth + caseWidth - (range(k / 64 + growth + caseWidth) - from);
+	});
+	const short = Math.max(...lacks);
+	const ks = lacks.flatMap((s, k) => (s === short ? [k] : []));
+	range(ks[Math.floor(ks.length / 2)]! / 64);
+	return { index, short, own, column: th.getBoundingClientRect().width, heading };
+}
+
+test('S6, the CI fix: a numeric heading pressed three times at one point at the end of its box’s scroll, a column the arrow widens by a fraction of a pixel, keeps its words and every other column in place, but for its own column’s growth by its arrow (Nodes and Running combinations)', async ({
+	page
+}, info) => {
+	test.skip(
+		info.project.name === 'mobile',
+		'the headings show from 640 px; a phone sorts by Sort by'
+	);
+	test.setTimeout(480_000);
+	const moved: string[] = [];
+	const pressAtEnd = async (
+		label: string,
+		box: Locator,
+		name: string,
+		growth: number,
+		caseWidth = 0
+	) => {
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await clearSort(box);
+		const set = await box.evaluate(fractionAtEnd, [name, growth, caseWidth] as const);
+		const what = `${label}, "${name}" widened ${growth} px${caseWidth ? `, its Case column ${caseWidth} px` : ''}`;
+		// The setup: the column `growth` px short of its heading with the arrow, and the scroll
+		// range unable to grow by all a sort adds (so on the code before the fix, 0.8 px of it).
+		expect(set.index, `${what}: its heading`).toBeGreaterThan(0);
+		expect(set.heading + 20 - set.column, `${what}: its column short of its heading`).toBe(growth);
+		expect(set.short, `${what}: what the scroll range lacks`).toBeGreaterThan(0);
+		const place = await box.evaluate(placeHeading, set.index);
+		expect(place.placed && place.numeric, `${what}: placed whole in view`).toBe(true);
+		const end = await box.evaluate((el) => {
+			const b = el as HTMLElement;
+			return b.scrollWidth - b.clientWidth - b.scrollLeft;
+		});
+		expect(end, `${what}: the box at the end of its scroll`).toBe(0);
+		await frames(page);
+		const before = await box.evaluate(readPress, set.index);
+		expect(before.hit, `${what}: its button's centre its own`).toBe(true);
+		const button = box.locator('thead button[data-sort-key]').nth(set.index);
+		const b = (await button.boundingBox())!;
+		for (const sort of ['ascending', 'descending', null]) {
+			await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+			await frames(page);
+			const after = await box.evaluate(readPress, set.index);
+			const at = `${what}, pressed to ${sort ?? 'clear'}`;
+			if (after.sort !== sort) {
+				moved.push(`${at}: aria-sort ${after.sort}`);
+				break;
+			}
+			// The setup's arrow and gap: the button 20 px wider while sorted; the Case column as set.
+			const grew = (await button.boundingBox())!.width - b.width;
+			expect(grew, `${at}: the button's growth`).toBe(sort ? 20 : 0);
+			const caseCell = after.cells['Case'];
+			if (caseWidth && sort) {
+				expect(caseCell![1] - caseCell![0], `${at}: the Case column`).toBe(caseWidth);
+			}
+			moved.push(...pressMoves(before, after, at));
+			if (!after.whole) moved.push(`${at}: the button not whole in the box's view`);
+		}
+		await clearSort(box);
+		await box.evaluate((el) => {
+			delete (el as HTMLElement).dataset.fraction;
+			document.getElementById('fraction-at-end')?.remove();
+		});
+	};
+
+	await open(page, exampleProject('gravity-branch')!);
+	await solveConverged(page);
+	await showPane(page, 'Results');
+	const nodes = (await resultsView(page, 'Nodes')).getByRole('table').first().locator('xpath=..');
+	// CI's 0.8 px; 19.2 px, whose scroll range lacks 0.2 px of it; 19.8 px, 0.8 px of it. In 64ths.
+	for (const growth of [51 / 64, 19 + 13 / 64, 19 + 51 / 64]) {
+		await pressAtEnd('Nodes', nodes, 'HGL', growth);
+	}
+
+	// A sort that flattens Running combinations' cases adds the Case column before the heading:
+	// 208.6 px of it and 0.2 of the arrow's, together 0.8 px past a whole pixel. Its last column,
+	// "Inside curve data" (14 rem at least), hidden by Fields, so a numeric heading can lie whole
+	// at the end of the box's scroll: "Shaft power", the one before "NPSH margin".
+	await condenser(page);
+	const combinations = (await pumpsTab(page))
+		.getByRole('region', { name: /^Pumps together/ })
+		.locator('[data-running-combinations]');
+	await combinations.getByRole('button', { name: /^Fields/ }).click();
+	await combinations.getByRole('checkbox', { name: 'Inside curve data' }).uncheck();
+	await page.keyboard.press('Escape');
+	await pressAtEnd(
+		'Running combinations',
+		combinations.getByRole('region'),
+		'Shaft power',
+		13 / 64,
+		208 + 38 / 64
+	);
+	expect.soft(moved, 'what a press at the end of the box’s scroll moved').toEqual([]);
+});
+
 test.describe('a touch screen from 640 px', () => {
 	test.use({ hasTouch: true });
 

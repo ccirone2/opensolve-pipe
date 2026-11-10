@@ -254,6 +254,22 @@
 	}
 
 	/**
+	 * A sorted column held wider by a press (below), by less than a pixel: a min-width on its
+	 * heading cell, dropped as the sort leaves its column, so an unsorted table is never held, and
+	 * when new results or Flagged only change the rows it was measured on. Never the sticky
+	 * column's, whose words a press never moves, nor on a phone, whose list keeps the table's
+	 * width.
+	 */
+	const sortedKey = $derived(sort?.key);
+	let held = $derived.by((): { key: string; width: number } | null => {
+		void sortedKey;
+		void table;
+		void flaggedOnly;
+		return null;
+	});
+	const heldWidth = (key: string) => (held?.key === key ? `${held.width}px` : undefined);
+
+	/**
 	 * A heading pressed keeps its place in the box: a sort that flattens row groups adds the group
 	 * column before it (and clearing the sort takes it away), so the box scrolls by what the
 	 * heading moved, and a second press at the same place reverses the order (pumps-results-layout.md
@@ -264,16 +280,34 @@
 	 * button whole in view before the press stays whole, its arrow with it: where the arrow would
 	 * fall under the sticky column or past the box's edge, the box scrolls just enough to show it,
 	 * its ring clear (LAYOUT-S6-2). A heading pressed where it was partly hidden is left there.
+	 *
+	 * The box scrolls by whole pixels and its scroll range is a whole number of them, so a press
+	 * grows the table by whole pixels too (S6, the CI fix: PR #273's desktop run). A sort's arrow
+	 * and gap (20 px) widen a column whose values set its width by what its heading with them
+	 * needs beyond those values, often a fraction of a pixel; at the end of the box's scroll the
+	 * range may not grow with the table, and the box could not follow: in CI's Chromium Nodes'
+	 * "HGL (m)" grew 0.8 px, and its words and every other column moved 0.8 px (1.0 on the clear).
+	 * So where the table grew by a fraction, the sorted column takes the rest of a pixel (`held`),
+	 * and the box scrolls to the whole pixel nearest the words' move.
 	 */
 	async function pressHeading(key: string, button: HTMLElement) {
 		const words = button.firstElementChild ?? button;
+		const grid = button.closest('table');
 		const before = words.getBoundingClientRect().left;
+		const wide = grid?.getBoundingClientRect().width ?? 0;
 		const whole = wholeInBox(button);
 		toggleSort(key);
 		await tick();
-		if (!box || !words.isConnected) return;
+		if (!box || !grid || !words.isConnected) return;
+		const grew = grid.getBoundingClientRect().width - wide;
+		const rest = Math.ceil(grew - 0.01) - grew;
+		const cell = button.closest('th');
+		if (rest > 0.01 && sort?.key === key && cell && !inColumn(button)) {
+			held = { key, width: cell.getBoundingClientRect().width + rest };
+			await tick();
+		}
 		const moved = words.getBoundingClientRect().left - before;
-		if (Math.abs(moved) > 0.5) box.scrollLeft += moved;
+		if (Math.abs(moved) > 0.5) box.scrollLeft = Math.round(box.scrollLeft + moved);
 		if (whole && !phone.current && !wholeInBox(button)) clearSideways(button);
 	}
 
@@ -857,6 +891,7 @@
 							'sticky top-0 z-20 border-b border-slate-300 bg-slate-50 px-1 py-1 align-bottom font-medium',
 							column.numeric ? 'text-right' : 'text-left'
 						]}
+						style:min-width={heldWidth(column.key)}
 					>
 						{@render heading(column.key, column.label, column.unit, !!column.numeric)}
 					</th>

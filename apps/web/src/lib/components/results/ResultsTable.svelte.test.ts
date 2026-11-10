@@ -943,3 +943,125 @@ describe('S6, the second check: a pressed heading keeps its words where they wer
 		kept('soon after a pointerup with no click');
 	});
 });
+
+describe('S6, the CI fix: a press grows the table by whole pixels, so its box can follow at the end of its scroll (pumps-results-layout.md §9 S6; ui-guide, a press moves nothing under the pointer)', () => {
+	afterEach(() => vi.restoreAllMocks());
+
+	/**
+	 * A table laid out as a browser would (jsdom lays nothing out), by its heading cells: the sticky
+	 * first column 150 px wide, every other 100 px; sorted, a column `grows[key]` px wider (its
+	 * arrow and gap less the room its values leave), or as wide as its heading cell's min-width
+	 * where that is more; the table as wide as its columns; a numeric heading's words 60 px wide
+	 * at its column's right, 8 px in (the cell's and the button's padding), less the box's scroll.
+	 */
+	function layout(box: HTMLElement, grows: Record<string, number>) {
+		const rect = (left: number, w: number) =>
+			({
+				left,
+				top: 0,
+				width: w,
+				height: 40,
+				right: left + w,
+				bottom: 40,
+				x: left,
+				y: 0
+			}) as DOMRect;
+		Object.defineProperty(box, 'clientWidth', { configurable: true, get: () => 300 });
+		const heads = () => [...box.querySelectorAll<HTMLElement>('thead th')];
+		const width = (th: HTMLElement, i: number) => {
+			const natural =
+				(i === 0 ? 150 : 100) +
+				(th.hasAttribute('aria-sort')
+					? (grows[th.querySelector('button')?.dataset.sortKey ?? ''] ?? 0)
+					: 0);
+			return Math.max(natural, parseFloat(th.style.minWidth) || 0);
+		};
+		const original = Element.prototype.getBoundingClientRect;
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: Element
+		) {
+			if (this === box) return rect(0, 300);
+			const all = heads();
+			if (this === box.querySelector('table')) {
+				return rect(
+					-box.scrollLeft,
+					all.reduce((sum, th, i) => sum + width(th, i), 0)
+				);
+			}
+			const th = this.closest('thead th') as HTMLElement | null;
+			if (!th || !box.contains(th)) return original.call(this);
+			const i = all.indexOf(th);
+			const before = all.slice(0, i).reduce((sum, t, k) => sum + width(t, k), 0);
+			const left = i === 0 ? 0 : before - box.scrollLeft;
+			if (this === th) return rect(left, width(th, i));
+			const button = this.closest('button');
+			if (!button) return original.call(this);
+			const numeric = button.classList.contains('flex-row-reverse');
+			const words = numeric && i > 0 ? left + width(th, i) - 8 - 60 : left + 8;
+			if (this !== button) return rect(words, 60);
+			const arrow = button.querySelector('svg') ? 20 : 0;
+			return rect(words - 4 - (numeric ? arrow : 0), 68 + arrow);
+		});
+	}
+	const tableBox = () => screen.getByRole('table').parentElement!;
+	const heading = (name: RegExp) => screen.getByRole('columnheader', { name });
+	const wordsLeft = (name: RegExp) =>
+		within(heading(name)).getByRole('button').firstElementChild!.getBoundingClientRect().left;
+	async function press(name: RegExp) {
+		await fireEvent.click(within(heading(name)).getByRole('button'));
+		for (let k = 0; k < 3; k++) await tick();
+	}
+
+	it('a sort that widens the table 0.75 px holds its column 0.25 px wider, at 101 px, and the box follows by 1 px; held through the next press, dropped as the sort leaves the column', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const box = tableBox();
+		layout(box, { flow: 20, head: 0.75 });
+		box.scrollLeft = 50;
+		const before = wordsLeft(/^Head/);
+		for (const [sort, held, scroll] of [
+			['ascending', '101px', 51],
+			['descending', '101px', 51],
+			[null, '', 50]
+		] as const) {
+			await press(/^Head/);
+			const what = `pressed to ${sort ?? 'clear'}`;
+			expect(heading(/^Head/).getAttribute('aria-sort'), what).toBe(sort);
+			expect(heading(/^Head/).style.minWidth, what).toBe(held);
+			expect(box.scrollLeft, what).toBe(scroll);
+			expect(wordsLeft(/^Head/), what).toBe(before);
+		}
+	});
+
+	it('a sort moved to another column drops the first one’s hold and holds the second where the table grew by a fraction; new results drop it; a whole growth and the sticky column hold nothing', async () => {
+		const { rerender } = render(ResultsTable, {
+			table: unflagged(),
+			caption: 'Results',
+			first: 'Pump'
+		});
+		const box = tableBox();
+		layout(box, { '': 0.5, flow: 20, head: 0.75 });
+		box.scrollLeft = 50;
+		await press(/^Head/);
+		expect(heading(/^Head/).style.minWidth).toBe('101px');
+		// Head back to 100 px (−1), Flow 20 px wider: the table 19 px wider, whole, so none held;
+		// the box follows Flow's words, its own growth.
+		await press(/^Flow/);
+		expect(heading(/^Head/).style.minWidth).toBe('');
+		expect(heading(/^Flow/).style.minWidth).toBe('');
+		expect(box.scrollLeft).toBe(51 + 20);
+		// Head again, from Flow sorted: the table 19.25 px narrower, Head held to 19 px less; the
+		// box follows Head's words, back by Flow's arrow, on by Head's whole pixel.
+		await press(/^Head/);
+		expect(heading(/^Flow/).style.minWidth).toBe('');
+		expect(heading(/^Head/).style.minWidth).toBe('101px');
+		expect(box.scrollLeft).toBe(71 - 20 + 1);
+		await rerender({ table: unflagged() });
+		await tick();
+		expect(heading(/^Head/)).toHaveAttribute('aria-sort', 'ascending');
+		expect(heading(/^Head/).style.minWidth).toBe('');
+		// The sticky column's words never move: a sort by name widens it 0.5 px and holds nothing.
+		await press(/^Pump/);
+		expect(heading(/^Pump/)).toHaveAttribute('aria-sort', 'ascending');
+		expect(heading(/^Pump/).style.minWidth).toBe('');
+	});
+});

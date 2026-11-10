@@ -5318,6 +5318,494 @@ test('S6, the second check: a numeric heading pressed three times at one point, 
 	expect(Object.keys(pressed)).toHaveLength(5);
 });
 
+/**
+ * The end of a box's scroll, a column a sort's arrow widens by a fraction of a pixel (S6, the CI
+ * fix; PR #273's desktop run): CI's Chromium drew Nodes' "HGL (m)" in the gravity-branch example
+ * 0.8 px narrower than its heading with its arrow and gap, and the table ending more than 0.5 px
+ * past a whole pixel, where the box's scroll range is a whole number of pixels. Placed at the end
+ * of the box's scroll, the press widened the table 0.8 px but not the range, the box could not
+ * follow, and its words and every other column moved 0.8 px (1.0 on the clear).
+ *
+ * This draws that in any Chromium, by styles on box `el` (`data-fraction`): heading `name`'s
+ * words a min-width of its column's width rounded up, so its heading (words, button and cell
+ * padding) sets the column's width and a sort's arrow and gap (20 px) widen it; its values cells
+ * a min-width `growth` px short of that, so a sort widens the column by exactly `growth`; with
+ * `caseWidth`, the Case column a sort adds to a table of row groups that wide; and the first other
+ * column's cells a min-width up to 63/64 px over their width, chosen so a table wider by what
+ * the sort adds gets the least scroll range (`short`, what it lacks); with `more`, the most (the
+ * other way: `short` below 0, the range a whole pixel more than a 13/64 px growth; the CI fix's
+ * review CIFIX-1, TEST-CI-1). Widths are in 64ths of a pixel, as layout keeps them. `index` is the
+ * heading's among the heading row's sort buttons.
+ */
+function fractionAtEnd(
+	el: Element,
+	[name, growth, caseWidth, more = false]: readonly [string, number, number, boolean?]
+) {
+	const box = el as HTMLElement;
+	box.dataset.fraction = '';
+	let style = document.getElementById('fraction-at-end') as HTMLStyleElement | null;
+	if (!style) {
+		style = document.createElement('style');
+		style.id = 'fraction-at-end';
+		document.head.append(style);
+	}
+	style.textContent = '';
+	const buttons = [...box.querySelectorAll<HTMLElement>('thead button[data-sort-key]')];
+	const index = buttons.findIndex((b) => (b.textContent ?? '').trim().startsWith(name));
+	const button = buttons[index]!;
+	const th = button.closest('th')!;
+	const row = box.querySelector('tbody tr:has(> td[data-label])')!;
+	const own = (row.children[[...th.parentElement!.children].indexOf(th)] as HTMLElement).dataset
+		.label!;
+	const knob = [...row.querySelectorAll<HTMLElement>(':scope > td[data-label]')].find(
+		(td) => td.dataset.label !== own
+	)!;
+	const rule = (selector: string, width: number) =>
+		`[data-fraction] ${selector} { min-width: ${width}px; }`;
+	const cells = (label: string) => `td[data-label="${CSS.escape(label)}"]`;
+	const key = CSS.escape(button.dataset.sortKey!);
+	const rules = [
+		rule(
+			`thead button[data-sort-key="${key}"] > span:first-child`,
+			Math.ceil(th.getBoundingClientRect().width)
+		)
+	];
+	style.textContent = rules.join('\n');
+	const heading = th.getBoundingClientRect().width;
+	rules.push(rule(cells(own), heading + 20 - growth));
+	if (caseWidth) rules.push(rule(cells('Case'), caseWidth));
+	const knobWidth = knob.getBoundingClientRect().width;
+	const range = (extra: number) => {
+		style.textContent = [...rules, rule(cells(knob.dataset.label!), knobWidth + extra)].join('\n');
+		return box.scrollWidth - box.clientWidth;
+	};
+	const lacks = Array.from({ length: 64 }, (_, k) => {
+		const from = range(k / 64);
+		return growth + caseWidth - (range(k / 64 + growth + caseWidth) - from);
+	});
+	const short = more ? Math.min(...lacks) : Math.max(...lacks);
+	const ks = lacks.flatMap((s, k) => (s === short ? [k] : []));
+	range(ks[Math.floor(ks.length / 2)]! / 64);
+	return { index, short, own, column: th.getBoundingClientRect().width, heading };
+}
+
+test('S6, the CI fix: a numeric heading pressed three times at one point at the end of its box’s scroll, a column the arrow widens by a fraction of a pixel, keeps its words and every other column in place, but for its own column’s growth by its arrow (Nodes and Running combinations)', async ({
+	page
+}, info) => {
+	test.skip(
+		info.project.name === 'mobile',
+		'the headings show from 640 px; a phone sorts by Sort by'
+	);
+	test.setTimeout(480_000);
+	const moved: string[] = [];
+	const pressAtEnd = async (
+		label: string,
+		box: Locator,
+		name: string,
+		growth: number,
+		caseWidth = 0
+	) => {
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await clearSort(box);
+		const set = await box.evaluate(fractionAtEnd, [name, growth, caseWidth] as const);
+		const what = `${label}, "${name}" widened ${growth} px${caseWidth ? `, its Case column ${caseWidth} px` : ''}`;
+		// The setup: the column `growth` px short of its heading with the arrow, and the scroll
+		// range unable to grow by all a sort adds (so on the code before the fix, 0.8 px of it).
+		expect(set.index, `${what}: its heading`).toBeGreaterThan(0);
+		expect(set.heading + 20 - set.column, `${what}: its column short of its heading`).toBe(growth);
+		expect(set.short, `${what}: what the scroll range lacks`).toBeGreaterThan(0);
+		const place = await box.evaluate(placeHeading, set.index);
+		expect(place.placed && place.numeric, `${what}: placed whole in view`).toBe(true);
+		const end = await box.evaluate((el) => {
+			const b = el as HTMLElement;
+			return b.scrollWidth - b.clientWidth - b.scrollLeft;
+		});
+		expect(end, `${what}: the box at the end of its scroll`).toBe(0);
+		await frames(page);
+		const before = await box.evaluate(readPress, set.index);
+		expect(before.hit, `${what}: its button's centre its own`).toBe(true);
+		const button = box.locator('thead button[data-sort-key]').nth(set.index);
+		const b = (await button.boundingBox())!;
+		for (const sort of ['ascending', 'descending', null]) {
+			await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+			await frames(page);
+			const after = await box.evaluate(readPress, set.index);
+			const at = `${what}, pressed to ${sort ?? 'clear'}`;
+			if (after.sort !== sort) {
+				moved.push(`${at}: aria-sort ${after.sort}`);
+				break;
+			}
+			// The setup's arrow and gap: the button 20 px wider while sorted; the Case column as set.
+			const grew = (await button.boundingBox())!.width - b.width;
+			expect(grew, `${at}: the button's growth`).toBe(sort ? 20 : 0);
+			const caseCell = after.cells['Case'];
+			if (caseWidth && sort) {
+				expect(caseCell![1] - caseCell![0], `${at}: the Case column`).toBe(caseWidth);
+			}
+			moved.push(...pressMoves(before, after, at));
+			if (!after.whole) moved.push(`${at}: the button not whole in the box's view`);
+		}
+		await clearSort(box);
+		await box.evaluate((el) => {
+			delete (el as HTMLElement).dataset.fraction;
+			document.getElementById('fraction-at-end')?.remove();
+		});
+	};
+
+	await open(page, exampleProject('gravity-branch')!);
+	await solveConverged(page);
+	await showPane(page, 'Results');
+	const nodes = (await resultsView(page, 'Nodes')).getByRole('table').first().locator('xpath=..');
+	// CI's 0.8 px; 19.2 px, whose scroll range lacks 0.2 px of it; 19.8 px, 0.8 px of it. In 64ths.
+	for (const growth of [51 / 64, 19 + 13 / 64, 19 + 51 / 64]) {
+		await pressAtEnd('Nodes', nodes, 'HGL', growth);
+	}
+
+	// A sort that flattens Running combinations' cases adds the Case column before the heading:
+	// 208.6 px of it and 0.2 of the arrow's, together 0.8 px past a whole pixel. Its last column,
+	// "Inside curve data" (14 rem at least), hidden by Fields, so a numeric heading can lie whole
+	// at the end of the box's scroll: "Shaft power", the one before "NPSH margin".
+	await condenser(page);
+	const combinations = (await pumpsTab(page))
+		.getByRole('region', { name: /^Pumps together/ })
+		.locator('[data-running-combinations]');
+	await combinations.getByRole('button', { name: /^Fields/ }).click();
+	await combinations.getByRole('checkbox', { name: 'Inside curve data' }).uncheck();
+	await page.keyboard.press('Escape');
+	await pressAtEnd(
+		'Running combinations',
+		combinations.getByRole('region'),
+		'Shaft power',
+		13 / 64,
+		208 + 38 / 64
+	);
+	expect.soft(moved, 'what a press at the end of the box’s scroll moved').toEqual([]);
+});
+
+/**
+ * A sort a fraction of a pixel wider than its table unsorted, pressed at the end of its box's
+ * scroll (S6, the CI fix's review CIFIX-1, TEST-CI-1): the CI fix held a press's column the rest
+ * of a pixel so the table changed by whole pixels, but only on a press that left its column
+ * sorted; new results and Flagged only dropped the hold (a case ticked under "Cases on this
+ * chart" makes Running combinations' rows anew), and a sort the Summary's link set was never
+ * held. With the knob the other way from the CI fix's test (the scroll range a whole pixel more
+ * than a 13/64 px growth), the press to clear then narrowed the table by that fraction and the
+ * range by a whole pixel, and at the end of the box's scroll its words and every other column
+ * moved 0.8 px. Each press is read against the reading just before it (the event between moves
+ * the table, not a press); a press to clear is a press to sort read backwards.
+ */
+test('S6, the CI fix’s review: a sort a fraction of a pixel wider than its table unsorted, its hold dropped by new results, Flagged only or a case ticked on the group chart, or never made by the Summary’s link, pressed to descending and to clear at one point at the end of its box’s scroll, keeps its words and every other column in place (Nodes and Running combinations; CIFIX-1, TEST-CI-1)', async ({
+	page
+}, info) => {
+	test.skip(
+		info.project.name === 'mobile',
+		'the headings show from 640 px; a phone sorts by Sort by'
+	);
+	test.setTimeout(480_000);
+	const growth = 13 / 64;
+	const moved: string[] = [];
+	/**
+	 * Heading `index` placed by placeHeading (unsorted, room for its arrow) or, sorted, the box
+	 * scrolled to its end; either way the box at the end of its scroll and the button whole in
+	 * its view. The point a press there is made at: the button's centre.
+	 */
+	const atEnd = async (box: Locator, index: number, what: string, sorted: boolean) => {
+		if (sorted) {
+			await box.evaluate((el) => {
+				const b = el as HTMLElement;
+				b.scrollLeft = b.scrollWidth - b.clientWidth;
+			});
+		} else {
+			const place = await box.evaluate(placeHeading, index);
+			expect(place.placed && place.numeric, `${what}: placed whole in view`).toBe(true);
+		}
+		const end = await box.evaluate((el) => {
+			const b = el as HTMLElement;
+			return b.scrollWidth - b.clientWidth - b.scrollLeft;
+		});
+		expect(end, `${what}: the box at the end of its scroll`).toBe(0);
+		await frames(page);
+		expect((await box.evaluate(readPress, index)).whole, `${what}: its button whole`).toBe(true);
+		const b = (await box.locator('thead button[data-sort-key]').nth(index).boundingBox())!;
+		return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+	};
+	const pressAt = async (
+		box: Locator,
+		index: number,
+		at: { x: number; y: number },
+		sort: string | null,
+		what: string
+	) => {
+		const before = await box.evaluate(readPress, index);
+		expect(before.hit, `${what}: its button's centre its own`).toBe(true);
+		await page.mouse.click(at.x, at.y);
+		await frames(page);
+		const after = await box.evaluate(readPress, index);
+		const pressed = `${what}, pressed to ${sort ?? 'clear'}`;
+		if (after.sort !== sort) {
+			moved.push(`${pressed}: aria-sort ${after.sort}`);
+			return;
+		}
+		moved.push(
+			...(sort
+				? pressMoves(before, after, pressed)
+				: pressMoves(after, before, `${pressed}, read back from after it`))
+		);
+		if (!after.whole) moved.push(`${pressed}: the button not whole in the box's view`);
+	};
+	/**
+	 * Heading `name` at the end of box `box`'s scroll, sorted ascending by `sortBy` (a press at the
+	 * button's centre, or the caller's: the Summary's link), the event `between` (if any), then
+	 * pressed to descending and to clear at one point, the box placed at its end again first. The
+	 * event leaves the sort a fraction of a pixel wider than the table unsorted, nothing held.
+	 */
+	const sortedThenPressed = async (
+		label: string,
+		box: Locator,
+		name: string,
+		caseWidth: number,
+		sortBy: (() => Promise<void>) | null,
+		between: (() => Promise<void>) | null
+	) => {
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await clearSort(box);
+		const set = await box.evaluate(fractionAtEnd, [name, growth, caseWidth, true] as const);
+		const what = `${label}, "${name}" widened 13/64 px${caseWidth ? `, its Case column ${caseWidth} px` : ''}`;
+		expect(set.index, `${what}: its heading`).toBeGreaterThan(0);
+		expect(set.heading + 20 - set.column, `${what}: its column short of its heading`).toBe(growth);
+		expect(set.short, `${what}: the scroll range gains more than the sort adds`).toBeLessThan(0);
+		if (sortBy) await sortBy();
+		else await pressAt(box, set.index, await atEnd(box, set.index, what, false), 'ascending', what);
+		await expect(box.locator('thead th[aria-sort]'), `${what}: sorted`).toHaveAttribute(
+			'aria-sort',
+			'ascending'
+		);
+		if (between) await between();
+		await expect(box, `${what}: its styles kept`).toHaveAttribute('data-fraction', '');
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		const at = await atEnd(box, set.index, `${what}, sorted`, true);
+		await expect(box.locator('thead th[aria-sort]'), `${what}: still sorted`).toHaveAttribute(
+			'aria-sort',
+			'ascending'
+		);
+		expect(
+			await box.locator('thead th[style*="min-width"]').count(),
+			`${what}: nothing held before the presses`
+		).toBe(0);
+		await pressAt(box, set.index, at, 'descending', what);
+		await pressAt(box, set.index, at, null, what);
+		// The hold the clear may leave dropped, by a sort by name and its clear.
+		await box
+			.locator('thead button[data-sort-key]')
+			.first()
+			.evaluate((b) => (b as HTMLElement).click());
+		await clearSort(box);
+		await box.evaluate((el) => {
+			delete (el as HTMLElement).dataset.fraction;
+			document.getElementById('fraction-at-end')?.remove();
+		});
+	};
+
+	await open(page, exampleProject('gravity-branch')!);
+	await solveConverged(page);
+	await showPane(page, 'Results');
+	const nodesView = await resultsView(page, 'Nodes');
+	const nodes = nodesView.getByRole('table').first().locator('xpath=..');
+	// New results while sorted: the header's Solve.
+	await sortedThenPressed('Nodes', nodes, 'HGL', 0, null, async () => {
+		await solveConverged(page);
+		await frames(page);
+	});
+	// The Summary's link, "Nodes, lowest first", sorts by "Pressure": the columns after "Dynamic
+	// pressure" hidden by Fields and "Elevation" 400 px wide, so "Pressure" lies at the end of the
+	// box's scroll.
+	await nodesView.getByRole('button', { name: /^Fields/ }).click();
+	for (const field of [/^Total pressure/, /^Absolute pressure/, /^Velocity/, /^HGL/, /^EGL/]) {
+		await nodesView.getByRole('checkbox', { name: field }).uncheck();
+	}
+	await page.keyboard.press('Escape');
+	await nodes.evaluate(() => {
+		const pad = document.createElement('style');
+		pad.id = 'elevation-wide';
+		pad.textContent = 'td[data-label="Elevation (m)"] { min-width: 400px; }';
+		document.head.append(pad);
+	});
+	await sortedThenPressed(
+		'Nodes',
+		nodes,
+		'Pressure',
+		0,
+		async () => {
+			const summary = await resultsView(page, 'Summary');
+			await summary.getByRole('button', { name: 'Nodes, lowest first' }).click();
+			await expect(nodesView).toBeVisible();
+			await frames(page);
+		},
+		null
+	);
+	await nodes.evaluate(() => document.getElementById('elevation-wide')?.remove());
+
+	// Running combinations, "Shaft power" with "Inside curve data" hidden, as in the CI fix's test:
+	// a sort adds a 208 px Case column, so the table grows 208 + 13/64 px and the range 209.
+	await condenser(page);
+	const card = (await pumpsTab(page)).getByRole('region', { name: /^Pumps together/ });
+	const combinations = card.locator('[data-running-combinations]');
+	await combinations.getByRole('button', { name: /^Fields/ }).click();
+	await combinations.getByRole('checkbox', { name: 'Inside curve data' }).uncheck();
+	await page.keyboard.press('Escape');
+	const box = combinations.getByRole('region');
+	const only = combinations.getByRole('checkbox', { name: /^Flagged only/ });
+	await sortedThenPressed('Running combinations', box, 'Shaft power', 208, null, async () => {
+		await only.check();
+		await frames(page);
+		await only.uncheck();
+		await frames(page);
+	});
+	const chartCases = card.getByRole('group', { name: 'Cases on this chart' }).getByRole('checkbox');
+	expect(await chartCases.count(), 'cases under "Cases on this chart"').toBeGreaterThan(1);
+	await sortedThenPressed('Running combinations', box, 'Shaft power', 208, null, async () => {
+		const last = chartCases.last();
+		const ticked = await last.isChecked();
+		await last.setChecked(!ticked);
+		await settle(page);
+		await last.setChecked(ticked);
+		await settle(page);
+	});
+	expect.soft(moved, 'what a press at the end of the box’s scroll moved').toEqual([]);
+});
+
+/**
+ * A press moves nothing up or down (S6, the CI fix's review PRE-1; ui-guide, a press moves nothing
+ * under the pointer): a numeric heading's arrow sits on its words' left (its button's row
+ * reversed), and a browser takes an inline flex box's baseline from its first item along the
+ * line, so the sorted heading's button sat on its arrow's foot, 3 px of the line's strut below
+ * it, and the heading row grew 53 to 56 px; the rows under it moved down 3 px, and the Results
+ * pane, anchored on them, scrolled 3 px to follow, moving the heading under the pointer (Running
+ * combinations with its box's top just under the pinned nav, a band of about 40 px). Here each
+ * of the Pumps tab's tables keeps its heading row's height through three presses of each numeric
+ * heading, and Running combinations, its box's top at each of five places just under the pinned
+ * nav, keeps the pane's scroll and the heading's top.
+ */
+test('S6, the CI fix’s review: a numeric heading pressed three times at one point moves nothing up or down: its heading row keeps its height, and the Results pane keeps its scroll with Running combinations just under the pinned nav (the Pumps tab’s three tables; PRE-1)', async ({
+	page
+}, info) => {
+	test.skip(
+		info.project.name === 'mobile',
+		'the headings show from 640 px; a phone sorts by Sort by'
+	);
+	test.setTimeout(480_000);
+	const moved: string[] = [];
+	/** The heading row's height, the pane's scroll, and heading `i`'s button's top and centre. */
+	const readUpright = (el: Element, i: number) => {
+		const button = el.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[i]!;
+		const b = button.getBoundingClientRect();
+		let pane: HTMLElement | null = el.parentElement;
+		while (pane && !/(auto|scroll)/.test(getComputedStyle(pane).overflowY)) {
+			pane = pane.parentElement;
+		}
+		return {
+			row: el.querySelector('thead tr')!.getBoundingClientRect().height,
+			pane: pane!.scrollTop,
+			top: b.top,
+			x: b.left + b.width / 2,
+			y: b.top + b.height / 2,
+			numeric: button.classList.contains('flex-row-reverse'),
+			name: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+			sort: button.closest('th')!.getAttribute('aria-sort')
+		};
+	};
+	const pressUpright = async (label: string, box: Locator, i: number) => {
+		const before = await box.evaluate(readUpright, i);
+		if (!before.numeric) return 0;
+		for (const sort of ['ascending', 'descending', null]) {
+			await page.mouse.click(before.x, before.y);
+			await frames(page);
+			const after = await box.evaluate(readUpright, i);
+			const what = `${label}, "${before.name}" pressed to ${sort ?? 'clear'}`;
+			if (after.sort !== sort) {
+				moved.push(`${what}: aria-sort ${after.sort}`);
+				break;
+			}
+			for (const [part, then, now] of [
+				['its heading row grew', before.row, after.row],
+				['the pane scrolled down', before.pane, after.pane],
+				['its button moved down', before.top, after.top]
+			] as const) {
+				if (Math.abs(now - then) > 0.5)
+					moved.push(`${what}: ${part} ${(now - then).toFixed(1)} px`);
+			}
+		}
+		await clearSort(box);
+		return 1;
+	};
+
+	await condenser(page);
+	const tab = await pumpsTab(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const combinations = card.locator('[data-running-combinations]').getByRole('region');
+	const tables: [string, Locator][] = [
+		['Results per pump', tab.getByRole('table', { name: 'Results per pump' }).locator('xpath=..')],
+		['the group table', card.locator('[data-group-table]').getByRole('region')],
+		['Running combinations', combinations]
+	];
+	const pressed: Record<string, number> = {};
+	for (const [label, box] of tables) {
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await clearSort(box);
+		pressed[label] = 0;
+		const n = await box.locator('thead button[data-sort-key]').count();
+		for (let i = 1; i < n; i++) {
+			const place = await box.evaluate(placeHeading, i);
+			if (!place.numeric || !place.placed) continue;
+			await frames(page);
+			pressed[label] += await pressUpright(label, box, i);
+		}
+	}
+	// Running combinations' box, its top at the pinned nav's foot and 3, 6, 9 and 12 px under it,
+	// at its scroll's start, each numeric heading whole in view there pressed.
+	await combinations.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+	const under: Record<number, number> = {};
+	for (const gap of [0, 3, 6, 9, 12]) {
+		under[gap] = 0;
+		const nav = await page.evaluate(readNav);
+		expect(nav.pinned, 'the section nav pinned').toBe(true);
+		await combinations.evaluate((el, top) => {
+			let pane: HTMLElement | null = el.parentElement;
+			while (pane && !/(auto|scroll)/.test(getComputedStyle(pane).overflowY)) {
+				pane = pane.parentElement;
+			}
+			pane!.scrollTop += el.getBoundingClientRect().top - top;
+			(el as HTMLElement).scrollLeft = 0;
+		}, nav.navBottom + gap);
+		await frames(page);
+		const n = await combinations.locator('thead button[data-sort-key]').count();
+		for (let i = 1; i < n; i++) {
+			const whole = await combinations.evaluate((el, k) => {
+				const box = el as HTMLElement;
+				const r = box.querySelectorAll('thead button[data-sort-key]')[k]!.getBoundingClientRect();
+				const fixed = box.querySelector('thead th')!.getBoundingClientRect().right;
+				const right = box.getBoundingClientRect().left + box.clientLeft + box.clientWidth;
+				return box.scrollLeft === 0 && r.left >= fixed + 24 && r.right <= right - 8;
+			}, i);
+			if (!whole) continue;
+			under[gap] += await pressUpright(
+				`Running combinations ${gap} px under the nav`,
+				combinations,
+				i
+			);
+		}
+	}
+	expect.soft(moved, 'what a press moved up or down').toEqual([]);
+	for (const [label, n] of Object.entries(pressed)) {
+		expect.soft(n, `${label}: numeric headings pressed`).toBeGreaterThanOrEqual(2);
+	}
+	for (const [gap, n] of Object.entries(under)) {
+		expect
+			.soft(n, `Running combinations ${gap} px under the nav: headings pressed`)
+			.toBeGreaterThan(0);
+	}
+});
+
 test.describe('a touch screen from 640 px', () => {
 	test.use({ hasTouch: true });
 

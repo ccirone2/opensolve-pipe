@@ -961,3 +961,238 @@ describe('S6, the second check: a pressed heading keeps its words where they wer
 		kept('soon after a pointerup with no click');
 	});
 });
+
+describe('S6, the CI fix: a press grows the table by whole pixels, so its box can follow at the end of its scroll (pumps-results-layout.md §9 S6; ui-guide, a press moves nothing under the pointer)', () => {
+	afterEach(() => vi.restoreAllMocks());
+
+	/**
+	 * A table laid out as a browser would (jsdom lays nothing out), by its heading cells: the sticky
+	 * first column 150 px wide, every other 100 px; sorted, a column `grows[key]` px wider (its
+	 * arrow and gap less the room its values leave), or as wide as its heading cell's min-width
+	 * where that is more; the table as wide as its columns; a numeric heading's words 60 px wide
+	 * at its column's right, 8 px in (the cell's and the button's padding), less the box's scroll.
+	 */
+	function layout(box: HTMLElement, grows: Record<string, number>) {
+		const rect = (left: number, w: number) =>
+			({
+				left,
+				top: 0,
+				width: w,
+				height: 40,
+				right: left + w,
+				bottom: 40,
+				x: left,
+				y: 0
+			}) as DOMRect;
+		Object.defineProperty(box, 'clientWidth', { configurable: true, get: () => 300 });
+		const heads = () => [...box.querySelectorAll<HTMLElement>('thead th')];
+		const width = (th: HTMLElement, i: number) => {
+			const natural =
+				(i === 0 ? 150 : 100) +
+				(th.hasAttribute('aria-sort')
+					? (grows[th.querySelector('button')?.dataset.sortKey ?? ''] ?? 0)
+					: 0);
+			return Math.max(natural, parseFloat(th.style.minWidth) || 0);
+		};
+		const original = Element.prototype.getBoundingClientRect;
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: Element
+		) {
+			if (this === box) return rect(0, 300);
+			const all = heads();
+			if (this === box.querySelector('table')) {
+				return rect(
+					-box.scrollLeft,
+					all.reduce((sum, th, i) => sum + width(th, i), 0)
+				);
+			}
+			const th = this.closest('thead th') as HTMLElement | null;
+			if (!th || !box.contains(th)) return original.call(this);
+			const i = all.indexOf(th);
+			const before = all.slice(0, i).reduce((sum, t, k) => sum + width(t, k), 0);
+			const left = i === 0 ? 0 : before - box.scrollLeft;
+			if (this === th) return rect(left, width(th, i));
+			const button = this.closest('button');
+			if (!button) return original.call(this);
+			const numeric = button.classList.contains('flex-row-reverse');
+			const words = numeric && i > 0 ? left + width(th, i) - 8 - 60 : left + 8;
+			if (this !== button) return rect(words, 60);
+			const arrow = button.querySelector('svg') ? 20 : 0;
+			return rect(words - 4 - (numeric ? arrow : 0), 68 + arrow);
+		});
+	}
+	const tableBox = () => screen.getByRole('table').parentElement!;
+	const heading = (name: RegExp) => screen.getByRole('columnheader', { name });
+	const wordsLeft = (name: RegExp) =>
+		within(heading(name)).getByRole('button').firstElementChild!.getBoundingClientRect().left;
+	async function press(name: RegExp) {
+		await fireEvent.click(within(heading(name)).getByRole('button'));
+		for (let k = 0; k < 3; k++) await tick();
+	}
+
+	it('a sort that widens the table 0.75 px holds its column 0.25 px wider, at 101 px, and the box follows by 1 px; held through the next press, dropped as the sort leaves the column', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const box = tableBox();
+		layout(box, { flow: 20, head: 0.75 });
+		box.scrollLeft = 50;
+		const before = wordsLeft(/^Head/);
+		for (const [sort, held, scroll] of [
+			['ascending', '101px', 51],
+			['descending', '101px', 51],
+			[null, '', 50]
+		] as const) {
+			await press(/^Head/);
+			const what = `pressed to ${sort ?? 'clear'}`;
+			expect(heading(/^Head/).getAttribute('aria-sort'), what).toBe(sort);
+			expect(heading(/^Head/).style.minWidth, what).toBe(held);
+			expect(box.scrollLeft, what).toBe(scroll);
+			expect(wordsLeft(/^Head/), what).toBe(before);
+		}
+	});
+
+	it('a sort moved to another column drops the first one’s hold and holds the second where the table grew by a fraction; new results drop it; a whole growth holds nothing; a sort by name scrolls nothing and the sticky column’s heading takes no min-width', async () => {
+		const { rerender } = render(ResultsTable, {
+			table: unflagged(),
+			caption: 'Results',
+			first: 'Pump'
+		});
+		const box = tableBox();
+		layout(box, { '': 0.5, flow: 20, head: 0.75 });
+		box.scrollLeft = 50;
+		await press(/^Head/);
+		expect(heading(/^Head/).style.minWidth).toBe('101px');
+		// Head back to 100 px (−1), Flow 20 px wider: the table 19 px wider, whole, so none held;
+		// the box follows Flow's words, its own growth.
+		await press(/^Flow/);
+		expect(heading(/^Head/).style.minWidth).toBe('');
+		expect(heading(/^Flow/).style.minWidth).toBe('');
+		expect(box.scrollLeft).toBe(51 + 20);
+		// Head again, from Flow sorted: the table 19.25 px narrower, Head held to 19 px less; the
+		// box follows Head's words, back by Flow's arrow, on by Head's whole pixel.
+		await press(/^Head/);
+		expect(heading(/^Flow/).style.minWidth).toBe('');
+		expect(heading(/^Head/).style.minWidth).toBe('101px');
+		expect(box.scrollLeft).toBe(71 - 20 + 1);
+		await rerender({ table: unflagged() });
+		await tick();
+		expect(heading(/^Head/)).toHaveAttribute('aria-sort', 'ascending');
+		expect(heading(/^Head/).style.minWidth).toBe('');
+		// The sticky column's words never move, so the box scrolls nothing for a sort by name (which
+		// widens it 0.5 px), and its heading cell binds no min-width (CI fix review TEST-CI-4: the
+		// press measures it as any other, but only the other columns' heading cells take a hold).
+		await press(/^Pump/);
+		expect(heading(/^Pump/)).toHaveAttribute('aria-sort', 'ascending');
+		expect(heading(/^Pump/).style.minWidth).toBe('');
+		expect(heading(/^Head/).style.minWidth).toBe('');
+		expect(heading(/^Flow/).style.minWidth).toBe('');
+		expect(box.scrollLeft).toBe(52);
+	});
+
+	/**
+	 * A press reads what it changed against the table just before it: the table's width changed
+	 * by whole pixels, the pressed heading's words where they were, the box's scroll as given.
+	 */
+	async function pressWhole(
+		box: HTMLElement,
+		name: RegExp,
+		sort: 'ascending' | 'descending' | null,
+		held: string,
+		scroll = box.scrollLeft
+	) {
+		const table = screen.getByRole('table');
+		const [width, words] = [table.getBoundingClientRect().width, wordsLeft(name)];
+		await press(name);
+		const what = `pressed to ${sort ?? 'clear'}`;
+		expect(heading(name).getAttribute('aria-sort'), what).toBe(sort);
+		const grew = table.getBoundingClientRect().width - width;
+		expect(grew, `${what}: the table's change`).toBe(Math.round(grew));
+		expect(wordsLeft(name), `${what}: its words`).toBe(words);
+		expect(box.scrollLeft, `${what}: the box's scroll`).toBe(scroll);
+		expect(heading(name).style.minWidth, `${what}: its hold`).toBe(held);
+	}
+
+	it('new results drop the hold while the column is sorted; the press to clear then holds the cleared column by the rest of a pixel, so the table narrows by whole pixels and its words stay; the next press drops that hold (CI fix review CIFIX-1, TEST-CI-1)', async () => {
+		const { rerender } = render(ResultsTable, {
+			table: unflagged(),
+			caption: 'Results',
+			first: 'Pump'
+		});
+		const box = tableBox();
+		layout(box, { flow: 20, head: 0.75 });
+		box.scrollLeft = 50;
+		await pressWhole(box, /^Head/, 'ascending', '101px', 51);
+		await rerender({ table: unflagged() });
+		await tick();
+		// Not a press: Head back to its sorted width, 100.75 px, the table 0.25 px narrower.
+		expect(heading(/^Head/)).toHaveAttribute('aria-sort', 'ascending');
+		expect(heading(/^Head/).style.minWidth).toBe('');
+		await pressWhole(box, /^Head/, 'descending', '');
+		// Head unsorted is 100 px: held at 100.75, the table keeps its width (on the code before
+		// this fix it narrowed 0.75 px, and at the end of the box's scroll everything moved 0.8).
+		await pressWhole(box, /^Head/, null, '100.75px');
+		// Sorted again from that hold: 100.75 px with its arrow, a whole change (none), none held.
+		await pressWhole(box, /^Head/, 'ascending', '');
+	});
+
+	it('Flagged only drops the hold, measured on other rows, and does not make it again; the press to clear then holds the cleared column, and Flagged only drops that too (CI fix review TEST-CI-2, CIFIX-1)', async () => {
+		render(ResultsTable, { table: table(), caption: 'Results', first: 'Pump', flagLine });
+		const box = tableBox();
+		layout(box, { flow: 20, head: 0.75 });
+		box.scrollLeft = 50;
+		const only = screen.getByRole('checkbox', { name: 'Flagged only (2 of 3)' });
+		await pressWhole(box, /^Head/, 'ascending', '101px', 51);
+		await fireEvent.click(only);
+		await tick();
+		expect(heading(/^Head/)).toHaveAttribute('aria-sort', 'ascending');
+		expect(heading(/^Head/).style.minWidth).toBe('');
+		await fireEvent.click(only);
+		await tick();
+		expect(heading(/^Head/).style.minWidth).toBe('');
+		await pressWhole(box, /^Head/, 'descending', '');
+		await pressWhole(box, /^Head/, null, '100.75px');
+		await fireEvent.click(only);
+		await tick();
+		expect(heading(/^Head/).style.minWidth).toBe('');
+	});
+
+	it('a sort the Summary’s link sets is never measured: the press to clear holds the cleared column, so the table narrows by whole pixels and its words stay (CI fix review CIFIX-1)', async () => {
+		render(ResultsTable, {
+			table: unflagged(),
+			caption: 'Results',
+			first: 'Pump',
+			sortRequest: { key: 'head', direction: 'ascending', id: 1 }
+		});
+		const box = tableBox();
+		layout(box, { flow: 20, head: 0.75 });
+		box.scrollLeft = 50;
+		expect(heading(/^Head/)).toHaveAttribute('aria-sort', 'ascending');
+		expect(heading(/^Head/).style.minWidth).toBe('');
+		await pressWhole(box, /^Head/, 'descending', '');
+		await pressWhole(box, /^Head/, null, '100.75px');
+	});
+
+	it('a press whose words move a fraction of a pixel scrolls the box to the whole pixel nearest it, by the code, not the browser (CI fix review TEST-CI-3)', async () => {
+		// Head sorted by the Summary's link, unheld (0.75 px wider); Flow pressed: Head 0.75 px
+		// narrower, Flow 20 px wider, held 0.75 px more so the table grows 20 px, whole; Flow's
+		// words move 20.75 px, and the box scrolls to 71, not 70.75 (jsdom keeps a fraction).
+		render(ResultsTable, {
+			table: unflagged(),
+			caption: 'Results',
+			first: 'Pump',
+			sortRequest: { key: 'head', direction: 'ascending', id: 1 }
+		});
+		const box = tableBox();
+		layout(box, { flow: 20, head: 0.75 });
+		box.scrollLeft = 50;
+		const table = screen.getByRole('table');
+		const [width, words] = [table.getBoundingClientRect().width, wordsLeft(/^Flow/)];
+		await press(/^Flow/);
+		expect(heading(/^Flow/)).toHaveAttribute('aria-sort', 'ascending');
+		expect(heading(/^Flow/).style.minWidth).toBe('120.75px');
+		expect(heading(/^Head/).style.minWidth).toBe('');
+		expect(table.getBoundingClientRect().width - width).toBe(20);
+		expect(box.scrollLeft).toBe(71);
+		// Its words a quarter of a pixel from where they were: the nearest a whole pixel allows.
+		expect(wordsLeft(/^Flow/) - words).toBe(-0.25);
+	});
+});

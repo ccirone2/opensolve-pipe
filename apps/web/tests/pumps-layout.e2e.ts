@@ -3893,6 +3893,24 @@ test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump ch
 	for (const note of await cases.getByText(`(${NOTE})`, { exact: true }).all()) {
 		expect(await seenBox(note), `the off note's box at ${sizeOf(page)}`).toBe(true);
 	}
+	// S8 review FID-1: the off notes exist only while the curves are on (§9 S8 Slots), so the
+	// per-size check pumpChartPart gave them by default before S8 follows them there: each note in
+	// sight at every size atEachSize visits, 320×640 too on the phone (§10: a test reading a moved
+	// element gains the step that reaches it), and axe once over the off boxes' descriptions.
+	await settle(page);
+	await axeClean(page, `1-one-off, the other cases' system curves on, at ${sizeOf(page)}`);
+	if (info.project.name === 'mobile') {
+		const viewport = page.viewportSize()!;
+		await page.setViewportSize({ width: 320, height: 640 });
+		await settle(page, 1000);
+		const notes = await cases.getByText(`(${NOTE})`, { exact: true }).all();
+		expect(notes, 'the off notes at 320x640').toHaveLength(2);
+		for (const note of notes) {
+			expect(await seenBox(note), `the off note's box at ${sizeOf(page)}`).toBe(true);
+		}
+		await page.setViewportSize(viewport);
+		await settle(page, 1000);
+	}
 });
 
 test('lineups, every disclosure and data table open: nothing scrolls sideways; the pump chart holds its budget; axe clean', async ({
@@ -6465,6 +6483,67 @@ test('S7 review: a 40-character unbroken case name ends inside the pump chart’
 		const past = await figure.evaluate(namesPast, [LONG_CASE]);
 		console.log(`${where}: past the pump chart ${JSON.stringify(past)}`);
 		soft(past, `a line of the long case name past the pump chart's edge, ${where}`).toEqual([]);
+	}
+	await page.setViewportSize(viewport);
+});
+
+/**
+ * "Also show the other cases' system curves" as read for a press (S8 review LAYOUT-1): its top in
+ * the viewport, and whether the element at a point is the switch itself.
+ */
+function readSwitch(el: Element, point: { x: number; y: number }) {
+	return {
+		top: el.getBoundingClientRect().top,
+		hit: document.elementFromPoint(point.x, point.y) === el
+	};
+}
+
+test('S8 review: “Also show the other cases’ system curves” stays under the pointer as it is switched on and off, though the boxes above it change (§9 S8 Slots; ui-guide, a press moves nothing under the pointer; S8 review LAYOUT-1)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(240_000);
+	const soft = expect.configure({ soft: true });
+	await oneOff(page);
+	const tab = await pumpsTab(page);
+	const figure = await pumpFigure(page);
+	const cases = figure.getByRole('group', { name: 'Cases on the chart' });
+	const box = figure.getByRole('checkbox', { name: "Also show the other cases' system curves" });
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	// The card closed (the tab's default), then open: below the switch the pane then holds more
+	// than the boxes it adds or takes away, so no scroll end keeps it in place.
+	for (const card of ['closed', 'open']) {
+		if (card === 'open') await openCard(page, tab);
+		for (const size of sizes) {
+			await page.setViewportSize(size);
+			await settle(page, 1000);
+			for (const on of [true, false]) {
+				const where = `switched ${on ? 'on' : 'off'} at ${sizeOf(page)}, the card ${card}`;
+				// The switch in the middle of the pane's scroller, as a user reading the list reaches it.
+				await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+				await page.waitForTimeout(200);
+				const r = (await box.boundingBox())!;
+				const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+				const before = await box.evaluate(readSwitch, point);
+				expect(before.hit, `the switch at the point pressed before the press, ${where}`).toBe(true);
+				if (isMobile) await page.touchscreen.tap(point.x, point.y);
+				else await page.mouse.click(point.x, point.y);
+				await expect(box).toBeChecked({ checked: on });
+				// Pump PA's two off cases: their boxes above the switch while the curves are on, the
+				// line naming them while they are off (§9 S8 Slots).
+				await expect(cases.getByRole('checkbox', { name: 'Pump PA off', exact: true })).toHaveCount(
+					on ? 1 : 0
+				);
+				await expect(cases.locator('[data-pump-off-cases]')).toHaveCount(on ? 0 : 1);
+				await page.waitForTimeout(300);
+				const after = await box.evaluate(readSwitch, point);
+				console.log(`${where}: the switch's top ${before.top} -> ${after.top}`);
+				soft(Math.abs(after.top - before.top), `the switch moved, ${where}`).toBeLessThanOrEqual(1);
+				soft(after.hit, `the switch still under the point pressed, ${where}`).toBe(true);
+				await settle(page);
+			}
+		}
 	}
 	await page.setViewportSize(viewport);
 });

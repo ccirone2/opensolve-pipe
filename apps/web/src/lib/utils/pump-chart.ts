@@ -883,22 +883,30 @@ export function pumpChartCases<T extends { key: string; result: Pick<PumpResult,
 }
 
 /**
- * The markers of the cases drawn, fixed by case (§9 S8 Markers): a case drawn `before` keeps its
- * marker for as long as it stays drawn; a case newly drawn takes the marker of its place in
- * `listed` when no case drawn holds it, else the first one free. So while five cases or fewer are
- * listed each has its place's marker whatever is ticked, and an untick, a tick, the other cases'
- * system curves switched or another pump shown never changes the marker of a case that stays
- * drawn. Five markers, at most five other cases drawn: one is always free.
+ * The markers of the cases drawn (§9 S8 Markers). While five other cases or fewer have a result
+ * for this pump (`all`, the same cases for every pump, since scenarios never change topology),
+ * each has the marker of its place among them: fixed by case, whatever is ticked, the other cases'
+ * system curves switched or another pump shown. Past five, five markers cannot be fixed by case:
+ * a case drawn `before` keeps its marker for as long as it stays drawn, and a case newly drawn
+ * takes the marker of its place in `listed` when no case drawn holds it, else the first one free.
+ * Then an untick, a tick, the curves switched or another pump shown never changes the marker of a
+ * case that stays drawn, but a case's marker follows the order of the steps, not its place, once
+ * the cases listed or drawn have changed. Five markers, at most five other cases drawn: one is
+ * always free.
  */
 export function caseMarkers(
 	drawn: readonly string[],
 	listed: readonly string[] = drawn,
-	before: Readonly<Record<string, CaseMarker>> = {}
+	before: Readonly<Record<string, CaseMarker>> = {},
+	all: readonly string[] = listed
 ): Record<string, CaseMarker> {
+	const byPlace = all.length <= CASE_MARKERS.length;
+	const order = byPlace ? all : listed;
+	const remembered = byPlace ? {} : before;
 	const markers: Record<string, CaseMarker> = {};
 	const taken = new Set<CaseMarker>();
 	for (const key of drawn) {
-		const kept = before[key];
+		const kept = remembered[key];
 		if (kept && !taken.has(kept)) {
 			markers[key] = kept;
 			taken.add(kept);
@@ -906,7 +914,7 @@ export function caseMarkers(
 	}
 	for (const key of drawn) {
 		if (markers[key]) continue;
-		const place = listed.indexOf(key);
+		const place = order.indexOf(key);
 		const own = place >= 0 ? CASE_MARKERS[place % CASE_MARKERS.length] : undefined;
 		const marker = own && !taken.has(own) ? own : CASE_MARKERS.find((m) => !taken.has(m));
 		if (!marker) break;

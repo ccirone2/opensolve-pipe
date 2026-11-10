@@ -1496,9 +1496,9 @@ describe('one choice of cases for the pump chart and the card', () => {
 			within(pumpCases())
 				.getAllByRole('checkbox')
 				.map((b) => b.closest('label')!.textContent!.trim());
-		expect(labels()).toEqual(['△ Pump PB off', '□ Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['□ Pump PB off', '✳\uFE0E Delivery tank 5 m higher']);
 		await fireEvent.click(box(pumpCases(), 'Delivery tank 5 m higher'));
-		expect(labels()).toEqual(['△ Pump PB off', 'Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['□ Pump PB off', 'Delivery tank 5 m higher']);
 		// Pump PB on the chart: its own cases, the one unticked still unticked.
 		await fireEvent.change(results().getByRole('combobox', { name: 'Pump chart' }), {
 			target: { value: 'PB' }
@@ -1522,7 +1522,7 @@ describe('one choice of cases for the pump chart and the card', () => {
 				results().getByRole('figure', { name: /^Pump and system curves: Pump PA/ })
 			).toBeTruthy()
 		);
-		expect(labels()).toEqual(['△ Pump PB off', 'Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['□ Pump PB off', 'Delivery tank 5 m higher']);
 		expect(ws.casesUnticked).toEqual(['S3']);
 	}, 30_000);
 
@@ -1590,5 +1590,293 @@ describe('one choice of cases for the pump chart and the card', () => {
 			'▽ Copy S7'
 		]);
 		expect(curves).toHaveLength(6);
+	}, 30_000);
+
+	/** The boxes' labels under "Cases on the chart", each with its marker when drawn. */
+	const labels = () =>
+		within(pumpCases())
+			.getAllByRole('checkbox')
+			.map((b) => b.closest('label')!.textContent!.trim());
+	const showPump = async (id: string, name: string) => {
+		await fireEvent.change(results().getByRole('combobox', { name: 'Pump chart' }), {
+			target: { value: id }
+		});
+		await waitFor(() =>
+			expect(
+				results().getByRole('figure', { name: new RegExp(`^Pump and system curves: ${name}`) })
+			).toBeTruthy()
+		);
+	};
+	const curvesBox = () =>
+		results().getByRole('checkbox', { name: "Also show the other cases' system curves" });
+	const othersBox = () =>
+		within(card()).getByRole('checkbox', { name: "Also show the other cases' station duties" });
+	/** Solve every case, show the Pumps view, open the card with its other cases off. */
+	async function openCardOnly(ws: ReturnType<typeof setup>['ws']) {
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await waitFor(() => expect(othersBox()).toBeTruthy());
+		expect(ws.pumpGroupOthers).toBe(false);
+		expect(within(card()).queryByRole('group', { name: 'Cases on this chart' })).toBeNull();
+	}
+
+	it('changes the card’s own unticks only while its chart draws the other cases: an untick or a tick on the pump chart while they are off leaves the card to draw its cap once they are on (§12 answer 2)', async () => {
+		const { ws } = setup(withCopies(['S5', 'S6', 'S7', 'S8']));
+		await ws.store.solveAll();
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		// Unticked on the pump chart before the card was ever opened, then ticked again there with
+		// the card open and its other cases off: nothing of the card's own.
+		await fireEvent.click(box(pumpCases(), 'Pump PB off'));
+		await openCardOnly(ws);
+		await fireEvent.click(box(pumpCases(), 'Pump PB off'));
+		expect(ws.casesUnticked).toEqual([]);
+		expect(ws.pumpGroupUnticked).toEqual([]);
+		await fireEvent.click(othersBox());
+		await waitFor(() => expect(within(cardCases()).getAllByRole('checkbox').length).toBe(8));
+		const six = [
+			'Pump PA off',
+			'Both pumps off',
+			'Pump PB off',
+			'Delivery tank 5 m higher',
+			'Copy S5',
+			'Copy S6'
+		];
+		expect(ticked(cardCases())).toEqual(six);
+		expect(capped(cardCases(), 'Pump PB off')).toBe(false);
+
+		// Off again: Pump PB off unticked on the pump chart, with the card open and drawing none of
+		// the other cases. On again: the card draws its cap, Copy S7 in the place left, which the
+		// user never touched.
+		await fireEvent.click(othersBox());
+		expect(within(card()).queryByRole('group', { name: 'Cases on this chart' })).toBeNull();
+		await fireEvent.click(box(pumpCases(), 'Pump PB off'));
+		expect(ws.casesUnticked).toEqual(['S2']);
+		expect(ws.pumpGroupUnticked).toEqual([]);
+		await fireEvent.click(othersBox());
+		await waitFor(() => expect(within(cardCases()).getAllByRole('checkbox').length).toBe(8));
+		expect(ticked(cardCases())).toEqual([
+			'Pump PA off',
+			'Both pumps off',
+			'Delivery tank 5 m higher',
+			'Copy S5',
+			'Copy S6',
+			'Copy S7'
+		]);
+		expect(capped(cardCases(), 'Copy S8')).toBe(true);
+
+		// And with the card closed: the same.
+		ws.pumpGroupOthers = false;
+		await fireEvent.click(box(pumpCases(), 'Pump PB off'));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		expect(ws.pumpGroupOpen).toBe(false);
+		await fireEvent.click(box(pumpCases(), 'Copy S5'));
+		expect(ws.casesUnticked).toEqual(['S5']);
+		expect(ws.pumpGroupUnticked).toEqual([]);
+	}, 30_000);
+
+	it('gives each case its place’s marker among the cases with a result while they are five or fewer: through the curves switched, unticks and ticks in either order and another pump shown (§9 S8 Markers)', async () => {
+		const { ws } = setup(structuredClone(oneOff.project), {
+			systemCurve: async (_project, pumpId) => systemCurveResponse(pumpId)
+		});
+		await showBoth(ws);
+		// Off: Pump PA off and Both pumps off take no slot; the two drawn have their own places'.
+		await waitFor(() => expect(curvesBox()).toBeEnabled());
+		expect(labels()).toEqual(['□ Pump PB off', '✳︎ Delivery tank 5 m higher']);
+		const four = [
+			'△ Pump PA off',
+			'□ Pump PB off',
+			'✳︎ Delivery tank 5 m higher',
+			'× Both pumps off'
+		];
+		await fireEvent.click(curvesBox());
+		await waitFor(() => expect(labels()).toEqual(four));
+		for (const order of [
+			['Pump PA off', 'Pump PB off'],
+			['Pump PB off', 'Pump PA off']
+		]) {
+			for (const name of order) await fireEvent.click(box(pumpCases(), name));
+			expect(labels()).toEqual([
+				'Pump PA off',
+				'Pump PB off',
+				'✳︎ Delivery tank 5 m higher',
+				'× Both pumps off'
+			]);
+			for (const name of order) await fireEvent.click(box(pumpCases(), name));
+			expect(labels()).toEqual(four);
+		}
+		// Pump PB shown: the same cases, each the same marker; its own off cases without slots
+		// once the curves are off.
+		await showPump('PB', 'Pump PB');
+		expect(labels()).toEqual(four);
+		await fireEvent.click(curvesBox());
+		expect(labels()).toEqual(['△ Pump PA off', '✳︎ Delivery tank 5 m higher']);
+		await showPump('PA', 'Pump PA');
+		expect(labels()).toEqual(['□ Pump PB off', '✳︎ Delivery tank 5 m higher']);
+	}, 30_000);
+
+	it('keeps each drawn case’s marker over a pump switch past five cases with a result: the markers remembered (§9 S8 Markers)', async () => {
+		const { ws } = setup(withCopies(['S5', 'S6', 'S7']), {
+			systemCurve: async (_project, pumpId) => systemCurveResponse(pumpId)
+		});
+		await showBoth(ws);
+		await waitFor(() => expect(curvesBox()).toBeEnabled());
+		expect(labels()).toEqual([
+			'△ Pump PB off',
+			'□ Delivery tank 5 m higher',
+			'✳︎ Copy S5',
+			'× Copy S6',
+			'▽ Copy S7'
+		]);
+		// On: the off cases take the two markers left free, every case that stays keeps its own.
+		await fireEvent.click(curvesBox());
+		const seven = [
+			'× Pump PA off',
+			'△ Pump PB off',
+			'□ Delivery tank 5 m higher',
+			'▽ Both pumps off',
+			'✳︎ Copy S5',
+			'Copy S6',
+			'Copy S7'
+		];
+		await waitFor(() => expect(labels()).toEqual(seven));
+		// Pump PB draws the same five: each keeps its marker, though not its place's.
+		await showPump('PB', 'Pump PB');
+		expect(labels()).toEqual(seven);
+		await showPump('PA', 'Pump PA');
+		expect(labels()).toEqual(seven);
+	}, 30_000);
+
+	it('cancels the card’s requests for a case unticked under “Cases on the chart”, as an untick on the card does', async () => {
+		let firstS2 = true;
+		const { ws, calls } = setup(structuredClone(oneOff.project), {
+			hold: (call) => {
+				if (call.scenarioId !== 'S2' || !firstS2) return undefined;
+				firstS2 = false;
+				return new Promise<void>(() => {});
+			}
+		});
+		const state = (c: string) => ws.store.groupCurve(ws.store.resultsFor(c).response, ['PA', 'PB']);
+		await showBoth(ws);
+		// In the chart's order (S1, S4, S2, S3): S2's group curve held in flight.
+		await waitFor(() => expect(calls.some((c) => c.scenarioId === 'S2')).toBe(true));
+		expect(state('S2')).toEqual({ status: 'loading' });
+		const held = calls.find((c) => c.scenarioId === 'S2')!;
+		expect(held.settled).toBe(false);
+		await fireEvent.click(box(pumpCases(), 'Pump PB off'));
+		expect(box(cardCases(), 'Pump PB off').checked).toBe(false);
+		expect(state('S2')).toEqual({ status: 'cancelled', by: 'user' });
+		expect(held.settled).toBe(true);
+	}, 30_000);
+
+	it('keeps every case a full pump chart draws when a case is ticked again under “Cases on this chart”: past the cap there only', async () => {
+		const { ws } = setup(withCopies(['S5', 'S6', 'S7', 'S8']));
+		await showBoth(ws);
+		// Copy S5 unticked under "Cases on the chart", Copy S8 ticked into its place: full.
+		await fireEvent.click(box(pumpCases(), 'Copy S5'));
+		await fireEvent.click(box(pumpCases(), 'Copy S8'));
+		const full = ['Pump PB off', 'Delivery tank 5 m higher', 'Copy S6', 'Copy S7', 'Copy S8'];
+		expect(ticked(pumpCases())).toEqual(full);
+		expect(capped(cardCases(), 'Copy S5')).toBe(false);
+		// Copy S5 ticked again on the card: drawn there; the pump chart keeps its five.
+		await fireEvent.click(box(cardCases(), 'Copy S5'));
+		expect(box(cardCases(), 'Copy S5').checked).toBe(true);
+		expect(ticked(pumpCases())).toEqual(full);
+		expect(capped(pumpCases(), 'Copy S5')).toBe(true);
+		expect(ws.casesUnticked).toEqual([]);
+		expect(ws.pumpChartUnticked).toEqual(['S5']);
+	}, 30_000);
+
+	it('ticks a case again under “Cases on the chart” on the card too when the card has room', async () => {
+		const { ws } = setup(withCopies(['S5', 'S6', 'S7', 'S8']));
+		await showBoth(ws);
+		const rings = () =>
+			[...card().querySelectorAll('[data-group-rings] li .font-medium')].map((n) => n.textContent);
+		await waitFor(() => expect(rings()).toContain('Delivery tank 5 m higher'));
+		await fireEvent.click(box(pumpCases(), 'Delivery tank 5 m higher'));
+		// The card draws five, a place free.
+		expect(ticked(cardCases())).toEqual([
+			'Pump PA off',
+			'Both pumps off',
+			'Pump PB off',
+			'Copy S5',
+			'Copy S6'
+		]);
+		await fireEvent.click(box(pumpCases(), 'Delivery tank 5 m higher'));
+		expect(box(cardCases(), 'Delivery tank 5 m higher').checked).toBe(true);
+		expect(capped(cardCases(), 'Delivery tank 5 m higher')).toBe(false);
+		expect(ticked(cardCases())).toEqual([
+			'Pump PA off',
+			'Both pumps off',
+			'Pump PB off',
+			'Delivery tank 5 m higher',
+			'Copy S5',
+			'Copy S6'
+		]);
+		await waitFor(() => expect(rings()).toContain('Delivery tank 5 m higher'));
+		expect(ws.casesUnticked).toEqual([]);
+	}, 30_000);
+
+	it('never holds a case off another pump’s chart by a tick on the card: neither one past the cap by order nor one the chart does not list', async () => {
+		const { ws } = setup(withCopies(['S5', 'S6', 'S7', 'S8']));
+		await showBoth(ws);
+		// Pump PA off unticked on the card (Pump PA's chart does not list it: PA is off in it), then
+		// Copy S8, never unticked, ticked on the card into its place. Pump PA's chart is full and
+		// lists Copy S8 past its cap by order.
+		await fireEvent.click(box(cardCases(), 'Pump PA off'));
+		await fireEvent.click(box(cardCases(), 'Copy S8'));
+		expect(capped(pumpCases(), 'Copy S8')).toBe(true);
+		expect(ws.pumpChartUnticked).toEqual([]);
+		// Pump PB, off in Pump PB off and Both pumps off: room for Copy S8.
+		await showPump('PB', 'Pump PB');
+		expect(ticked(pumpCases())).toEqual([
+			'Delivery tank 5 m higher',
+			'Copy S5',
+			'Copy S6',
+			'Copy S7',
+			'Copy S8'
+		]);
+		// Pump PA off ticked again on the card while Pump PA's chart, full, does not list it: Pump
+		// PB's chart draws it first.
+		await showPump('PA', 'Pump PA');
+		await fireEvent.click(box(cardCases(), 'Copy S8'));
+		await fireEvent.click(box(cardCases(), 'Pump PA off'));
+		expect(ws.casesUnticked).toEqual(['S8']);
+		expect(ws.pumpChartUnticked).toEqual([]);
+		await showPump('PB', 'Pump PB');
+		expect(ticked(pumpCases())).toEqual([
+			'Pump PA off',
+			'Delivery tank 5 m higher',
+			'Copy S5',
+			'Copy S6',
+			'Copy S7'
+		]);
+	}, 30_000);
+
+	it('forgets the cases’ choice when another project is loaded: page state, as a reload would', async () => {
+		const { ws } = setup(withCopies(['S5', 'S6', 'S7', 'S8']));
+		await showBoth(ws);
+		await fireEvent.click(box(pumpCases(), 'Copy S5'));
+		expect([ws.casesUnticked, ws.pumpChartUnticked, ws.pumpGroupUnticked]).toEqual([
+			['S5'],
+			['S8'],
+			['S7', 'S8']
+		]);
+		// Another project with Copy S5, S6 and S8 (scenario ids recur across projects).
+		const other = withCopies(['S5', 'S6', 'S8']);
+		ws.store.load({
+			...other,
+			id: 'another-project',
+			metadata: { ...other.metadata, name: 'Another project' }
+		});
+		expect([ws.casesUnticked, ws.pumpChartUnticked, ws.pumpGroupUnticked]).toEqual([[], [], []]);
+		await showBoth(ws);
+		// Pump PA's chart has exactly five boxes: each ticked, Copy S8 among them.
+		expect(ticked(pumpCases())).toEqual([
+			'Pump PB off',
+			'Delivery tank 5 m higher',
+			'Copy S5',
+			'Copy S6',
+			'Copy S8'
+		]);
+		expect(box(cardCases(), 'Copy S5').checked).toBe(true);
 	}, 30_000);
 });

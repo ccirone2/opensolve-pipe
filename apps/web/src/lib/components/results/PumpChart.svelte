@@ -167,12 +167,17 @@
 	const cases = $derived(pumpChartCases(others, unticked, overlayCurves));
 	const shownOthers = $derived(cases.shown);
 	const shownKeys = $derived(new Set(shownOthers.map((o) => o.key)));
-	/** Each case drawn's marker: the page's, fixed by case, else each its place's (§9 S8 Markers). */
+	/**
+	 * Each case drawn's marker: the page's, else each its place's among the cases with a result
+	 * while they are five or fewer, else among those listed (§9 S8 Markers, caseMarkers).
+	 */
 	const caseMarker = $derived(
 		markers ??
 			caseMarkers(
 				shownOthers.map((o) => o.key),
-				cases.listed.map((o) => o.key)
+				cases.listed.map((o) => o.key),
+				{},
+				others.map((o) => o.key)
 			)
 	);
 	const otherData = $derived(
@@ -192,6 +197,31 @@
 	const offNote = $derived(
 		offCasesNote(cases.off.map((o) => (o.stale ? `${o.name} (out of date)` : o.name)))
 	);
+
+	/** The nearest ancestor that scrolls down (the Results pane's scroller), else the page's. */
+	function scrollerOf(node: HTMLElement): Element {
+		for (let el = node.parentElement; el; el = el.parentElement) {
+			const y = getComputedStyle(el).overflowY;
+			if ((y === 'auto' || y === 'scroll') && el.scrollHeight > el.clientHeight) return el;
+		}
+		return document.scrollingElement ?? document.documentElement;
+	}
+	/**
+	 * "Also show the other cases' system curves" keeps its place under the pointer (ui-guide, a
+	 * press moves nothing under the pointer; S8 review LAYOUT-1): switching the curves changes the
+	 * boxes above it, since a case in which this pump is off has a box and a slot only while they
+	 * are on (pumps-results-layout.md §9 S8 Slots). So its scroller scrolls by what it moved, as a
+	 * pressed heading's box does (ResultsTable pressHeading); where the browser already kept it in
+	 * place (scroll anchoring) it moved nothing, and nothing scrolls.
+	 */
+	async function switchOverlay(input: HTMLInputElement) {
+		const before = input.getBoundingClientRect().top;
+		onoverlay?.(input.checked);
+		await tick();
+		if (!input.isConnected) return;
+		const moved = input.getBoundingClientRect().top - before;
+		if (Math.abs(moved) > 0.5) scrollerOf(input).scrollTop += moved;
+	}
 
 	// The range as numbers, so a new array with the same values does not rebuild the chart.
 	const low = $derived(ratedRange?.[0] ?? null);
@@ -1182,7 +1212,7 @@
 							class="size-4 shrink-0"
 							checked={overlayCurves}
 							aria-describedby="{id}-overlay-hint"
-							onchange={(event) => onoverlay(event.currentTarget.checked)}
+							onchange={(event) => switchOverlay(event.currentTarget)}
 						/>
 						Also show the other cases' system curves
 					</label>

@@ -265,8 +265,9 @@ export class Workspace {
 	pumpChartUnticked = $state.raw<readonly string[]>([]);
 	/**
 	 * The markers of the cases the pump chart drew last, so a case keeps its marker while it stays
-	 * drawn (pump-chart.ts caseMarkers, §9 S8). Not reactive: the Pumps view reads it as it gives
-	 * the next ones, and writes those.
+	 * drawn past five other cases with a result (pump-chart.ts caseMarkers, §9 S8; five or fewer
+	 * each have their place's). Not reactive: the Pumps view reads it as it gives the next ones,
+	 * and writes those.
 	 */
 	pumpChartMarkers: Readonly<Record<string, CaseMarker>> = {};
 	/**

@@ -498,6 +498,45 @@ describe('one choice of cases: untickCase and tickCase', () => {
 			})
 		).toEqual({ unticked: [], pump: ['S6'], group: ['S2'] });
 	});
+
+	it('never holds off the other chart a case the user did not untick: a tick unticks nothing', () => {
+		// S7 past the card's cap at the untick of S1, never unticked by the user; ticked on the card
+		// into S1's place. The pump chart is full and lists S7 past its cap by order: it stays so,
+		// not one of its own, so another pump's chart with room draws it.
+		const choice: CaseChoice = { unticked: ['S1'], pump: [], group: ['S7'] };
+		const lists = {
+			pump: {
+				listed: ['S2', 'S3', 'S4', 'S5', 'S6', 'S7'],
+				shown: ['S2', 'S3', 'S4', 'S5', 'S6'],
+				cap: 5
+			},
+			group: group(['S6', 'S5', 'S4', 'S3', 'S2'])
+		};
+		expect(tickCase(choice, 'S7', 'group', lists)).toEqual({
+			unticked: ['S1'],
+			pump: [],
+			group: []
+		});
+	});
+
+	it('never holds off the other chart a case it does not list (its pump off there), though it is full', () => {
+		// S1 unticked and ticked again on the card; the pump chart, full, does not list S1 (this
+		// pump is off in it, the other cases' system curves off): another pump's chart draws it.
+		const choice: CaseChoice = { unticked: ['S1'], pump: [], group: ['S7'] };
+		const lists = {
+			pump: {
+				listed: ['S2', 'S3', 'S4', 'S5', 'S6', 'S7'],
+				shown: ['S2', 'S3', 'S4', 'S5', 'S6'],
+				cap: 5
+			},
+			group: group(['S6', 'S5', 'S4', 'S3', 'S2'])
+		};
+		expect(tickCase(choice, 'S1', 'group', lists)).toEqual({
+			unticked: [],
+			pump: [],
+			group: ['S7']
+		});
+	});
 });
 
 describe('the pump chart’s cases: slots and markers (pumps-results-layout.md §9 S8)', () => {
@@ -590,6 +629,37 @@ describe('the pump chart’s cases: slots and markers (pumps-results-layout.md �
 		for (const set of [first, second, third, fourth]) {
 			expect(new Set(Object.values(set)).size).toBe(Object.keys(set).length);
 		}
+	});
+
+	it('gives each case its place’s marker among the cases with a result while they are five or fewer: fixed by case, whatever is ticked, listed or remembered', () => {
+		// The one-off's four other cases: this pump is off in S1 and S4.
+		const all = ['S1', 'S2', 'S3', 'S4'];
+		const place: Record<string, string> = {
+			S1: 'triangle',
+			S2: 'rect',
+			S3: 'star',
+			S4: 'crossRot'
+		};
+		const only = (keys: string[]) => Object.fromEntries(keys.map((k) => [k, place[k]]));
+		// The other cases' system curves off: S1 and S4 take no slot; S2 and S3 have their own.
+		const off = caseMarkers(['S2', 'S3'], ['S2', 'S3'], {}, all);
+		expect(off).toEqual(only(['S2', 'S3']));
+		// Switched on: every case listed, each its own, the markers remembered changing none.
+		const on = caseMarkers(all, all, off, all);
+		expect(on).toEqual(place);
+		// S1 and S2 unticked, then ticked again, S1 first or S2 first: each its own again.
+		const without = caseMarkers(['S3', 'S4'], all, on, all);
+		expect(without).toEqual(only(['S3', 'S4']));
+		for (const first of ['S1', 'S2']) {
+			const one = caseMarkers(['S3', 'S4', first].sort(), all, without, all);
+			expect(one).toEqual(only(['S3', 'S4', first]));
+			expect(caseMarkers(all, all, one, all)).toEqual(place);
+		}
+		// Another pump shown, off in S2 and S4: S1 and S3 drawn, each its own, whatever was
+		// remembered.
+		expect(caseMarkers(['S1', 'S3'], ['S1', 'S3'], { S1: 'star', S3: 'triangle' }, all)).toEqual(
+			only(['S1', 'S3'])
+		);
 	});
 
 	it('names the cases that take no slot in one line, the screen’s and the image’s', () => {

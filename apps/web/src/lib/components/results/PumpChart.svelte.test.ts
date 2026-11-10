@@ -1735,6 +1735,35 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		expect(group.querySelector('[data-pump-off-cases]')).toHaveTextContent(LINE);
 	});
 
+	it('draws the off line before “At most 6 cases at once.” when both are drawn (§5.6)', async () => {
+		withCanvas();
+		render(PumpChart, {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			others: [
+				other('S1', 'Pump P off', offPump),
+				other('S2', 'Case B'),
+				other('S3', 'Case C'),
+				other('S4', 'Case D'),
+				other('S5', 'Case E'),
+				other('S6', 'Case F'),
+				other('S7', 'Case G')
+			],
+			onoverlay: vi.fn()
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const group = screen.getByRole('group', { name: 'Cases on the chart' });
+		// Six listed past a cap of five, and one case that takes no slot: both lines, in that order.
+		const off = group.querySelector('[data-pump-off-cases]')!;
+		expect(off).toHaveTextContent('Off in this case (no operating point): Pump P off.');
+		const cap = within(group).getByText('At most 6 cases at once.');
+		expect([...group.children].map((c) => c.tagName)).toEqual(['LEGEND', 'DIV', 'P', 'P']);
+		expect(group.querySelector('legend + div')!.nextElementSibling).toBe(off);
+		expect(off.nextElementSibling).toBe(cap);
+	});
+
 	it('draws each case’s marker as the page gives it, fixed by case (§9 S8 Markers)', async () => {
 		withCanvas();
 		const props = {

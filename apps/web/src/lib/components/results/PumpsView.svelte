@@ -306,15 +306,18 @@
 	const pumpCases = $derived(pumpChartCases(others, pumpUnticked, overlay));
 	const overlayKeys = $derived(pumpCases.shown.map((o) => o.key));
 	/**
-	 * Their markers, fixed by case (§9 S8 Markers): a case keeps its marker while it stays drawn,
-	 * through an untick, the other cases' system curves switched and another pump shown (the
-	 * markers drawn last are page state, ws.pumpChartMarkers).
+	 * Their markers (§9 S8 Markers, pump-chart.ts caseMarkers): while five other cases or fewer
+	 * have a result for this pump, each its place's among them, fixed by case; past five, a case
+	 * keeps its marker while it stays drawn, through an untick, the other cases' system curves
+	 * switched and another pump shown (the markers drawn last are page state,
+	 * ws.pumpChartMarkers).
 	 */
 	const pumpMarkers = $derived.by(() => {
 		const markers = caseMarkers(
 			overlayKeys,
 			pumpCases.listed.map((o) => o.key),
-			ws.pumpChartMarkers
+			ws.pumpChartMarkers,
+			others.map((o) => o.key)
 		);
 		ws.pumpChartMarkers = markers;
 		return markers;
@@ -744,20 +747,28 @@
 	 * Tick or untick a case under "Cases on the chart" (`pump`) or "Cases on this chart" (`group`):
 	 * one choice for both lists (§9 S8, pump-chart.ts untickCase and tickCase). Unticking leaves
 	 * its place free on each chart that drew it; ticking brings it back on each chart with room.
-	 * A case leaving the card's chart has its requests cancelled, as before.
+	 * The card's list counts only while its chart draws the other cases (the card open, "Also
+	 * show the other cases' station duties" ticked): a chart that draws no case keeps no place
+	 * free and holds none past its cap, so its own unticks never change then (§12 answer 2: no
+	 * ring the user never touched is unticked). A case leaving the card's chart has its requests
+	 * cancelled, as before.
 	 */
 	function tickChoice(chart: CaseChart, key: string, on: boolean) {
-		const lists: Record<CaseChart, CaseList> = {
+		const lists: Partial<Record<CaseChart, CaseList>> = {
 			pump: {
 				listed: pumpCases.listed.map((o) => o.key),
 				shown: overlayKeys,
 				cap: MAX_CHART_CASES - 1
 			},
-			group: {
-				listed: valuedOthers.map((o) => o.key),
-				shown: chartCaseKeys,
-				cap: MAX_GROUP_CASES
-			}
+			...(ws.pumpGroupOpen && ws.pumpGroupOthers
+				? {
+						group: {
+							listed: valuedOthers.map((o) => o.key),
+							shown: chartCaseKeys,
+							cap: MAX_GROUP_CASES
+						}
+					}
+				: {})
 		};
 		const onGroupChart = chartCaseKeys.includes(key);
 		const next = on ? tickCase(choice, key, chart, lists) : untickCase(choice, key, lists);

@@ -158,8 +158,8 @@
 	/**
 	 * Fields' count, and its name: its words, then its table's (an aria-label, since a browser puts
 	 * a space before a visually hidden suffix in a flex button), so two tables' Fields have names of
-	 * their own (the Pumps tab has three; S6 review A11Y-S6-3; ui-guide): "Fields (3 of 8), Results
-	 * per pump".
+	 * their own (the Pumps tab has three; S6 review A11Y-S6-3; ui-guide): "Fields (9 of 10), Results
+	 * per pump", one of that table's ten fields hidden (eleven with a speed-controlled pump).
 	 */
 	const fieldsCount = $derived(
 		hidden.length ? ` (${visibleColumns.length} of ${table.columns.length})` : ''

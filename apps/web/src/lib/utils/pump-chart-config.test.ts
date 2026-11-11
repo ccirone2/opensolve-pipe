@@ -81,4 +81,28 @@ describe('pump chart configuration', () => {
 		});
 		expect(labelsOf(config)).toContain('Pump curve at 90 % speed (Winter, out of date)');
 	});
+
+	it('draws ▽ as Chart.js’s triangle turned over, the other markers unturned (pumps-results-layout.md §6.2 S8)', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
+		const cases = ['S1', 'S2', 'S3', 'S4', 'S5'].map((key) => ({
+			key,
+			name: `Case ${key}`,
+			result: pumpResult(),
+			stale: false,
+			system: null
+		}));
+		const config = pumpChartConfig(data, otherCasesData(cases, SI_UNITS, [0, 0.03], 1), {
+			speedText: '100 % speed',
+			legendLabels,
+			format
+		});
+		const point = (label: string) => config.data.datasets.find((d) => d.label === label);
+		expect(['Case S1', 'Case S2', 'Case S3', 'Case S4', 'Case S5'].map(point)).toMatchObject([
+			{ pointStyle: 'triangle', pointRotation: 0 },
+			{ pointStyle: 'rect', pointRotation: 0 },
+			{ pointStyle: 'star', pointRotation: 0 },
+			{ pointStyle: 'crossRot', pointRotation: 0 },
+			{ pointStyle: 'triangle', pointRotation: 180 }
+		]);
+	});
 });

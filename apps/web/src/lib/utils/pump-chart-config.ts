@@ -499,7 +499,10 @@ export function pumpChartConfig(
 							borderColor: SLATE,
 							backgroundColor: '#ffffff',
 							borderWidth: 2,
-							pointStyle: c.marker,
+							// ▽ is the triangle turned over (pump-chart.ts CASE_MARKERS); the legend's
+							// entry takes the same turn (Chart.js's labels carry the point's rotation).
+							pointStyle: c.marker === 'triangleDown' ? ('triangle' as const) : c.marker,
+							pointRotation: c.marker === 'triangleDown' ? 180 : 0,
 							pointRadius: 7,
 							pointHoverRadius: 9,
 							pointHitRadius: 12,

@@ -643,6 +643,57 @@ async function tabStops(page: Page): Promise<{ kind: string; name: string }[]> {
 }
 
 /**
+ * The record (PUMPS_LAYOUT_RECORD): an element inside the pane's scroller, one screenshot per
+ * screen of it at CSS pixels (`{label}-{i}.png` under `segments`, each with the element's offset
+ * it starts at), the section nav hidden so that nothing is drawn over it; the scroller is put back
+ * where it was. Element screenshots cannot be used: the page does not scroll, its scroller does.
+ */
+async function elementScreens(page: Page, element: Locator, label: string) {
+	const scroll = (to: number | null) =>
+		element.evaluate((el, top) => {
+			let s = el.parentElement;
+			while (s && !/(auto|scroll)/.test(getComputedStyle(s).overflowY)) s = s.parentElement;
+			if (top !== null) s!.scrollTop = top;
+			const sr = s!.getBoundingClientRect();
+			const er = el.getBoundingClientRect();
+			return {
+				scrollTop: s!.scrollTop,
+				view: { y: sr.top + s!.clientTop, height: s!.clientHeight },
+				element: { x: er.left, top: er.top, width: er.width, height: er.height }
+			};
+		}, to);
+	const start = await scroll(null);
+	const top = start.element.top - start.view.y + start.scrollTop;
+	const parts: { file: string; from: number }[] = [];
+	for (let from = 0, i = 0; from < start.element.height && i < 40; i++) {
+		const at = await scroll(top + from);
+		await page.waitForTimeout(150);
+		const y = Math.max(at.view.y, at.element.top + from);
+		const height = Math.min(at.view.y + at.view.height - y, at.element.top + at.element.height - y);
+		if (height < 1) break;
+		const file = path.join(RECORD, 'segments', `${label}-${String(i).padStart(2, '0')}.png`);
+		await page.screenshot({
+			path: file,
+			scale: 'css',
+			clip: {
+				x: Math.round(at.element.x),
+				y: Math.round(y),
+				width: Math.round(at.element.width),
+				height: Math.floor(height)
+			},
+			style: '[data-pumps-nav] { visibility: hidden; }'
+		});
+		parts.push({ file, from: Math.round(y - at.element.top) });
+		from = Math.round(y - at.element.top) + Math.floor(height);
+	}
+	await scroll(start.scrollTop);
+	writeFileSync(
+		path.join(RECORD, 'segments', `${label}.json`),
+		JSON.stringify({ height: Math.round(start.element.height), parts }, null, 1)
+	);
+}
+
+/**
  * The pane's scroller from the pump chart's canvas to the tab's end, one screenshot per screen at
  * CSS pixels (measure.mjs `stitched`); the files and the scroll offset each was taken at. Where
  * the section nav is pinned over a screen's top (S2, §5.4), that screen's `cover` is its height,
@@ -2195,6 +2246,22 @@ async function cardPart(
 		if (ringBudget) {
 			soft(others.height, `the ring notes' height, ${where}`).toBeLessThanOrEqual(ringBudget);
 		}
+	}
+	// The record (PUMPS_LAYOUT_RECORD): the other cases' section as measured, "How to read the
+	// rings" closed, then open (the frame and the rule, §6.2 S8's W3 to W6).
+	if (RECORD && others && others.rings > 0) {
+		mkdirSync(path.join(RECORD, 'segments'), { recursive: true });
+		const section = card.locator('[data-group-others]');
+		const how = section.locator('[data-group-rings-how]');
+		const hasHow = (await how.count()) > 0;
+		const setOpen = async (open: boolean) => {
+			if (hasHow) await how.evaluate((d, o) => ((d as HTMLDetailsElement).open = o), open);
+		};
+		for (const open of hasHow ? [false, true] : [false]) {
+			await setOpen(open);
+			await elementScreens(page, section, `rings-${view}-${size}-${open ? 'open' : 'closed'}`);
+		}
+		await setOpen(others.howOpen);
 	}
 
 	// §5.7 row 4: the group legend's height (the lineups' at 390×844 is the budget).
@@ -3793,11 +3860,24 @@ test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump ch
 	const extra = await oneOff(page);
 	await atEachSize(page, info, '1-one-off', extra);
 
-	// S1 (§5.3, §10): a case in which Pump PA is off says so in its box's description, beside
-	// the box; the others do not. The fixture's scenarios set PA off in "Pump PA off" and "Both
-	// pumps off" (pump-groups-input.json).
+	// S8 (§9 S8 Slots, §6.2): while the other cases' system curves are off, a case in which Pump
+	// PA is off takes no slot: no box, and the line under the list names it, on screen at each
+	// size. The fixture's scenarios set PA off in "Pump PA off" and "Both pumps off"
+	// (pump-groups-input.json).
 	const figure = await pumpFigure(page);
 	const cases = figure.getByRole('group', { name: 'Cases on the chart' });
+	const offLine = cases.locator('[data-pump-off-cases]');
+	await expect(offLine).toHaveText(
+		'Off in this case (no operating point): Pump PA off; Both pumps off.'
+	);
+	expect(await seenLine(offLine), `the off line on screen at ${sizeOf(page)}`).toBe(true);
+	for (const name of ['Pump PA off', 'Both pumps off']) {
+		await expect(cases.getByRole('checkbox', { name, exact: true })).toHaveCount(0);
+	}
+	// S1 (§5.3, §10), while the other cases' system curves are on (S8): a case in which Pump PA
+	// is off has its box again, and says so in its description, beside the box; the others do not.
+	await figure.getByRole('checkbox', { name: "Also show the other cases' system curves" }).check();
+	await expect(offLine).toHaveCount(0);
 	const NOTE = 'off in this case: no operating point';
 	for (const name of ['Pump PA off', 'Both pumps off']) {
 		const box = cases.getByRole('checkbox', { name, exact: true });
@@ -3812,6 +3892,24 @@ test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump ch
 	// Its own box, not sr-only's 1 px one, which toBeVisible accepts (§5.3).
 	for (const note of await cases.getByText(`(${NOTE})`, { exact: true }).all()) {
 		expect(await seenBox(note), `the off note's box at ${sizeOf(page)}`).toBe(true);
+	}
+	// S8 review FID-1: the off notes exist only while the curves are on (§9 S8 Slots), so the
+	// per-size check pumpChartPart gave them by default before S8 follows them there: each note in
+	// sight at every size atEachSize visits, 320×640 too on the phone (§10: a test reading a moved
+	// element gains the step that reaches it), and axe once over the off boxes' descriptions.
+	await settle(page);
+	await axeClean(page, `1-one-off, the other cases' system curves on, at ${sizeOf(page)}`);
+	if (info.project.name === 'mobile') {
+		const viewport = page.viewportSize()!;
+		await page.setViewportSize({ width: 320, height: 640 });
+		await settle(page, 1000);
+		const notes = await cases.getByText(`(${NOTE})`, { exact: true }).all();
+		expect(notes, 'the off notes at 320x640').toHaveLength(2);
+		for (const note of notes) {
+			expect(await seenBox(note), `the off note's box at ${sizeOf(page)}`).toBe(true);
+		}
+		await page.setViewportSize(viewport);
+		await settle(page, 1000);
 	}
 });
 
@@ -3860,6 +3958,38 @@ test('lineups, every disclosure and data table open: nothing scrolls sideways; t
 	for (const cell of await byCase.getByRole('row').nth(1).getByRole('cell').all()) {
 		await expect(cell).not.toContainText('%');
 	}
+
+	// S8 (§9 S8, §10 One choice of cases; the owner's answer 2): a case unticked under "Cases on
+	// the chart" is unticked under "Cases on this chart", every other ring staying; the pump
+	// chart's list kept over a pump switch; ticked again under the card's list, on both.
+	const tab = resultsPane(page).getByRole('tabpanel', { name: 'Pumps', exact: true });
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const pumpCases = figure.getByRole('group', { name: 'Cases on the chart' });
+	const cardCases = card.getByRole('group', { name: 'Cases on this chart' });
+	const TWO = '2 of 4 running (Pump P3, Pump P4 off)';
+	const rings = () =>
+		card
+			.locator('[data-group-rings] li .font-medium')
+			.evaluateAll((all) => all.map((n) => n.textContent));
+	const ringsBefore = await rings();
+	expect(ringsBefore).toContain(TWO);
+	await expect(pumpCases.getByRole('checkbox', { name: TWO, exact: true })).toBeChecked();
+	await pumpCases.getByRole('checkbox', { name: TWO, exact: true }).uncheck();
+	await expect(cardCases.getByRole('checkbox', { name: TWO, exact: true })).not.toBeChecked();
+	await expect.poll(rings).toEqual(ringsBefore.filter((name) => name !== TWO));
+	// Pump P3 is off in that case: on its chart the case takes no slot and is named.
+	const select = tab.getByRole('combobox', { name: 'Pump chart' });
+	await select.selectOption({ label: 'Pump P3' });
+	await expect(tab.getByRole('figure', { name: /^Pump and system curves: Pump P3/ })).toBeVisible();
+	await expect(pumpCases.locator('[data-pump-off-cases]')).toContainText(TWO);
+	// Pump P2 runs in it: its box is there, still unticked.
+	await select.selectOption({ label: 'Pump P2' });
+	await expect(tab.getByRole('figure', { name: /^Pump and system curves: Pump P2/ })).toBeVisible();
+	await expect(pumpCases.getByRole('checkbox', { name: TWO, exact: true })).not.toBeChecked();
+	// Ticked again under "Cases on this chart": on both.
+	await cardCases.getByRole('checkbox', { name: TWO, exact: true }).check();
+	await expect(pumpCases.getByRole('checkbox', { name: TWO, exact: true })).toBeChecked();
+	await expect.poll(rings).toEqual(ringsBefore);
 });
 
 // ---- S1 review fixes: the live line, the failed request's mark, the lasting reason, the notes ---
@@ -4505,15 +4635,41 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		console.log(`${where}: past the card ${JSON.stringify(past)}`);
 		expect.soft(past, `a long name's line past the card's edge, ${where}`).toEqual([]);
 		// And inside the pump chart's figure: its caption and, on a phone, the case's row header in
-		// the list "Operating points by case" (S7 review LAYOUT-5, PRE-OPPOINTS-LONGCASE).
+		// the list "Operating points by case" (S7 review LAYOUT-5, PRE-OPPOINTS-LONGCASE). Pump P1 is
+		// off in the long-named case, which since S8 takes a slot (and a row there) only while the
+		// other cases' system curves are on (§9 S8 Slots): on for these checks, then off again.
 		const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
 		await expect(figure.locator('figcaption')).toContainText(LONG_PUMP);
+		const curves = figure.getByRole('checkbox', {
+			name: "Also show the other cases' system curves"
+		});
+		await curves.check();
+		await expect(curveTableFold(figure, `System curve, ${LONG_CASE}`)).toHaveCount(1, {
+			timeout: 120_000
+		});
+		await settle(page);
 		await expect(
 			figure.getByRole('table', { name: 'Operating points by case' }).getByRole('rowheader')
 		).toContainText([LONG_CASE]);
 		const pastFigure = await figure.evaluate(namesPast, [LONG_PUMP, LONG_CASE]);
 		console.log(`${where}: past the pump chart ${JSON.stringify(pastFigure)}`);
 		expect.soft(pastFigure, `a long name's line past the pump chart's edge, ${where}`).toEqual([]);
+		await curves.uncheck();
+		await settle(page);
+		// S8 (§9 S8, §6.2): Pump P1 is off in the long-named case, so on its chart the case takes
+		// no slot and the line under the list names it, every line of it inside the chart's card.
+		const offLine = tab.locator('[data-pump-chart] [data-pump-off-cases]');
+		await expect(offLine).toContainText(LONG_CASE);
+		const offPast = await offLine.evaluate((p) => {
+			const edge = p.closest('[data-pump-chart]')!.getBoundingClientRect().right;
+			const range = document.createRange();
+			range.selectNodeContents(p);
+			return Math.max(...[...range.getClientRects()].map((b) => b.right)) - edge;
+		});
+		expect
+			.soft(offPast, `the off line past the pump chart's card, ${where}`)
+			.toBeLessThanOrEqual(0.5);
+		expect.soft(await seenLine(offLine), `the off line on screen, ${where}`).toBe(true);
 	}
 	await page.setViewportSize(viewport);
 });
@@ -6817,4 +6973,114 @@ test('S7 review: a 40-character unbroken case name ends inside the pump chart’
 		soft(past, `a line of the long case name past the pump chart's edge, ${where}`).toEqual([]);
 	}
 	await page.setViewportSize(viewport);
+});
+
+/**
+ * "Also show the other cases' system curves" as read for a press (S8 review LAYOUT-1): its top in
+ * the viewport, and whether the element at a point is the switch itself.
+ */
+function readSwitch(el: Element, point: { x: number; y: number }) {
+	return {
+		top: el.getBoundingClientRect().top,
+		hit: document.elementFromPoint(point.x, point.y) === el
+	};
+}
+
+test('S8 review: “Also show the other cases’ system curves” stays under the pointer as it is switched on and off, though the boxes above it change (§9 S8 Slots; ui-guide, a press moves nothing under the pointer; S8 review LAYOUT-1)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(240_000);
+	const soft = expect.configure({ soft: true });
+	await oneOff(page);
+	const tab = await pumpsTab(page);
+	const figure = await pumpFigure(page);
+	const cases = figure.getByRole('group', { name: 'Cases on the chart' });
+	const box = figure.getByRole('checkbox', { name: "Also show the other cases' system curves" });
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	// The card closed (the tab's default), then open: below the switch the pane then holds more
+	// than the boxes it adds or takes away, so no scroll end keeps it in place.
+	for (const card of ['closed', 'open']) {
+		if (card === 'open') await openCard(page, tab);
+		for (const size of sizes) {
+			await page.setViewportSize(size);
+			await settle(page, 1000);
+			for (const on of [true, false]) {
+				const where = `switched ${on ? 'on' : 'off'} at ${sizeOf(page)}, the card ${card}`;
+				// The switch in the middle of the pane's scroller, as a user reading the list reaches it.
+				await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+				await page.waitForTimeout(200);
+				const r = (await box.boundingBox())!;
+				const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+				const before = await box.evaluate(readSwitch, point);
+				expect(before.hit, `the switch at the point pressed before the press, ${where}`).toBe(true);
+				if (isMobile) await page.touchscreen.tap(point.x, point.y);
+				else await page.mouse.click(point.x, point.y);
+				await expect(box).toBeChecked({ checked: on });
+				// Pump PA's two off cases: their boxes above the switch while the curves are on, the
+				// line naming them while they are off (§9 S8 Slots).
+				await expect(cases.getByRole('checkbox', { name: 'Pump PA off', exact: true })).toHaveCount(
+					on ? 1 : 0
+				);
+				await expect(cases.locator('[data-pump-off-cases]')).toHaveCount(on ? 0 : 1);
+				await page.waitForTimeout(300);
+				const after = await box.evaluate(readSwitch, point);
+				console.log(`${where}: the switch's top ${before.top} -> ${after.top}`);
+				soft(Math.abs(after.top - before.top), `the switch moved, ${where}`).toBeLessThanOrEqual(1);
+				soft(after.hit, `the switch still under the point pressed, ${where}`).toBe(true);
+				await settle(page);
+			}
+		}
+	}
+	await page.setViewportSize(viewport);
+});
+
+test('S8 second check: “Also show the other cases’ system curves” stays under the pointer with the data table shown, as each curve’s table arrives above it (ui-guide, a press moves nothing under the pointer; S8 second check LAYOUT-2)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(240_000);
+	const soft = expect.configure({ soft: true });
+	await oneOff(page);
+	const figure = await pumpFigure(page);
+	const box = figure.getByRole('checkbox', { name: "Also show the other cases' system curves" });
+	// The data table shown (remembered in this browser since S7): each other case's system curve
+	// has its table there, above the switch, inserted when its curve answers (§5.3 The data
+	// region). The curves are asked for by this press, for the first time in this solve.
+	await figure.getByRole('button', { name: /^Show data table/ }).click();
+	await expect(figure.getByRole('button', { name: /^Hide data table/ })).toBeVisible();
+	await settle(page);
+	const tables = figure.locator('[data-curve-table^="system-"]');
+	await expect(tables).toHaveCount(0);
+	for (const on of [true, false]) {
+		const where = `switched ${on ? 'on' : 'off'} at ${sizeOf(page)}, the data table shown`;
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await page.waitForTimeout(200);
+		const r = (await box.boundingBox())!;
+		const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+		const before = await box.evaluate(readSwitch, point);
+		expect(before.hit, `the switch at the point pressed before the press, ${where}`).toBe(true);
+		if (isMobile) await page.touchscreen.tap(point.x, point.y);
+		else await page.mouse.click(point.x, point.y);
+		await expect(box).toBeChecked({ checked: on });
+		await page.waitForTimeout(300);
+		const soon = await box.evaluate(readSwitch, point);
+		console.log(`${where}: the switch's top ${before.top} -> ${soon.top} at 300 ms`);
+		soft(
+			Math.abs(soon.top - before.top),
+			`the switch moved by 300 ms, ${where}`
+		).toBeLessThanOrEqual(1);
+		soft(soon.hit, `the switch still under the point pressed at 300 ms, ${where}`).toBe(true);
+		// Every curve answered, each table drawn: Pump PA's four other cases, its off ones too.
+		await settle(page);
+		await expect(tables).toHaveCount(on ? 4 : 0);
+		const settled = await box.evaluate(readSwitch, point);
+		console.log(`${where}: the switch's top ${before.top} -> ${settled.top} once settled`);
+		soft(
+			Math.abs(settled.top - before.top),
+			`the switch moved once the curves settled, ${where}`
+		).toBeLessThanOrEqual(1);
+		soft(settled.hit, `the switch still under the point pressed once settled, ${where}`).toBe(true);
+	}
 });

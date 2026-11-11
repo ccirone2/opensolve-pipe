@@ -83,6 +83,7 @@ import {
 	type GoalSeekSetup,
 	type WordsContext
 } from '../utils/goal-seek';
+import type { CaseMarker } from '../utils/pump-chart';
 import type { ElementRef } from '../utils/results';
 import {
 	componentById,
@@ -250,8 +251,38 @@ export class Workspace {
 	 * through a case switch; adding cases on the card turns it on.
 	 */
 	pumpGroupOthers = $state(false);
-	/** The other cases unticked under "Cases on this chart" (keys: '' is the base). Page state. */
+	/**
+	 * The other cases the user unticked under "Cases on the chart" (the pump chart) or "Cases on
+	 * this chart" (the Pumps together card): one set, unticked under both (keys: '' is the base;
+	 * proposal pumps-results-layout.md §9 S8, the owner's answer 2; pump-chart.ts CaseChoice).
+	 * Page state, kept over a switch of the pump or the case shown.
+	 */
+	casesUnticked = $state.raw<readonly string[]>([]);
+	/**
+	 * The pump chart's own: the cases past its cap of five other cases when a case it drew was
+	 * unticked (untickedAfter), so the place left stays free. Page state, never shared (§9 S8).
+	 */
+	pumpChartUnticked = $state.raw<readonly string[]>([]);
+	/**
+	 * The markers of the cases the pump chart drew last, so a case keeps its marker while it stays
+	 * drawn past five other cases with a result (pump-chart.ts caseMarkers, §9 S8; five or fewer
+	 * each have their place's). Not reactive: the Pumps view reads it as it gives the next ones,
+	 * and writes those.
+	 */
+	pumpChartMarkers: Readonly<Record<string, CaseMarker>> = {};
+	/**
+	 * The card's own, "Cases on this chart": the cases past its cap of six other cases when a case
+	 * it drew was unticked (untickedAfter), so the place left stays free. Page state, never shared
+	 * (§9 S8).
+	 */
 	pumpGroupUnticked = $state.raw<readonly string[]>([]);
+	/**
+	 * The user has ticked or unticked a case under "Cases on this chart": the card's cases are then
+	 * a set the user chose, which a tick or an untick under "Cases on the chart" keeps while the
+	 * card is closed or draws no other case (PumpsView tickChoice; §9 S8, §12 answer 2). Page state.
+	 * Not reactive: only a tick or an untick reads it.
+	 */
+	pumpGroupChosen = false;
 	/**
 	 * The Add cases block's preset on the Pumps together card (CLAUDE.md D24, proposal
 	 * pump-lineups.md §7.3): By number running by default, or Each pump off. Page state.
@@ -335,7 +366,11 @@ export class Workspace {
 		this.pumpGroupShown = [];
 		this.pumpGroupOpen = false;
 		this.pumpGroupOthers = false;
+		this.casesUnticked = [];
+		this.pumpChartUnticked = [];
+		this.pumpChartMarkers = {};
 		this.pumpGroupUnticked = [];
+		this.pumpGroupChosen = false;
 		this.lineupPreset = 'running';
 		this.pumpStopOrder = [];
 	}

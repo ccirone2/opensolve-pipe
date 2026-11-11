@@ -744,9 +744,11 @@ export function chartReadout(
 
 /**
  * Hollow markers that tell other cases apart (with a direct label, the legend and the table:
- * never colour alone). 'rectRot' stays "held at zero flow".
+ * never colour alone). 'rectRot' stays "held at zero flow". 'triangleDown' is Chart.js's
+ * triangle turned over (pump-chart-config.ts draws it at 180°), in place of 'rectRounded', which
+ * looked like 'rect' (pumps-results-layout.md §6.2 S8, F24).
  */
-export const CASE_MARKERS = ['triangle', 'rect', 'star', 'crossRot', 'rectRounded'] as const;
+export const CASE_MARKERS = ['triangle', 'rect', 'star', 'crossRot', 'triangleDown'] as const;
 export type CaseMarker = (typeof CASE_MARKERS)[number];
 
 /** At most this many cases on the chart at once (the case shown and five others). */
@@ -770,6 +772,157 @@ export function untickedAfter(
 		if (!next.includes(k)) next.push(k);
 	}
 	return next;
+}
+
+/** The two lists of other cases: "Cases on the chart" (pump) and "Cases on this chart" (group). */
+export type CaseChart = 'pump' | 'group';
+
+/**
+ * One choice of cases for both charts (pumps-results-layout.md §9 S8, the owner's answer 2), page
+ * state: the cases the user unticked under either list, one set, unticked under both; and each
+ * chart's own, the cases past its cap when a case it drew was unticked (untickedAfter's), never
+ * shared, since the two lists have their own caps and orders.
+ */
+export interface CaseChoice {
+	/** The cases the user unticked, under either list (keys: '' is the base). */
+	unticked: readonly string[];
+	/** The pump chart's own: past its cap of five other cases at an untick. */
+	pump: readonly string[];
+	/** The Pumps together card's own: past its cap of six other cases at an untick. */
+	group: readonly string[];
+}
+
+/** A chart's list as a tick or an untick reads it, at that moment. */
+export interface CaseList {
+	/** The cases it can draw, in its order. */
+	listed: readonly string[];
+	/** Those it draws. */
+	shown: readonly string[];
+	/** At most this many drawn. */
+	cap: number;
+}
+
+/**
+ * The choice once the user unticks `key` under either list (§9 S8): unticked under both, and on
+ * each chart that drew it the cases then past that chart's cap stay unticked there only
+ * (untickedAfter), so its place stays free and every other case drawn stays (no case comes onto
+ * either chart by itself). A case the user unticked is never one of a chart's own: ticked again
+ * under either list, it comes back wherever there is room.
+ */
+export function untickCase(
+	choice: CaseChoice,
+	key: string,
+	lists: Partial<Record<CaseChart, CaseList>>
+): CaseChoice {
+	const unticked = choice.unticked.includes(key) ? choice.unticked : [...choice.unticked, key];
+	const own = (chart: CaseChart) => {
+		const list = lists[chart];
+		const kept = choice[chart];
+		if (!list?.shown.includes(key)) return kept;
+		const past = untickedAfter([], key, list.listed, list.shown).filter(
+			(k) => !unticked.includes(k) && !kept.includes(k)
+		);
+		return past.length ? [...kept, ...past] : kept;
+	};
+	return { unticked, pump: own('pump'), group: own('group') };
+}
+
+/**
+ * The choice once the user ticks `key` under the list of `chart` (§9 S8): ticked under both. On
+ * that chart it takes the place left free; on the other it comes back only into a free place: a
+ * chart already drawing its cap keeps every case it draws, and the case stays unticked there
+ * only, as past its cap.
+ */
+export function tickCase(
+	choice: CaseChoice,
+	key: string,
+	chart: CaseChart,
+	lists: Partial<Record<CaseChart, CaseList>>
+): CaseChoice {
+	const wasUnticked = choice.unticked.includes(key);
+	const own = (c: CaseChart) => {
+		const kept = choice[c];
+		if (c === chart) return kept.includes(key) ? kept.filter((k) => k !== key) : kept;
+		const list = lists[c];
+		const full =
+			!!list &&
+			wasUnticked &&
+			!kept.includes(key) &&
+			list.listed.includes(key) &&
+			!list.shown.includes(key) &&
+			list.shown.length >= list.cap;
+		return full ? [...kept, key] : kept;
+	};
+	return {
+		unticked: wasUnticked ? choice.unticked.filter((k) => k !== key) : choice.unticked,
+		pump: own('pump'),
+		group: own('group')
+	};
+}
+
+/**
+ * The pump chart's cases (§9 S8 Slots): `listed`, the cases with a box, in order; `shown`, those
+ * drawn, at most five, the first listed the choice leaves ticked; `off`, the cases in which this
+ * pump is off while the other cases' system curves are not asked for (`curves`). Such a case would
+ * draw nothing, so it takes no slot and has no box; the line under the list names it
+ * (offCasesNote). While the curves are asked for it is listed, since its system curve is drawn,
+ * and can then put a case drawn before past the cap.
+ */
+export function pumpChartCases<T extends { key: string; result: Pick<PumpResult, 'status'> }>(
+	others: readonly T[],
+	unticked: readonly string[],
+	curves: boolean
+): { listed: T[]; shown: T[]; off: T[] } {
+	const takesNoSlot = (o: T) => !curves && o.result.status === 'off';
+	const listed = others.filter((o) => !takesNoSlot(o));
+	return {
+		listed,
+		shown: listed.filter((o) => !unticked.includes(o.key)).slice(0, MAX_CHART_CASES - 1),
+		off: others.filter(takesNoSlot)
+	};
+}
+
+/**
+ * The markers of the cases drawn (§9 S8 Markers). While five other cases or fewer have a result
+ * (`all`, by default those listed; the Pumps view gives the cases with a converged result
+ * whatever the pump, the same for every pump, since a case can give one pump no result, a pump
+ * closed off on both sides, and another one a result), each has the marker of its place among
+ * them: fixed by case, whatever is ticked, the other cases' system curves switched or another
+ * pump shown. Past five, five markers cannot be fixed by case: a case drawn `before` keeps its
+ * marker for as long as it stays drawn, and a case newly drawn takes the marker of its place in
+ * `listed` when no case drawn holds it, else the first one free. Then an untick, a tick, the
+ * curves switched or another pump shown never changes the marker of a case that stays drawn, but
+ * a case's marker follows the order of the steps, not its place, once the cases listed or drawn
+ * have changed. Five markers, at most five other cases drawn: one is always free.
+ */
+export function caseMarkers(
+	drawn: readonly string[],
+	listed: readonly string[] = drawn,
+	before: Readonly<Record<string, CaseMarker>> = {},
+	all: readonly string[] = listed
+): Record<string, CaseMarker> {
+	const byPlace = all.length <= CASE_MARKERS.length;
+	const order = byPlace ? all : listed;
+	const remembered = byPlace ? {} : before;
+	const markers: Record<string, CaseMarker> = {};
+	const taken = new Set<CaseMarker>();
+	for (const key of drawn) {
+		const kept = remembered[key];
+		if (kept && !taken.has(kept)) {
+			markers[key] = kept;
+			taken.add(kept);
+		}
+	}
+	for (const key of drawn) {
+		if (markers[key]) continue;
+		const place = order.indexOf(key);
+		const own = place >= 0 ? CASE_MARKERS[place % CASE_MARKERS.length] : undefined;
+		const marker = own && !taken.has(own) ? own : CASE_MARKERS.find((m) => !taken.has(m));
+		if (!marker) break;
+		markers[key] = marker;
+		taken.add(marker);
+	}
+	return markers;
 }
 
 export interface OtherCaseInput {
@@ -817,22 +970,24 @@ const STATE_WORDS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Chart data of the other cases with a result for this pump, each with its marker (in order),
- * from their own PumpResult and system curve. `speed` is the pump's speed in the case shown: a
- * case whose pump runs at another speed also gets its pump curve. `names` as for pumpChartData
- * (names and kinds are the same in every case: scenarios change values, never topology).
+ * Chart data of the other cases with a result for this pump, each with its marker (`markers`, by
+ * case: caseMarkers; by default each its place's), from their own PumpResult and system curve.
+ * `speed` is the pump's speed in the case shown: a case whose pump runs at another speed also gets
+ * its pump curve. `names` as for pumpChartData (names and kinds are the same in every case:
+ * scenarios change values, never topology).
  */
 export function otherCasesData(
 	others: readonly OtherCaseInput[],
 	prefs: UnitPreferences,
 	ratedRange: [number, number] | null,
 	speed: number,
-	names: SystemCurveNames | null = null
+	names: SystemCurveNames | null = null,
+	markers: Readonly<Record<string, CaseMarker>> = caseMarkers(others.map((o) => o.key))
 ): OtherCaseData[] {
 	const fmt = (v: number) => formatNumber(v, 4);
 	const same = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
 	const running = (o: OtherCaseInput) => o.result.status === 'running';
-	return others.map((other, i) => {
+	return others.map((other) => {
 		const data = pumpChartData(other.result, prefs, ratedRange, other.system, names);
 		const atSpeed = others.filter((o) => running(o) && same(o.result.speed, other.result.speed));
 		const first = atSpeed[0] === other;
@@ -840,7 +995,7 @@ export function otherCasesData(
 		return {
 			key: other.key,
 			label: other.stale ? `${other.name} (out of date)` : other.name,
-			marker: CASE_MARKERS[i % CASE_MARKERS.length] as CaseMarker,
+			marker: markers[other.key] ?? CASE_MARKERS[0],
 			operating: data.operating,
 			held: data.held,
 			curve: drawn ? [...data.curve, ...data.extrapolated.flat()].sort((a, b) => a.x - b.x) : null,
@@ -864,14 +1019,29 @@ export function otherCasesData(
 // chart's configuration is in pump-chart-config.ts, in the chart's chunk.
 // ---------------------------------------------------------------------------------------------
 
-/** The other cases' markers as text (the case checkboxes, the table and the image's notes). */
+/**
+ * The other cases' markers as text (the case checkboxes, the table and the image's notes), each
+ * the shape Chart.js draws: its 'star' is an eight-spoked asterisk, ✳, not ☆
+ * (pumps-results-layout.md §6.2 S8, F24). ✳ is also an emoji, which Chromium draws as a green
+ * picture where the page's font lacks it: U+FE0E after it asks for the text glyph, slate as the
+ * others.
+ */
 export const MARKER_SYMBOLS: Readonly<Record<CaseMarker, string>> = {
 	triangle: '△',
 	rect: '□',
-	star: '☆',
+	star: '✳\uFE0E',
 	crossRot: '×',
-	rectRounded: '▢'
+	triangleDown: '▽'
 };
+
+/**
+ * "Off in this case (no operating point): {cases}.", the line under the pump chart's case list
+ * and in the image's footer while the other cases' system curves are off, naming the cases that
+ * then take no slot (pumpChartCases' `off`; pumps-results-layout.md §6.2 S8). Null when none.
+ */
+export function offCasesNote(labels: readonly string[]): string | null {
+	return labels.length ? `Off in this case (no operating point): ${labels.join('; ')}.` : null;
+}
 
 /** Why a system-curve point has no head, as the API's messages say (TSD §5.6). */
 const NO_HEAD_REASONS =

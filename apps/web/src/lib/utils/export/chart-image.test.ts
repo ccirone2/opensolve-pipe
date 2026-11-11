@@ -10,7 +10,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Chart } from 'chart.js';
 import { DISCLAIMER } from '../../components/links';
 import { pumpResult, systemCurveResponse } from '../../testing/results';
-import { chartNotes, MARKER_SYMBOLS, otherCasesData, pumpChartData } from '../pump-chart';
+import {
+	chartNotes,
+	MARKER_SYMBOLS,
+	offCasesNote,
+	otherCasesData,
+	pumpChartData
+} from '../pump-chart';
 import { pumpChartConfig } from '../pump-chart-config';
 import { SI_UNITS } from '../units';
 import {
@@ -172,6 +178,39 @@ describe('the image’s notes', () => {
 		]);
 		expect(screen.facts).toEqual(['Shutoff head (–): 30 m.']);
 	});
+
+	it('name the markers by the glyphs the chart draws, ✳ and ▽ among them (pumps-results-layout.md §6.2 S8)', () => {
+		const five = otherCasesData(
+			['S1', 'S2', 'S3', 'S4', 'S5'].map((key) => ({
+				key,
+				name: `Case ${key}`,
+				result: pumpResult(),
+				stale: false,
+				system: null
+			})),
+			SI_UNITS,
+			null,
+			1
+		);
+		expect(casesNote(five, MARKER_SYMBOLS)).toBe(
+			'Other cases on the chart (slate, hollow markers): △ Case S1; □ Case S2; ✳\uFE0E Case S3; × Case S4; ▽ Case S5.'
+		);
+	});
+
+	it('end with the cases in which the pump is off and that take no slot, in the screen’s words (§6.2 S8)', () => {
+		const result = pumpResult();
+		const data = pumpChartData(result, SI_UNITS, [0, 0.03]);
+		const notes = chartNotes({ data, result, system: undefined, reasonsIn: IMAGE_REASONS_IN });
+		const off = offCasesNote(['Pump PA off', 'Both pumps off']);
+		const lines = imageNoteLines(notes, others, MARKER_SYMBOLS, off);
+		expect(lines.slice(-2)).toEqual([
+			casesNote(others, MARKER_SYMBOLS),
+			'Off in this case (no operating point): Pump PA off; Both pumps off.'
+		]);
+		// Without such a case, the footer is as before.
+		expect(imageNoteLines(notes, others, MARKER_SYMBOLS, null)).toEqual(lines.slice(0, -1));
+		expect(imageNoteLines(notes, others, MARKER_SYMBOLS)).toEqual(lines.slice(0, -1));
+	});
 });
 
 describe('downloading the image', () => {
@@ -255,6 +294,28 @@ describe('downloading the image', () => {
 		expect(saved.map((s) => s.name)).toEqual([name]);
 		expect(notices).toEqual([
 			{ kind: 'info', text: `“${name}” (28 KB) is ready; your browser saves it to its downloads.` }
+		]);
+	});
+
+	it('writes the line naming the cases that take no slot into the footer, after the other cases (§6.2 S8)', async () => {
+		const drawn: ChartImageCaption[] = [];
+		const sent = {
+			...request([]),
+			offCases: 'Off in this case (no operating point): Pump PA off.'
+		};
+		await downloadChartImage(FakeChart, sent, {
+			now,
+			render: async (_chart, _config, caption) => {
+				drawn.push(caption);
+				return new Blob(['x']);
+			},
+			save: () => {}
+		});
+		expect(drawn).toHaveLength(1);
+		expect(drawn[0]!.footer.slice(0, 3)).toEqual([
+			'The system curve has not been computed for this solve.',
+			'Shutoff head (–): 30 m.',
+			'Off in this case (no operating point): Pump PA off.'
 		]);
 	});
 

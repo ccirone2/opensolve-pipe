@@ -1270,7 +1270,9 @@ This parallels 4b's "Group (crossing)" for the shown case. Measured, the drawn l
 
 **The frame sentence.** While a group curve is drawn, this replaces 4d's `otherNotes` sentence exactly:
 
-> `A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise (D13). Where its case differs from this one inside the station only in which pumps are switched on, and its curve has flow, that curve is drawn in slate and labelled with the number of pumps switched on; where it differs only outside the station, it is the group curve drawn for this case; otherwise it is not drawn. The list below says, for each ring, which.`
+> `A ring lies on its own case's group curve where that case has one (none with an active PRV or PSV inside) and the station has one state at its rise. Where its case differs from this one inside the station only in which pumps are switched on, and its curve has flow, that curve is drawn in slate and labelled with the number of pumps switched on; where it differs only outside the station, it is the group curve drawn for this case; otherwise it is not drawn. The list below says, for each ring, which.`
+
+("(D13)" after "its rise" until the Pumps tab's S8, `pumps-results-layout.md` §6.2 W4.)
 
 4d's other two variants (an active PRV or PSV inside, and "no group curve is drawn here") are unchanged. The per-ring list (below) gives each ring's state, so the frame sentence need not repeat every condition of §9.1.
 
@@ -1284,7 +1286,7 @@ This parallels 4b's "Group (crossing)" for the shown case. Measured, the drawn l
 |---|---|
 | crossing | `drawn ({k} running): it crosses the group system curve at the ring` |
 | through | `drawn ({k} running): it passes through the ring` |
-| not_through | `drawn ({k} running): it does not pass through the ring (D13)` |
+| not_through | `drawn ({k} running): it does not pass through the ring (several steady states can exist; the ring is the one the solve found)` ("(D13)" until the Pumps tab's S8, `pumps-results-layout.md` §6.2 W9) |
 | same_inside | `the same as this case's: the station is the same inside` |
 | inside_differs | `not drawn: the station differs inside in more than which pumps are switched on` |
 | no_group_curve | `none: an active PRV or PSV inside` |

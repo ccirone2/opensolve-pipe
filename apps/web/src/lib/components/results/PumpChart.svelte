@@ -22,7 +22,10 @@
 	marker and a direct label: its operating point and, where the pump runs at another speed, its
 	pump curve. Their system curves are computed only on request (each costs about 41 solves), one
 	at a time, with Cancel. Checkboxes choose the cases shown (at most six at once); the data table
-	lists the operating points by case.
+	lists the operating points by case. The choice is the page's, one for this list and the Pumps
+	together card's (proposal pumps-results-layout.md §9 S8): `unticked` and `ontick`. A case in
+	which this pump is off takes no slot while their system curves are not asked for: it has no box,
+	and a line under the list names it. Each marker is fixed by case (`markers`).
 
 	Design checks (CLAUDE.md D19): with checks on, a chip shows their limits: the preferred and
 	allowable operating regions shaded under the curves, the minimum flow, the NPSHa the NPSH margin
@@ -44,17 +47,20 @@
 		checksDrawn,
 		loadHiddenPanels,
 		loadTableShown,
+		caseMarkers,
 		MARKER_SYMBOLS,
 		MAX_CHART_CASES,
+		offCasesNote,
 		otherCasesData,
+		pumpChartCases,
 		CHIP_LABELS,
 		PANEL_LABELS,
 		pumpChartData,
 		pumpLine,
 		saveHiddenPanels,
 		saveTableShown,
-		untickedAfter,
 		valueNotes,
+		type CaseMarker,
 		type ChipKey,
 		type OtherCaseInput,
 		type PanelKey,
@@ -98,13 +104,19 @@
 		caseName?: string;
 		/** Other cases with a result for this pump (their system curve when computed). */
 		others?: readonly OtherCaseInput[];
+		/**
+		 * The other cases not to draw (keys): those the user unticked, under this list or the card's,
+		 * and those past this chart's cap at an untick (pumps-results-layout.md §9 S8, page state).
+		 */
+		unticked?: readonly string[];
+		/** Each case drawn's marker, fixed by case (pump-chart.ts caseMarkers); by default its place's. */
+		markers?: Readonly<Record<string, CaseMarker>>;
+		/** Tick or untick another case: the page's one choice of cases (§9 S8). */
+		ontick?: (key: string, on: boolean) => void;
 		/** The other cases' system curves: requested (true) or not. */
 		overlayCurves?: boolean;
-		/**
-		 * Request or drop the other cases' system curves, for the other cases the chart shows: all but
-		 * `unticked` (their keys), whichever cases are other.
-		 */
-		onoverlay?: (on: boolean, unticked: readonly string[]) => void;
+		/** Request or drop the other cases' system curves, for the other cases the chart draws. */
+		onoverlay?: (on: boolean) => void;
 		/** Overlay curves being computed: how many of how many (null: none). */
 		overlayProgress?: { done: number; total: number } | null;
 		/** Cancel the overlay curves still being computed. */
@@ -136,6 +148,9 @@
 		othersControlled = false,
 		caseName,
 		others = [],
+		unticked = [],
+		markers,
+		ontick,
 		overlayCurves = false,
 		onoverlay,
 		overlayProgress = null,
@@ -145,38 +160,106 @@
 	}: Props = $props();
 	const id = $props.id();
 
-	/** Other cases the user unticked. At most MAX_CHART_CASES - 1 others are shown. */
-	let unticked = $state<string[]>([]);
-	const shownOthers = $derived(
-		others.filter((o) => !unticked.includes(o.key)).slice(0, MAX_CHART_CASES - 1)
-	);
+	/**
+	 * The cases with a box, those drawn (at most MAX_CHART_CASES - 1) and those that take no slot,
+	 * by the page's choice (pumps-results-layout.md §9 S8 Slots).
+	 */
+	const cases = $derived(pumpChartCases(others, unticked, overlayCurves));
+	const shownOthers = $derived(cases.shown);
 	const shownKeys = $derived(new Set(shownOthers.map((o) => o.key)));
+	/**
+	 * Each case drawn's marker: the page's, else each its place's among the cases with a result
+	 * while they are five or fewer, else among those listed (§9 S8 Markers, caseMarkers).
+	 */
+	const caseMarker = $derived(
+		markers ??
+			caseMarkers(
+				shownOthers.map((o) => o.key),
+				cases.listed.map((o) => o.key),
+				{},
+				others.map((o) => o.key)
+			)
+	);
 	const otherData = $derived(
 		otherCasesData(
 			shownOthers,
 			prefs,
 			ratedRange?.[0] != null && ratedRange?.[1] != null ? [ratedRange[0], ratedRange[1]] : null,
 			result.speed,
-			names
+			names,
+			caseMarker
 		)
 	);
-
 	/**
-	 * Tick or untick another case; with its system curves asked for, they follow the cases shown.
-	 * Unticking leaves its place free (untickedAfter), so it can be ticked again.
+	 * "Off in this case (no operating point): …", for the cases that take no slot (§6.2 S8): under
+	 * the list on screen, and in the image's footer.
 	 */
-	function setShown(key: string, on: boolean) {
-		const next = on
-			? unticked.filter((k) => k !== key)
-			: untickedAfter(
-					unticked,
-					key,
-					others.map((o) => o.key),
-					shownOthers.map((o) => o.key)
-				);
-		unticked = next;
-		if (overlayCurves) onoverlay?.(true, next);
+	const offNote = $derived(
+		offCasesNote(cases.off.map((o) => (o.stale ? `${o.name} (out of date)` : o.name)))
+	);
+
+	/** The nearest ancestor that scrolls down (the Results pane's scroller), else the page's. */
+	function scrollerOf(node: HTMLElement): Element {
+		for (let el = node.parentElement; el; el = el.parentElement) {
+			const y = getComputedStyle(el).overflowY;
+			if ((y === 'auto' || y === 'scroll') && el.scrollHeight > el.clientHeight) return el;
+		}
+		return document.scrollingElement ?? document.documentElement;
 	}
+	/**
+	 * The switch held at the place it was pressed while the curves that press asked for arrive
+	 * (S8 second check LAYOUT-2): `keep` scrolls it back, `end` lets it go. Not reactive.
+	 */
+	let held: { keep: () => void; end: () => void } | null = null;
+	/** The user's own next step, whatever it is: a press, a key, a wheel or a touch ends a hold. */
+	const OWN_STEPS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+	/**
+	 * "Also show the other cases' system curves" keeps its place under the pointer (ui-guide, a
+	 * press moves nothing under the pointer; S8 review LAYOUT-1): switching the curves changes the
+	 * boxes above it, since a case in which this pump is off has a box and a slot only while they
+	 * are on (pumps-results-layout.md §9 S8 Slots). So its scroller scrolls by what it moved, as a
+	 * pressed heading's box does (ResultsTable pressHeading); where the browser already kept it in
+	 * place (scroll anchoring) it moved nothing, and nothing scrolls. With the data table shown,
+	 * each curve the press asked for adds its table above the switch as it answers (§5.3 The data
+	 * region), so while they are computed the switch is held (S8 second check LAYOUT-2): each
+	 * change of the figure's size scrolls it back, before it is painted, until the last curve
+	 * has answered or the user takes a step of their own (then a press lands where they aim).
+	 */
+	async function switchOverlay(input: HTMLInputElement) {
+		const before = input.getBoundingClientRect().top;
+		const keep = () => {
+			if (!input.isConnected) return;
+			const moved = input.getBoundingClientRect().top - before;
+			if (Math.abs(moved) > 0.5) scrollerOf(input).scrollTop += moved;
+		};
+		onoverlay?.(input.checked);
+		await tick();
+		keep();
+		const figure = input.closest('figure');
+		if (!input.checked || !overlayProgress || !figure || !input.isConnected) return;
+		if (typeof ResizeObserver === 'undefined') return;
+		const observer = new ResizeObserver(keep);
+		observer.observe(figure);
+		const end = () => {
+			observer.disconnect();
+			for (const type of OWN_STEPS) window.removeEventListener(type, end, true);
+			if (held?.end === end) held = null;
+		};
+		for (const type of OWN_STEPS)
+			window.addEventListener(type, end, { capture: true, passive: true });
+		held = { keep, end };
+	}
+	// The last curve answered (or the rest cancelled): its table is drawn, so keep the switch in
+	// place once more and let it go.
+	$effect(() => {
+		if (overlayProgress) return;
+		untrack(() => {
+			held?.keep();
+			held?.end();
+		});
+	});
+	// Another pump shown, or the chart gone: nothing more to hold.
+	$effect(() => () => held?.end());
 
 	// The range as numbers, so a new array with the same values does not rebuild the chart.
 	const low = $derived(ratedRange?.[0] ?? null);
@@ -351,7 +434,7 @@
 		const extrapolated = data.extrapolated.length
 			? '; dashed: extrapolated beyond the curve data'
 			: '';
-		const cases = otherData.length
+		const otherPoints = otherData.length
 			? `; other cases' operating points: ${otherData
 					.map((o) =>
 						o.operating
@@ -377,7 +460,7 @@
 			checksShown && checksDrawn(data, shown)
 				? "; with the design checks' limits, which the notes below list"
 				: '';
-		return `${parts.join(' and ')}${at}${extrapolated}${best}${panels}${speeds}${limits}${cases}.`;
+		return `${parts.join(' and ')}${at}${extrapolated}${best}${panels}${speeds}${limits}${otherPoints}.`;
 	});
 
 	/** The panels' curves as tables (the chart's long description), for the panels shown. */
@@ -481,7 +564,7 @@
 		const element = canvas;
 		const d = data;
 		const speed = speedText;
-		const cases = otherData;
+		const drawnCases = otherData;
 		const panels = shown;
 		const speedRange = speedShown;
 		const checkLimits = checksShown;
@@ -501,7 +584,7 @@
 				}
 				chart = new Chart(
 					context,
-					pumpChartConfig(d, cases, {
+					pumpChartConfig(d, drawnCases, {
 						speedText: speed,
 						legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
 						format: fmt,
@@ -579,6 +662,7 @@
 			}),
 			others: otherData,
 			markerSymbols: MARKER_SYMBOLS,
+			offCases: offNote,
 			pumpName: name,
 			...(caseName ? { caseName } : {}),
 			disclaimer: DISCLAIMER,
@@ -1099,7 +1183,7 @@
 						class="col-span-full mt-1 justify-self-start rounded bg-slate-100 px-1.5 text-xs text-slate-700"
 						><span aria-hidden="true">●</span> {caseName ?? 'This case'} (shown)</span
 					>
-					{#each others as other (other.key)}
+					{#each cases.listed as other (other.key)}
 						{@const on = shownKeys.has(other.key)}
 						{@const full = !on && shownOthers.length >= MAX_CHART_CASES - 1}
 						{@const marker = markerOf(other.key)}
@@ -1126,7 +1210,7 @@
 											event.preventDefault();
 											return;
 										}
-										setShown(other.key, event.currentTarget.checked);
+										ontick?.(other.key, event.currentTarget.checked);
 									}}
 								/>
 								<!-- The marker's column is kept, so a name never moves on tick. -->
@@ -1149,7 +1233,12 @@
 						</div>
 					{/each}
 				</div>
-				{#if others.length > MAX_CHART_CASES - 1}
+				{#if offNote}
+					<!-- The cases that take no slot, named under the list (§9 S8, §6.2): no box. An
+						unbroken name wraps inside the card. -->
+					<p class="hint wrap-break-word" data-pump-off-cases>{offNote}</p>
+				{/if}
+				{#if cases.listed.length > MAX_CHART_CASES - 1}
 					<p id="{id}-full" class="hint">At most {MAX_CHART_CASES} cases at once.</p>
 				{/if}
 			</fieldset>
@@ -1161,7 +1250,7 @@
 							class="size-4 shrink-0"
 							checked={overlayCurves}
 							aria-describedby="{id}-overlay-hint"
-							onchange={(event) => onoverlay(event.currentTarget.checked, unticked)}
+							onchange={(event) => switchOverlay(event.currentTarget)}
 						/>
 						Also show the other cases' system curves
 					</label>

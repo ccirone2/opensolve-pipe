@@ -751,6 +751,42 @@ describe('pump chart', () => {
 				'Download image of the pump and system curves: Transfer pump, Base case'
 			);
 		});
+
+		it('gives the image the line naming the cases that take no slot, as the screen shows it (pumps-results-layout.md §6.2 S8)', async () => {
+			withCanvas();
+			const off = { status: 'off', operatingFlow: 0, operatingHead: 0 } as const;
+			const props = {
+				result: pumpResult(),
+				name: 'Transfer pump',
+				prefs: SI_UNITS,
+				ratedRange: [0, 0.03] as [number, number],
+				system: READY,
+				others: [
+					{ key: 'S1', name: 'Winter', result: pumpResult(), stale: false, system: null },
+					{ key: 'S2', name: 'Pump off', result: pumpResult(off), stale: true, system: null }
+				],
+				onoverlay: vi.fn(),
+				image: image()
+			};
+			const view = render(PumpChart, props);
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			const line = 'Off in this case (no operating point): Pump off (out of date).';
+			expect(document.querySelector('[data-pump-off-cases]')).toHaveTextContent(line);
+			await fireEvent.click(button());
+			await vi.waitFor(() => expect(images.requests).toHaveLength(1));
+			const request = images.requests[0] as ChartImageRequest;
+			expect(request.offCases).toBe(line);
+			expect(request.others.map((o) => o.label)).toEqual(['Winter']);
+			// With the other cases' system curves asked for, the case takes its slot: no line.
+			await view.rerender({ ...props, overlayCurves: true });
+			await vi.waitFor(() => expect(charts.at(-1)!.destroyed).toBe(false));
+			await vi.waitFor(() => expect(button()).not.toHaveAttribute('aria-disabled', 'true'));
+			await fireEvent.click(button());
+			await vi.waitFor(() => expect(images.requests).toHaveLength(2));
+			const second = images.requests[1] as ChartImageRequest;
+			expect(second.offCases).toBeNull();
+			expect(second.others.map((o) => o.label)).toEqual(['Winter', 'Pump off (out of date)']);
+		});
 	});
 });
 
@@ -1246,6 +1282,9 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 				{ ...other('S1', 'Winter', { speed: 0.9 }), system: systemCurveResponse() },
 				other('S2', 'Summer', offPump)
 			],
+			// Winter's system curve is given: the other cases' curves were asked for, so the case
+			// in which the pump is off takes its slot (pumps-results-layout.md §9 S8 Slots).
+			overlayCurves: true,
 			onoverlay: vi.fn()
 		});
 		await vi.waitFor(() => expect(charts).toHaveLength(1));
@@ -1478,15 +1517,18 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 
 	it('puts the other cases under their own heading in the figure: the legend first, the case shown a tag, a grid', async () => {
 		withCanvas();
-		render(PumpChart, {
+		const ontick = vi.fn();
+		const props = {
 			result: pumpResult(),
 			name: 'P',
 			prefs: SI_UNITS,
 			system: READY,
 			caseName: 'Base case',
 			others: [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')],
+			ontick,
 			onoverlay: vi.fn()
-		});
+		};
+		const view = render(PumpChart, props);
 		const figure = screen.getByRole('figure');
 		const section = figure.querySelector('[data-pump-others]')!;
 		const heading = within(figure).getByRole('heading', {
@@ -1515,7 +1557,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		expect(boxes.map((b) => b.closest('label')!.textContent!.trim())).toEqual([
 			'△ Winter',
 			'□ Summer',
-			'☆ Spring'
+			'✳\uFE0E Spring'
 		]);
 		for (const box of boxes) {
 			const marker = box.nextElementSibling!;
@@ -1536,9 +1578,13 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		expect(cost).not.toHaveClass('sr-only');
 		// At every width: jsdom applies no CSS, so its markup says (§6.4 item 8).
 		expect(outOfSight(cost)).toBe(false);
-		// Unticked, a box keeps its column, so its name does not move (the marker goes).
+		// Unticked, a box keeps its column, so its name does not move (the marker goes). The
+		// choice is the page's (§9 S8): the box says so, and the page unticks it.
 		await fireEvent.click(boxes[1]!);
+		expect(ontick).toHaveBeenCalledExactlyOnceWith('S2', false);
+		await view.rerender({ ...props, unticked: ['S2'] });
 		const unticked = within(group).getByRole('checkbox', { name: 'Summer' });
+		expect((unticked as HTMLInputElement).checked).toBe(false);
 		expect(unticked.nextElementSibling).toHaveClass('w-4');
 		expect(unticked.nextElementSibling!.textContent).toBe('');
 	});
@@ -1586,6 +1632,9 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			name: 'P',
 			prefs: SI_UNITS,
 			system: READY,
+			// An off case has its box while the other cases' system curves are asked for: then its
+			// system curve is drawn (pumps-results-layout.md §9 S8 Slots).
+			overlayCurves: true,
 			others: [
 				other('S1', 'Pump P off', offPump),
 				other('S2', 'Check held', heldPump),
@@ -1613,6 +1662,142 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		// Off and capped: both, the note first.
 		expect(box('Off past the cap')).toHaveAccessibleDescription(`${NOTE} At most 6 cases at once.`);
 		expect(within(group).getAllByText(NOTE)).toHaveLength(2);
+	});
+
+	it('gives a case in which the pump is off no slot while the other cases’ system curves are off, and names it under the list; its slot back while they are on, which can push a case drawn past the cap (§9 S8 Slots)', async () => {
+		withCanvas();
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			others: [
+				other('S1', 'Pump P off', offPump),
+				other('S2', 'Case B'),
+				other('S3', 'Check held', heldPump),
+				other('S4', 'Case D'),
+				other('S5', 'Case E'),
+				other('S6', 'Case F'),
+				{ ...other('S7', 'Also off', offPump), stale: true }
+			],
+			onoverlay: vi.fn()
+		};
+		const view = render(PumpChart, props);
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const group = screen.getByRole('group', { name: 'Cases on the chart' });
+		const names = () =>
+			within(group)
+				.getAllByRole('checkbox')
+				.map((b) => b.closest('label')!.textContent!.trim());
+		const LINE = 'Off in this case (no operating point): Pump P off; Also off (out of date).';
+		// Off: no box for the two off cases, so the five others all fit, each with its marker; a
+		// held pump keeps its slot (its point is drawn).
+		expect(names()).toEqual(['△ Case B', '□ Check held', '✳\uFE0E Case D', '× Case E', '▽ Case F']);
+		const line = group.querySelector('[data-pump-off-cases]')!;
+		expect(line).toHaveTextContent(LINE);
+		expect(line.tagName).toBe('P');
+		expect(line).toHaveClass('hint');
+		expect(line).not.toHaveClass('sr-only');
+		expect(outOfSight(line)).toBe(false);
+		// Under the list, before anything else of the fieldset.
+		const grid = group.querySelector('legend + div')!;
+		expect(grid.nextElementSibling).toBe(line);
+		// Five boxes for five slots: no cap.
+		expect(within(group).queryByText('At most 6 cases at once.')).toBeNull();
+		for (const box of within(group).getAllByRole('checkbox')) {
+			expect(box).not.toHaveAttribute('aria-disabled', 'true');
+		}
+		// The chart and its table draw the five, not the off cases.
+		const drawn = (charts.at(-1)!.config as Recorded).data.datasets.map((d) => d.label);
+		expect(drawn).toEqual(expect.arrayContaining(['Case B', 'Check held', 'Case F']));
+		expect(drawn).not.toContain('Pump P off');
+
+		// On: the off cases take their slots, in order, so Case F, drawn before, goes past the
+		// cap, and shows it as any capped case does; Also off is past it too.
+		await view.rerender({ ...props, overlayCurves: true });
+		expect(group.querySelector('[data-pump-off-cases]')).toBeNull();
+		const box = (name: string) => within(group).getByRole('checkbox', { name }) as HTMLInputElement;
+		expect(box('Pump P off').checked).toBe(true);
+		expect(box('Pump P off')).toHaveAccessibleDescription('(off in this case: no operating point)');
+		expect(box('Case E').checked).toBe(true);
+		expect(box('Case F').checked).toBe(false);
+		expect(box('Case F')).toHaveAttribute('aria-disabled', 'true');
+		expect(box('Case F')).toHaveClass('opacity-45');
+		expect(box('Case F')).toHaveAccessibleDescription('At most 6 cases at once.');
+		expect(box('Also off (out of date)')).toHaveAttribute('aria-disabled', 'true');
+		expect(box('Also off (out of date)')).toHaveAccessibleDescription(
+			'(off in this case: no operating point) At most 6 cases at once.'
+		);
+		expect(within(group).getByText('At most 6 cases at once.')).not.toHaveClass('sr-only');
+		// Off again: the five come back, each with the marker of its place.
+		await view.rerender({ ...props, overlayCurves: false });
+		expect(names()).toEqual(['△ Case B', '□ Check held', '✳\uFE0E Case D', '× Case E', '▽ Case F']);
+		expect(group.querySelector('[data-pump-off-cases]')).toHaveTextContent(LINE);
+	});
+
+	it('draws the off line before “At most 6 cases at once.” when both are drawn (§5.6)', async () => {
+		withCanvas();
+		render(PumpChart, {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			others: [
+				other('S1', 'Pump P off', offPump),
+				other('S2', 'Case B'),
+				other('S3', 'Case C'),
+				other('S4', 'Case D'),
+				other('S5', 'Case E'),
+				other('S6', 'Case F'),
+				other('S7', 'Case G')
+			],
+			onoverlay: vi.fn()
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const group = screen.getByRole('group', { name: 'Cases on the chart' });
+		// Six listed past a cap of five, and one case that takes no slot: both lines, in that order.
+		const off = group.querySelector('[data-pump-off-cases]')!;
+		expect(off).toHaveTextContent('Off in this case (no operating point): Pump P off.');
+		const cap = within(group).getByText('At most 6 cases at once.');
+		expect([...group.children].map((c) => c.tagName)).toEqual(['LEGEND', 'DIV', 'P', 'P']);
+		expect(group.querySelector('legend + div')!.nextElementSibling).toBe(off);
+		expect(off.nextElementSibling).toBe(cap);
+	});
+
+	it('draws each case’s marker as the page gives it, fixed by case (§9 S8 Markers)', async () => {
+		withCanvas();
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			caseName: 'Base case',
+			others: [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')],
+			unticked: ['S1'],
+			markers: { S2: 'rect', S3: 'star' } as const,
+			onoverlay: vi.fn()
+		};
+		render(PumpChart, props);
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const group = screen.getByRole('group', { name: 'Cases on the chart' });
+		// Winter unticked: Summer and Spring keep their markers, not shifted up.
+		expect(
+			within(group)
+				.getAllByRole('checkbox')
+				.map((b) => b.closest('label')!.textContent!.trim())
+		).toEqual(['Winter', '□ Summer', '✳\uFE0E Spring']);
+		const points = (charts[0]!.config as { data: { datasets: Record<string, unknown>[] } }).data
+			.datasets;
+		expect(points.find((d) => d.label === 'Summer')).toMatchObject({ pointStyle: 'rect' });
+		expect(points.find((d) => d.label === 'Spring')).toMatchObject({ pointStyle: 'star' });
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		);
+		expect(
+			within(screen.getByRole('table', { name: 'Operating points by case' }))
+				.getAllByRole('rowheader')
+				.map((h) => squash(h.textContent))
+		).toEqual(['Base case (shown)', '□ Summer', '✳\uFE0E Spring']);
 	});
 
 	it('keeps the other cases’ system curves’ line always there: polite, not a status, never busy, Cancel after it', async () => {
@@ -1681,6 +1866,116 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		expect(figure.querySelector('[data-overlay-state]')).toBe(line);
 		expect(line.textContent).toBe('');
 		expect(row).toHaveClass('sr-only');
+	});
+
+	it('holds “Also show the other cases’ system curves” where it was pressed while the curves it asked for arrive, until the last has answered or the user takes a step of their own (S8 second check LAYOUT-2)', async () => {
+		withCanvas();
+		const observers = fakeResizeObserver();
+		// The pane that scrolls (the Results pane): its scroll the test's; the switch's top 300 px
+		// down it, lower by what the content above it has grown and higher by what it scrolled.
+		const pane = document.createElement('div');
+		pane.style.overflowY = 'auto';
+		document.body.append(pane);
+		sizeBox(pane, { clientHeight: 600, scrollHeight: 4000 });
+		let scrolled = 0;
+		let grown = 0;
+		Object.defineProperty(pane, 'scrollTop', {
+			configurable: true,
+			get: () => scrolled,
+			set: (v: number) => (scrolled = v)
+		});
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			others: [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')],
+			oncanceloverlay: vi.fn()
+		};
+		// As the Pumps view: the curves asked for are computed one at a time when switched on;
+		// once computed (`cached`), each is drawn at the press, its table with it.
+		let cached = false;
+		const onoverlay = (on: boolean) => {
+			if (cached) grown += on ? 168 : -168;
+			void view.rerender({
+				...props,
+				overlayCurves: on,
+				overlayProgress: on && !cached ? { done: 0, total: 3 } : null,
+				onoverlay
+			});
+		};
+		const view = render(PumpChart, {
+			target: pane,
+			props: { ...props, overlayCurves: false, overlayProgress: null, onoverlay }
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const figure = screen.getByRole('figure');
+		const box = screen.getByRole('checkbox', { name: "Also show the other cases' system curves" });
+		box.getBoundingClientRect = () => ({ top: 300 + grown - scrolled }) as DOMRect;
+		// With its data table hidden the chart watches no box of its own.
+		const watchedBefore = observers.watched();
+		expect(watchedBefore).toBe(0);
+		/** Switch the curves on, a press; held while they are computed. */
+		const switchOn = async () => {
+			await fireEvent.click(box);
+			expect(box).toBeChecked();
+			await vi.waitFor(() => expect(observers.watched()).toBe(watchedBefore + 1));
+		};
+		/** A curve answers: its table above the switch (56 px), the figure taller. */
+		const answer = () => {
+			grown += 56;
+			observers.resize(figure);
+		};
+		const top = () => box.getBoundingClientRect().top;
+
+		for (const step of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
+			await switchOn();
+			answer();
+			expect(top(), `held as a curve answers, before a ${step}`).toBe(300);
+			// The user's own step: the switch let go, so their scroll and their next press are their
+			// own; a curve answering after it moves it as the browser would.
+			window.dispatchEvent(new Event(step));
+			expect(observers.watched(), `let go at a ${step}`).toBe(watchedBefore);
+			const at = scrolled;
+			answer();
+			expect(scrolled, `not scrolled after a ${step}`).toBe(at);
+			// Back where it was, then off: nothing held while they are off.
+			grown -= 112;
+			scrolled -= 56;
+			await fireEvent.click(box);
+			expect(box).not.toBeChecked();
+			await tick();
+			expect(observers.watched()).toBe(watchedBefore);
+		}
+		// The last curve answered: its table is drawn, the switch kept in place once more and let go.
+		await switchOn();
+		answer();
+		expect(top()).toBe(300);
+		grown += 56;
+		await view.rerender({ ...props, overlayCurves: true, overlayProgress: null, onoverlay });
+		expect(top(), 'held as the last curve answers').toBe(300);
+		expect(observers.watched(), 'let go once every curve has answered').toBe(watchedBefore);
+		// Every curve computed: drawn at the press, which keeps the switch in place itself (S8
+		// review LAYOUT-1); nothing is held, since nothing is left to arrive.
+		await fireEvent.click(box);
+		expect(top()).toBe(300);
+		cached = true;
+		await fireEvent.click(box);
+		expect(box).toBeChecked();
+		await tick();
+		await tick();
+		expect(top(), 'kept in place by the press').toBe(300);
+		expect(observers.watched(), 'nothing held with every curve computed').toBe(watchedBefore);
+		await fireEvent.click(box);
+		await tick();
+		expect(top()).toBe(300);
+		// Switched on with curves to compute, then the chart gone (another pump shown): let go.
+		cached = false;
+		await switchOn();
+		view.unmount();
+		expect(observers.watched()).toBe(0);
+		observers.restore();
+		pane.remove();
 	});
 
 	it('draws the other cases’ line empty before it speaks, when mounted with their curves being computed (F17)', async () => {

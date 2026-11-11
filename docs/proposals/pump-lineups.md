@@ -1310,7 +1310,7 @@ For a stale case, `({k} running)` reads `(as last solved: {k} running)`.
   - columns `Rise ({unit})` | `Flow ({unit})` | `Note`;
   - the duty's rise noted `Its duty's rise (its duty check).`, and a point without flow by its message, as `groupSampleRows` gives;
   - every point listed, those cut from the chart included;
-  - the same scrolling region (`max-h-72 overflow-auto`), a list below 640 px as Running combinations is.
+  - the same scrolling region (`max-h-72 overflow-auto`), a list below 640 px as Running combinations is. Since `pumps-results-layout.md` S7 the table is its own disclosure, "Other cases' group curves (station's flow at each rise) ({n} points)", counting every point of every case's curve; closed by default, open where the chart cannot be drawn, full height when open, and its box a Tab stop and a region only while it overflows (its §15 items 191, 193 and 198).
 
 **The image** has the same datasets, labels and clip, with desktop text at 14 px on the 800 px plot. Its notes are `groupNoteLines`: the frame sentence, the clip note and the list.
 

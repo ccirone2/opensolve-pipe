@@ -662,6 +662,37 @@ export function saveHiddenPanels(hidden: readonly ChipKey[]): void {
 	}
 }
 
+/**
+ * localStorage keys of whether each chart's data table is shown, the pump chart's and the group
+ * chart's: a per-browser choice, never project data or in the link (proposal
+ * pumps-results-layout.md §9 S7, §8: GOALS §4.5, D3).
+ */
+export const TABLE_SHOWN_KEYS = {
+	pump: 'opensolve-pipe:pump-chart-data-table',
+	group: 'opensolve-pipe:pump-group-chart-data-table'
+} as const;
+/** The charts whose data table is remembered. */
+export type TableChart = keyof typeof TABLE_SHOWN_KEYS;
+
+/** The chart's data table was shown when last left in this browser (false where storage is refused). */
+export function loadTableShown(chart: TableChart): boolean {
+	try {
+		return localStorage.getItem(TABLE_SHOWN_KEYS[chart]) === 'shown';
+	} catch {
+		return false;
+	}
+}
+
+/** Remember whether the chart's data table is shown; a refused write only loses the convenience. */
+export function saveTableShown(chart: TableChart, shown: boolean): void {
+	try {
+		if (shown) localStorage.setItem(TABLE_SHOWN_KEYS[chart], 'shown');
+		else localStorage.removeItem(TABLE_SHOWN_KEYS[chart]);
+	} catch {
+		// Private modes and blocked site data refuse storage.
+	}
+}
+
 /** One value of the readout under the chart. */
 export interface ReadoutItem {
 	key: 'pump' | 'system' | 'efficiency' | 'power' | 'npshr' | 'npsha';

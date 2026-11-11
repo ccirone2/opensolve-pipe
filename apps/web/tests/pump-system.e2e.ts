@@ -16,8 +16,10 @@ import {
 	cellText,
 	closeTrace,
 	currentHeading,
+	curveTableFold,
 	halfUlp,
 	newProject,
+	openCurveTable,
 	resultsPane,
 	resultsView,
 	setNumber,
@@ -219,9 +221,10 @@ test('build a pump system from a new project, solve, share and reopen it', async
 	);
 	await chart.getByRole('button', { name: 'Show data table of the pump chart' }).click();
 	await expect(chart.getByText(`Operating point: ${operating}`)).toBeVisible();
-	const curveTable = chart.getByRole('table', { name: 'Pump curve at 100 % speed' });
+	// Each curve table in its disclosure, opened first (proposal pumps-results-layout.md §9 S7).
+	const curveTable = await openCurveTable(chart, 'Pump curve at 100 % speed');
 	await expect(curveTable.getByRole('row').nth(1)).toHaveText(/^\s*0\s*20\s*Curve\s*$/);
-	const systemTable = chart.getByRole('table', { name: 'System curve' });
+	const systemTable = await openCurveTable(chart, 'System curve');
 	await expect(systemTable).toBeVisible();
 	await expect(systemTable.getByRole('row')).toHaveCount(1 + systemCurve.points.length);
 	await expect(systemTable.getByRole('row').nth(1)).toHaveText(
@@ -337,6 +340,8 @@ test('a system-curve point without a head says why, with names and in the displa
 	const chart = pumps.getByRole('figure', { name: 'Pump and system curves: Transfer pump' });
 	await expect(chart.getByRole('img')).toHaveAccessibleName(/ and system curve; operating point /);
 	await chart.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	// Open by default: its Why no head column has an entry (proposal pumps-results-layout.md §9 S7).
+	await expect(curveTableFold(chart, 'System curve')).toHaveAttribute('open', '');
 	const table = chart.getByRole('table', { name: 'System curve' });
 	await expect(table.getByRole('columnheader')).toHaveText([
 		'Flow (gpm)',

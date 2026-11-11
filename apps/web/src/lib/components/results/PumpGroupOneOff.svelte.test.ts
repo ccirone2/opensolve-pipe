@@ -35,6 +35,9 @@ beforeEach(() => {
 afterEach(() => {
 	HTMLCanvasElement.prototype.getContext = getContext;
 	console.error = consoleError;
+	// The data table shown is remembered in this browser (pumps-results-layout.md §9 S7): each
+	// test starts from none remembered.
+	localStorage.clear();
 });
 
 interface Answer {
@@ -989,7 +992,10 @@ describe('one pump off on the Pumps together card', () => {
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
 		await waitFor(() => expect(calls.filter((c) => c.scenarioId === 'S3')).toHaveLength(2));
-		const region = within(card()).getByRole('region', { name: 'Running combinations' });
+		// Its box (a region only while it overflows, pumps-results-layout.md §9 S7), by its table.
+		const region = within(card()).getByRole('table', {
+			name: 'Running combinations'
+		}).parentElement!;
 		const headings = () =>
 			[...region.querySelectorAll('th[scope="rowgroup"]')].map(
 				(h) => h.firstElementChild!.textContent

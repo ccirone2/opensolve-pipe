@@ -8,6 +8,7 @@ import {
 	cellText,
 	currentHeading,
 	down4,
+	openCurveTable,
 	resultsPane,
 	resultsView,
 	setNumber,
@@ -175,8 +176,9 @@ test('switch a pump to flow control, solve, read its speed and state, share and 
 		'its flow control replaced by that fixed flow'
 	);
 	await chart.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	// In its disclosure, opened first (proposal pumps-results-layout.md §9 S7).
 	await expect(
-		chart.getByRole('table', { name: `Pump curve at ${speedShown} % speed (flow control)` })
+		await openCurveTable(chart, `Pump curve at ${speedShown} % speed (flow control)`)
 	).toBeVisible();
 	await expect(chart.getByText(/^Operating point: /)).toContainText(`${SETPOINT} L/s at`);
 	const before = await tableTexts(table);

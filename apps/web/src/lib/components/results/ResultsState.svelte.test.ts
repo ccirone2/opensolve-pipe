@@ -562,8 +562,9 @@ describe('notes and tables', () => {
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		const panel = results().getByRole('tabpanel', { name: 'Pumps' });
 		expect(panel).toHaveTextContent(/This pump is off: it carries no flow/);
+		// The curve's table, in its disclosure (its box a region only while it overflows, §9 S7).
 		expect(
-			await within(panel).findByRole('region', { name: /Pump curve at its set speed \(100 %\)/ })
+			await within(panel).findByRole('table', { name: /Pump curve at its set speed \(100 %\)/ })
 		).toBeInTheDocument();
 		expect(within(panel).getByRole('table', { name: 'Results per pump' })).toHaveTextContent('Off');
 	});

@@ -15,6 +15,7 @@ import {
 	type PanelKey,
 	type PumpChecksInput
 } from '$lib/utils/pump-chart';
+import { fakeResizeObserver, sizeBox } from '$lib/testing/resize';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '$lib/testing/results';
 import { outOfSight, wordsInSight } from '$lib/testing/helpers';
 import { pumpTransferExample } from '$lib/utils/examples';
@@ -66,6 +67,9 @@ beforeEach(() => {
 
 afterEach(() => {
 	HTMLCanvasElement.prototype.getContext = getContext;
+	// The data table shown is remembered in this browser (pumps-results-layout.md §9 S7): each
+	// test starts from none remembered.
+	localStorage.clear();
 });
 
 function withCanvas() {
@@ -84,6 +88,21 @@ async function linesDrawn() {
 	await nextFrame();
 	await nextFrame();
 	await tick();
+}
+
+/** A curve table's disclosure (CurveTable), by its table's name. */
+const disclosureOf = (name: string, scope: HTMLElement = document.body) =>
+	within(scope).getByRole('table', { name }).closest('details')!;
+/**
+ * Open a curve table's disclosure as a user would, closed until then: a curve table is read
+ * after its disclosure is opened (pumps-results-layout.md §9 S7, §10 S7). Its table.
+ */
+async function openTable(name: string, scope: HTMLElement = document.body) {
+	const details = disclosureOf(name, scope);
+	expect(details.open, `"${name}" closed until opened`).toBe(false);
+	await fireEvent.click(details.querySelector(':scope > summary')!);
+	expect(details.open).toBe(true);
+	return within(scope).getByRole('table', { name });
 }
 
 describe('pump chart', () => {
@@ -139,7 +158,7 @@ describe('pump chart', () => {
 		await fireEvent.click(toggle);
 		expect(toggle).toHaveAttribute('aria-expanded', 'true');
 		expect(toggle).toHaveTextContent('Hide data table');
-		const curve = screen.getByRole('table', { name: 'Pump curve at 100 % speed' });
+		const curve = await openTable('Pump curve at 100 % speed');
 		const rows = within(curve).getAllByRole('row').slice(1);
 		expect(
 			rows.map((r) =>
@@ -153,7 +172,7 @@ describe('pump chart', () => {
 			['20', '22', 'Curve'],
 			['30', '12', 'Curve']
 		]);
-		const system = screen.getByRole('table', { name: 'System curve' });
+		const system = await openTable('System curve');
 		expect(within(system).getAllByRole('row')).toHaveLength(5);
 		expect(within(system).queryByRole('columnheader', { name: 'Why no head' })).toBeNull();
 		expect(screen.getByText(/Operating point:/)).toHaveTextContent(
@@ -404,6 +423,8 @@ describe('pump chart', () => {
 			screen.getByRole('button', { name: 'Show data table of the pump chart' })
 		);
 		const table = screen.getByRole('table', { name: 'System curve' });
+		// Open by default: its Why no head column has entries (§9 S7).
+		expect(disclosureOf('System curve').open).toBe(true);
 		expect(within(table).getByRole('columnheader', { name: 'Why no head' })).toBeInTheDocument();
 		const rows = within(table)
 			.getAllByRole('row')
@@ -457,6 +478,8 @@ describe('pump chart', () => {
 			screen.getByRole('button', { name: 'Show data table of the pump chart' })
 		);
 		const table = screen.getByRole('table', { name: 'System curve' });
+		// Open by default: its Why no head column has entries (§9 S7).
+		expect(disclosureOf('System curve').open).toBe(true);
 		const cell = within(table).getAllByRole('row')[3]!.querySelectorAll('td')[2]!;
 		const details = cell.querySelector('details')!;
 		expect(details.open).toBe(false);
@@ -1278,16 +1301,18 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		expect(byCase).toHaveAttribute('role', 'table');
 		expect(byCase).toHaveClass('max-sm:block');
 		expect(within(byCase).getAllByRole('cell')[0]).toHaveAttribute('data-label', 'Flow (L/s)');
-		// The case shown's curves two-up only from a 40 rem container, never by the viewport.
-		const curve = within(region as HTMLElement).getByRole('region', {
-			name: 'Pump curve at 100 % speed'
-		});
+		// The case shown's curves two-up only from a 40 rem container, never by the viewport: each
+		// curve table a disclosure in the grid (§9 S7).
+		const curve = disclosureOf('Pump curve at 100 % speed', region as HTMLElement);
 		const grid = curve.parentElement!;
 		expect(grid).toHaveClass('grid', '@min-[40rem]:grid-cols-2');
 		expect(grid).not.toHaveClass('sm:grid-cols-2');
 		expect(grid.parentElement).toHaveClass('@container');
-		// Every box shades its edges when it scrolls sideways.
-		const boxes = within(region as HTMLElement).getAllByRole('region');
+		// Every box shades its edges when it scrolls sideways (each table's box: a region only
+		// while it overflows since S7, measured in the tests of §9 S7 below).
+		const boxes = within(region as HTMLElement)
+			.getAllByRole('table')
+			.map((t) => t.parentElement!);
 		expect(boxes).toHaveLength(4);
 		for (const box of boxes) expect(box).toHaveClass('scroll-shadow-x');
 	});
@@ -1376,12 +1401,13 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			screen.getByRole('button', { name: 'Show data table of the pump chart' })
 		);
 		const region = screen.getByRole('figure').querySelector('[data-pump-data]')!;
-		const boxes = within(region as HTMLElement).getAllByRole('region');
+		// Each table's box (a region only while it overflows since S7), named by its caption.
+		const boxes = within(region as HTMLElement)
+			.getAllByRole('table')
+			.map((t) => t.parentElement!);
 		const at = '80 % speed (flow control)';
 		expect(
-			boxes.map((box) =>
-				squash(document.getElementById(box.getAttribute('aria-labelledby')!)!.textContent)
-			)
+			boxes.map((box) => squash(box.querySelector(':scope > table > caption')!.textContent))
 		).toEqual([
 			'Operating points by case',
 			`Pump curve at ${at}`,
@@ -1432,6 +1458,9 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		await fireEvent.click(
 			screen.getByRole('button', { name: 'Show data table of the pump chart' })
 		);
+		// Both open by default: each Why no head column has an entry (§9 S7).
+		expect(disclosureOf('System curve').open).toBe(true);
+		expect(disclosureOf('System curve, Winter').open).toBe(true);
 		const summaries = [
 			...screen.getByRole('table', { name: 'System curve' }).querySelectorAll('summary'),
 			...screen.getByRole('table', { name: 'System curve, Winter' }).querySelectorAll('summary')
@@ -1685,6 +1714,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 
 	it('keeps every name the tests and the guides pin', async () => {
 		withCanvas();
+		const observers = fakeResizeObserver();
 		render(PumpChart, {
 			result: pumpResult(),
 			name: 'Transfer pump',
@@ -1720,9 +1750,18 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			'System curve',
 			'System curve, Winter'
 		]) {
-			expect(figure.getByRole('table', { name })).toBeInTheDocument();
+			const table = figure.getByRole('table', { name });
+			expect(table).toBeInTheDocument();
+			// A curve table in its disclosure, opened first (§9 S7); then a named region and a Tab
+			// stop while its box overflows: the table wider.
+			if (name !== 'Operating points by case') await openTable(name);
+			const box = table.parentElement!;
+			sizeBox(box, { clientWidth: 300, scrollWidth: 500, clientHeight: 200, scrollHeight: 200 });
+			observers.resize(box);
+			expect(figure.getByRole('region', { name })).toBe(box);
 			expect(figure.getByRole('region', { name })).toHaveAttribute('tabindex', '0');
 		}
+		observers.restore();
 	});
 
 	/**
@@ -1976,6 +2015,426 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 				const figure = screen.getByRole('figure');
 				for (const line of lines) expect(onScreen(figure, line), line).toBe(true);
 			});
+		}
+	});
+});
+
+/**
+ * S7 (pumps-results-layout.md §9 S7, §10 S7): each curve table a disclosure "{caption} ({n}
+ * points)", full height when open, open by default where the chart cannot be drawn or its Why no
+ * head column has entries; a box a Tab stop and a named region only while it overflows, on either
+ * axis; whether the data table is shown remembered in this browser, storage refused or empty.
+ */
+describe('the pump chart’s data without scroll traps (pumps-results-layout.md §9 S7)', () => {
+	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+	/** Every curve table's disclosure, in order: its table's name, its summary, open or not. */
+	const disclosures = () =>
+		[...document.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')].map((d) => ({
+			table: squash(d.querySelector('caption')!.textContent),
+			summary: squash(d.querySelector(':scope > summary')!.textContent),
+			rows: d.querySelectorAll('tbody tr').length,
+			open: d.open
+		}));
+	/** A pump with every panel and a speed range (made-up test input), as the panels' tests use. */
+	const everyPanel = () =>
+		pumpResult({
+			efficiencyCurve: [
+				{ flow: 0.004, efficiency: 0.4 },
+				{ flow: 0.012, efficiency: 0.7 },
+				{ flow: 0.02, efficiency: 0.6 }
+			],
+			powerCurve: [
+				{ flow: 0.004, shaftPower: 2000 },
+				{ flow: 0.02, shaftPower: 5000 }
+			],
+			npshrCurve: [
+				{ flow: 0, npshr: 1 },
+				{ flow: 0.015, npshr: 2 },
+				{ flow: 0.03, npshr: 4 }
+			],
+			speedCurves: [
+				{
+					limit: 'min',
+					speed: 0.5,
+					curve: [
+						{ flow: 0, head: 7.5 },
+						{ flow: 0.015, head: 3 }
+					]
+				},
+				{
+					limit: 'max',
+					speed: 1,
+					curve: [
+						{ flow: 0, head: 30 },
+						{ flow: 0.01, head: 28 },
+						{ flow: 0.02, head: 22 },
+						{ flow: 0.03, head: 12 },
+						{ flow: 0.035, head: 5 }
+					]
+				}
+			]
+		});
+	const winter = (system = systemCurveResponse()) =>
+		({
+			key: 'S1',
+			name: 'Winter',
+			result: pumpResult(),
+			stale: false,
+			system
+		}) satisfies OtherCaseInput;
+	const showTable = () =>
+		fireEvent.click(screen.getByRole('button', { name: 'Show data table of the pump chart' }));
+
+	it('draws each curve table as a disclosure named “{caption} ({n} points)”, its count its rows, closed while the chart is drawn and no point lacks a head', async () => {
+		withCanvas();
+		render(PumpChart, {
+			result: everyPanel(),
+			name: 'P',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03],
+			system: READY,
+			caseName: 'Base case',
+			others: [winter()],
+			onoverlay: vi.fn()
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		await showTable();
+		const drawn = disclosures();
+		// Every curve table, in the region's order; the counts of the inputs: the system curve's 4
+		// points, 3 of efficiency, 2 of shaft power, 3 of NPSHr, the speed range's 2 and 5.
+		expect(drawn.map(({ table, summary, open }) => ({ table, summary, open }))).toEqual([
+			{
+				table: 'Pump curve at 100 % speed',
+				summary: `Pump curve at 100 % speed (${drawn[0]!.rows} points)`,
+				open: false
+			},
+			{ table: 'System curve', summary: 'System curve (4 points)', open: false },
+			{
+				table: 'Efficiency curve at 100 % speed',
+				summary: 'Efficiency curve at 100 % speed (3 points)',
+				open: false
+			},
+			{
+				table: 'Shaft power curve at 100 % speed',
+				summary: 'Shaft power curve at 100 % speed (2 points)',
+				open: false
+			},
+			{
+				table: 'NPSHr curve at 100 % speed',
+				summary: 'NPSHr curve at 100 % speed (3 points)',
+				open: false
+			},
+			{
+				table: 'Pump curve at 50 % speed (minimum)',
+				summary: 'Pump curve at 50 % speed (minimum) (2 points)',
+				open: false
+			},
+			{
+				table: 'Pump curve at 100 % speed (maximum)',
+				summary: 'Pump curve at 100 % speed (maximum) (5 points)',
+				open: false
+			},
+			{ table: 'System curve, Winter', summary: 'System curve, Winter (4 points)', open: false }
+		]);
+		// Each count is the rows its table lists (the pump curve's 4 points of data).
+		for (const d of drawn) expect(d.summary).toBe(`${d.table} (${d.rows} points)`);
+		expect(drawn[0]!.rows).toBe(4);
+		// "Operating points by case" is no curve: a table, never folded.
+		const byCase = screen.getByRole('table', { name: 'Operating points by case' });
+		expect(byCase.closest('details')).toBeNull();
+		// Each summary a native disclosure's (.more-summary), the count in the regular weight.
+		for (const d of document.querySelectorAll('details[data-curve-table]')) {
+			const summary = d.querySelector(':scope > summary')!;
+			expect(summary).toHaveClass('more-summary');
+			expect(summary.querySelector('.font-normal')!.textContent).toMatch(/^\(\d+ points?\)$/);
+			// Its words and count in sight: since the caption is hidden, the table's one visible
+			// title (S7 review W2, MUT-SUMMARY-HIDDEN).
+			const caption = squash(d.querySelector('caption')!.textContent);
+			const rows = d.querySelectorAll('tbody tr').length;
+			expect(squash(wordsInSight(summary))).toBe(`${caption} (${rows} points)`);
+			// Full height when open: its box scrolls sideways only, never down inside the pane.
+			const box = d.querySelector('table')!.parentElement!;
+			expect(box).toHaveClass('overflow-x-auto', 'scroll-shadow-x');
+			expect(box.className).not.toMatch(/max-h-/);
+			// Its caption visually hidden, the summary showing the same words; still the name.
+			expect(d.querySelector('caption')).toHaveClass('sr-only');
+			expect(outOfSight(d.querySelector('caption')!)).toBe(true);
+		}
+		// Opened, its rows are in sight; closed, they are not (a closed disclosure hides them).
+		const pump = disclosureOf('Pump curve at 100 % speed');
+		expect(outOfSight(pump.querySelector('tbody td')!)).toBe(true);
+		await openTable('Pump curve at 100 % speed');
+		expect(outOfSight(pump.querySelector('tbody td')!)).toBe(false);
+	});
+
+	it('says “1 point” for a curve of one point', async () => {
+		withCanvas();
+		render(PumpChart, {
+			result: pumpResult({ efficiencyCurve: [{ flow: 0.01, efficiency: 0.6 }] }),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		await showTable();
+		const one = disclosures().filter((d) => d.rows === 1);
+		for (const d of one) expect(d.summary).toBe(`${d.table} (1 point)`);
+		expect(one.map((d) => d.table)).toEqual(['Efficiency curve at 100 % speed']);
+	});
+
+	it('opens every curve table by default where the chart cannot be drawn, the data region forced open', async () => {
+		render(PumpChart, {
+			result: everyPanel(),
+			name: 'P',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03],
+			system: READY,
+			caseName: 'Base case',
+			others: [winter()],
+			onoverlay: vi.fn()
+		});
+		expect(
+			await screen.findByText(/The chart cannot be drawn in this browser/)
+		).toBeInTheDocument();
+		const drawn = disclosures();
+		expect(drawn).toHaveLength(8);
+		for (const d of drawn) expect(d.open, d.table).toBe(true);
+	});
+
+	it('opens by default a system curve whose Why no head column has entries, the shown case’s and another case’s alike; the rest stay closed', async () => {
+		withCanvas();
+		const view = render(PumpChart, {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: { status: 'ready', curve: systemCurveResponse('P1', [1]) },
+			caseName: 'Base case',
+			others: [winter(systemCurveResponse('P1', [3])), { ...winter(), key: 'S2', name: 'Summer' }],
+			onoverlay: vi.fn()
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		await showTable();
+		expect(disclosures().map(({ table, open }) => [table, open])).toEqual([
+			['Pump curve at 100 % speed', false],
+			['System curve', true],
+			['System curve, Winter', true],
+			['System curve, Summer', false]
+		]);
+		// Its reason in sight, one press away no more (D10's owner rule).
+		const reason = within(screen.getByRole('table', { name: 'System curve' })).getByText(
+			'made-up reason: not converged'
+		);
+		expect(outOfSight(reason)).toBe(false);
+		// The default only ever opens a table (§7 Disclosures: "None closes itself"; S7 review
+		// DATA-1): computed again with every point solved, the table stays open while drawn. Each
+		// step waits a task, for the toggle event a drawn opening fires (S7 review MUT-TOGGLE).
+		const task = () => new Promise((resolve) => setTimeout(resolve, 0));
+		await task();
+		await view.rerender({ system: READY });
+		await tick();
+		await task();
+		expect(disclosureOf('System curve').open).toBe(true);
+		// Drawn anew (the data region hidden and shown): no choice was made, so it takes the
+		// default afresh, closed with every point solved.
+		const hide = screen.getByRole('button', { name: 'Hide data table of the pump chart' });
+		await fireEvent.click(hide);
+		await showTable();
+		await task();
+		expect(disclosureOf('System curve').open).toBe(false);
+		// A point without a head again: opened by default in place, which is no choice either.
+		await view.rerender({ system: { status: 'ready', curve: systemCurveResponse('P1', [1]) } });
+		await tick();
+		await task();
+		expect(disclosureOf('System curve').open).toBe(true);
+		await view.rerender({ system: READY });
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Hide data table of the pump chart' })
+		);
+		await showTable();
+		await task();
+		expect(disclosureOf('System curve').open).toBe(false);
+	});
+
+	it('keeps the user’s choice of each curve table while the data region is hidden and shown, and over a new default', async () => {
+		withCanvas();
+		const view = render(PumpChart, {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: { status: 'ready', curve: systemCurveResponse('P1', [1]) }
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		await showTable();
+		// Opened by the user, closed by the user (open by default): each a toggle event.
+		await openTable('Pump curve at 100 % speed');
+		const system = disclosureOf('System curve');
+		expect(system.open).toBe(true);
+		await fireEvent.click(system.querySelector(':scope > summary')!);
+		expect(system.open).toBe(false);
+		await vi.waitFor(() => expect(disclosureOf('System curve').open).toBe(false));
+		await new Promise((resolve) => setTimeout(resolve, 0)); // the toggle events' task
+		const hide = screen.getByRole('button', { name: 'Hide data table of the pump chart' });
+		await fireEvent.click(hide);
+		expect(screen.queryByRole('table', { name: 'System curve' })).toBeNull();
+		await fireEvent.click(hide);
+		expect(disclosureOf('Pump curve at 100 % speed').open).toBe(true);
+		expect(disclosureOf('System curve').open).toBe(false);
+		// A new default (every point solved, then one missing again) leaves a choice alone.
+		await view.rerender({ system: READY });
+		await view.rerender({ system: { status: 'ready', curve: systemCurveResponse('P1', [2]) } });
+		await tick();
+		expect(disclosureOf('System curve').open).toBe(false);
+		expect(disclosureOf('Pump curve at 100 % speed').open).toBe(true);
+	});
+
+	it('keeps the choice of every kind of curve table: a panel’s, a speed range’s and another case’s system curve, while the data region is hidden and shown (S7 review MUT-BIND)', async () => {
+		withCanvas();
+		render(PumpChart, {
+			result: everyPanel(),
+			name: 'P',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03],
+			system: READY,
+			caseName: 'Base case',
+			others: [winter(systemCurveResponse('P1', [3]))],
+			onoverlay: vi.fn()
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		await showTable();
+		// Opened by the user: a panel's table and a speed range's; closed by the user: another
+		// case's system curve, open by default (a point without a head).
+		await openTable('Efficiency curve at 100 % speed');
+		await openTable('Pump curve at 50 % speed (minimum)');
+		const winterFold = disclosureOf('System curve, Winter');
+		expect(winterFold.open).toBe(true);
+		await fireEvent.click(winterFold.querySelector(':scope > summary')!);
+		expect(winterFold.open).toBe(false);
+		await new Promise((resolve) => setTimeout(resolve, 0)); // the toggle events' task
+		const hide = screen.getByRole('button', { name: 'Hide data table of the pump chart' });
+		await fireEvent.click(hide);
+		expect(screen.queryByRole('table', { name: 'System curve, Winter' })).toBeNull();
+		await fireEvent.click(hide);
+		expect(disclosures().map(({ table, open }) => [table, open])).toEqual([
+			['Pump curve at 100 % speed', false],
+			['System curve', false],
+			['Efficiency curve at 100 % speed', true],
+			['Shaft power curve at 100 % speed', false],
+			['NPSHr curve at 100 % speed', false],
+			['Pump curve at 50 % speed (minimum)', true],
+			['Pump curve at 100 % speed (maximum)', false],
+			['System curve, Winter', false]
+		]);
+	});
+
+	it('remembers in this browser whether the data table is shown, and starts hidden with nothing remembered', async () => {
+		withCanvas();
+		const props = { result: pumpResult(), name: 'P', prefs: SI_UNITS, system: READY };
+		const first = render(PumpChart, props);
+		const toggle = screen.getByRole('button', { name: 'Show data table of the pump chart' });
+		expect(toggle).toHaveAttribute('aria-expanded', 'false');
+		expect(localStorage.getItem('opensolve-pipe:pump-chart-data-table')).toBeNull();
+		await fireEvent.click(toggle);
+		expect(localStorage.getItem('opensolve-pipe:pump-chart-data-table')).toBe('shown');
+		first.unmount();
+		// Another chart (a reload, another pump): shown, as left.
+		const second = render(PumpChart, { ...props, name: 'Q' });
+		const shown = screen.getByRole('button', { name: 'Hide data table of the pump chart' });
+		expect(shown).toHaveAttribute('aria-expanded', 'true');
+		expect(document.getElementById(shown.getAttribute('aria-controls')!)).not.toBeNull();
+		await fireEvent.click(shown);
+		expect(localStorage.getItem('opensolve-pipe:pump-chart-data-table')).toBeNull();
+		second.unmount();
+		render(PumpChart, props);
+		expect(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		).toHaveAttribute('aria-expanded', 'false');
+		// The group chart's choice is its own.
+		expect(localStorage.getItem('opensolve-pipe:pump-group-chart-data-table')).toBeNull();
+	});
+
+	it('works with storage refused: starts hidden, shows and hides on request', async () => {
+		withCanvas();
+		const refuse = () => {
+			throw new DOMException('Storage refused', 'SecurityError');
+		};
+		const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(refuse);
+		const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(refuse);
+		const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(refuse);
+		try {
+			render(PumpChart, { result: pumpResult(), name: 'P', prefs: SI_UNITS, system: READY });
+			expect(get).toHaveBeenCalledWith('opensolve-pipe:pump-chart-data-table');
+			const toggle = screen.getByRole('button', { name: 'Show data table of the pump chart' });
+			expect(toggle).toHaveAttribute('aria-expanded', 'false');
+			await fireEvent.click(toggle);
+			expect(set).toHaveBeenCalled();
+			expect(toggle).toHaveAttribute('aria-expanded', 'true');
+			expect(screen.getByRole('table', { name: 'System curve' })).toBeInTheDocument();
+			await fireEvent.click(toggle);
+			expect(remove).toHaveBeenCalled();
+			expect(toggle).toHaveAttribute('aria-expanded', 'false');
+			expect(screen.queryByRole('table', { name: 'System curve' })).toBeNull();
+		} finally {
+			get.mockRestore();
+			set.mockRestore();
+			remove.mockRestore();
+		}
+	});
+
+	it('makes a box a Tab stop and a named region only while it overflows, sideways or down, and no more when it fits', async () => {
+		withCanvas();
+		const observers = fakeResizeObserver();
+		try {
+			render(PumpChart, {
+				result: pumpResult(),
+				name: 'P',
+				prefs: SI_UNITS,
+				system: READY,
+				caseName: 'Base case',
+				others: [winter()],
+				onoverlay: vi.fn()
+			});
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			await showTable();
+			const region = screen.getByRole('figure').querySelector<HTMLElement>('[data-pump-data]')!;
+			const boxes = within(region)
+				.getAllByRole('table')
+				.map((t) => t.parentElement!);
+			expect(boxes).toHaveLength(4);
+			// Laid out with room for every table: none is a Tab stop or a region.
+			for (const box of boxes) {
+				sizeBox(box, { clientWidth: 452, scrollWidth: 452, clientHeight: 300, scrollHeight: 300 });
+				observers.resize(box);
+				expect(box).not.toHaveAttribute('tabindex');
+				expect(box).not.toHaveAttribute('role');
+			}
+			expect(within(region).queryAllByRole('region')).toEqual([]);
+			// "Operating points by case" wider than its box (a long case name, a phone's pane).
+			sizeBox(boxes[0]!, { scrollWidth: 600 });
+			observers.resize(boxes[0]!);
+			expect(within(region).getByRole('region', { name: 'Operating points by case' })).toBe(
+				boxes[0]
+			);
+			expect(boxes[0]).toHaveAttribute('tabindex', '0');
+			// The system curve's table taller than its box: down counts too, once its disclosure is
+			// open; folded away, whatever it measures, it is neither (a browser lays it out still).
+			const system = screen.getByRole('table', { name: 'System curve' }).parentElement!;
+			sizeBox(system, { scrollHeight: 900 });
+			observers.resize(system);
+			expect(system).not.toHaveAttribute('tabindex');
+			await openTable('System curve');
+			await new Promise((resolve) => setTimeout(resolve, 0)); // the toggle event's task
+			expect(within(region).getByRole('region', { name: 'System curve' })).toBe(system);
+			expect(system).toHaveAttribute('tabindex', '0');
+			// The pane widened: it fits again, and is neither.
+			sizeBox(boxes[0]!, { clientWidth: 600 });
+			observers.resize(boxes[0]!);
+			expect(boxes[0]).not.toHaveAttribute('tabindex');
+			expect(within(region).queryByRole('region', { name: 'Operating points by case' })).toBeNull();
+			sizeBox(system, { scrollHeight: 300 });
+			observers.resize(system);
+			expect(within(region).queryAllByRole('region')).toEqual([]);
+		} finally {
+			observers.restore();
 		}
 	});
 });

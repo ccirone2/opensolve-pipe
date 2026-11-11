@@ -2,7 +2,7 @@ import { gzipSync } from 'node:zlib';
 import { expect, test } from '@playwright/test';
 import type { Pump } from '../src/lib/api/types';
 import { pumpTransferExample } from '../src/lib/utils/examples';
-import { resultsView, solveConverged } from './support';
+import { openCurveTable, resultsView, solveConverged } from './support';
 
 /**
  * The pump chart's curve facts (proposal pump-chart.md §6, slice 2), against the real app and
@@ -36,9 +36,8 @@ test('marks the best efficiency point and shows a flow-controlled pump’s speed
 	await expect(speedNote).toContainText('at 65, 60, 55 %');
 
 	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
-	await expect(
-		figure.getByRole('table', { name: 'Pump curve at 50 % speed (minimum)' })
-	).toBeVisible();
+	// In its disclosure, opened first (proposal pumps-results-layout.md §9 S7).
+	await expect(await openCurveTable(figure, 'Pump curve at 50 % speed (minimum)')).toBeVisible();
 
 	// The chip hides the speed range, its note and its tables.
 	const chip = figure
@@ -48,7 +47,10 @@ test('marks the best efficiency point and shows a flow-controlled pump’s speed
 	await chip.click();
 	await expect(chip).toHaveAttribute('aria-pressed', 'false');
 	await expect(speedNote).toHaveCount(0);
-	await expect(figure.getByRole('table', { name: /Pump curve at 50 % speed/ })).toHaveCount(0);
+	// Gone, not folded away: hidden ones counted too.
+	await expect(
+		figure.getByRole('table', { name: /Pump curve at 50 % speed/, includeHidden: true })
+	).toHaveCount(0);
 	await expect(chart).not.toHaveAccessibleName(/speed range/);
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
 		true

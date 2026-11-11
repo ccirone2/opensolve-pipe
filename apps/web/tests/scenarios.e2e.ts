@@ -7,6 +7,7 @@ import {
 	chooseCase,
 	currentHeading,
 	openCases,
+	openCurveTable,
 	openScenarioManager,
 	resultsPane,
 	resultsView,
@@ -226,8 +227,9 @@ test('solve one case and all of them, read the comparison and the other cases on
 		/Higher tank$/
 	]);
 	// The shown curve is computed for this solve; the other cases' only on request, on its grid,
-	// one at a time, with Cancel.
-	await expect(figure.getByRole('table', { name: 'System curve' })).toBeVisible();
+	// one at a time, with Cancel. Each curve table in its disclosure, opened first (proposal
+	// pumps-results-layout.md §9 S7).
+	await expect(await openCurveTable(figure, 'System curve')).toBeVisible();
 	const curves: { scenarioId?: string; flowMax?: number }[] = [];
 	await page.route('**/api/v1/system-curve', (route) => {
 		curves.push(route.request().postDataJSON());
@@ -254,8 +256,8 @@ test('solve one case and all of them, read the comparison and the other cases on
 	await page.unroute('**/api/v1/system-curve');
 	await overlay.uncheck();
 	await overlay.check();
-	await expect(figure.getByRole('table', { name: 'System curve, Base case' })).toBeVisible();
-	await expect(figure.getByRole('table', { name: 'System curve, Higher tank' })).toBeVisible();
+	await expect(await openCurveTable(figure, 'System curve, Base case')).toBeVisible();
+	await expect(await openCurveTable(figure, 'System curve, Higher tank')).toBeVisible();
 });
 
 /** Hold every solve request at the network, unanswered, until the page aborts it. */

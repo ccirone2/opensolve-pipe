@@ -19,7 +19,6 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import {
-	errors,
 	expect,
 	test,
 	type JSHandle,
@@ -213,7 +212,8 @@ async function lineups(page: Page, project: Project = projectOf('lineups')) {
 /**
  * 3. condenser (the example "Chiller plant condenser water system"): 6 pumps and 1 scenario; the
  * base case solved, the card open, Add cases by number running pressed (5 cases, "Also show the
- * other cases' station duties" ticked by it), then the block's Solve all: 7 solves in all.
+ * other cases' station duties" ticked by it) and its notice dismissed, then the block's Solve all:
+ * 7 solves in all.
  */
 async function condenser(page: Page) {
 	const counter = solveCounter(page);
@@ -227,29 +227,28 @@ async function condenser(page: Page) {
 	await expect(preset).toBeChecked();
 	const add = block.getByRole('button', { name: /^Add \d+ cases?$/ });
 	const added = (await add.innerText()).trim();
+	// The Add posts an info notice, which closes itself 6 s after it appears (Workspace.svelte's
+	// timer): not before this.
+	const closes = Date.now() + 6_000;
 	await add.click();
 	const solveAllButton = block.getByRole('button', { name: /^Solve all/ });
 	await expect(solveAllButton).toBeFocused();
+	// The Add's notice sits over the pane's foot: pressed away while it is new, as a user would.
+	// Pressed after the solves, it raced its own timer: on main's CI after PRs #273–#275 (runs
+	// 42932749641 and 42932792439) it was seen then and gone by the press, which waited for it until
+	// the test's timeout. So the notice must be the Add's (an error notice fails here), the press is
+	// bounded well inside its 6 s, and the press, not the timer, must be what closed it.
+	const dismiss = page.getByRole('button', { name: 'Dismiss' });
+	const notice = page.getByRole('status').filter({ has: dismiss });
+	await expect(notice).toHaveText(/^\s*Added \d+ cases? by number running: /);
+	await notice.getByRole('button', { name: 'Dismiss' }).click({ timeout: 4_000 });
+	await expect(dismiss).toHaveCount(0);
+	expect(Date.now(), "the press closed the Add's notice, not its own timer").toBeLessThan(closes);
 	await solveAllButton.click();
 	await expect.poll(() => counter.n, { timeout: 240_000 }).toBe(7);
 	await expect(solveAllButton).toHaveText('Solve all', { timeout: 240_000 });
 	await expect(solveAllButton).toHaveAttribute('aria-disabled', 'true');
 	await settle(page, 3000);
-	// The Add's notice sits over the pane's foot: dismissed, as a user would. An info notice also
-	// closes itself 6 s after it appears (Workspace.svelte's timer), and the settle can end at that
-	// mark: on main's CI after PRs #273–#275 (runs 42932749641 and 42932792439) the notice was seen
-	// here and gone by the press, which then waited for it until the test's timeout. So the press
-	// waits no longer than an info notice lives, its failure stands while the button is still there
-	// (an error notice never closes itself), and no notice is left over the foot either way.
-	const dismiss = page.getByRole('button', { name: 'Dismiss' });
-	if (await dismiss.first().isVisible()) {
-		await dismiss
-			.first()
-			.click({ timeout: 6_000 })
-			.catch(async (error: unknown) => {
-				if (!(error instanceof errors.TimeoutError) || (await dismiss.count())) throw error;
-			});
-	}
 	await expect(dismiss, "no notice over the pane's foot").toHaveCount(0);
 	return { solves: counter.n, added };
 }

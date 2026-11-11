@@ -19,6 +19,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import {
+	errors,
 	expect,
 	test,
 	type JSHandle,
@@ -234,9 +235,22 @@ async function condenser(page: Page) {
 	await expect(solveAllButton).toHaveText('Solve all', { timeout: 240_000 });
 	await expect(solveAllButton).toHaveAttribute('aria-disabled', 'true');
 	await settle(page, 3000);
-	// The Add's notice sits over the pane's foot: dismissed, as a user would.
-	const dismiss = page.getByRole('button', { name: 'Dismiss' }).first();
-	if (await dismiss.isVisible()) await dismiss.click();
+	// The Add's notice sits over the pane's foot: dismissed, as a user would. An info notice also
+	// closes itself 6 s after it appears (Workspace.svelte's timer), and the settle can end at that
+	// mark: on main's CI after PRs #273–#275 (runs 42932749641 and 42932792439) the notice was seen
+	// here and gone by the press, which then waited for it until the test's timeout. So the press
+	// waits no longer than an info notice lives, its failure stands while the button is still there
+	// (an error notice never closes itself), and no notice is left over the foot either way.
+	const dismiss = page.getByRole('button', { name: 'Dismiss' });
+	if (await dismiss.first().isVisible()) {
+		await dismiss
+			.first()
+			.click({ timeout: 6_000 })
+			.catch(async (error: unknown) => {
+				if (!(error instanceof errors.TimeoutError) || (await dismiss.count())) throw error;
+			});
+	}
+	await expect(dismiss, "no notice over the pane's foot").toHaveCount(0);
 	return { solves: counter.n, added };
 }
 

@@ -1778,7 +1778,7 @@ Project settings (Git integration: Workers & Pages → Create → Pages → conn
 | Variable `NODE_VERSION` | `22.22.0` | The Node the repository's checks run on. The v3 build image defaults to 22.16.0, ignores `engines`, and may move minor versions without notice ([build image][cf-image]) |
 | Variable `PNPM_VERSION` | `10.28.0` | `packageManager` in `package.json`. The v3 image defaults to pnpm 10.11.1 and reads neither the lockfile's version nor `engines` ([build image][cf-image]) |
 | Build watch paths | include `apps/web/*` | Skips builds for commits that touch only the API or the docs ([watch paths][cf-watch]). The generated `src/lib/api/openapi.json` lives under `apps/web` |
-| Preview branch control | Custom branches, include `web/*` (owner, 2026-10-25) | A hosted look at web-only changes before they merge (CLAUDE.md *Tooling*). Previews are public `*.pages.dev` URLs ([previews][cf-preview]): `<commit hash>.<project>.pages.dev` and `<branch alias>.<project>.pages.dev`, the alias the branch name lowercased with every other character a hyphen. The API allows their origins through `CORS_ORIGIN_REGEX` (§11.3). Only `web/*` builds, since each build counts against the monthly limit ([branch control][cf-branch]) |
+| Preview branch control | Custom branches, include `web/*` (owner, 2026-10-25) | A hosted look at web-only changes before they merge (CLAUDE.md *Tooling*). Previews are public `*.pages.dev` URLs ([previews][cf-preview]): `<commit hash>.<project>.pages.dev` and `<branch alias>.<project>.pages.dev`, the alias the branch name lowercased with every other character a hyphen. The alias is also cut to 28 characters, which Cloudflare's page does not say: `web/pumps-layout-combinations`, 29 characters as an alias, previewed at `web-pumps-layout-combination` ([PR #272's preview][cf-alias-cut]), while `web-pumps-layout-cases-words`, exactly 28 (#275), was kept whole. So a `web/<topic>` branch previews at its full name only when `<topic>` is at most 24 characters; no branch has yet shown whether a cut that ends on a hyphen keeps it. The API allows their origins through `CORS_ORIGIN_REGEX` (§11.3). Only `web/*` builds, since each build counts against the monthly limit ([branch control][cf-branch]) |
 
 **Response headers.** `apps/web/static/_headers` is copied into the build. Pages applies it and does not serve it ([headers][cf-headers]):
 - `Referrer-Policy: no-referrer` on every response, matching what `app.html` and the API client already set. Pages' default is `strict-origin-when-cross-origin` ([serving][cf-serving]).
@@ -2014,6 +2014,7 @@ Free tiers and prices in USD, read on 2026-10-22:
 [cf-watch]: https://developers.cloudflare.com/pages/configuration/build-watch-paths/
 [cf-preview]: https://developers.cloudflare.com/pages/configuration/preview-deployments/
 [cf-branch]: https://developers.cloudflare.com/pages/configuration/branch-build-controls/
+[cf-alias-cut]: https://github.com/ccirone2/opensolve-pipe/pull/272#issuecomment-6739946259
 [cf-headers]: https://developers.cloudflare.com/pages/configuration/headers/
 [cf-limits]: https://developers.cloudflare.com/pages/platform/limits/
 [cf-price]: https://developers.cloudflare.com/pages/functions/pricing/

@@ -11,22 +11,25 @@
 	  the sentence saying the shares and losses come with it.
 	- The refusal, in words with the elements named and linked, each with the server's sentence.
 	- The station's answer, the dl "The station" at 14 px with the values in bold.
-	- The group table: a row per member, then for a flagged member a flag line under its row at the
-	  box's visible width (ResultsTable's row notes), each flag's pill (its icon and severity word,
-	  flagTone's tint) followed by its text, read once and named by its pump; a list below 640 px
-	  (Running combinations' classes, explicit roles kept), the flag line after the pump's values.
-	  The box is a size container, so the flag line can be `w-[100cqw]` (§5.5).
+	- The group table, a ResultsTable since S6a (§9 S6a; the owner's table rules, build-density.md
+	  §14 to §18): sort by any column, Fields, Flagged only, a list below 640 px. A row per member,
+	  its name with its slot symbol and a trace button, wrapping at 12 rem; for a flagged member a
+	  flag line under its row at the box's visible width, each flag's pill (its icon and severity
+	  word, flagTone's tint) followed by its text, read once and named by its pump (FlagLine, which
+	  reads no workspace, in place of ResultsTable's FlagBadge), after the pump's values on a phone.
+	  Its title is visible and names the box, a region and a Tab stop (§15 item 92).
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import type { Flag, TopologyIssue } from '$lib/api/types';
 	import type { GroupNotes, GroupTable } from '$lib/utils/pump-group-chart';
 	import { wordsText, type Words } from '$lib/utils/pump-groups';
-	import { flagTone, SEVERITY_LABELS } from '$lib/utils/results';
+	import type { Row, Table } from '$lib/utils/results';
 	import { flagSeverities, sectionMark } from '$lib/utils/section-nav';
 	import Icon from '$lib/components/ui/Icon.svelte';
-	import FlagIcon from './FlagIcon.svelte';
+	import FlagLine from './FlagLine.svelte';
 	import IssueDetail from './IssueDetail.svelte';
+	import ResultsTable from './ResultsTable.svelte';
 	import { registerSection } from './section-nav.svelte';
 
 	interface Props {
@@ -127,16 +130,23 @@
 	});
 
 	/**
-	 * A cell of the group table: a table cell, below 640 px a label and value pair (Running
-	 * combinations' list), "—" out of sight there.
+	 * The group table as a results table (§9 S6a): a row per member in the table's order, keyed
+	 * by its id; its slot (the chart's colour and marker) kept beside the name by the name's
+	 * snippet. The title names the case shown, in a project with scenarios.
 	 */
-	const listCell = (value: string, numeric: boolean) => [
-		'border-b border-slate-200 px-2 py-1 whitespace-nowrap',
-		numeric && 'text-right tabular-nums',
-		'max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:p-0 max-sm:text-left max-sm:whitespace-normal',
-		'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]',
-		value === '—' && 'max-sm:sr-only'
-	];
+	const title = $derived(`The pumps in the group${caseName ? `, ${caseName}` : ''}`);
+	const resultsTable = $derived<Table>({
+		columns: table.columns,
+		rows: table.rows.map((row): Row => ({
+			key: row.id,
+			element: { kind: 'component', id: row.id },
+			name: row.name,
+			detail: '',
+			cells: row.cells,
+			flags: [...row.flags]
+		}))
+	});
+	const slots = $derived(new Map(table.rows.map((row) => [row.id, row.style])));
 </script>
 
 {#snippet words(list: Words)}
@@ -145,6 +155,41 @@
 				class="inline min-h-0 px-0.5 text-blue-800 underline underline-offset-2"
 				onclick={() => oninspect(word.id)}>{word.name}</button
 			>{:else}{word.name}{/if}{/each}
+{/snippet}
+
+<!-- A member's name (§5.3 Station; ui-guide, a button holding a name): its slot symbol, not
+	underlined, in a column of its own (1 rem, as the members' grid reserves), so every name starts
+	at one edge whatever the symbol's width; then its name, a trace button when one can open. Its
+	own width its one line up to 12 rem, so the column is that wide and a long name wraps inside it
+	(the table's overflow would otherwise give it its longest word). Below 640 px, a list (§5.5), it
+	takes the line's width and wraps anywhere, a name with no space too. -->
+{#snippet memberName(row: Row)}
+	{@const slot = slots.get(row.key)}
+	{#if oninspect}
+		<button
+			type="button"
+			class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 text-left font-medium wrap-break-word text-blue-800 underline underline-offset-2 max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
+			onclick={() => oninspect(row.element.id)}
+		>
+			<span
+				aria-hidden="true"
+				class="w-4 shrink-0 text-center no-underline"
+				style:color={slot?.color}>{slot?.symbol}</span
+			><span class="min-w-0">{row.name}</span>
+		</button>
+	{:else}
+		<span
+			class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 font-medium wrap-break-word max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
+			><span aria-hidden="true" class="w-4 shrink-0 text-center" style:color={slot?.color}
+				>{slot?.symbol}</span
+			><span class="min-w-0">{row.name}</span></span
+		>
+	{/if}
+{/snippet}
+
+<!-- A flagged member's flag line (§5.3 Station): the pills and their text, read once. -->
+{#snippet memberFlags(row: Row)}
+	<FlagLine name={row.name} flags={row.flags} {flagText} />
 {/snippet}
 
 <!-- A plain div with its heading, not a landmark (§7); tabindex −1, the section nav's target. -->
@@ -247,141 +292,21 @@
 			{/each}
 		</dl>
 	{/if}
-	<!-- The group table: from the solve, with the shares and losses from the duty. Positioned, so
-		the flag lines' hidden words (absolutely placed) scroll with it, never the page; a size
-		container, so a flag line is the box's visible width (§5.5). -->
-	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-	<div
-		class="scroll-shadow-x @container relative max-w-full overflow-auto rounded-md border border-slate-200 bg-white"
-		role="region"
-		aria-labelledby="{id}-table-caption"
-		tabindex="0"
-		data-group-table
-	>
-		<!-- Explicit roles: below 640 px CSS lays the table out as a list. -->
-		<!-- svelte-ignore a11y_no_redundant_roles -->
-		<table role="table" class="min-w-full border-separate border-spacing-0 text-sm max-sm:block">
-			<caption
-				id="{id}-table-caption"
-				class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700 max-sm:block"
-			>
-				The pumps in the group{caseName ? `, ${caseName}` : ''}
-			</caption>
-			<!-- svelte-ignore a11y_no_redundant_roles -->
-			<thead role="rowgroup" class="bg-slate-50 max-sm:sr-only">
-				<!-- svelte-ignore a11y_no_redundant_roles -->
-				<tr role="row">
-					<th
-						role="columnheader"
-						scope="col"
-						class="sticky left-0 z-10 border-r border-b border-slate-300 bg-slate-50 px-2 py-1 text-left font-medium"
-						>Pump</th
-					>
-					{#each table.columns as column (column.key)}
-						<th
-							role="columnheader"
-							scope="col"
-							class={[
-								'border-b border-slate-300 px-2 py-1 align-bottom font-medium whitespace-nowrap',
-								column.numeric ? 'text-right' : 'text-left'
-							]}
-						>
-							{column.label}
-							{#if column.unit}<span class="block text-xs font-normal text-slate-600"
-									>{column.unit}</span
-								>{/if}
-						</th>
-					{/each}
-				</tr>
-			</thead>
-			<!-- svelte-ignore a11y_no_redundant_roles -->
-			<tbody role="rowgroup" class="max-sm:block">
-				{#each table.rows as row, index (row.id)}
-					<!-- svelte-ignore a11y_no_redundant_roles -->
-					<tr
-						role="row"
-						class={[
-							'max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5',
-							index > 0 && 'max-sm:border-t max-sm:border-slate-200'
-						]}
-					>
-						<!-- The sticky name wraps at 12 rem (§5.3): its own width is its one line, up to
-							12 rem, so the column is that wide and a long name wraps inside it (the table's
-							overflow would otherwise give it its longest word). Below 640 px, a list (§5.5),
-							it takes the line's width and wraps anywhere, a name with no space too (ui-guide:
-							a button holding a name wraps at every width); the table's column never sees it. -->
-						<th
-							role="rowheader"
-							scope="row"
-							class={[
-								'sticky left-0 z-10 border-r border-b border-slate-200 bg-white px-1 py-0.5 text-left font-normal',
-								'max-sm:static max-sm:-mx-1 max-sm:block max-sm:w-full max-sm:border-0'
-							]}
-						>
-							{#if oninspect}
-								<button
-									type="button"
-									class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 text-left font-medium wrap-break-word text-blue-800 underline underline-offset-2 max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
-									onclick={() => oninspect(row.id)}
-								>
-									<span aria-hidden="true" class="no-underline" style:color={row.style.color}
-										>{row.style.symbol}</span
-									><span class="min-w-0">{row.name}</span>
-								</button>
-							{:else}
-								<span
-									class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 font-medium wrap-break-word max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
-									><span aria-hidden="true" style:color={row.style.color}>{row.style.symbol}</span
-									><span class="min-w-0">{row.name}</span></span
-								>
-							{/if}
-						</th>
-						{#each table.columns as column (column.key)}
-							{@const cell = row.cells[column.key] ?? '—'}
-							<td
-								role="cell"
-								data-label={column.unit ? `${column.label} (${column.unit})` : column.label}
-								class={listCell(cell, !!column.numeric)}>{cell}</td
-							>
-						{/each}
-					</tr>
-					{#if row.flags.length}
-						<!-- The flag line (§5.3 Station; ResultsTable's row notes): at the box's visible
-							width, named by its pump for table navigation, each flag's text visible and read
-							once (no hidden copy, no title). -->
-						<!-- svelte-ignore a11y_no_redundant_roles -->
-						<tr role="row" class="max-sm:block">
-							<td
-								role="cell"
-								colspan={table.columns.length + 1}
-								class="border-b border-slate-200 p-0 max-sm:block max-sm:border-0"
-							>
-								<div
-									class="sticky left-0 w-[100cqw] space-y-1 px-2 pt-1 pb-1.5 max-sm:static max-sm:w-auto"
-									data-row-notes={row.id}
-									data-label="Flags"
-								>
-									<span class="sr-only">{row.name}, flags:</span>
-									{#each row.flags as flag, i (i)}
-										<p class="text-xs text-slate-700">
-											<span
-												class={[
-													'mr-1 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 align-middle font-medium whitespace-nowrap',
-													flagTone(flag.severity)
-												]}
-												><FlagIcon severity={flag.severity} class="size-3.5" />{SEVERITY_LABELS[
-													flag.severity
-												]}</span
-											>
-											{flagText(flag)}
-										</p>
-									{/each}
-								</div>
-							</td>
-						</tr>
-					{/if}
-				{/each}
-			</tbody>
-		</table>
+	<!-- The group table (§5.3 Station, §9 S6a): a ResultsTable, so it sorts, chooses its fields
+		and shows the flagged pumps only, as every results table does, and reads as a list below
+		640 px. Its visible title names it and its box (a region and a Tab stop); each name its slot
+		symbol and a trace button, wrapping at 12 rem; each flagged pump's flag line its pills and
+		their text (FlagLine), not FlagBadge, which reads the workspace. -->
+	<div class="space-y-1" data-group-table>
+		<p id="{id}-table-title" class="text-xs font-semibold text-slate-700">{title}</p>
+		<ResultsTable
+			table={resultsTable}
+			caption={title}
+			first="Pump"
+			fieldsKey="The pumps in the group"
+			labelledby="{id}-table-title"
+			name={memberName}
+			flagLine={memberFlags}
+		/>
 	</div>
 </div>

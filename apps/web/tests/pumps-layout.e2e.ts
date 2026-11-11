@@ -1866,6 +1866,40 @@ async function axeClean(page: Page, where: string) {
 	expect
 		.soft(wcag.passes.length, `axe's rules that passed over the Pumps tab, ${where}`)
 		.toBeGreaterThan(0);
+	// Every table's Fields menu open too, one at a time (a menu under its button from 640 px, a
+	// sheet on a phone): a disclosure axe never sees while it is hidden (§9 S6, §10 axe; S6 review
+	// MUT-01). Each closed again by Escape from its button.
+	const fieldsButtons = page.locator(`${panel} button[aria-controls][aria-expanded]`);
+	const menus = await fieldsButtons.evaluateAll((all) =>
+		all
+			.map((b, i) => ({
+				i,
+				menu: document
+					.getElementById(b.getAttribute('aria-controls') ?? '')
+					?.getAttribute('aria-label')
+			}))
+			.filter((b) => b.menu?.startsWith('Fields shown in '))
+	);
+	expect.soft(menus.length, `the Fields menus in the Pumps tab, ${where}`).toBeGreaterThan(0);
+	for (const { i, menu } of menus) {
+		const button = fieldsButtons.nth(i);
+		await button.scrollIntoViewIfNeeded();
+		await button.click();
+		await expect(page.getByRole('group', { name: menu! })).toBeVisible();
+		const open = await new AxeBuilder({ page })
+			.include(panel)
+			.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+			.analyze();
+		expect
+			.soft(
+				open.violations.map((v) => `${v.id} (${v.nodes.length})`),
+				`axe over the Pumps tab, "${menu}" open, ${where}`
+			)
+			.toEqual([]);
+		await button.focus();
+		await page.keyboard.press('Escape');
+		await expect(button).toHaveAttribute('aria-expanded', 'false');
+	}
 	const outline = await new AxeBuilder({ page })
 		.include(panel)
 		.withRules(['heading-order', 'landmark-unique'])
@@ -1943,7 +1977,9 @@ async function cutInCard(page: Page): Promise<string[]> {
  */
 async function groupTableSideways(page: Page): Promise<boolean> {
 	return page.evaluate(() => {
-		const box = document.querySelector<HTMLElement>('[data-pumps-together] [data-group-table]');
+		const box = document.querySelector<HTMLElement>(
+			'[data-pumps-together] [data-group-table] [role="region"]'
+		);
 		return !!box && window.innerWidth < 640 && box.scrollWidth > box.clientWidth + 1;
 	});
 }
@@ -2723,12 +2759,13 @@ async function extremesPart(page: Page, view: string, where: string) {
 // ---- S5: Running combinations' order, lines and names (§5.3, §9 S5, §10 S5) ------------------
 
 /**
- * §5.7 row 11: the open card, the condenser's after Add cases at 1280×800, at most this: S5's
- * measurement + 10 %, 9,547 px (S4's 7,418; §5.7 estimated about 5,650), so 10,501. Running
- * combinations makes the difference: each flagged pump's flags now visible under its row (the
- * condenser's 10 flagged rows hold 36 flags), and the names wrapping at 12 rem in 42 rows.
+ * §5.7 row 11: the open card, the condenser's after Add cases at 1280×800, at most this: the
+ * measurement + 10 %. S5 set 10,501 from its 9,547 px (S4's 7,418; §5.7 estimated about 5,650):
+ * each flagged pump's flags visible under its row, and the names wrapping at 12 rem in 42 rows.
+ * Since S6b (§9 S6b) Running combinations is a ResultsTable, its box held to ResultsTable's
+ * height there (608 px, scrolling inside, its headings sticky), so the card is 5,724 px: 6,296.
  */
-const OPEN_CARD_1280 = 10_501;
+const OPEN_CARD_1280 = 6_296;
 
 /**
  * Running combinations as laid out (viewport px): its box and form; each case's group, its
@@ -2739,8 +2776,10 @@ const OPEN_CARD_1280 = 10_501;
  */
 function readCombinations() {
 	const card = document.querySelector('[data-pumps-together]');
-	const box = card?.querySelector<HTMLElement>('[data-running-combinations]');
-	if (!card || !box) return null;
+	// The box: a ResultsTable's since S6b, the region in the block that holds its controls.
+	const block = card?.querySelector<HTMLElement>('[data-running-combinations]');
+	const box = block?.querySelector<HTMLElement>('[role="region"]');
+	if (!card || !block || !box) return null;
 	const table = box.querySelector('table')!;
 	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
 	/** An element's words without its aria-hidden marks (a slot's symbol, a ring). */
@@ -2771,6 +2810,9 @@ function readCombinations() {
 			return {
 				lines: [...heading.children].map((line) => ({
 					text: squash(line.textContent),
+					// On screen, not only in its place (S6 review MUT-03: a line made invisible kept
+					// its text, position and box).
+					seen: seen(line),
 					position: getComputedStyle(line).position,
 					inView: inView(line),
 					shown: shownWhole(line)
@@ -2921,6 +2963,7 @@ async function combinationsPart(
 		for (const [g, group] of groups.entries()) {
 			const what = `"${cases[g]}" ${label}, ${where}`;
 			for (const line of group.lines) {
+				soft(line.seen, `${what}: "${line.text.slice(0, 40)}" on screen`).toBe(true);
 				soft(line.position, `${what}: "${line.text.slice(0, 40)}" sticky`).toBe(
 					m.list ? 'static' : 'sticky'
 				);
@@ -2951,6 +2994,8 @@ async function combinationsPart(
 			}
 		}
 	}
+	// S6b (§9 S6b): a ResultsTable, its controls, names, flag lines and shadow, in its own order.
+	await combinationsTablePart(page, where, 'grouped');
 	if (m.duties) {
 		const list = page.viewportSize()!.width < 640;
 		soft(m.duties.display, `"Other cases' station duties" a list below 640 px only, ${where}`).toBe(
@@ -2998,6 +3043,556 @@ async function combinationsPart(
 	}
 }
 
+// ---- S6b: Running combinations a ResultsTable (§9 S6b) -----------------------------------------
+
+/**
+ * Running combinations as a ResultsTable (§9 S6b; the owner's answer 3, §12) in either form, as
+ * laid out (viewport px): its controls (Fields, Flagged only, a phone's "Sort by" with its room for
+ * its longest field, the headings' sort buttons); its form, a row group per case or one flat table
+ * with a Case column; each pump's row (its name, its case, its NPSH margin, a trace button or not,
+ * in sight and shown to its end) and the flag line under it; and every element inside the box
+ * that paints a fill over its right edge, where the sideways shadow is drawn (§15 item 157), with
+ * the box scrolled to show more on its right and read screen by screen down it. A stale case's
+ * amber is left out: it is its look (§5.3 Invalid and stale).
+ */
+function readCombinationsTable() {
+	const block = document.querySelector<HTMLElement>(
+		'[data-pumps-together] [data-running-combinations]'
+	);
+	const box = block?.querySelector<HTMLElement>('[role="region"]');
+	const table = box?.querySelector('table');
+	if (!block || !box || !table) return null;
+	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+	// In sight at a size of its own, inside no visually hidden box (readGroupTable's rule).
+	const seen = (el: Element | null) => {
+		if (!el) return false;
+		const r = el.getBoundingClientRect();
+		for (let a: Element | null = el; a; a = a.parentElement) {
+			const b = a.getBoundingClientRect();
+			if (getComputedStyle(a).overflow === 'hidden' && (b.width <= 1 || b.height <= 1)) {
+				return false;
+			}
+		}
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			r.width > 1 &&
+			r.height > 1
+		);
+	};
+	const whole = (el: Element | null) => !!el && el.scrollWidth <= el.clientWidth + 1;
+	const headerRoom = (td: Element) => {
+		const css = getComputedStyle(td, '::before');
+		if (css.content === 'none' || !td.firstElementChild) return null;
+		const context = document.createElement('canvas').getContext('2d')!;
+		context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+		const text = css.content.replace(/^"|"$/g, '');
+		return {
+			room: td.firstElementChild.getBoundingClientRect().left - td.getBoundingClientRect().left,
+			text: Math.ceil(context.measureText(text).width)
+		};
+	};
+	const drawn = (el: Element | null) => {
+		if (!el) return '';
+		const copy = el.cloneNode(true) as Element;
+		for (const hidden of copy.querySelectorAll('.sr-only')) hidden.remove();
+		return squash(copy.textContent);
+	};
+	const b = box.getBoundingClientRect();
+	const left = b.left + box.clientLeft;
+	const right = left + box.clientWidth;
+	const inWidth = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return r.left >= left - 0.5 && r.right <= right + 0.5;
+	};
+	const select = block.querySelector<HTMLSelectElement>(
+		'select[aria-label="Sort by, Running combinations"]'
+	);
+	const fields = [...block.querySelectorAll('button')].find((x) =>
+		squash(x.textContent).startsWith('Fields')
+	);
+	const flagged = [...block.querySelectorAll('label')].find((l) =>
+		squash(l.textContent).startsWith('Flagged only')
+	);
+	let sortRoom: {
+		name: string;
+		text: number;
+		room: number;
+		chosen: { name: string; text: number };
+	} | null = null;
+	if (select && seen(select)) {
+		const css = getComputedStyle(select);
+		const context = document.createElement('canvas').getContext('2d')!;
+		context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+		const longest = [...select.options].reduce(
+			(widest, option) => {
+				const width = context.measureText(option.text).width;
+				return width > widest.width ? { name: option.text, width } : widest;
+			},
+			{ name: '', width: 0 }
+		);
+		const chosen = select.selectedOptions[0]?.text ?? '';
+		sortRoom = {
+			name: longest.name,
+			text: Math.ceil(longest.width),
+			room: Math.floor(
+				select.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+			),
+			// The field shown while sorted, beside its direction button (S6 review TBL-4).
+			chosen: { name: chosen, text: Math.ceil(context.measureText(chosen).width) }
+		};
+	}
+	const headings = [...table.querySelectorAll('thead th')].map((h) => ({
+		name: squash(h.textContent),
+		button: !!h.querySelector('button'),
+		seen: seen(h.querySelector('button') ?? h)
+	}));
+	const bodies = [...table.querySelectorAll(':scope > tbody')];
+	const groupOf = (tr: Element) =>
+		squash(tr.closest('tbody')?.querySelector('th[scope="rowgroup"] > :first-child')?.textContent);
+	const rows = [...table.querySelectorAll(':scope > tbody > tr')]
+		.filter((r) => r.querySelector('th[scope="row"]'))
+		.map((r) => {
+			const name = r.querySelector('th[scope="row"] span.min-w-0');
+			const kase = r.querySelector('td[data-label="Case"]');
+			const notes = r.nextElementSibling?.querySelector<HTMLElement>('[data-row-notes]') ?? null;
+			return {
+				name: squash(name?.textContent),
+				nameSeen: seen(name),
+				nameWhole: whole(name),
+				case: kase ? squash(kase.textContent) : groupOf(r),
+				caseCell: kase
+					? {
+							// Its words in sight, not only its cell (whose header is ::before content).
+							seen: seen(kase.firstElementChild ?? kase),
+							whole: whole(kase) && whole(kase.firstElementChild),
+							before: getComputedStyle(kase, '::before').content,
+							// A phone's header ("Case") whole on its line: the room before the words
+							// against the header's own width (never "Cas" over "e").
+							headerRoom: headerRoom(kase)
+						}
+					: null,
+				// Its words as drawn: a marked value's "physically invalid:" is for screen readers.
+				margin: drawn(r.querySelector('td[data-label="NPSH margin (m)"]')),
+				head: r.querySelector('td[data-label^="Head"]') !== null,
+				button: !!r.querySelector('th[scope="row"] button'),
+				flags: notes
+					? {
+							id: notes.dataset.rowNotes ?? '',
+							label: notes.dataset.label ?? '',
+							hidden: [...notes.querySelectorAll('.sr-only')].map((e) => squash(e.textContent)),
+							said: [...notes.querySelectorAll('[data-flag-text]')].map((t) => ({
+								seen: seen(t),
+								inWidth: inWidth(t),
+								words: squash(t.textContent)
+							}))
+						}
+					: null
+			};
+		});
+	// Each value on its line: in a row, the first line of every cell's words (a marked value's
+	// amount after its octagon included) shares one baseline with the cells beside it (§15 item
+	// 157: a marked value 3 px above its line on a phone; EXT-2).
+	const offLine: string[] = [];
+	for (const tr of [...table.querySelectorAll(':scope > tbody > tr')].slice(0, 60)) {
+		const lines: { cell: string; top: number; bottom: number }[] = [];
+		for (const td of tr.querySelectorAll<HTMLElement>(':scope > td[data-label]')) {
+			const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+			for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+				if (!n.textContent?.trim() || n.parentElement?.closest('.sr-only')) continue;
+				const range = document.createRange();
+				range.selectNodeContents(n);
+				const r = range.getClientRects()[0];
+				if (r && r.height > 1) {
+					lines.push({
+						cell: `${td.dataset.label}: ${squash(td.textContent)}`,
+						top: r.top,
+						bottom: r.bottom
+					});
+				}
+				break;
+			}
+		}
+		for (const a of lines) {
+			for (const c of lines) {
+				if (Math.abs(a.top - c.top) < 6 && Math.abs(a.bottom - c.bottom) > 0.5) {
+					offLine.push(`"${a.cell.slice(0, 40)}" against "${c.cell.slice(0, 40)}"`);
+				}
+			}
+		}
+	}
+	// The fills over the box's right edge, screen by screen, the box scrolled to its middle.
+	const covers: string[] = [];
+	const sideways = box.scrollWidth > box.clientWidth + 1;
+	if (sideways) {
+		const [x0, y0] = [box.scrollLeft, box.scrollTop];
+		box.scrollLeft = Math.floor((box.scrollWidth - box.clientWidth) / 2);
+		const clear = (c: string) => c === 'rgba(0, 0, 0, 0)' || c === 'transparent';
+		const top = b.top + box.clientTop;
+		for (let at = 0; at < box.scrollHeight; at += Math.max(1, box.clientHeight)) {
+			box.scrollTop = at;
+			for (const el of box.querySelectorAll('tbody *')) {
+				const bg = getComputedStyle(el).backgroundColor;
+				if (clear(bg)) continue;
+				const r = el.getBoundingClientRect();
+				if (r.right <= right - 12 || r.left >= right) continue;
+				if (r.bottom <= top || r.top >= top + box.clientHeight) continue;
+				const tr = el.closest('tr');
+				const stale =
+					groupOf(el).includes('(out of date)') ||
+					squash(tr?.querySelector('td[data-label="Case"]')?.textContent).includes(
+						'(out of date)'
+					) ||
+					squash(
+						tr?.previousElementSibling?.querySelector('td[data-label="Case"]')?.textContent
+					).includes('(out of date)');
+				if (stale) continue;
+				covers.push(`<${el.tagName.toLowerCase()}> "${squash(el.textContent).slice(0, 30)}" ${bg}`);
+			}
+			if (box.scrollHeight <= box.clientHeight) break;
+		}
+		box.scrollLeft = x0;
+		box.scrollTop = y0;
+	}
+	return {
+		height: Math.round(b.height),
+		scrollHeight: box.scrollHeight,
+		list: getComputedStyle(table).display === 'block',
+		sideways,
+		flat: headings.some((h) => h.name === 'Case'),
+		groups: bodies.map((t) =>
+			t.querySelector('th[scope="rowgroup"]') ? groupOf(t.querySelector('tr')!) : null
+		),
+		headings,
+		select: select ? { seen: seen(select), top: select.getBoundingClientRect().top } : null,
+		sortRoom,
+		fields: fields ? { seen: seen(fields), top: fields.getBoundingClientRect().top } : null,
+		flagged: flagged ? { seen: seen(flagged), text: squash(flagged.textContent) } : null,
+		rows,
+		offLine: [...new Set(offLine)].slice(0, 6),
+		covers: [...new Set(covers)]
+	};
+}
+
+/**
+ * Running combinations' S6b checks at the size shown (soft): its controls in sight (Fields,
+ * Flagged only, the headings' sort buttons from 640 px, "Sort by" below it on one line with Fields,
+ * showing its longest field to its end while unsorted, §15 item 17), its form as expected, a
+ * trace button in each row of the shown case and in no other, every name and Case cell in sight
+ * and shown to its end, each flag line under its own pump with its sentences in sight inside the
+ * box's visible width, and no fill over the box's right edge, where its shadow is (§15 item 157).
+ */
+async function combinationsTablePart(page: Page, where: string, form: 'grouped' | 'flat') {
+	const soft = expect.configure({ soft: true });
+	const m = await page.evaluate(readCombinationsTable);
+	if (!m) return null;
+	const phone = (page.viewportSize()?.width ?? 1280) < 640;
+	console.log(
+		`${where}: Running combinations ${form}, a ${m.list ? 'list' : 'table'}, its box ${m.height} px (holding ${m.scrollHeight}), ${m.rows.length} rows, ${m.rows.filter((r) => r.flags).length} flag lines${m.sortRoom ? `, Sort by ${m.sortRoom.room} px for "${m.sortRoom.name}" (${m.sortRoom.text})` : ''}${m.flagged ? `, "${m.flagged.text}"` : ''}`
+	);
+	soft(m.flat, `Running combinations ${form}, ${where}`).toBe(form === 'flat');
+	if (form === 'flat') {
+		soft(m.groups, `one row group, no case heading, ${where}`).toEqual([null]);
+		soft(
+			m.headings.slice(0, 2).map((h) => h.name),
+			`Pump and Case first, ${where}`
+		).toEqual(['Pump', 'Case']);
+	} else {
+		soft(
+			m.groups.every((g) => !!g),
+			`a heading on every row group, ${where}`
+		).toBe(true);
+	}
+	soft(m.fields?.seen, `Running combinations' Fields in sight, ${where}`).toBe(true);
+	if (m.flagged) soft(m.flagged.seen, `its Flagged only in sight, ${where}`).toBe(true);
+	for (const h of m.headings) {
+		if (!h.button) continue;
+		soft(h.seen, `its heading "${h.name}" a sort in sight, ${where}`).toBe(!phone);
+	}
+	if (phone) {
+		soft(m.select?.seen, `its "Sort by" in sight, ${where}`).toBe(true);
+		soft(
+			Math.abs((m.select?.top ?? 0) - (m.fields?.top ?? 99)) < 12,
+			`its "Sort by" and Fields on one line, ${where}`
+		).toBe(true);
+		if (m.sortRoom && form === 'grouped') {
+			soft(
+				m.sortRoom.room - MENULIST_INNER,
+				`room in its "Sort by" for "${m.sortRoom.name}", ${where}`
+			).toBeGreaterThanOrEqual(m.sortRoom.text);
+		}
+		// Sorted, the field it shows whole beside its direction button (S6 review TBL-4).
+		if (m.sortRoom && form === 'flat') {
+			soft(
+				m.sortRoom.room - MENULIST_INNER,
+				`room in its "Sort by" for "${m.sortRoom.chosen.name}" chosen, ${where}`
+			).toBeGreaterThanOrEqual(m.sortRoom.chosen.text);
+		}
+	} else {
+		soft(m.select?.seen ?? false, `its "Sort by" out of sight from 640 px, ${where}`).toBe(false);
+	}
+	soft(m.rows.length, `Running combinations' rows, ${where}`).toBeGreaterThan(0);
+	for (const r of m.rows) {
+		const what = `"${r.name}" in "${r.case}", ${where}`;
+		soft(r.nameSeen, `${what}: its name in sight`).toBe(true);
+		soft(r.nameWhole, `${what}: its name shown to its end`).toBe(true);
+		soft(r.button, `${what}: a trace button in the shown case's rows only`).toBe(
+			/\(shown\)/.test(r.case)
+		);
+		if (form === 'flat') {
+			soft(r.caseCell?.seen, `${what}: its Case in sight`).toBe(true);
+			soft(r.caseCell?.whole, `${what}: its Case shown to its end`).toBe(true);
+			soft(r.caseCell?.before, `${what}: its Case's line header`).toBe(phone ? '"Case"' : 'none');
+			if (phone && r.caseCell?.headerRoom) {
+				soft(
+					r.caseCell.headerRoom.room + 0.5,
+					`${what}: its Case's line header whole before its words`
+				).toBeGreaterThanOrEqual(r.caseCell.headerRoom.text);
+			}
+		}
+		if (r.flags) {
+			soft(r.flags.label, `${what}: its flag line labelled`).toBe('Flags');
+			soft(r.flags.hidden, `${what}: its flag line named by its pump`).toEqual([
+				`${r.name}, flags:`
+			]);
+			soft(r.flags.said.length, `${what}: its flags`).toBeGreaterThan(0);
+			for (const said of r.flags.said) {
+				soft(said.seen, `${what}: "${said.words.slice(0, 40)}" in sight`).toBe(true);
+				soft(said.inWidth, `${what}: "${said.words.slice(0, 40)}" inside the box's width`).toBe(
+					true
+				);
+			}
+		}
+	}
+	soft(m.offLine, `Running combinations' values off their line, ${where}`).toEqual([]);
+	soft(m.covers, `fills over Running combinations' right shadow, ${where}`).toEqual([]);
+	return m;
+}
+
+// ---- S6a: the group table a ResultsTable (§9 S6a) ----------------------------------------------
+
+/**
+ * The group table as the page draws it (§5.3 Station, §9 S6a): its title, its box (a region named
+ * by the title), its controls and its rows, each read against the box's visible rectangle.
+ */
+function readGroupTable() {
+	const block = document.querySelector<HTMLElement>('[data-pumps-together] [data-group-table]');
+	if (!block) return null;
+	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+	// In sight at a size of its own: not hidden, and inside no visually hidden box (sr-only's 1 px
+	// box, at any breakpoint: a phone's table headings), which clips it whatever its own size.
+	const seen = (el: Element | null) => {
+		if (!el) return false;
+		const r = el.getBoundingClientRect();
+		for (let a: Element | null = el; a; a = a.parentElement) {
+			const b = a.getBoundingClientRect();
+			if (getComputedStyle(a).overflow === 'hidden' && (b.width <= 1 || b.height <= 1)) {
+				return false;
+			}
+		}
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			r.width > 1 &&
+			r.height > 1
+		);
+	};
+	const rect = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+	};
+	const title = block.querySelector('p');
+	const box = block.querySelector<HTMLElement>('[role="region"]');
+	const table = box?.querySelector('table');
+	const select = block.querySelector<HTMLSelectElement>('select[aria-label^="Sort by, The pumps"]');
+	const fields = [...block.querySelectorAll('button')].find((b) =>
+		squash(b.textContent).startsWith('Fields')
+	);
+	const flagged = [...block.querySelectorAll('label')].find((l) =>
+		squash(l.textContent).startsWith('Flagged only')
+	);
+	const group = block.querySelector('[role="group"][aria-label^="Fields shown in"]');
+	const containers: string[] = [];
+	for (let e = group?.parentElement ?? null; e; e = e.parentElement) {
+		const type = getComputedStyle(e).containerType;
+		if (type !== 'normal') containers.push(`<${e.tagName.toLowerCase()}> ${type}`);
+	}
+	// A select's text box against its longest option (MENULIST_INNER is added by the caller).
+	let sortRoom: { name: string; text: number; room: number } | null = null;
+	if (select && seen(select)) {
+		const css = getComputedStyle(select);
+		const context = document.createElement('canvas').getContext('2d')!;
+		context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+		const longest = [...select.options].reduce(
+			(widest, option) => {
+				const width = context.measureText(option.text).width;
+				return width > widest.width ? { name: option.text, width } : widest;
+			},
+			{ name: '', width: 0 }
+		);
+		sortRoom = {
+			name: longest.name,
+			text: Math.ceil(longest.width),
+			room: Math.floor(
+				select.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+			)
+		};
+	}
+	const headings = [...(table?.querySelectorAll('thead th') ?? [])];
+	const rows = [...(table?.querySelectorAll('tbody > tr') ?? [])];
+	return {
+		title: title ? { id: title.id, text: squash(title.textContent), seen: seen(title) } : null,
+		box: box
+			? {
+					labelledby: box.getAttribute('aria-labelledby'),
+					tabindex: box.getAttribute('tabindex'),
+					rect: rect(box),
+					sideways: box.scrollWidth > box.clientWidth + 1,
+					caption: squash(table?.querySelector('caption')?.textContent)
+				}
+			: null,
+		list: !!table && getComputedStyle(table).display === 'block',
+		// Each heading, whether it is a sort button, and whether its column shows a value in some
+		// row: ResultsTable sorts a column only then (a column of "—" alone has no button).
+		headingButtons: headings.map((h, k) => {
+			const b = h.querySelector('button');
+			const valued =
+				k === 0 ||
+				rows.some((r) => {
+					const cell = r.querySelectorAll(':scope > td')[k - 1];
+					return !!cell && squash(cell.textContent) !== '—';
+				});
+			return { name: squash(h.textContent), button: !!b, valued, seen: seen(b ?? h) };
+		}),
+		select: select ? { seen: seen(select), top: rect(select).top } : null,
+		sortRoom,
+		fields: fields ? { seen: seen(fields), top: rect(fields).top } : null,
+		flagged: flagged ? { seen: seen(flagged), top: rect(flagged).top } : null,
+		group: !!group,
+		containers,
+		titles: block.querySelectorAll('[title]').length,
+		members: rows
+			.filter((r) => r.querySelector('th[scope="row"]'))
+			.map((r) => {
+				const th = r.querySelector('th')!;
+				const name = th.querySelector('span.min-w-0');
+				return {
+					name: squash(name?.textContent),
+					seen: seen(name),
+					whole: !!name && name.scrollWidth <= name.clientWidth + 1,
+					button: !!th.querySelector('button'),
+					// Where its words start, after its slot symbol's 1 rem column (§15 item 157).
+					left: name ? name.getBoundingClientRect().left : null
+				};
+			}),
+		lines: [...(table?.querySelectorAll('[data-row-notes]') ?? [])].map((line) => {
+			const row = line.closest('tr')!.previousElementSibling;
+			const whole = squash(line.textContent);
+			return {
+				id: line.getAttribute('data-row-notes'),
+				label: line.getAttribute('data-label'),
+				after: squash(row?.querySelector('th span.min-w-0')?.textContent),
+				hidden: [...line.querySelectorAll('.sr-only')].map((e) => squash(e.textContent)),
+				said: [...line.querySelectorAll('li')].map((li) => {
+					const text = li.querySelector('[data-flag-text]');
+					const words = squash(text?.textContent);
+					return {
+						words,
+						seen: seen(text),
+						rect: text ? rect(text) : null,
+						once: !!words && whole.split(words).length === 2
+					};
+				})
+			};
+		})
+	};
+}
+
+/**
+ * The group table's part of S6a at the size shown, the card open (soft): a ResultsTable (§9 S6a)
+ * with its title in sight naming its box (a region and a Tab stop) and its table; Fields in sight
+ * at every size, its group under no container (§5.5); the heading buttons in sight from 640 px,
+ * a list with "Sort by" in sight below it, sharing a line with Fields and showing its longest
+ * field to its end (§15 item 17); each name in sight and shown to its end; each flag line
+ * labelled Flags under its pump's row, named by its pump, each flag's sentence in sight, read once
+ * and inside the box's visible width, with no FlagBadge (no tooltip, no hidden copy).
+ */
+async function groupTablePart(page: Page, where: string) {
+	const soft = expect.configure({ soft: true });
+	const m = await page.evaluate(readGroupTable);
+	if (!m) {
+		console.log(`${where}: no group table (the card closed or no member ticked)`);
+		return;
+	}
+	const phone = (page.viewportSize()?.width ?? 1280) < 640;
+	console.log(
+		`${where}: the group table a ${m.list ? 'list' : 'table'}, ${m.members.length} pumps, ${m.lines.length} flag lines, ${Math.round((m.box?.rect.bottom ?? 0) - (m.box?.rect.top ?? 0))} px${m.sortRoom ? `, Sort by ${m.sortRoom.room} px for "${m.sortRoom.name}" (${m.sortRoom.text})` : ''}`
+	);
+	soft(m.title?.text ?? '', `the group table's title, ${where}`).toMatch(
+		/^The pumps in the group(, .+)?$/
+	);
+	soft(m.title?.seen, `the group table's title in sight, ${where}`).toBe(true);
+	soft(m.box?.labelledby, `the group table's box named by its title, ${where}`).toBe(m.title?.id);
+	soft(m.box?.tabindex, `the group table's box a Tab stop, ${where}`).toBe('0');
+	soft(m.box?.caption, `the group table named as its title, ${where}`).toBe(m.title?.text);
+	soft(m.list, `the group table a list below 640 px only, ${where}`).toBe(phone);
+	soft(m.fields?.seen, `Fields in sight, ${where}`).toBe(true);
+	soft(m.group, `the Fields group drawn, ${where}`).toBe(true);
+	soft(m.containers, `containers above the group table's Fields, ${where}`).toEqual([]);
+	soft(m.titles, `a tooltip in the group table, ${where}`).toBe(0);
+	soft(m.headingButtons.length, `the group table's headings, ${where}`).toBeGreaterThan(2);
+	for (const h of m.headingButtons) {
+		// A sort button over every column that shows a value (ResultsTable's sortableColumn).
+		soft(h.button, `the heading "${h.name}" a sort button, ${where}`).toBe(h.valued);
+		// From 640 px the headings sort; below it the list's "Sort by" does, the headings hidden.
+		soft(h.seen, `the heading "${h.name}" in sight, ${where}`).toBe(!phone);
+	}
+	if (phone) {
+		soft(m.select?.seen, `"Sort by" in sight, ${where}`).toBe(true);
+		soft(
+			Math.abs((m.select?.top ?? 0) - (m.fields?.top ?? 99)) < 12,
+			`"Sort by" and Fields on one line, ${where}`
+		).toBe(true);
+		if (m.sortRoom) {
+			soft(
+				m.sortRoom.room - MENULIST_INNER,
+				`room in "Sort by" for "${m.sortRoom.name}", ${where}`
+			).toBeGreaterThanOrEqual(m.sortRoom.text);
+		}
+	} else {
+		soft(m.select?.seen ?? false, `"Sort by" out of sight from 640 px, ${where}`).toBe(false);
+	}
+	if (m.flagged) soft(m.flagged.seen, `Flagged only in sight, ${where}`).toBe(true);
+	for (const member of m.members) {
+		soft(member.seen, `the name "${member.name}" in sight, ${where}`).toBe(true);
+		soft(member.whole, `the name "${member.name}" shown to its end, ${where}`).toBe(true);
+		soft(member.button, `the name "${member.name}" a trace button, ${where}`).toBe(true);
+	}
+	// Every name starts at one edge, whatever its slot symbol's width (§15 item 157; S6 review
+	// MUT-04: the symbols' 1 rem column taken away failed nothing).
+	const lefts = m.members.map((member) => member.left ?? 0);
+	soft(
+		Math.max(...lefts) - Math.min(...lefts),
+		`the group table's names start at one edge, ${where}`
+	).toBeLessThanOrEqual(0.5);
+	for (const line of m.lines) {
+		const what = `the flag line of ${line.id}, ${where}`;
+		soft(line.label, `${what}: labelled`).toBe('Flags');
+		soft(line.hidden, `${what}: named by its pump`).toEqual([`${line.after}, flags:`]);
+		soft(line.said.length, `${what}: its flags`).toBeGreaterThan(0);
+		for (const flag of line.said) {
+			const said = `${what}: "${flag.words.slice(0, 40)}"`;
+			soft(flag.seen, `${said} in sight`).toBe(true);
+			soft(flag.once, `${said} read once`).toBe(true);
+			if (flag.rect && m.box) {
+				soft(
+					flag.rect.left >= m.box.rect.left - 0.5 && flag.rect.right <= m.box.rect.right + 0.5,
+					`${said} inside the box's visible width`
+				).toBe(true);
+			}
+		}
+	}
+	if (phone) soft(m.box?.sideways, `the group table's box scrolls sideways, ${where}`).toBe(false);
+}
+
 /**
  * Check and measure the view at the project's size and, on the phone, at 320×640 too (reflow at
  * 400 % zoom; pump-lineups.e2e.ts resizes the same way). Then axe with every disclosure open at
@@ -3011,6 +3606,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await pumpChartPart(page, `${view} at ${size}`);
 	const data = await measure(page, info, `${view}-${size}`, extra);
 	await cardPart(page, view, `${view} at ${size}`, data);
+	await groupTablePart(page, `${view} at ${size}`);
 	await navPart(page, `${view} at ${size}`);
 	await addCasesPart(page, view, `${view} at ${size}`);
 	await extremesPart(page, view, `${view} at ${size}`);
@@ -3028,6 +3624,7 @@ async function atEachSize(page: Page, info: TestInfo, view: string, extra: objec
 	await pumpChartPart(page, `${view} at 320x640`);
 	const narrow = await measure(page, info, `${view}-320x640`, extra);
 	await cardPart(page, view, `${view} at 320x640`, narrow);
+	await groupTablePart(page, `${view} at 320x640`);
 	await navPart(page, `${view} at 320x640`);
 	await addCasesPart(page, view, `${view} at 320x640`);
 	await extremesPart(page, view, `${view} at 320x640`);
@@ -3716,6 +4313,9 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		expect
 			.soft(await groupTableSideways(page), `the group table's box scrolls sideways, ${where}`)
 			.toBe(false);
+		// The group table a ResultsTable (§9 S6a): the long name in sight to its end, a trace
+		// button; its title, controls and flag lines as in every view.
+		await groupTablePart(page, where);
 		// The extremes (§9 S5): the long pump name a row header shown to its end, the long case
 		// name in their cells, and their box not scrolling sideways, at 1280×800 a table.
 		const extremes = await page.evaluate(readExtremes);
@@ -3746,6 +4346,20 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 				`the long case name heading its case, ${where}`
 			)
 			.toBe(true);
+		// Sorted (§9 S6b): one table with a Case column, the long case name in its Case cells and
+		// the long pump name in its rows, each shown to its end; then the cases back.
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin');
+		const flat = await combinationsTablePart(page, `${where}, sorted`, 'flat');
+		expect
+			.soft(
+				flat?.rows.filter((r) => r.case.startsWith(LONG_CASE)).length,
+				`the long case's rows, ${where}`
+			)
+			.toBeGreaterThan(0);
+		expect
+			.soft(flat?.rows.filter((r) => r.name === LONG_PUMP).length, `the long pump's rows, ${where}`)
+			.toBe(named?.atStart.filter((g) => g.members.length).length);
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin', true);
 		// Each line of a long name ends inside the card, outside a box that scrolls (the data
 		// tables, and the group table at 640 px and over, whose name column wraps at 12 rem).
 		const past = await card.evaluate(
@@ -3780,6 +4394,1334 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		expect.soft(past, `a long name's line past the card's edge, ${where}`).toEqual([]);
 	}
 	await page.setViewportSize(viewport);
+});
+
+// ---- S6a: the group table's sort, Fields and Flagged only in the browser ------------------------
+
+test('the group table sorts, chooses its fields and shows the flagged pumps only, each flag line under its pump; on a phone its Fields sheet spans the screen from its foot, over the pinned nav (§9 S6a, §5.5; build-density.md §14 to §18)', async ({
+	page
+}, info) => {
+	test.setTimeout(240_000);
+	// The ladder (pump-groups-input.json): Pump P1 without a flag, P2 and P3 with a warning each.
+	await open(page, projectOf('ladder'));
+	await solveConverged(page);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const block = card.locator('[data-group-table]');
+	const region = card.getByRole('region', { name: 'The pumps in the group' });
+	await expect(region.getByRole('rowheader')).toHaveCount(3);
+	const phone = info.project.name === 'mobile';
+	const names = () => region.locator('tbody th[scope="row"] span.min-w-0').allTextContents();
+	/** Each flag line, the pump whose row it follows and whether its sentences are in sight. */
+	const lines = () =>
+		region.locator('[data-row-notes]').evaluateAll((all) =>
+			all.map((line) => ({
+				id: line.getAttribute('data-row-notes'),
+				after: line
+					.closest('tr')!
+					.previousElementSibling?.querySelector('th span.min-w-0')
+					?.textContent?.trim(),
+				seen: [...line.querySelectorAll('[data-flag-text]')].every((t) => {
+					const r = t.getBoundingClientRect();
+					return t.checkVisibility() && r.width > 1 && r.height > 1;
+				})
+			}))
+		);
+	// Its title, controls, names and flag lines in sight, each as in every view; here with
+	// Flagged only offered and two flag lines drawn.
+	await groupTablePart(page, `the ladder at ${sizeOf(page)}`);
+	// The record (PUMPS_LAYOUT_RECORD): the table with its flag lines, and the Fields sheet below.
+	const shot = async (name: string) => {
+		if (!RECORD) return;
+		await page.waitForTimeout(300);
+		await page.screenshot({
+			path: path.join(RECORD, 'segments', `ladder-${sizeOf(page)}-${name}.png`),
+			scale: 'css'
+		});
+	};
+	if (RECORD) mkdirSync(path.join(RECORD, 'segments'), { recursive: true });
+	await block.scrollIntoViewIfNeeded();
+	await shot('group-table');
+	const original = await names();
+	expect(original).toEqual(['Pump P1', 'Pump P2', 'Pump P3']);
+	expect(await lines()).toEqual([
+		{ id: 'P2', after: 'Pump P2', seen: true },
+		{ id: 'P3', after: 'Pump P3', seen: true }
+	]);
+
+	// Sort by flow: from its heading from 640 px, from "Sort by" on a phone (the same sort).
+	const flow = region.getByRole('columnheader', { name: /^Flow/ });
+	if (phone) await block.getByRole('combobox', { name: 'Sort by' }).selectOption('flow');
+	else await flow.getByRole('button', { name: 'Flow L/s' }).click();
+	await expect(flow).toHaveAttribute('aria-sort', 'ascending');
+	const flows = (await region.locator('tbody td[data-label^="Flow"]').allTextContents()).map(
+		Number
+	);
+	expect(flows).toEqual([...flows].sort((a, b) => a - b));
+	expect(await names()).not.toEqual(original);
+	// Each flag line still under its own pump.
+	for (const line of await lines()) expect(line.after).toBe(`Pump ${line.id}`);
+
+	// Flagged only: the flagged pumps, each with its flag line, its sentences in sight.
+	const flagged = block.getByRole('checkbox', { name: 'Flagged only (2 of 3)' });
+	await flagged.check();
+	await expect(region.getByRole('rowheader')).toHaveCount(2);
+	expect(await lines()).toEqual([
+		{ id: 'P3', after: 'Pump P3', seen: true },
+		{ id: 'P2', after: 'Pump P2', seen: true }
+	]);
+	await flagged.uncheck();
+	await expect(region.getByRole('rowheader')).toHaveCount(3);
+
+	// Fields: a menu under its button from 640 px; on a phone a sheet across the screen from its
+	// foot (build-density.md §16), fixed to the screen, no container above it trapping it (§5.5),
+	// drawn over the pinned nav and the page.
+	const fields = block.getByRole('button', { name: /^Fields/ });
+	await fields.click();
+	const sheet = page.getByRole('group', { name: 'Fields shown in The pumps in the group' });
+	await expect(sheet).toBeVisible();
+	await fieldsMenuInPlace(page, sheet, fields, `the ladder's group table at ${sizeOf(page)}`);
+	await shot('fields');
+	await sheet.getByRole('checkbox', { name: /^Shaft power/ }).uncheck();
+	await expect(region.locator('td[data-label^="Shaft power"]')).toHaveCount(0);
+	await expect(region.getByRole('columnheader', { name: /^Shaft power/ })).toHaveCount(0);
+	await expect(fields).toContainText(/\(\d+ of \d+\)/);
+	if (phone) await sheet.getByRole('button', { name: 'Done' }).click();
+	else await page.keyboard.press('Escape');
+	await expect(sheet).toBeHidden();
+	await expect(fields).toHaveAttribute('aria-expanded', 'false');
+	// Closed from inside it, its button has the focus back (S6 review A11Y-S6-2).
+	await expect(fields).toBeFocused();
+	// Its flag lines still span the row, inside the box's visible width.
+	const width = (await region.boundingBox())!;
+	for (const text of await region.locator('[data-flag-text]').all()) {
+		const r = (await text.boundingBox())!;
+		expect(r.x).toBeGreaterThanOrEqual(width.x - 0.5);
+		expect(r.x + r.width).toBeLessThanOrEqual(width.x + width.width + 0.5);
+	}
+	await fields.click();
+	await sheet.getByRole('button', { name: 'Show all' }).click();
+	await expect(region.locator('td[data-label^="Shaft power"]')).toHaveCount(3);
+	// "Show all" goes as it is pressed: the focus stays in the menu, which Escape still closes.
+	await expect(sheet).toBeVisible();
+	expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+	await page.keyboard.press('Escape');
+	await expect(sheet).toBeHidden();
+	await expect(fields).toBeFocused();
+	await noSidewaysScroll(page, `the ladder's group table at ${sizeOf(page)}`);
+});
+
+/**
+ * A table's Fields menu where it belongs (§5.5; build-density.md §16): on a phone a sheet fixed to
+ * the screen, across its width from its foot, drawn over the pinned nav and the page; from 640 px
+ * a menu under its button, inside the window; under no container, transform, filter or
+ * will-change that would trap a fixed sheet. S6a's check, for every Fields of the card (S6 review
+ * MUT-02: Running combinations' sheet could open 6,300 px down the page with every test green).
+ */
+async function fieldsMenuInPlace(page: Page, sheet: Locator, fields: Locator, where: string) {
+	const phone = (page.viewportSize()?.width ?? 1280) < 640;
+	const viewport = page.viewportSize()!;
+	const box = (await sheet.boundingBox())!;
+	const button = (await fields.boundingBox())!;
+	const over = await sheet.evaluate((el) => {
+		const r = el.getBoundingClientRect();
+		const containers: string[] = [];
+		for (let e = el.parentElement; e; e = e.parentElement) {
+			const s = getComputedStyle(e);
+			if (
+				s.containerType !== 'normal' ||
+				s.transform !== 'none' ||
+				s.filter !== 'none' ||
+				s.willChange !== 'auto'
+			) {
+				containers.push(`<${e.tagName.toLowerCase()} class="${e.className}">`);
+			}
+		}
+		const top = document.elementFromPoint(r.left + r.width / 2, r.top + 12);
+		return {
+			containers,
+			onTop: !!top && el.contains(top),
+			position: getComputedStyle(el).position
+		};
+	});
+	expect(over.containers, `containers above the Fields menu, ${where}`).toEqual([]);
+	expect(over.onTop, `the Fields menu on top, ${where}`).toBe(true);
+	if (phone) {
+		expect(over.position, `the Fields sheet fixed, ${where}`).toBe('fixed');
+		expect(box.x, `the Fields sheet from the screen's left, ${where}`).toBeCloseTo(0, 0);
+		expect(box.width, `the Fields sheet across the screen, ${where}`).toBeCloseTo(
+			viewport.width,
+			0
+		);
+		expect(box.y + box.height, `the Fields sheet at the screen's foot, ${where}`).toBeCloseTo(
+			viewport.height,
+			0
+		);
+	} else {
+		expect(over.position, `the Fields menu under its button, ${where}`).toBe('absolute');
+		expect(box.y).toBeGreaterThanOrEqual(button.y + button.height - 0.5);
+		expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+	}
+}
+
+// ---- S6b: Running combinations sorted, its fields and its flagged rows, in the browser ---------
+
+/** Sort Running combinations by a column, or clear the sort: its heading from 640 px, "Sort by" below. */
+async function sortCombinations(page: Page, column: RegExp, key: string, clear = false) {
+	const block = page.locator('[data-pumps-together] [data-running-combinations]');
+	const heading = block.getByRole('region').getByRole('columnheader', { name: column });
+	if ((page.viewportSize()?.width ?? 1280) < 640) {
+		await block.getByRole('combobox', { name: 'Sort by' }).selectOption(clear ? '' : key);
+	} else if (clear) {
+		// Ascending, descending, then the table's own order.
+		while ((await heading.getAttribute('aria-sort')) !== null) {
+			await heading.getByRole('button').click();
+		}
+	} else {
+		await heading.getByRole('button').click();
+	}
+	if (clear) await expect(heading).not.toHaveAttribute('aria-sort');
+	else await expect(heading).toHaveAttribute('aria-sort', 'ascending');
+}
+
+test('Running combinations sorts into one table with a Case column, its first row the smallest NPSH margin, and back into its cases in S5’s order; Fields and Flagged only in both forms; trace buttons in the shown case’s rows only; its shadow unbroken (§9 S6b, §10 S6b; the owner’s answer 3)', async ({
+	page
+}, info) => {
+	test.setTimeout(420_000);
+	await condenser(page);
+	const tab = await pumpsTab(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const block = card.locator('[data-running-combinations]');
+	const region = card.getByRole('region', { name: 'Running combinations' });
+	const viewport = page.viewportSize()!;
+	const sizes =
+		info.project.name === 'mobile' ? [viewport, { width: 320, height: 640 }] : [viewport];
+	if (RECORD) mkdirSync(path.join(RECORD, 'segments'), { recursive: true });
+	/** The record (PUMPS_LAYOUT_RECORD): Running combinations' top under the nav, as shown. */
+	const shot = async (name: string) => {
+		if (!RECORD) return;
+		// Its controls' row under the pinned nav: the pane scrolled to the block, then, once the
+		// nav has pinned, back by its height and a margin.
+		await block.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+		await page.waitForTimeout(300);
+		await block.evaluate((el) => {
+			const nav = document.querySelector('[data-pumps-nav][data-pinned]');
+			let scroller = el.parentElement;
+			while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
+				scroller = scroller.parentElement;
+			}
+			scroller?.scrollBy(0, -((nav?.getBoundingClientRect().height ?? 0) + 8));
+		});
+		await page.waitForTimeout(300);
+		await page.screenshot({
+			path: path.join(RECORD, 'segments', `s6b-condenser-${sizeOf(page)}-${name}.png`),
+			scale: 'css'
+		});
+	};
+	const cardHeight = () => card.evaluate((c) => Math.round(c.getBoundingClientRect().height));
+	const key = (r: { name: string; case: string }) => `${r.name} | ${r.case}`;
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `the condenser at ${sizeOf(page)}`;
+		const phone = size.width < 640;
+
+		// In its own order: a row group per case, in S5's order (combinationsPart reads it).
+		const before = (await combinationsTablePart(page, `${where}, unsorted`, 'grouped'))!;
+		expect(before, `Running combinations drawn, ${where}`).not.toBeNull();
+		expect(before.groups.length).toBe(7);
+		console.log(`${where}: the open card ${await cardHeight()} px, unsorted`);
+		await shot('unsorted');
+
+		// Sorted by NPSH margin: one table, every case's pumps, by margin, those without one last,
+		// the smallest first; the same rows as the cases held.
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin');
+		const sorted = (await combinationsTablePart(page, `${where}, sorted`, 'flat'))!;
+		const values = sorted.rows.map((r) => (/^-?[\d.]+$/.test(r.margin) ? Number(r.margin) : null));
+		const numbers = values.filter((v): v is number => v !== null);
+		expect(numbers.length, `margins, ${where}`).toBeGreaterThan(1);
+		expect(values.slice(0, numbers.length), `the margins in order, ${where}`).toEqual(
+			[...numbers].sort((a, b) => a - b)
+		);
+		expect(values.slice(numbers.length).every((v) => v === null)).toBe(true);
+		expect(values[0], `the smallest margin first, ${where}`).toBe(Math.min(...numbers));
+		expect(sorted.rows.map(key).sort(), `the same rows, ${where}`).toEqual(
+			before.rows.map(key).sort()
+		);
+		// A trace button in each of the shown case's rows, wherever the sort puts them.
+		expect(sorted.rows.filter((r) => r.button).map((r) => r.case)).toEqual(
+			before.rows.filter((r) => r.button).map(() => before.groups[0])
+		);
+		console.log(`${where}: the open card ${await cardHeight()} px, sorted`);
+		await shot('sorted');
+
+		// Flagged only, still sorted: the flagged rows, each with its flag line; its count the rows.
+		const flaggedRows = before.rows.filter((r) => r.flags);
+		const flagged = block.getByRole('checkbox', { name: /^Flagged only/ });
+		await expect(flagged).toHaveAccessibleName(
+			`Flagged only (${flaggedRows.length} of ${before.rows.length})`
+		);
+		await flagged.check();
+		const flatFlagged = (await combinationsTablePart(
+			page,
+			`${where}, sorted, flagged only`,
+			'flat'
+		))!;
+		expect(flatFlagged.rows.map(key).sort()).toEqual(flaggedRows.map(key).sort());
+		expect(flatFlagged.rows.every((r) => !!r.flags)).toBe(true);
+
+		// The sort cleared: the cases with a flagged pump, in S5's order, each such pump's row.
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin', true);
+		const groupedFlagged = (await combinationsTablePart(
+			page,
+			`${where}, flagged only`,
+			'grouped'
+		))!;
+		expect(groupedFlagged.groups).toEqual(
+			before.groups.filter((g) => flaggedRows.some((r) => r.case === g))
+		);
+		expect(groupedFlagged.rows.map(key)).toEqual(flaggedRows.map(key));
+		console.log(`${where}: the open card ${await cardHeight()} px, flagged only`);
+		await shot('flagged-only');
+		await flagged.uncheck();
+
+		// Fields: Head hidden in both forms, then every field back.
+		const fields = block.getByRole('button', { name: /^Fields/ });
+		const sheet = page.getByRole('group', { name: 'Fields shown in Running combinations' });
+		// Closed by Done on a phone, from 640 px by Escape from inside it: its button has the focus
+		// back (S6 review A11Y-S6-2).
+		const closeSheet = async () => {
+			if (phone) await sheet.getByRole('button', { name: 'Done' }).click();
+			else await page.keyboard.press('Escape');
+			await expect(sheet).toBeHidden();
+			await expect(fields).toHaveAttribute('aria-expanded', 'false');
+			await expect(fields).toBeFocused();
+		};
+		await fields.click();
+		await expect(sheet).toBeVisible();
+		await fieldsMenuInPlace(page, sheet, fields, `Running combinations, ${where}`);
+		await sheet.getByRole('checkbox', { name: /^Head/ }).uncheck();
+		await closeSheet();
+		const noHead = async (form: string) => {
+			await expect(region.locator('td[data-label^="Head"]'), `Head cells, ${form}`).toHaveCount(0);
+			await expect(region.getByRole('columnheader', { name: /^Head/ })).toHaveCount(0);
+			await expect(region.locator('td[data-label^="Flow"]').first()).toBeVisible();
+		};
+		await noHead(`grouped, ${where}`);
+		await sortCombinations(page, /^Flow/, 'flow');
+		await noHead(`flat, ${where}`);
+		await sortCombinations(page, /^Flow/, 'flow', true);
+		await fields.click();
+		await sheet.getByRole('button', { name: 'Show all' }).click();
+		// "Show all" goes as it is pressed: the focus stays in the menu, never on the page.
+		await expect(sheet).toBeVisible();
+		expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+		await closeSheet();
+
+		// Back as it was: every case, in S5's order, every row.
+		const after = (await combinationsTablePart(page, `${where}, again`, 'grouped'))!;
+		expect(after.groups).toEqual(before.groups);
+		expect(after.rows.map(key)).toEqual(before.rows.map(key));
+		await noSidewaysScroll(page, `Running combinations, ${where}`);
+	}
+	await page.setViewportSize(viewport);
+});
+
+// ---- S6 review: the card's tables in the browser ----------------------------------------------
+
+/**
+ * The focused element against what its table's box pins (ResultsTable: the sticky first column
+ * and the sticky heading row): whether the point at its centre is its own, and whether it lies
+ * whole in the box's view, right of the first column (but a name or the first heading, which are
+ * in it) and below the heading row (but a heading). WCAG 2.4.11 (S6 review A11Y-S6-1,
+ * LAYOUT-S6-3, S6-TBL-2).
+ */
+function focusedInBox() {
+	const a = document.activeElement as HTMLElement | null;
+	const box = a?.closest<HTMLElement>('.scroll-shadow-x');
+	const table = box?.querySelector('table');
+	if (!a || !box || !table) return null;
+	const r = a.getBoundingClientRect();
+	const b = box.getBoundingClientRect();
+	const [boxLeft, boxTop] = [b.left + box.clientLeft, b.top + box.clientTop];
+	const [boxRight, boxBottom] = [boxLeft + box.clientWidth, boxTop + box.clientHeight];
+	const fixed = table.querySelector('thead th')!;
+	const inFixed = !!a.closest('th[scope="row"]') || fixed.contains(a);
+	const inHead = !!a.closest('thead');
+	const left = inFixed ? boxLeft : fixed.getBoundingClientRect().right;
+	// The heading row's cells stick, not its row group, which keeps its place in the table.
+	const top = inHead ? boxTop : fixed.getBoundingClientRect().bottom;
+	const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+	return {
+		name: (a.textContent ?? '').replace(/\s+/g, ' ').trim(),
+		own: !!hit && a.contains(hit),
+		whole:
+			r.left >= left - 0.5 &&
+			r.right <= boxRight + 0.5 &&
+			r.top >= top - 0.5 &&
+			r.bottom <= boxBottom + 0.5,
+		at: [r.left, r.top, r.right, r.bottom].map(Math.round),
+		clear: [left, top].map(Math.round)
+	};
+}
+
+test('S6 review: in the card’s tables a focus is never under what they pin, a pressed heading stays under the pointer, “Pump” sorts on a phone and the field chosen shows whole, each table’s controls named apart (§5.4, §7; WCAG 2.4.11)', async ({
+	page
+}, info) => {
+	test.setTimeout(480_000);
+	await condenser(page);
+	const tab = await pumpsTab(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const phone = info.project.name === 'mobile';
+	const soft = expect.configure({ soft: true });
+	const groupBlock = card.locator('[data-group-table]');
+	const combos = card.locator('[data-running-combinations]');
+	const groupTitle = (await groupBlock.locator('p').first().innerText()).trim();
+	expect(groupTitle).toMatch(/^The pumps in the group, /);
+
+	// Each table's Fields and, on a phone, its "Sort by" named apart: the visible words, then the
+	// table's name, visually hidden (A11Y-S6-3; ui-guide).
+	const captions = ['Results per pump', groupTitle, 'Running combinations'];
+	await expect(tab.getByRole('button', { name: /^Fields/ })).toHaveCount(3);
+	for (const caption of captions) {
+		await expect
+			.soft(
+				tab.getByRole('button', { name: `Fields, ${caption}`, exact: true }),
+				`Fields of ${caption}`
+			)
+			.toHaveCount(1);
+		if (phone) {
+			await expect
+				.soft(
+					tab.getByRole('combobox', { name: `Sort by, ${caption}`, exact: true }),
+					`"Sort by" of ${caption}`
+				)
+				.toHaveCount(1);
+		}
+	}
+
+	if (!phone) {
+		const boxes = {
+			'Results per pump': tab.getByRole('table', { name: 'Results per pump' }).locator('xpath=..'),
+			'the group table': groupBlock.getByRole('region'),
+			'Running combinations': combos.getByRole('region')
+		};
+		// Every heading focused from the last to the first (as Shift+Tab reached them, S6's
+		// findings), the box scrolled to its right end: in sight, never under the sticky column.
+		const hidden: string[] = [];
+		const walk = async (label: string, box: Locator) => {
+			await box.evaluate((el) => {
+				el.scrollIntoView({ block: 'center' });
+				el.scrollLeft = el.scrollWidth;
+			});
+			const buttons = box.locator('thead button');
+			const n = await buttons.count();
+			for (let i = n - 1; i >= 0; i--) {
+				await buttons.nth(i).evaluate((b) => b.focus());
+				await frames(page);
+				const f = await page.evaluate(focusedInBox);
+				if (!f?.own || !f.whole) hidden.push(`${label}: "${f?.name}" ${JSON.stringify(f)}`);
+			}
+		};
+		for (const [label, box] of Object.entries(boxes)) await walk(label, box);
+		// Running combinations sorted (one table with a Case column) too.
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin');
+		await walk('Running combinations sorted', boxes['Running combinations']);
+		soft(hidden, 'focused headings under the sticky column or out of the box').toEqual([]);
+
+		// The heading row one Tab stop: End and the arrows walk it, each heading in sight.
+		const arrows: string[] = [];
+		for (const [label, box] of Object.entries(boxes)) {
+			const stop = box.locator('thead button:not([tabindex="-1"])');
+			soft(await stop.count(), `${label}: its heading row's Tab stops`).toBe(1);
+			const names = (await box.locator('thead button').allInnerTexts()).map((t) =>
+				t.replace(/\s+/g, ' ').trim()
+			);
+			await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+			await stop.first().focus();
+			await page.keyboard.press('End');
+			for (let i = names.length - 1; i >= 0; i--) {
+				await frames(page);
+				const f = await page.evaluate(focusedInBox);
+				if (!f || f.name !== names[i] || !f.own || !f.whole) {
+					arrows.push(`${label}: "${names[i]}" ${JSON.stringify(f)}`);
+				}
+				if (i > 0) await page.keyboard.press('ArrowLeft');
+			}
+		}
+		soft(arrows, 'headings walked by the arrows, from End back to the first').toEqual([]);
+
+		// The trace buttons of the sorted table, Shift+Tab from after its box scrolled to its foot:
+		// never under the sticky heading row (S6-TBL-2).
+		const box = boxes['Running combinations'];
+		await box.evaluate((el) => (el.scrollTop = el.scrollHeight));
+		await card.getByRole('button', { name: 'Back to the sections' }).focus();
+		const under: string[] = [];
+		let traced = 0;
+		for (let i = 0; i < 80; i++) {
+			await page.keyboard.press('Shift+Tab');
+			await frames(page);
+			const where = await page.evaluate(() => {
+				const a = document.activeElement;
+				const block = document.querySelector('[data-running-combinations]');
+				return !a || !block?.contains(a) ? 'out' : a.closest('tbody') ? 'body' : 'other';
+			});
+			if (where !== 'body') {
+				if (traced) break;
+				continue;
+			}
+			traced++;
+			const f = await page.evaluate(focusedInBox);
+			if (!f?.own || !f.whole) under.push(JSON.stringify(f));
+		}
+		soft(traced, 'trace buttons reached by Shift+Tab').toBeGreaterThan(0);
+		soft(under, 'focused trace buttons under the heading row').toEqual([]);
+		await sortCombinations(page, /^NPSH margin/, 'npshMargin', true);
+
+		// A heading pressed by the pointer stays under it as the table flattens and groups again:
+		// a second press at the same point reverses, a third clears (LAYOUT-S6-2).
+		const jumps: string[] = [];
+		for (const [column, words, end] of [
+			[/^Flow/, 'Flow', false],
+			[/^NPSH margin/, 'NPSH margin', true]
+		] as const) {
+			const heading = box.getByRole('columnheader', { name: column });
+			await box.evaluate((el, toEnd) => {
+				el.scrollIntoView({ block: 'center' });
+				el.scrollLeft = toEnd ? el.scrollWidth : 0;
+			}, end);
+			await frames(page);
+			const b = (await heading.getByRole('button').boundingBox())!;
+			const [x, y] = [b.x + b.width / 2, b.y + b.height / 2];
+			for (const sort of ['ascending', 'descending', null]) {
+				await page.mouse.click(x, y);
+				await frames(page);
+				const now = await heading.getAttribute('aria-sort');
+				const f = await page.evaluate(focusedInBox);
+				const what = `${words} at the box's ${end ? 'end' : 'start'}, pressed to ${sort ?? 'clear'}`;
+				if (now !== sort) jumps.push(`${what}: aria-sort ${now}`);
+				if (!f?.own || !f.whole || !f.name.startsWith(words)) {
+					jumps.push(`${what}: the focus ${JSON.stringify(f)}`);
+				}
+				if (now !== sort) break;
+			}
+			if ((await heading.getAttribute('aria-sort')) !== null) {
+				await sortCombinations(page, column, '', true);
+			}
+		}
+		soft(jumps, 'a heading pressed three times at one point').toEqual([]);
+	} else {
+		// A phone's "Sort by": "Pump" sorts by name in both card tables (STRUCT-3, TBL-1), and
+		// every field chosen shows whole beside its direction button, on one line with Fields, at
+		// 390 and 320 px (TBL-4).
+		const viewport = page.viewportSize()!;
+		const cut: string[] = [];
+		for (const size of [viewport, { width: 320, height: 640 }]) {
+			await page.setViewportSize(size);
+			await settle(page, 1000);
+			for (const [label, block] of [
+				['the group table', groupBlock],
+				['Running combinations', combos]
+			] as const) {
+				const where = `${label} at ${sizeOf(page)}`;
+				const select = block.getByRole('combobox', { name: /^Sort by/ });
+				const fields = block.getByRole('button', { name: /^Fields/ });
+				const direction = block.getByRole('button', { name: /lowest first|highest first/ });
+				await select.selectOption({ label: 'Pump' });
+				await expect
+					.soft(
+						block.getByRole('columnheader', { name: 'Pump', exact: true }),
+						`${where}: sorted by name`
+					)
+					.toHaveAttribute('aria-sort', 'ascending');
+				soft(
+					await select.evaluate((el) => (el as HTMLSelectElement).selectedOptions[0]?.text),
+					`${where}: "Pump" shown`
+				).toBe('Pump');
+				soft(await direction.count(), `${where}: "Pump" chosen, its direction`).toBe(1);
+				if (label === 'Running combinations') {
+					await expect
+						.soft(
+							block.getByRole('columnheader', { name: 'Case', exact: true }),
+							`${where}: one table with a Case column`
+						)
+						.toHaveCount(1);
+				}
+				const options = (await select.locator('option').allInnerTexts()).filter(
+					(o) => o !== 'Table order'
+				);
+				for (const option of options) {
+					await select.selectOption({ label: option });
+					const m = await select.evaluate((el) => {
+						const s = el as HTMLSelectElement;
+						const css = getComputedStyle(s);
+						const context = document.createElement('canvas').getContext('2d')!;
+						context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+						const text = s.selectedOptions[0]?.text ?? '';
+						return {
+							text,
+							width: Math.ceil(context.measureText(text).width),
+							room: Math.floor(
+								s.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+							)
+						};
+					});
+					if (m.room - MENULIST_INNER < m.width) {
+						cut.push(`${where}: "${m.text}" ${m.width} px in ${m.room - MENULIST_INNER}`);
+					}
+					if (!(await direction.count())) {
+						cut.push(`${where}: "${m.text}" chosen, no sort`);
+						continue;
+					}
+					const tops = await Promise.all(
+						[select, direction, fields].map(async (c) => (await c.boundingBox())!.y)
+					);
+					if (Math.max(...tops) - Math.min(...tops) > 2) {
+						cut.push(`${where}: "${m.text}" chosen, Sort, its direction and Fields on ${tops}`);
+					}
+				}
+				await select.selectOption({ label: 'Table order' });
+				await expect(direction).toHaveCount(0);
+			}
+		}
+		soft(cut, 'a field chosen cut short, or its line broken').toEqual([]);
+		await page.setViewportSize(viewport);
+	}
+});
+
+// ---- S6, the second check: a pressed heading's words stay put; a tap is a press ---------------
+
+/**
+ * Heading `i` of a results table's heading row (its sort buttons in order), the box placed so the
+ * heading lies whole in its view, 8 px clear of the box's right edge and 32 px clear of the sticky
+ * column (room for the arrow and gap a sort adds on a numeric heading's left, 20 px, and its ring,
+ * 4 px, so the box need not scroll to show them), as far from the box's start as that allows and
+ * at least 24 px from it, so a press that scrolled the box back by the arrow's 20 px would show
+ * (S6-FIX-1). `placed` is false where no such place is.
+ */
+function placeHeading(el: Element, i: number) {
+	const box = el as HTMLElement;
+	const button = box.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[i]!;
+	const name = (button.textContent ?? '').replace(/\s+/g, ' ').trim();
+	const numeric = button.classList.contains('flex-row-reverse');
+	box.scrollLeft = 0;
+	const fixed = box.querySelector('thead th')!.getBoundingClientRect().right;
+	const b = box.getBoundingClientRect();
+	const right = b.left + box.clientLeft + box.clientWidth;
+	const r = button.getBoundingClientRect();
+	const hi = Math.min(box.scrollWidth - box.clientWidth, Math.floor(r.left - fixed - 32));
+	const lo = Math.max(24, Math.ceil(r.right - right + 8));
+	if (hi < lo) return { name, numeric, placed: false };
+	box.scrollLeft = hi;
+	return { name, numeric, placed: true };
+}
+
+/**
+ * What a press on heading `i` may move (S6-FIX-1): the left of its words (the button's first
+ * child, its label and unit, whose size no sort changes), its column's width, its sort, and the
+ * edges of each value's cell in the first row of values, by its column's label, in their order.
+ * `own` is the pressed column's label. `hit` says whether the point at the button's centre is the
+ * button's (no pinned nav over it); `whole`, whether the button, its arrow with it, lies whole in
+ * the box's view right of the sticky column (LAYOUT-S6-2).
+ */
+function readPress(el: Element, i: number) {
+	const button = el.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[i]!;
+	const th = button.closest('th')!;
+	const row = el.querySelector('tbody tr:has(> td[data-label])')!;
+	const tds = [...row.querySelectorAll<HTMLElement>(':scope > td[data-label]')];
+	const cells: Record<string, [number, number]> = {};
+	for (const td of tds) {
+		const r = td.getBoundingClientRect();
+		cells[td.dataset.label!] = [r.left, r.right];
+	}
+	const own = (row.children[[...th.parentElement!.children].indexOf(th)] as HTMLElement).dataset
+		.label!;
+	const b = button.getBoundingClientRect();
+	const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+	const box = el as HTMLElement;
+	const fixed = box.querySelector('thead th')!.getBoundingClientRect().right;
+	const right = box.getBoundingClientRect().left + box.clientLeft + box.clientWidth;
+	return {
+		words: button.firstElementChild!.getBoundingClientRect().left,
+		width: th.getBoundingClientRect().width,
+		sort: th.getAttribute('aria-sort'),
+		cells,
+		order: tds.map((td) => td.dataset.label!),
+		own,
+		hit: !!at && button.contains(at),
+		whole: b.left >= fixed - 0.5 && b.right <= right + 0.5
+	};
+}
+
+/**
+ * A press read against the table before the first press: the heading's words keep their x; only
+ * the pressed column may change width, by its arrow and gap (20 px) at most, and then it grows
+ * away from its words, so the columns before it move back by as much and those after it stay;
+ * every other column stays (S6-FIX-1). The Case column a sort adds is in neither reading's place.
+ */
+function pressMoves(
+	before: ReturnType<typeof readPress>,
+	after: ReturnType<typeof readPress>,
+	what: string
+): string[] {
+	const out: string[] = [];
+	const words = after.words - before.words;
+	if (Math.abs(words) > 0.5) out.push(`${what}: its words moved ${words.toFixed(1)} px`);
+	const grew = after.width - before.width;
+	if (grew < -0.5 || grew > 20.5) out.push(`${what}: its column grew ${grew.toFixed(1)} px`);
+	const at = before.order.indexOf(before.own);
+	before.order.forEach((label, k) => {
+		const [then, now] = [before.cells[label]!, after.cells[label]];
+		if (!now) return;
+		const [edge, shift] = k < at ? [0, -grew] : k === at ? [1, 0] : [0, 0];
+		const moved = now[edge]! - then[edge]! - shift;
+		if (Math.abs(moved) > 0.5) {
+			out.push(`${what}: "${label}" ${edge ? 'right' : 'left'} edge moved ${moved.toFixed(1)} px`);
+		}
+	});
+	return out;
+}
+
+/** Clear a results table's sort from a script (its sorted heading's button pressed until none). */
+async function clearSort(box: Locator) {
+	for (let k = 0; k < 3; k++) {
+		const sorted = box.locator('thead th[aria-sort] button');
+		if (!(await sorted.count())) return;
+		await sorted.evaluate((b) => (b as HTMLElement).click());
+	}
+}
+
+test('S6, the second check: a numeric heading pressed three times at one point, its box scrolled from its start, keeps its words and every other column in place, but for its own column’s growth by its arrow (Links, Nodes and the Pumps tab’s three tables; S6-FIX-1)', async ({
+	page
+}, info) => {
+	test.skip(
+		info.project.name === 'mobile',
+		'the headings show from 640 px; a phone sorts by Sort by'
+	);
+	test.setTimeout(480_000);
+	const moved: string[] = [];
+	const pressed: Record<string, number> = {};
+	const pressEach = async (label: string, box: Locator) => {
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await clearSort(box);
+		const n = await box.locator('thead button[data-sort-key]').count();
+		pressed[label] = 0;
+		for (let i = 1; i < n; i++) {
+			const place = await box.evaluate(placeHeading, i);
+			if (!place.numeric || !place.placed) continue;
+			await frames(page);
+			const before = await box.evaluate(readPress, i);
+			if (!before.hit) {
+				moved.push(`${label}, "${place.name}": its button's centre covered`);
+				continue;
+			}
+			pressed[label]++;
+			const b = (await box.locator('thead button[data-sort-key]').nth(i).boundingBox())!;
+			for (const sort of ['ascending', 'descending', null]) {
+				await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+				await frames(page);
+				const after = await box.evaluate(readPress, i);
+				const what = `${label}, "${place.name}" pressed to ${sort ?? 'clear'}`;
+				if (after.sort !== sort) {
+					moved.push(`${what}: aria-sort ${after.sort}`);
+					break;
+				}
+				moved.push(...pressMoves(before, after, what));
+				if (!after.whole) moved.push(`${what}: the button not whole in the box's view`);
+			}
+			await clearSort(box);
+		}
+	};
+
+	await open(page, exampleProject('gravity-branch')!);
+	await solveConverged(page);
+	await showPane(page, 'Results');
+	const links = await resultsView(page, 'Links');
+	await pressEach(
+		'Links',
+		links.getByRole('table', { name: 'Results per pipe connection' }).locator('xpath=..')
+	);
+	const nodes = await resultsView(page, 'Nodes');
+	await pressEach('Nodes', nodes.getByRole('table').first().locator('xpath=..'));
+
+	await condenser(page);
+	const tab = await pumpsTab(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	await pressEach(
+		'Results per pump',
+		tab.getByRole('table', { name: 'Results per pump' }).locator('xpath=..')
+	);
+	await pressEach('the group table', card.locator('[data-group-table]').getByRole('region'));
+	await pressEach(
+		'Running combinations',
+		card.locator('[data-running-combinations]').getByRole('region')
+	);
+	expect.soft(moved, 'what a press on a numeric heading moved').toEqual([]);
+	// Each table's headings pressed where its box scrolls from its start: at least two in each.
+	for (const [label, n] of Object.entries(pressed)) {
+		expect.soft(n, `${label}: numeric headings pressed`).toBeGreaterThanOrEqual(2);
+	}
+	expect(Object.keys(pressed)).toHaveLength(5);
+});
+
+/**
+ * The end of a box's scroll, a column a sort's arrow widens by a fraction of a pixel (S6, the CI
+ * fix; PR #273's desktop run): CI's Chromium drew Nodes' "HGL (m)" in the gravity-branch example
+ * 0.8 px narrower than its heading with its arrow and gap, and the table ending more than 0.5 px
+ * past a whole pixel, where the box's scroll range is a whole number of pixels. Placed at the end
+ * of the box's scroll, the press widened the table 0.8 px but not the range, the box could not
+ * follow, and its words and every other column moved 0.8 px (1.0 on the clear).
+ *
+ * This draws that in any Chromium, by styles on box `el` (`data-fraction`): heading `name`'s
+ * words a min-width of its column's width rounded up, so its heading (words, button and cell
+ * padding) sets the column's width and a sort's arrow and gap (20 px) widen it; its values cells
+ * a min-width `growth` px short of that, so a sort widens the column by exactly `growth`; with
+ * `caseWidth`, the Case column a sort adds to a table of row groups that wide; and the first other
+ * column's cells a min-width up to 63/64 px over their width, chosen so a table wider by what
+ * the sort adds gets the least scroll range (`short`, what it lacks); with `more`, the most (the
+ * other way: `short` below 0, the range a whole pixel more than a 13/64 px growth; the CI fix's
+ * review CIFIX-1, TEST-CI-1). Widths are in 64ths of a pixel, as layout keeps them. `index` is the
+ * heading's among the heading row's sort buttons.
+ */
+function fractionAtEnd(
+	el: Element,
+	[name, growth, caseWidth, more = false]: readonly [string, number, number, boolean?]
+) {
+	const box = el as HTMLElement;
+	box.dataset.fraction = '';
+	let style = document.getElementById('fraction-at-end') as HTMLStyleElement | null;
+	if (!style) {
+		style = document.createElement('style');
+		style.id = 'fraction-at-end';
+		document.head.append(style);
+	}
+	style.textContent = '';
+	const buttons = [...box.querySelectorAll<HTMLElement>('thead button[data-sort-key]')];
+	const index = buttons.findIndex((b) => (b.textContent ?? '').trim().startsWith(name));
+	const button = buttons[index]!;
+	const th = button.closest('th')!;
+	const row = box.querySelector('tbody tr:has(> td[data-label])')!;
+	const own = (row.children[[...th.parentElement!.children].indexOf(th)] as HTMLElement).dataset
+		.label!;
+	const knob = [...row.querySelectorAll<HTMLElement>(':scope > td[data-label]')].find(
+		(td) => td.dataset.label !== own
+	)!;
+	const rule = (selector: string, width: number) =>
+		`[data-fraction] ${selector} { min-width: ${width}px; }`;
+	const cells = (label: string) => `td[data-label="${CSS.escape(label)}"]`;
+	const key = CSS.escape(button.dataset.sortKey!);
+	const rules = [
+		rule(
+			`thead button[data-sort-key="${key}"] > span:first-child`,
+			Math.ceil(th.getBoundingClientRect().width)
+		)
+	];
+	style.textContent = rules.join('\n');
+	const heading = th.getBoundingClientRect().width;
+	rules.push(rule(cells(own), heading + 20 - growth));
+	if (caseWidth) rules.push(rule(cells('Case'), caseWidth));
+	const knobWidth = knob.getBoundingClientRect().width;
+	const range = (extra: number) => {
+		style.textContent = [...rules, rule(cells(knob.dataset.label!), knobWidth + extra)].join('\n');
+		return box.scrollWidth - box.clientWidth;
+	};
+	const lacks = Array.from({ length: 64 }, (_, k) => {
+		const from = range(k / 64);
+		return growth + caseWidth - (range(k / 64 + growth + caseWidth) - from);
+	});
+	const short = more ? Math.min(...lacks) : Math.max(...lacks);
+	const ks = lacks.flatMap((s, k) => (s === short ? [k] : []));
+	range(ks[Math.floor(ks.length / 2)]! / 64);
+	return { index, short, own, column: th.getBoundingClientRect().width, heading };
+}
+
+test('S6, the CI fix: a numeric heading pressed three times at one point at the end of its box’s scroll, a column the arrow widens by a fraction of a pixel, keeps its words and every other column in place, but for its own column’s growth by its arrow (Nodes and Running combinations)', async ({
+	page
+}, info) => {
+	test.skip(
+		info.project.name === 'mobile',
+		'the headings show from 640 px; a phone sorts by Sort by'
+	);
+	test.setTimeout(480_000);
+	const moved: string[] = [];
+	const pressAtEnd = async (
+		label: string,
+		box: Locator,
+		name: string,
+		growth: number,
+		caseWidth = 0
+	) => {
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await clearSort(box);
+		const set = await box.evaluate(fractionAtEnd, [name, growth, caseWidth] as const);
+		const what = `${label}, "${name}" widened ${growth} px${caseWidth ? `, its Case column ${caseWidth} px` : ''}`;
+		// The setup: the column `growth` px short of its heading with the arrow, and the scroll
+		// range unable to grow by all a sort adds (so on the code before the fix, 0.8 px of it).
+		expect(set.index, `${what}: its heading`).toBeGreaterThan(0);
+		expect(set.heading + 20 - set.column, `${what}: its column short of its heading`).toBe(growth);
+		expect(set.short, `${what}: what the scroll range lacks`).toBeGreaterThan(0);
+		const place = await box.evaluate(placeHeading, set.index);
+		expect(place.placed && place.numeric, `${what}: placed whole in view`).toBe(true);
+		const end = await box.evaluate((el) => {
+			const b = el as HTMLElement;
+			return b.scrollWidth - b.clientWidth - b.scrollLeft;
+		});
+		expect(end, `${what}: the box at the end of its scroll`).toBe(0);
+		await frames(page);
+		const before = await box.evaluate(readPress, set.index);
+		expect(before.hit, `${what}: its button's centre its own`).toBe(true);
+		const button = box.locator('thead button[data-sort-key]').nth(set.index);
+		const b = (await button.boundingBox())!;
+		for (const sort of ['ascending', 'descending', null]) {
+			await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+			await frames(page);
+			const after = await box.evaluate(readPress, set.index);
+			const at = `${what}, pressed to ${sort ?? 'clear'}`;
+			if (after.sort !== sort) {
+				moved.push(`${at}: aria-sort ${after.sort}`);
+				break;
+			}
+			// The setup's arrow and gap: the button 20 px wider while sorted; the Case column as set.
+			const grew = (await button.boundingBox())!.width - b.width;
+			expect(grew, `${at}: the button's growth`).toBe(sort ? 20 : 0);
+			const caseCell = after.cells['Case'];
+			if (caseWidth && sort) {
+				expect(caseCell![1] - caseCell![0], `${at}: the Case column`).toBe(caseWidth);
+			}
+			moved.push(...pressMoves(before, after, at));
+			if (!after.whole) moved.push(`${at}: the button not whole in the box's view`);
+		}
+		await clearSort(box);
+		await box.evaluate((el) => {
+			delete (el as HTMLElement).dataset.fraction;
+			document.getElementById('fraction-at-end')?.remove();
+		});
+	};
+
+	await open(page, exampleProject('gravity-branch')!);
+	await solveConverged(page);
+	await showPane(page, 'Results');
+	const nodes = (await resultsView(page, 'Nodes')).getByRole('table').first().locator('xpath=..');
+	// CI's 0.8 px; 19.2 px, whose scroll range lacks 0.2 px of it; 19.8 px, 0.8 px of it. In 64ths.
+	for (const growth of [51 / 64, 19 + 13 / 64, 19 + 51 / 64]) {
+		await pressAtEnd('Nodes', nodes, 'HGL', growth);
+	}
+
+	// A sort that flattens Running combinations' cases adds the Case column before the heading:
+	// 208.6 px of it and 0.2 of the arrow's, together 0.8 px past a whole pixel. Its last column,
+	// "Inside curve data" (14 rem at least), hidden by Fields, so a numeric heading can lie whole
+	// at the end of the box's scroll: "Shaft power", the one before "NPSH margin".
+	await condenser(page);
+	const combinations = (await pumpsTab(page))
+		.getByRole('region', { name: /^Pumps together/ })
+		.locator('[data-running-combinations]');
+	await combinations.getByRole('button', { name: /^Fields/ }).click();
+	await combinations.getByRole('checkbox', { name: 'Inside curve data' }).uncheck();
+	await page.keyboard.press('Escape');
+	await pressAtEnd(
+		'Running combinations',
+		combinations.getByRole('region'),
+		'Shaft power',
+		13 / 64,
+		208 + 38 / 64
+	);
+	expect.soft(moved, 'what a press at the end of the box’s scroll moved').toEqual([]);
+});
+
+/**
+ * A sort a fraction of a pixel wider than its table unsorted, pressed at the end of its box's
+ * scroll (S6, the CI fix's review CIFIX-1, TEST-CI-1): the CI fix held a press's column the rest
+ * of a pixel so the table changed by whole pixels, but only on a press that left its column
+ * sorted; new results and Flagged only dropped the hold (a case ticked under "Cases on this
+ * chart" makes Running combinations' rows anew), and a sort the Summary's link set was never
+ * held. With the knob the other way from the CI fix's test (the scroll range a whole pixel more
+ * than a 13/64 px growth), the press to clear then narrowed the table by that fraction and the
+ * range by a whole pixel, and at the end of the box's scroll its words and every other column
+ * moved 0.8 px. Each press is read against the reading just before it (the event between moves
+ * the table, not a press); a press to clear is a press to sort read backwards.
+ */
+test('S6, the CI fix’s review: a sort a fraction of a pixel wider than its table unsorted, its hold dropped by new results, Flagged only or a case ticked on the group chart, or never made by the Summary’s link, pressed to descending and to clear at one point at the end of its box’s scroll, keeps its words and every other column in place (Nodes and Running combinations; CIFIX-1, TEST-CI-1)', async ({
+	page
+}, info) => {
+	test.skip(
+		info.project.name === 'mobile',
+		'the headings show from 640 px; a phone sorts by Sort by'
+	);
+	test.setTimeout(480_000);
+	const growth = 13 / 64;
+	const moved: string[] = [];
+	/**
+	 * Heading `index` placed by placeHeading (unsorted, room for its arrow) or, sorted, the box
+	 * scrolled to its end; either way the box at the end of its scroll and the button whole in
+	 * its view. The point a press there is made at: the button's centre.
+	 */
+	const atEnd = async (box: Locator, index: number, what: string, sorted: boolean) => {
+		if (sorted) {
+			await box.evaluate((el) => {
+				const b = el as HTMLElement;
+				b.scrollLeft = b.scrollWidth - b.clientWidth;
+			});
+		} else {
+			const place = await box.evaluate(placeHeading, index);
+			expect(place.placed && place.numeric, `${what}: placed whole in view`).toBe(true);
+		}
+		const end = await box.evaluate((el) => {
+			const b = el as HTMLElement;
+			return b.scrollWidth - b.clientWidth - b.scrollLeft;
+		});
+		expect(end, `${what}: the box at the end of its scroll`).toBe(0);
+		await frames(page);
+		expect((await box.evaluate(readPress, index)).whole, `${what}: its button whole`).toBe(true);
+		const b = (await box.locator('thead button[data-sort-key]').nth(index).boundingBox())!;
+		return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+	};
+	const pressAt = async (
+		box: Locator,
+		index: number,
+		at: { x: number; y: number },
+		sort: string | null,
+		what: string
+	) => {
+		const before = await box.evaluate(readPress, index);
+		expect(before.hit, `${what}: its button's centre its own`).toBe(true);
+		await page.mouse.click(at.x, at.y);
+		await frames(page);
+		const after = await box.evaluate(readPress, index);
+		const pressed = `${what}, pressed to ${sort ?? 'clear'}`;
+		if (after.sort !== sort) {
+			moved.push(`${pressed}: aria-sort ${after.sort}`);
+			return;
+		}
+		moved.push(
+			...(sort
+				? pressMoves(before, after, pressed)
+				: pressMoves(after, before, `${pressed}, read back from after it`))
+		);
+		if (!after.whole) moved.push(`${pressed}: the button not whole in the box's view`);
+	};
+	/**
+	 * Heading `name` at the end of box `box`'s scroll, sorted ascending by `sortBy` (a press at the
+	 * button's centre, or the caller's: the Summary's link), the event `between` (if any), then
+	 * pressed to descending and to clear at one point, the box placed at its end again first. The
+	 * event leaves the sort a fraction of a pixel wider than the table unsorted, nothing held.
+	 */
+	const sortedThenPressed = async (
+		label: string,
+		box: Locator,
+		name: string,
+		caseWidth: number,
+		sortBy: (() => Promise<void>) | null,
+		between: (() => Promise<void>) | null
+	) => {
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await clearSort(box);
+		const set = await box.evaluate(fractionAtEnd, [name, growth, caseWidth, true] as const);
+		const what = `${label}, "${name}" widened 13/64 px${caseWidth ? `, its Case column ${caseWidth} px` : ''}`;
+		expect(set.index, `${what}: its heading`).toBeGreaterThan(0);
+		expect(set.heading + 20 - set.column, `${what}: its column short of its heading`).toBe(growth);
+		expect(set.short, `${what}: the scroll range gains more than the sort adds`).toBeLessThan(0);
+		if (sortBy) await sortBy();
+		else await pressAt(box, set.index, await atEnd(box, set.index, what, false), 'ascending', what);
+		await expect(box.locator('thead th[aria-sort]'), `${what}: sorted`).toHaveAttribute(
+			'aria-sort',
+			'ascending'
+		);
+		if (between) await between();
+		await expect(box, `${what}: its styles kept`).toHaveAttribute('data-fraction', '');
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		const at = await atEnd(box, set.index, `${what}, sorted`, true);
+		await expect(box.locator('thead th[aria-sort]'), `${what}: still sorted`).toHaveAttribute(
+			'aria-sort',
+			'ascending'
+		);
+		expect(
+			await box.locator('thead th[style*="min-width"]').count(),
+			`${what}: nothing held before the presses`
+		).toBe(0);
+		await pressAt(box, set.index, at, 'descending', what);
+		await pressAt(box, set.index, at, null, what);
+		// The hold the clear may leave dropped, by a sort by name and its clear.
+		await box
+			.locator('thead button[data-sort-key]')
+			.first()
+			.evaluate((b) => (b as HTMLElement).click());
+		await clearSort(box);
+		await box.evaluate((el) => {
+			delete (el as HTMLElement).dataset.fraction;
+			document.getElementById('fraction-at-end')?.remove();
+		});
+	};
+
+	await open(page, exampleProject('gravity-branch')!);
+	await solveConverged(page);
+	await showPane(page, 'Results');
+	const nodesView = await resultsView(page, 'Nodes');
+	const nodes = nodesView.getByRole('table').first().locator('xpath=..');
+	// New results while sorted: the header's Solve.
+	await sortedThenPressed('Nodes', nodes, 'HGL', 0, null, async () => {
+		await solveConverged(page);
+		await frames(page);
+	});
+	// The Summary's link, "Nodes, lowest first", sorts by "Pressure": the columns after "Dynamic
+	// pressure" hidden by Fields and "Elevation" 400 px wide, so "Pressure" lies at the end of the
+	// box's scroll.
+	await nodesView.getByRole('button', { name: /^Fields/ }).click();
+	for (const field of [/^Total pressure/, /^Absolute pressure/, /^Velocity/, /^HGL/, /^EGL/]) {
+		await nodesView.getByRole('checkbox', { name: field }).uncheck();
+	}
+	await page.keyboard.press('Escape');
+	await nodes.evaluate(() => {
+		const pad = document.createElement('style');
+		pad.id = 'elevation-wide';
+		pad.textContent = 'td[data-label="Elevation (m)"] { min-width: 400px; }';
+		document.head.append(pad);
+	});
+	await sortedThenPressed(
+		'Nodes',
+		nodes,
+		'Pressure',
+		0,
+		async () => {
+			const summary = await resultsView(page, 'Summary');
+			await summary.getByRole('button', { name: 'Nodes, lowest first' }).click();
+			await expect(nodesView).toBeVisible();
+			await frames(page);
+		},
+		null
+	);
+	await nodes.evaluate(() => document.getElementById('elevation-wide')?.remove());
+
+	// Running combinations, "Shaft power" with "Inside curve data" hidden, as in the CI fix's test:
+	// a sort adds a 208 px Case column, so the table grows 208 + 13/64 px and the range 209.
+	await condenser(page);
+	const card = (await pumpsTab(page)).getByRole('region', { name: /^Pumps together/ });
+	const combinations = card.locator('[data-running-combinations]');
+	await combinations.getByRole('button', { name: /^Fields/ }).click();
+	await combinations.getByRole('checkbox', { name: 'Inside curve data' }).uncheck();
+	await page.keyboard.press('Escape');
+	const box = combinations.getByRole('region');
+	const only = combinations.getByRole('checkbox', { name: /^Flagged only/ });
+	await sortedThenPressed('Running combinations', box, 'Shaft power', 208, null, async () => {
+		await only.check();
+		await frames(page);
+		await only.uncheck();
+		await frames(page);
+	});
+	const chartCases = card.getByRole('group', { name: 'Cases on this chart' }).getByRole('checkbox');
+	expect(await chartCases.count(), 'cases under "Cases on this chart"').toBeGreaterThan(1);
+	await sortedThenPressed('Running combinations', box, 'Shaft power', 208, null, async () => {
+		const last = chartCases.last();
+		const ticked = await last.isChecked();
+		await last.setChecked(!ticked);
+		await settle(page);
+		await last.setChecked(ticked);
+		await settle(page);
+	});
+	expect.soft(moved, 'what a press at the end of the box’s scroll moved').toEqual([]);
+});
+
+/**
+ * A press moves nothing up or down (S6, the CI fix's review PRE-1; ui-guide, a press moves nothing
+ * under the pointer): a numeric heading's arrow sits on its words' left (its button's row
+ * reversed), and a browser takes an inline flex box's baseline from its first item along the
+ * line, so the sorted heading's button sat on its arrow's foot, 3 px of the line's strut below
+ * it, and the heading row grew 53 to 56 px; the rows under it moved down 3 px, and the Results
+ * pane, anchored on them, scrolled 3 px to follow, moving the heading under the pointer (Running
+ * combinations with its box's top just under the pinned nav, a band of about 40 px). Here each
+ * of the Pumps tab's tables keeps its heading row's height through three presses of each numeric
+ * heading, and Running combinations, its box's top at each of five places just under the pinned
+ * nav, keeps the pane's scroll and the heading's top.
+ */
+test('S6, the CI fix’s review: a numeric heading pressed three times at one point moves nothing up or down: its heading row keeps its height, and the Results pane keeps its scroll with Running combinations just under the pinned nav (the Pumps tab’s three tables; PRE-1)', async ({
+	page
+}, info) => {
+	test.skip(
+		info.project.name === 'mobile',
+		'the headings show from 640 px; a phone sorts by Sort by'
+	);
+	test.setTimeout(480_000);
+	const moved: string[] = [];
+	/** The heading row's height, the pane's scroll, and heading `i`'s button's top and centre. */
+	const readUpright = (el: Element, i: number) => {
+		const button = el.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[i]!;
+		const b = button.getBoundingClientRect();
+		let pane: HTMLElement | null = el.parentElement;
+		while (pane && !/(auto|scroll)/.test(getComputedStyle(pane).overflowY)) {
+			pane = pane.parentElement;
+		}
+		return {
+			row: el.querySelector('thead tr')!.getBoundingClientRect().height,
+			pane: pane!.scrollTop,
+			top: b.top,
+			x: b.left + b.width / 2,
+			y: b.top + b.height / 2,
+			numeric: button.classList.contains('flex-row-reverse'),
+			name: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+			sort: button.closest('th')!.getAttribute('aria-sort')
+		};
+	};
+	const pressUpright = async (label: string, box: Locator, i: number) => {
+		const before = await box.evaluate(readUpright, i);
+		if (!before.numeric) return 0;
+		for (const sort of ['ascending', 'descending', null]) {
+			await page.mouse.click(before.x, before.y);
+			await frames(page);
+			const after = await box.evaluate(readUpright, i);
+			const what = `${label}, "${before.name}" pressed to ${sort ?? 'clear'}`;
+			if (after.sort !== sort) {
+				moved.push(`${what}: aria-sort ${after.sort}`);
+				break;
+			}
+			for (const [part, then, now] of [
+				['its heading row grew', before.row, after.row],
+				['the pane scrolled down', before.pane, after.pane],
+				['its button moved down', before.top, after.top]
+			] as const) {
+				if (Math.abs(now - then) > 0.5)
+					moved.push(`${what}: ${part} ${(now - then).toFixed(1)} px`);
+			}
+		}
+		await clearSort(box);
+		return 1;
+	};
+
+	await condenser(page);
+	const tab = await pumpsTab(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const combinations = card.locator('[data-running-combinations]').getByRole('region');
+	const tables: [string, Locator][] = [
+		['Results per pump', tab.getByRole('table', { name: 'Results per pump' }).locator('xpath=..')],
+		['the group table', card.locator('[data-group-table]').getByRole('region')],
+		['Running combinations', combinations]
+	];
+	const pressed: Record<string, number> = {};
+	for (const [label, box] of tables) {
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await clearSort(box);
+		pressed[label] = 0;
+		const n = await box.locator('thead button[data-sort-key]').count();
+		for (let i = 1; i < n; i++) {
+			const place = await box.evaluate(placeHeading, i);
+			if (!place.numeric || !place.placed) continue;
+			await frames(page);
+			pressed[label] += await pressUpright(label, box, i);
+		}
+	}
+	// Running combinations' box, its top at the pinned nav's foot and 3, 6, 9 and 12 px under it,
+	// at its scroll's start, each numeric heading whole in view there pressed.
+	await combinations.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+	const under: Record<number, number> = {};
+	for (const gap of [0, 3, 6, 9, 12]) {
+		under[gap] = 0;
+		const nav = await page.evaluate(readNav);
+		expect(nav.pinned, 'the section nav pinned').toBe(true);
+		await combinations.evaluate((el, top) => {
+			let pane: HTMLElement | null = el.parentElement;
+			while (pane && !/(auto|scroll)/.test(getComputedStyle(pane).overflowY)) {
+				pane = pane.parentElement;
+			}
+			pane!.scrollTop += el.getBoundingClientRect().top - top;
+			(el as HTMLElement).scrollLeft = 0;
+		}, nav.navBottom + gap);
+		await frames(page);
+		const n = await combinations.locator('thead button[data-sort-key]').count();
+		for (let i = 1; i < n; i++) {
+			const whole = await combinations.evaluate((el, k) => {
+				const box = el as HTMLElement;
+				const r = box.querySelectorAll('thead button[data-sort-key]')[k]!.getBoundingClientRect();
+				const fixed = box.querySelector('thead th')!.getBoundingClientRect().right;
+				const right = box.getBoundingClientRect().left + box.clientLeft + box.clientWidth;
+				return box.scrollLeft === 0 && r.left >= fixed + 24 && r.right <= right - 8;
+			}, i);
+			if (!whole) continue;
+			under[gap] += await pressUpright(
+				`Running combinations ${gap} px under the nav`,
+				combinations,
+				i
+			);
+		}
+	}
+	expect.soft(moved, 'what a press moved up or down').toEqual([]);
+	for (const [label, n] of Object.entries(pressed)) {
+		expect.soft(n, `${label}: numeric headings pressed`).toBeGreaterThanOrEqual(2);
+	}
+	for (const [gap, n] of Object.entries(under)) {
+		expect
+			.soft(n, `Running combinations ${gap} px under the nav: headings pressed`)
+			.toBeGreaterThan(0);
+	}
+});
+
+test.describe('a touch screen from 640 px', () => {
+	test.use({ hasTouch: true });
+
+	test('S6, the second check: a tap on a heading with 6 px of it showing, beside the sticky column or at the box’s right edge, sorts by it and moves nothing under the finger (Links; S6-FIX-2)', async ({
+		page
+	}, info) => {
+		test.skip(
+			info.project.name === 'mobile',
+			'the headings show from 640 px; a phone sorts by Sort by'
+		);
+		test.setTimeout(240_000);
+		await open(page, exampleProject('gravity-branch')!);
+		await solveConverged(page);
+		await showPane(page, 'Results');
+		const links = await resultsView(page, 'Links');
+		const box = links
+			.getByRole('table', { name: 'Results per pipe connection' })
+			.locator('xpath=..');
+		await box.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		const n = await box.locator('thead button[data-sort-key]').count();
+		const lost: string[] = [];
+		let tapped = 0;
+		for (let i = 1; i < n; i++) {
+			for (const edge of ['left', 'right'] as const) {
+				await clearSort(box);
+				await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+				// 6 px of the button in view, right of the sticky column or left of the box's edge.
+				const p = await box.evaluate(
+					(el, [i, edge]) => {
+						const b = el as HTMLElement;
+						const button = b.querySelectorAll<HTMLElement>('thead button[data-sort-key]')[
+							i as number
+						]!;
+						b.scrollLeft = 0;
+						const fixed = b.querySelector('thead th')!.getBoundingClientRect().right;
+						const right = b.getBoundingClientRect().left + b.clientLeft + b.clientWidth;
+						const r0 = button.getBoundingClientRect();
+						const want = edge === 'left' ? r0.right - fixed - 6 : r0.left + 6 - right;
+						if (want < 0 || want > b.scrollWidth - b.clientWidth) return null;
+						b.scrollLeft = want;
+						const r = button.getBoundingClientRect();
+						const [lo, hi] = [Math.max(fixed, r.left), Math.min(right, r.right)];
+						return {
+							name: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+							shown: hi - lo,
+							x: (lo + hi) / 2,
+							y: r.top + r.height / 2
+						};
+					},
+					[i, edge] as const
+				);
+				if (!p) continue;
+				await frames(page);
+				const before = await box.evaluate(readPress, i);
+				tapped++;
+				await page.touchscreen.tap(p.x, p.y);
+				await frames(page);
+				await frames(page);
+				const after = await box.evaluate(readPress, i);
+				const what = `"${p.name}", ${p.shown.toFixed(1)} px of it showing at the ${edge}`;
+				if (after.sort !== 'ascending') lost.push(`${what}: aria-sort ${after.sort}`);
+				const words = after.words - before.words;
+				if (Math.abs(words) > 0.5) lost.push(`${what}: its words moved ${words.toFixed(1)} px`);
+			}
+		}
+		await clearSort(box);
+		expect.soft(lost, 'a tap on a heading partly in view').toEqual([]);
+		// Each side tapped: Links' six headings after the name give both at 1280×800.
+		expect(tapped).toBeGreaterThanOrEqual(6);
+	});
 });
 
 // ---- S5 review: a measure no case gives, the trace's focus, a stale group on a phone ----------

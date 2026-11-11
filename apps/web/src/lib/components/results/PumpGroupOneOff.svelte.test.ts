@@ -982,6 +982,48 @@ describe('one pump off on the Pumps together card', () => {
 		expect(ws.store.activeCase).toBe('S3');
 	}, 20_000);
 
+	it('Running combinations sorted, a scenario shown: one table with a Case column, the trace buttons in that case’s rows only, each opening its trace with the case kept; the sort cleared, the cases back (pumps-results-layout.md §9 S6b)', async () => {
+		const { ws, calls } = setup(structuredClone(oneOff.project));
+		await ws.store.solveAll();
+		ws.setCase('S3');
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await waitFor(() => expect(calls.filter((c) => c.scenarioId === 'S3')).toHaveLength(2));
+		const region = within(card()).getByRole('region', { name: 'Running combinations' });
+		const headings = () =>
+			[...region.querySelectorAll('th[scope="rowgroup"]')].map(
+				(h) => h.firstElementChild!.textContent
+			);
+		const before = headings();
+		expect(before[0]).toBe('Delivery tank 5 m higher (shown)');
+		const margin = within(region).getByRole('columnheader', { name: /^NPSH margin/ });
+		await fireEvent.click(within(margin).getByRole('button'));
+		expect(margin).toHaveAttribute('aria-sort', 'ascending');
+		expect(headings()).toEqual([]);
+		const rows = [...region.querySelectorAll<HTMLElement>('tbody > tr')].filter((r) =>
+			r.querySelector('th[scope="row"]')
+		);
+		// Every case's two members: the base case and its four scenarios, each solved.
+		expect(rows).toHaveLength(10);
+		const caseOf = (r: Element) => r.querySelector('td[data-label="Case"]')!.textContent!.trim();
+		for (const r of rows) {
+			expect(!!r.querySelector('button'), caseOf(r)).toBe(
+				caseOf(r) === 'Delivery tank 5 m higher (shown)'
+			);
+		}
+		const shown = rows.filter((r) => r.querySelector('button'));
+		expect(shown).toHaveLength(2);
+		const pb = shown.find((r) => within(r).queryByRole('button', { name: 'Pump PB' }))!;
+		await fireEvent.click(within(pb).getByRole('button', { name: 'Pump PB' }));
+		expect(ws.inspected).toEqual({ kind: 'component', id: 'PB' });
+		expect(ws.store.activeCase).toBe('S3');
+		// Descending, then cleared: the cases again, in the same order.
+		await fireEvent.click(within(margin).getByRole('button'));
+		await fireEvent.click(within(margin).getByRole('button'));
+		expect(margin).not.toHaveAttribute('aria-sort');
+		expect(headings()).toEqual(before);
+	}, 20_000);
+
 	it('in a scenario: made from the base case only, and the base’s duty beyond this curve', async () => {
 		const { ws, calls } = setup(structuredClone(oneOff.project));
 		await ws.store.solveAll();

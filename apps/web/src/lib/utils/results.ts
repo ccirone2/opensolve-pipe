@@ -546,11 +546,33 @@ export interface Row {
 	detail: string;
 	cells: Record<string, Cell>;
 	flags: Flag[];
+	/**
+	 * The key of the row's group, in a table of row groups (`Table.groups`): its key need then be
+	 * unique only within its group (the same pump in each case).
+	 */
+	group?: string;
+}
+
+/**
+ * A group of a table's rows (Running combinations: a case; proposal pumps-results-layout.md §9
+ * S6b): its rows are those whose `group` is its key, in the table's order.
+ */
+export interface RowGroup {
+	key: string;
+	/** Its name in the column a sort adds, where the groups are flattened into one table. */
+	label: string;
+	/** Its values are out of date: tinted amber (§5.3 Invalid and stale). */
+	stale?: boolean;
 }
 
 export interface Table {
 	columns: Column[];
 	rows: Row[];
+	/**
+	 * Row groups, in order: in the table's own order a row group each, headed by its lines; a sort
+	 * flattens them into one table with a column naming each row's group (§9 S6b).
+	 */
+	groups?: RowGroup[];
 }
 
 /** Formats SI values in the display units of a project. */
@@ -1745,9 +1767,19 @@ export function displayedNumber(text: string): number | null {
 }
 
 /**
+ * A displayed number with a note in parentheses after it ("73.68 (79.72 at maximum speed)", a
+ * speed-controlled pump's shutoff head in the group table) back to its number; null otherwise.
+ */
+function notedNumber(text: string): number | null {
+	const noted = /^(\S+) \(.*\)$/.exec(text);
+	return noted ? displayedNumber(noted[1] ?? '') : null;
+}
+
+/**
  * What a cell sorts by: the number it shows ("≈ 0", round-off below the solver's resolution, is
- * 0), else its text; a cell of several values (one per pipe or port) by its largest number; null
- * for no value ("—"), which sorts last either way.
+ * 0; a number with a note in parentheses after it, that number: pumps-results-layout.md §9 S6a,
+ * S6 review TBL-3), else its text; a cell of several values (one per pipe or port) by its largest
+ * number; null for no value ("—"), which sorts last either way.
  */
 export function sortValue(cell: Cell | undefined): number | string | null {
 	if (cell === undefined) return null;
@@ -1756,7 +1788,7 @@ export function sortValue(cell: Cell | undefined): number | string | null {
 		? cell.map((part) => (typeof part === 'string' ? part : valueText(part.value)))
 		: [];
 	const values = (Array.isArray(cell) ? texts : [valueText(cell)]).map((text) =>
-		text === '≈ 0' ? 0 : displayedNumber(text)
+		text === '≈ 0' ? 0 : (displayedNumber(text) ?? notedNumber(text))
 	);
 	const numbers = values.filter((v): v is number => v !== null);
 	if (numbers.length) return Math.max(...numbers);

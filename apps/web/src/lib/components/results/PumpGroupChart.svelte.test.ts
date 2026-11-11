@@ -1173,7 +1173,8 @@ describe('the members, the station and the group chart’s reading (pumps-result
 			// Named by its pump first (visually hidden), then each flag: its pill, its text.
 			expect(squash(note.textContent).startsWith(`${pump.name}, flags:`)).toBe(true);
 			expect(note.querySelector('.sr-only')!.textContent).toBe(`${pump.name}, flags:`);
-			const lines = [...note.querySelectorAll('p')];
+			// A list, an item per flag (S6a, one pattern with Running combinations, §15 item 149).
+			const lines = [...note.querySelectorAll('li')];
 			expect(lines).toHaveLength(pump.flags.length);
 			for (const [i, flag] of pump.flags.entries()) {
 				const pill = lines[i]!.querySelector('span')!;
@@ -1193,6 +1194,10 @@ describe('the members, the station and the group chart’s reading (pumps-result
 				expect(squash(lines[i]!.textContent)).toBe(`${word} ${flagText(flag)}`);
 				expect(lines[i]).toHaveClass('text-xs');
 				expect(outOfSight(lines[i]!)).toBe(false);
+				// The sentence its own element, in sight (S5 review MUT-01).
+				const sentence = lines[i]!.querySelector('[data-flag-text]')!;
+				expect(sentence).toHaveTextContent(flagText(flag));
+				expect(outOfSight(sentence)).toBe(false);
 				expect(note.textContent!.split(flagText(flag))).toHaveLength(2);
 			}
 		}
@@ -2747,9 +2752,11 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		// Plain divs with headings, not landmarks (§7): the regions are the ones tests pin.
 		expect(within(card).queryByRole('region', { name: 'Station' })).toBeNull();
 		expect(within(card).queryByRole('region', { name: 'Group chart' })).toBeNull();
-		expect(within(card).getByRole('region', { name: 'Running combinations' })).toHaveAttribute(
-			'data-running-combinations'
-		);
+		// Running combinations' box: a ResultsTable's since S6b (§9 S6b), the region in the block
+		// that holds its controls and its box, named by the h4.
+		const combinations = within(card).getByRole('region', { name: 'Running combinations' });
+		expect(card.querySelector('[data-running-combinations] [role="region"]')).toBe(combinations);
+		expect(combinations).toHaveAttribute('aria-labelledby', heading('Running combinations').id);
 		// Running combinations' caption is visually hidden beside its h4, and still its name.
 		const caption = within(card)
 			.getByRole('table', { name: 'Running combinations' })
@@ -3220,6 +3227,9 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					'max-sm:static',
 					'max-sm:w-auto'
 				);
+				// On screen, every word of it (S6 review MUT-03: a line made invisible failed nothing).
+				expect(outOfSight(l), l.textContent!).toBe(false);
+				expect(wordsInSight(l)).toBe(l.textContent);
 			}
 			const rows = within(body).getAllByRole('row');
 			// The heading's row, a row per member, and a flag line after each flagged one's.
@@ -3289,12 +3299,15 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		// Both forms drawn: flagged pumps (Held's both, Pump PB off's Pump PA) and pumps without.
 		expect([flaggedRows > 0, plainRows > 0]).toEqual([true, true]);
 		expect(oninspect).toHaveBeenCalledTimes(table.groups[0]!.rows.length);
-		// Without oninspect (this card's own tests), no trace button anywhere.
+		// Without oninspect (this card's own tests), no trace button anywhere: the box's only
+		// buttons are its column headings' sorts (a ResultsTable since S6b), none in a row.
 		cleanup();
 		render(PumpGroupChart, base({ combinations: table, flagText }));
-		expect(
-			within(screen.getByRole('region', { name: 'Running combinations' })).queryAllByRole('button')
-		).toHaveLength(0);
+		const boxed = within(
+			screen.getByRole('region', { name: 'Running combinations' })
+		).queryAllByRole('button');
+		expect(boxed.filter((b) => !b.closest('thead'))).toHaveLength(0);
+		for (const b of boxed) expect(b.closest('th[role="columnheader"]')).not.toBeNull();
 	});
 
 	it('Running combinations with a scenario shown: the trace buttons in its group, first, and none in the base case’s (pumps-results-layout.md §5.3 Pump names, §10 S5)', async () => {
@@ -3351,6 +3364,277 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		// A current group: no amber anywhere, its block untinted.
 		expect(current!.className).not.toMatch(/amber/);
 		for (const cell of cells(current!)) expect(cell.className).not.toMatch(/amber/);
+	});
+
+	// ---- S6b: Running combinations a ResultsTable (§9 S6b; the owner's answer 3, §12) --------
+
+	/** The base case shown, Pump PB off, Held (both pumps flagged) and a failed case. */
+	const s6bInput = (shown = '') => {
+		const dead = named('one-off-dead-headed') as unknown as OneOffCase;
+		return combinationsOf([
+			solvedCase('', 'Base case', c.solve, { shown: shown === '' }),
+			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve, { shown: shown === 'S2' }),
+			solvedCase('S9', 'Held (synthetic)', dead.solve),
+			solvedCase('S5', 'Failed case', null)
+		]);
+	};
+	const squashed = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const combosRegion = () => screen.getByRole('region', { name: 'Running combinations' });
+	const combosColumn = (name: RegExp) => within(combosRegion()).getByRole('columnheader', { name });
+	/** Sort by a column from its heading (from 640 px; a phone's "Sort by" does the same). */
+	const sortBy = (name: RegExp) => fireEvent.click(within(combosColumn(name)).getByRole('button'));
+	/**
+	 * The body as drawn: each row group, its heading's first line (null in the flat form) and its
+	 * rows, each pump's as "{name} | {case, flat only} | {npsh margin}", each flag line as "flags
+	 * of {id}" after the row it follows.
+	 */
+	const drawnGroups = () =>
+		within(combosRegion())
+			.getAllByRole('rowgroup')
+			.slice(1)
+			.map((g) => ({
+				heading: g.querySelector('th[scope="rowgroup"]')?.firstElementChild?.textContent ?? null,
+				rows: [...g.querySelectorAll(':scope > tr')]
+					.filter((r) => !r.querySelector('th[scope="rowgroup"]'))
+					.map((r) => {
+						const name = r.querySelector('th[scope="row"] span.min-w-0');
+						if (!name) {
+							return `flags of ${r.querySelector('[data-row-notes]')!.getAttribute('data-row-notes')}`;
+						}
+						const kase = r.querySelector('td[data-label="Case"]');
+						const margin = r.querySelector('td[data-label="NPSH margin (m)"]');
+						return [
+							squashed(name.textContent),
+							kase && squashed(kase.textContent),
+							squashed(margin?.textContent)
+						]
+							.filter((t) => t !== null)
+							.join(' | ');
+					})
+			}));
+
+	it('Running combinations: a sort by NPSH margin makes one flat table with a Case column, its first row the smallest margin; clearing the sort brings the case groups back in S5’s order (pumps-results-layout.md §9 S6b, §10 S6b)', async () => {
+		const input = s6bInput();
+		const table = runningCombinations(input);
+		const flagText = (flag: Flag) => `${flag.code}: ${flag.message}`;
+		render(PumpGroupChart, base({ combinations: table, flagText, oninspect: () => {} }));
+		const before = drawnGroups();
+		// Unsorted: a row group per case, in S5's order (the table's input order).
+		expect(before.map((g) => g.heading)).toEqual(table.groups.map((g) => g.heading));
+		expect(
+			within(combosRegion())
+				.getAllByRole('columnheader')
+				.map((h) => squashed(h.textContent))
+		).not.toContain('Case');
+		await sortBy(/^NPSH margin/);
+		expect(combosColumn(/^NPSH margin/)).toHaveAttribute('aria-sort', 'ascending');
+		// One row group, the Case column after the pump's name.
+		const flat = drawnGroups();
+		expect(flat).toHaveLength(1);
+		expect(flat[0]!.heading).toBeNull();
+		const headings = within(combosRegion())
+			.getAllByRole('columnheader')
+			.map((h) => squashed(h.textContent));
+		expect(headings.slice(0, 2)).toEqual(['Pump', 'Case']);
+		expect(headings).toHaveLength(table.columns.length + 2);
+		// Every member of every case with values, by its margin, those without one last in the
+		// table's order; each flag line still under its own pump.
+		const rows = table.groups.flatMap((g) =>
+			g.rows.map((r) => ({
+				name: r.name,
+				case: g.heading,
+				margin: r.cells.npshMargin!,
+				flagged: r.flags.length > 0,
+				id: r.id
+			}))
+		);
+		const value = (m: string) => (m === '—' ? null : Number(m));
+		const sorted = rows
+			.map((r, i) => ({ ...r, i }))
+			.sort((a, b) => {
+				const [x, y] = [value(a.margin), value(b.margin)];
+				if (x === null || y === null) return x === y ? a.i - b.i : x === null ? 1 : -1;
+				return x - y || a.i - b.i;
+			});
+		expect(flat[0]!.rows).toEqual(
+			sorted.flatMap((r) => [
+				`${r.name} | ${r.case} | ${r.margin}`,
+				...(r.flagged ? [`flags of ${r.id}`] : [])
+			])
+		);
+		// Its first row the smallest margin of all: Pump PA with Pump PB off.
+		const margins = rows.map((r) => value(r.margin)).filter((m): m is number => m !== null);
+		expect(flat[0]!.rows[0]).toBe(
+			`Pump PA | Pump PB off | ${table.groups[1]!.rows[0]!.cells.npshMargin}`
+		);
+		expect(Number(table.groups[1]!.rows[0]!.cells.npshMargin)).toBe(Math.min(...margins));
+		// Each Case cell wraps at 12 rem, an unbroken name too, anywhere on a phone.
+		for (const cell of combosRegion().querySelectorAll('td[data-label="Case"]')) {
+			expect(cell.firstElementChild).toHaveClass(
+				'w-max',
+				'max-w-48',
+				'wrap-break-word',
+				'max-sm:wrap-anywhere'
+			);
+			expect(cell).not.toHaveClass('whitespace-nowrap');
+			expect(cell.firstElementChild).not.toHaveClass('whitespace-nowrap');
+		}
+		// The flag lines span the row, the Case column with it.
+		for (const notes of combosRegion().querySelectorAll('[data-row-notes]')) {
+			expect(notes.closest('td')).toHaveAttribute('colspan', String(headings.length));
+		}
+		// Descending, then cleared: the case groups again, in S5's order, each as before.
+		await sortBy(/^NPSH margin/);
+		expect(combosColumn(/^NPSH margin/)).toHaveAttribute('aria-sort', 'descending');
+		await sortBy(/^NPSH margin/);
+		expect(combosColumn(/^NPSH margin/)).not.toHaveAttribute('aria-sort');
+		expect(drawnGroups()).toEqual(before);
+		expect(within(combosRegion()).queryByRole('columnheader', { name: 'Case' })).toBeNull();
+	});
+
+	it('Running combinations: Fields hides a column in both forms, every heading and flag line spanning what is shown (§9 S6b, §10 S6b)', async () => {
+		const table = runningCombinations(s6bInput());
+		render(PumpGroupChart, base({ combinations: table, oninspect: () => {} }));
+		const section = screen.getByRole('heading', {
+			name: 'Running combinations',
+			level: 4
+		}).parentElement!;
+		await fireEvent.click(within(section).getByRole('button', { name: /^Fields/ }));
+		const menu = screen.getByRole('group', { name: 'Fields shown in Running combinations' });
+		// Every column a field, the name and the case never.
+		expect(within(menu).getAllByRole('checkbox')).toHaveLength(table.columns.length);
+		await fireEvent.click(within(menu).getByRole('checkbox', { name: /^Head/ }));
+		const spans = () => {
+			const n = within(combosRegion()).getAllByRole('columnheader').length;
+			for (const th of combosRegion().querySelectorAll('th[scope="rowgroup"]')) {
+				expect(th).toHaveAttribute('colspan', String(n));
+			}
+			for (const notes of combosRegion().querySelectorAll('[data-row-notes]')) {
+				expect(notes.closest('td')).toHaveAttribute('colspan', String(n));
+			}
+			return n;
+		};
+		// Grouped: no Head heading or cell in any case.
+		expect(within(combosRegion()).queryByRole('columnheader', { name: /^Head/ })).toBeNull();
+		expect(combosRegion().querySelectorAll('td[data-label="Head (m)"]')).toHaveLength(0);
+		expect(spans()).toBe(table.columns.length);
+		expect(within(section).getByRole('button', { name: /^Fields/ })).toHaveTextContent(
+			`(${table.columns.length - 1} of ${table.columns.length})`
+		);
+		// Flat: the same.
+		await sortBy(/^Flow/);
+		expect(within(combosRegion()).queryByRole('columnheader', { name: /^Head/ })).toBeNull();
+		expect(combosRegion().querySelectorAll('td[data-label="Head (m)"]')).toHaveLength(0);
+		expect(combosRegion().querySelectorAll('td[data-label="Flow (L/s)"]').length).toBeGreaterThan(
+			0
+		);
+		expect(spans()).toBe(table.columns.length + 1);
+		expect(localStorage.getItem('opensolve-pipe:results-fields:Running combinations')).toBe(
+			'["head"]'
+		);
+		localStorage.clear();
+	});
+
+	it('Running combinations: Flagged only keeps the flagged rows with their flag lines in both forms, and the cases with one (§9 S6b, §10 S6b)', async () => {
+		const table = runningCombinations(s6bInput());
+		const flagText = (flag: Flag) => `${flag.code}: ${flag.message}`;
+		render(PumpGroupChart, base({ combinations: table, flagText, oninspect: () => {} }));
+		const all = table.groups.flatMap((g) => g.rows);
+		const flagged = table.groups.flatMap((g) =>
+			g.rows.filter((r) => r.flags.length).map((r) => ({ g, r }))
+		);
+		expect(flagged.length).toBeGreaterThan(0);
+		expect(flagged.length).toBeLessThan(all.length);
+		// Its count the rows drawn, every case's (lesson: a count agrees with what is beside it).
+		const toggle = screen.getByRole('checkbox', {
+			name: `Flagged only (${flagged.length} of ${all.length})`
+		});
+		expect(outOfSight(toggle.closest('label')!)).toBe(false);
+		await fireEvent.click(toggle);
+		const grouped = drawnGroups();
+		expect(grouped.map((g) => g.heading)).toEqual(
+			table.groups.filter((g) => g.rows.some((r) => r.flags.length)).map((g) => g.heading)
+		);
+		expect(grouped.flatMap((g) => g.rows)).toEqual(
+			flagged.flatMap(({ r }) => [`${r.name} | ${r.cells.npshMargin}`, `flags of ${r.id}`])
+		);
+		const sentences = () => {
+			const said = [...combosRegion().querySelectorAll('[data-flag-text]')];
+			for (const text of said) {
+				expect(outOfSight(text)).toBe(false);
+				expect(text.textContent).not.toBe('');
+			}
+			return said.length;
+		};
+		const count = flagged.reduce((n, { r }) => n + r.flags.length, 0);
+		expect(sentences()).toBe(count);
+		// Flat: the same rows, each with its flag line.
+		await sortBy(/^Flow/);
+		const flat = drawnGroups();
+		expect(flat).toHaveLength(1);
+		expect(flat[0]!.rows.filter((r) => r.startsWith('flags of'))).toHaveLength(flagged.length);
+		expect(flat[0]!.rows.filter((r) => !r.startsWith('flags of'))).toHaveLength(flagged.length);
+		for (const [i, row] of flat[0]!.rows.entries()) {
+			if (!row.startsWith('flags of')) expect(flat[0]!.rows[i + 1]).toMatch(/^flags of /);
+		}
+		expect(sentences()).toBe(count);
+		await fireEvent.click(toggle);
+		expect(drawnGroups()[0]!.rows.filter((r) => !r.startsWith('flags of'))).toHaveLength(
+			all.length
+		);
+	});
+
+	it('Running combinations: trace buttons in the shown case’s rows only, in both forms, a scenario shown (§5.3 Pump names, §9 S6b; S5 review MUT-02)', async () => {
+		const table = runningCombinations(s6bInput('S2'));
+		const oninspect = vi.fn();
+		render(PumpGroupChart, base({ combinations: table, oninspect }));
+		const shown = table.groups.find((g) => g.shown)!;
+		expect(shown.heading).toBe('Pump PB off (shown)');
+		const traced = () =>
+			[...combosRegion().querySelectorAll<HTMLElement>('tbody tr')].filter((r) =>
+				r.querySelector('th[scope="row"] button')
+			);
+		// Grouped: the buttons in its group alone, one per member.
+		const groups = within(combosRegion()).getAllByRole('rowgroup').slice(1);
+		for (const g of groups) {
+			const isShown =
+				g.querySelector('th[scope="rowgroup"]')!.firstElementChild!.textContent === shown.heading;
+			expect(within(g).queryAllByRole('button')).toHaveLength(isShown ? shown.rows.length : 0);
+		}
+		// Flat: the rows whose Case is the shown case's, and only they.
+		await sortBy(/^Flow/);
+		const rows = [...combosRegion().querySelectorAll('tbody tr')].filter((r) =>
+			r.querySelector('th[scope="row"]')
+		);
+		expect(rows.length).toBe(table.groups.reduce((n, g) => n + g.rows.length, 0));
+		for (const r of rows) {
+			const kase = squashed(r.querySelector('td[data-label="Case"]')!.textContent);
+			expect(!!r.querySelector('th[scope="row"] button'), kase).toBe(kase === shown.heading);
+		}
+		expect(traced()).toHaveLength(shown.rows.length);
+		// Each opens its own pump's trace (for the case shown).
+		const pb = traced().find(
+			(r) => squashed(r.querySelector('th span.min-w-0')!.textContent) === 'Pump PB'
+		)!;
+		await fireEvent.click(within(pb).getByRole('button', { name: 'Pump PB' }));
+		expect(oninspect).toHaveBeenLastCalledWith('PB');
+	});
+
+	it('Running combinations: its heading lines unfilled, so the box’s sideways shadow runs past them, the names at one edge after their slot symbols (§9 S6b; §15 item 157)', () => {
+		const table = runningCombinations(s6bInput());
+		render(PumpGroupChart, base({ combinations: table, oninspect: () => {} }));
+		expect(combosRegion()).toHaveClass('scroll-shadow-x', '@container');
+		const headings = [...combosRegion().querySelectorAll('th[scope="rowgroup"]')];
+		expect(headings).toHaveLength(table.groups.length);
+		for (const th of headings) {
+			// A current case's heading: no fill over the box's shadow (a stale one is amber, §5.3).
+			expect(th.className).not.toMatch(/(^|\s)bg-/);
+			for (const line of th.children) expect(line.className).not.toMatch(/(^|\s)bg-/);
+		}
+		// Every slot symbol in a 1 rem column of its own, so every name starts at one edge.
+		const symbols = [...combosRegion().querySelectorAll('th[scope="row"] [aria-hidden="true"]')];
+		expect(symbols.length).toBe(table.groups.reduce((n, g) => n + g.rows.length, 0));
+		for (const symbol of symbols) expect(symbol).toHaveClass('w-4', 'shrink-0', 'text-center');
 	});
 
 	it('the figure: the rings in the legend and the name, the data table’s rows, no image while computed', async () => {
@@ -4072,4 +4356,169 @@ describe('every footer line of the group chart on screen, word for word (pumps-r
 			}
 		});
 	}
+});
+
+describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station, §9 S6a)', () => {
+	afterEach(() => localStorage.clear());
+	const squash = (text: string | null) => (text ?? '').replace(/\s+/g, ' ').trim();
+	const region = (name = 'The pumps in the group') => screen.getByRole('region', { name });
+	/** The table's body rows: each pump by its name, each flag line as "flags of {id}". */
+	const order = (name?: string) =>
+		within(within(region(name)).getAllByRole('rowgroup')[1]!)
+			.getAllByRole('row')
+			.map((r) => {
+				const header = within(r).queryByRole('rowheader');
+				// The name's own span: its slot symbol (aria-hidden) before it.
+				if (header) return squash(header.querySelector('span.min-w-0')!.textContent);
+				return `flags of ${r.querySelector('[data-row-notes]')!.getAttribute('data-row-notes')}`;
+			});
+	const heading = (name: RegExp) => within(region()).getByRole('columnheader', { name });
+
+	it('its title visible, naming its box (a region and a Tab stop) and its table; FlagLine, not FlagBadge', () => {
+		const c = named('ladder');
+		render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		const station = screen.getByRole('heading', { name: 'Station', level: 4 }).parentElement!;
+		const title = within(station).getByText('The pumps in the group', { selector: 'p' });
+		expect(title.tagName).toBe('P');
+		expect(outOfSight(title)).toBe(false);
+		expect(region()).toHaveAttribute('aria-labelledby', title.id);
+		expect(region()).toHaveAttribute('tabindex', '0');
+		expect(within(region()).getByRole('table', { name: 'The pumps in the group' })).toBeVisible();
+		// The title before the controls, the controls before the box.
+		const fields = within(station).getByRole('button', { name: /^Fields/ });
+		expect(title.compareDocumentPosition(fields) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(
+			fields.compareDocumentPosition(region()) & Node.DOCUMENT_POSITION_FOLLOWING
+		).toBeTruthy();
+		// The pills drawn by FlagLine: no FlagBadge's tooltip or hidden copy of a flag's words.
+		for (const line of region().querySelectorAll('[data-row-notes]')) {
+			expect(line.querySelector('[title]')).toBeNull();
+			expect([...line.querySelectorAll('.sr-only')].map((e) => e.textContent)).toEqual([
+				`${squash(line.closest('tr')!.previousElementSibling!.querySelector('th span.min-w-0')!.textContent)}, flags:`
+			]);
+		}
+		// Every slot symbol in a 1 rem column of its own, so every name starts at one edge, as in
+		// Running combinations (§15 item 157; S6 review MUT-04).
+		const symbols = [...region().querySelectorAll('th[scope="row"] [aria-hidden="true"]')];
+		expect(symbols).toHaveLength(3);
+		for (const symbol of symbols) expect(symbol).toHaveClass('w-4', 'shrink-0', 'text-center');
+		// Each name its slot symbol (aria-hidden) and its trace button, wrapping at 12 rem.
+		const header = within(region()).getByRole('rowheader', { name: 'Pump P2' });
+		const button = within(header).getByRole('button', { name: 'Pump P2' });
+		expect(button).toHaveClass('w-max', 'max-w-48', 'wrap-break-word', 'max-sm:wrap-anywhere');
+		expect(button.querySelector('[aria-hidden="true"]')!.textContent).not.toBe('');
+		expect(header).not.toHaveClass('sm:min-w-[11rem]');
+	});
+
+	it('sorts by any column from its heading, ascending, descending, then the table’s order, each flag line under its pump', async () => {
+		const c = named('ladder');
+		render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		const original = order();
+		expect(original).toEqual(['Pump P1', 'Pump P2', 'flags of P2', 'Pump P3', 'flags of P3']);
+		// The headings keep their names, a sort button inside each.
+		const flow = heading(/^Flow/);
+		expect(squash(flow.textContent)).toBe('Flow L/s');
+		await fireEvent.click(within(flow).getByRole('button', { name: 'Flow L/s' }));
+		expect(flow).toHaveAttribute('aria-sort', 'ascending');
+		// The fixture's flows: P3 16.34, P2 30.47, P1 52.66 L/s.
+		expect(order()).toEqual(['Pump P3', 'flags of P3', 'Pump P2', 'flags of P2', 'Pump P1']);
+		await fireEvent.click(within(flow).getByRole('button'));
+		expect(flow).toHaveAttribute('aria-sort', 'descending');
+		expect(order()).toEqual(['Pump P1', 'Pump P2', 'flags of P2', 'Pump P3', 'flags of P3']);
+		await fireEvent.click(within(flow).getByRole('button'));
+		expect(flow).not.toHaveAttribute('aria-sort');
+		expect(order()).toEqual(original);
+		// By name, from the first column's heading.
+		const pump = heading(/^Pump$/);
+		await fireEvent.click(within(pump).getByRole('button', { name: 'Pump' }));
+		await fireEvent.click(within(pump).getByRole('button', { name: 'Pump' }));
+		expect(pump).toHaveAttribute('aria-sort', 'descending');
+		expect(order()).toEqual(['Pump P3', 'flags of P3', 'Pump P2', 'flags of P2', 'Pump P1']);
+		// A phone's "Sort by" (the same sort): every column, its unit named.
+		const field = within(
+			screen.getByRole('heading', { name: 'Station', level: 4 }).parentElement!
+		).getByRole('combobox', { name: 'Sort by, The pumps in the group' });
+		expect([...(field as HTMLSelectElement).options].map((o) => o.text)).toEqual(
+			expect.arrayContaining(['Table order', 'Pump', 'State', 'Flow (L/s)', 'Share (%)'])
+		);
+		await fireEvent.change(field, { target: { value: 'flow' } });
+		expect(flow).toHaveAttribute('aria-sort', 'ascending');
+		expect(order()).toEqual(['Pump P3', 'flags of P3', 'Pump P2', 'flags of P2', 'Pump P1']);
+	});
+
+	it('sorts Shutoff head by its values, a controlled pump’s “at maximum speed” note after its value (S6 review TBL-3)', async () => {
+		// The controlled station, its pump under control at 73.68 ft, the fixed one's shutoff head
+		// set to 73.7 ft (22.46376 m, synthetic): their integer parts tie, so a sort of the cells
+		// as text would put 73.68 last (68 > 7).
+		const c = named('controlled');
+		const pumps = pumpsOf(c).map((m) =>
+			m.result.control
+				? m
+				: {
+						...m,
+						result: { ...m.result, shutoffHead: { ...m.result.shutoffHead, head: 22.46376 } }
+					}
+		);
+		render(PumpGroupChart, props(c, { pumps, oninspect: () => {} }));
+		const shutoff = heading(/^Shutoff head/);
+		const cells = () =>
+			[...region().querySelectorAll('td[data-label^="Shutoff head"]')].map((td) =>
+				squash(td.textContent)
+			);
+		expect(cells()).toEqual(['73.7', '73.68 (79.72 at maximum speed)']);
+		const values = () => cells().map((t) => Number(t.split(' ')[0]));
+		await fireEvent.click(within(shutoff).getByRole('button'));
+		expect(shutoff).toHaveAttribute('aria-sort', 'ascending');
+		expect(values()).toEqual([73.68, 73.7]);
+		await fireEvent.click(within(shutoff).getByRole('button'));
+		expect(shutoff).toHaveAttribute('aria-sort', 'descending');
+		expect(values()).toEqual([73.7, 73.68]);
+	});
+
+	it('Flagged only keeps each flagged pump with its flag line, and gives every pump back', async () => {
+		const c = named('ladder');
+		render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		const toggle = screen.getByRole('checkbox', { name: 'Flagged only (2 of 3)' });
+		expect(outOfSight(toggle.closest('label')!)).toBe(false);
+		await fireEvent.click(toggle);
+		expect(order()).toEqual(['Pump P2', 'flags of P2', 'Pump P3', 'flags of P3']);
+		for (const id of ['P2', 'P3']) {
+			const line = region().querySelector(`[data-row-notes="${id}"]`)!;
+			expect(line).toHaveAttribute('data-label', 'Flags');
+			for (const sentence of line.querySelectorAll('[data-flag-text]')) {
+				expect(outOfSight(sentence)).toBe(false);
+				expect(sentence.textContent).not.toBe('');
+			}
+		}
+		await fireEvent.click(toggle);
+		expect(order()).toEqual(['Pump P1', 'Pump P2', 'flags of P2', 'Pump P3', 'flags of P3']);
+		// Not offered where every pump has a flag (nothing to filter) or none has.
+		cleanup();
+		render(PumpGroupChart, props(named('parallel-crane'), { oninspect: () => {} }));
+		expect(screen.queryByRole('checkbox', { name: /^Flagged only/ })).toBeNull();
+	});
+
+	it('Fields hides a column, remembered for the group table whatever the case shown', async () => {
+		const c = named('ladder');
+		const view = render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		await fireEvent.click(screen.getByRole('button', { name: /^Fields/ }));
+		const menu = screen.getByRole('group', { name: 'Fields shown in The pumps in the group' });
+		await fireEvent.click(within(menu).getByRole('checkbox', { name: /^Shaft power/ }));
+		expect(within(region()).queryByRole('columnheader', { name: /^Shaft power/ })).toBeNull();
+		expect(screen.getByRole('button', { name: /^Fields/ })).toHaveTextContent(/\(\d+ of \d+\)/);
+		// The flag line still spans the row: the name and every column shown.
+		const columns = within(region()).getAllByRole('columnheader').length;
+		for (const line of region().querySelectorAll('[data-row-notes]')) {
+			expect(line.closest('td')).toHaveAttribute('colspan', String(columns));
+		}
+		expect(localStorage.getItem('opensolve-pipe:results-fields:The pumps in the group')).toBe(
+			'["shaftPower"]'
+		);
+		// Another case shown: its name in the title, the same fields.
+		await view.rerender(props(c, { oninspect: () => {}, caseName: 'Winter' }));
+		await tick();
+		const winter = region('The pumps in the group, Winter');
+		expect(within(winter).queryByRole('columnheader', { name: /^Shaft power/ })).toBeNull();
+		expect(within(winter).getByRole('columnheader', { name: /^Flow/ })).toBeInTheDocument();
+	});
 });

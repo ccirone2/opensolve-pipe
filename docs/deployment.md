@@ -121,7 +121,7 @@ With a custom domain, `CORS_ORIGINS` lists both origins, comma-separated. A valu
   - `PNPM_VERSION` = `10.28.0`.
 - Under Settings → Build:
   - set *Build watch paths* to include `apps/web/*`;
-  - set *Branch control → Preview branches* to *Custom branches*, including `web/*`. Web-only changes are made on `web/*` branches, and each gets a preview at `https://<branch>.opensolve-pipe.pages.dev`, the branch name lowercased with every other character a hyphen and cut to 28 characters, so a `web/<topic>` branch previews at its full name only when `<topic>` is at most 24 characters (TSD §11.1). The API lets the previews call it through `CORS_ORIGIN_REGEX` (step 1).
+  - set *Branch control → Preview branches* to *Custom branches*, including `web/*`. Web-only changes are made on `web/*` branches, and each gets a preview at `https://<branch>.opensolve-pipe.pages.dev`, the branch name lowercased, with each character that is not a letter or digit replaced by a hyphen. The alias is also cut to 28 characters, which Cloudflare's docs do not say but its previews show, so a `web/<topic>` branch previews at its full name only when `<topic>` is at most 24 characters (TSD §11.1). The API lets the previews call it through `CORS_ORIGIN_REGEX` (step 1).
 - Leave Web Analytics (under Metrics) **off**: the app has no analytics, cookies or third-party requests (GOALS §4.5).
 - On a custom domain whose zone is on Cloudflare, keep the zone's Web Analytics, Bot Fight Mode and Email Address Obfuscation off (TSD §11.1).
 

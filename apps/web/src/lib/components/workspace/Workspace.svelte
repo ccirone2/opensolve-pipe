@@ -6,7 +6,9 @@
 	split, and the choice is remembered in this browser (pane-split.ts). It tells the fields below which case is shown (field-mode.ts): in a
 	scenario only its values, names and display units can be edited. The goal-seek dialog opens
 	over them (from the Results pane's header or a trace). Outside text fields Ctrl/⌘+Z undoes and
-	Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redoes; Ctrl/⌘+Enter solves from anywhere but a dialog.
+	Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redoes; Ctrl/⌘+Enter solves from anywhere but a dialog, and once the
+	project has scenarios Ctrl/⌘+Shift+Enter runs Solve all, the Scenarios menu's (build-density.md
+	§19), or says why it cannot.
 -->
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
@@ -75,6 +77,19 @@
 			// A held key repeats: one press, one solve.
 			if (event.repeat) return;
 			if (ws.store.calculating === null && ws.project.components.length) void ws.solve();
+			return;
+		}
+		// Ctrl/⌘+Shift+Enter runs Solve all (build-density.md §19), also from a field, as Ctrl/⌘+Enter
+		// solves; once the project has scenarios (Solve all is the Scenarios menu's) and not inside a
+		// dialog. A press is never silent: one that cannot run says why, in the menu's words.
+		if (key === 'enter' && ws.scenarios.length) {
+			if (event.target instanceof Element && event.target.closest('dialog')) return;
+			event.preventDefault();
+			// A held key repeats: one press, one run (a repeat is ignored, not refused).
+			if (event.repeat) return;
+			const all = ws.solveAllState;
+			if (all.canRun) void ws.solveAll();
+			else ws.notify('info', all.reason);
 			return;
 		}
 		if (editingText(event.target)) return;

@@ -415,9 +415,17 @@ describe('solve status', () => {
 		ws.store.update((p) => {
 			p.connections[0]!.piping.pipes[0]!.length = 500;
 		}, 'change length');
-		expect(await results().findByText(/Results are out of date/)).toBeInTheDocument();
+		const notice = await results().findByText(/Results are out of date/);
+		// The notice names the header's Solve, the one Solve (build-density.md §19), which solves.
+		expect(notice.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+			'Results are out of date: the project changed after this solve. Press Solve, at the top (Ctrl+Enter or ⌘+Enter), to update them.'
+		);
 		expect(results().getByRole('status')).toHaveTextContent('Last solve: converged, out of date');
-		await fireEvent.click(results().getByRole('button', { name: 'Solve again' }));
+		await fireEvent.click(
+			within(screen.getByRole('toolbar', { name: 'Project' })).getByRole('button', {
+				name: 'Solve'
+			})
+		);
 		expect(solve).toHaveBeenCalledTimes(2);
 		await vi.waitFor(() => expect(results().queryByText(/Results are out of date/)).toBeNull());
 	});

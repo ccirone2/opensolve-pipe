@@ -1922,21 +1922,12 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 	};
 	const c = named('one-off') as unknown as OneOffCase;
 	const station = (c.groupCurve.body as PumpGroupCurveResponse).station;
-	const runnable = {
-		count: 2,
-		canRun: true,
-		reason: '',
-		hint: 'Solves each case whose results are missing or out of date, one after another: up to 2 solves.'
-	};
 	/**
 	 * The block's props for the base case of `project` (default: `one-off` without its scenarios),
-	 * Each pump off chosen, with the handlers given.
+	 * Each pump off chosen, with the handlers given (no Solve all: the Scenarios menu's since
+	 * build-density.md §19).
 	 */
-	function plan(
-		values: Partial<LineupPlanInput> = {},
-		solveAll: typeof runnable = runnable,
-		handlers: { onadd?: () => void; onsolveall?: () => void } = {}
-	) {
+	function plan(values: Partial<LineupPlanInput> = {}, handlers: { onadd?: () => void } = {}) {
 		return {
 			plan: lineupPlan({
 				project: withScenarios(structuredClone(c.project), []),
@@ -1948,7 +1939,6 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				savedOrder: [],
 				...values
 			}),
-			solveAll,
 			...handlers
 		};
 	}
@@ -1995,34 +1985,34 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
 		const add = within(block()).getByRole('button', { name: 'Add 2 cases' });
 		expect(add).not.toHaveAttribute('aria-disabled', 'true');
-		// §7.12: gates 1, 2 and 3 take §7.2's rows 1, 2 and 3; gate 4 is 4d's.
-		const gates: [Partial<LineupPlanInput>, string, boolean][] = [
+		// §7.12: gates 1, 2 and 3 take §7.2's rows 1, 2 and 3; gate 4 is 4d's, naming the header's
+		// Solve since build-density.md §19.
+		const gates: [Partial<LineupPlanInput>, string][] = [
 			[
 				{ station: (named('series').groupCurve.body as PumpGroupCurveResponse).station },
-				'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.',
-				false
+				'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.'
 			],
 			[
 				{ station: { ...station, arrangement: 'mixed' } },
-				'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.',
-				false
+				'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.'
 			],
 			[
 				{ project: c.project, shownCase: 'S3' },
-				'Cases are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with pumps off, duplicate it in Scenarios and set those pumps off there.',
-				false
+				'Cases are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with pumps off, duplicate it in Scenarios and set those pumps off there.'
 			],
 			[
 				{ base: { response: c.solve, stale: true } },
-				"The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now.",
-				true
+				"The base case's results are out of date: solve it again with Solve, at the top, so the pumps that run are read from the project as it is now."
 			]
 		];
-		for (const [values, sentence, solveAll] of gates) {
+		for (const [values, sentence] of gates) {
 			await view.rerender(base({ lineups: plan(values) }));
 			expect(block()).toHaveTextContent(sentence);
 			expect(within(block()).queryByRole('button', { name: ADD })).toBeNull();
-			expect(!!within(block()).queryByRole('button', { name: /^Solve all/ })).toBe(solveAll);
+			// No Solve all at any gate: the Scenarios menu's is the one (build-density.md §19).
+			expect(
+				within(block()).queryAllByRole('button', { name: /^Solve all/, hidden: true })
+			).toHaveLength(0);
 		}
 		// No plan, or no station: no block.
 		await view.rerender(base({ lineups: null }));
@@ -2031,7 +2021,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 
 	it('refuses the add with its reason, described, and makes nothing', async () => {
 		const onadd = vi.fn();
-		render(PumpGroupChart, base({ lineups: plan({ project: c.project }, runnable, { onadd }) }));
+		render(PumpGroupChart, base({ lineups: plan({ project: c.project }, { onadd }) }));
 		// §7.12: "Add cases with one pump off" becomes "Add cases".
 		const add = within(block()).getByRole('button', { name: 'Add cases' });
 		expect(add).toHaveAttribute('aria-disabled', 'true');
@@ -2055,45 +2045,34 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(onadd).not.toHaveBeenCalled();
 	});
 
-	it('adds, then gives the focus to Solve all, which stays in place with its reasons', async () => {
+	it('adds, then keeps the focus on Add, which stays in place', async () => {
 		const onadd = vi.fn();
-		const onsolveall = vi.fn();
-		const view = render(
-			PumpGroupChart,
-			base({ lineups: plan({}, runnable, { onadd, onsolveall }) })
-		);
-		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
-		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
+		const view = render(PumpGroupChart, base({ lineups: plan({}, { onadd }) }));
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases". Pressed as a keyboard
+		// user does: focused, then activated.
+		const add = within(block()).getByRole('button', { name: 'Add 2 cases' });
+		add.focus();
+		await fireEvent.click(add);
 		expect(onadd).toHaveBeenCalledTimes(1);
 		await tick();
-		const solveAll = within(block()).getByRole('button', { name: 'Solve all (2)' });
-		expect(solveAll).toHaveFocus();
-		expect(solveAll).toHaveAccessibleDescription(runnable.hint);
-		await fireEvent.click(solveAll);
-		expect(onsolveall).toHaveBeenCalledTimes(1);
-		// A run: unavailable, with the reason; it stays, with the focus, when nothing is left.
-		const states = [
-			{ count: 2, canRun: false, reason: 'Solve all is running; Cancel in the header stops it.' },
-			{ count: 0, canRun: false, reason: "Every case's results are current." },
-			{
-				count: 0,
-				canRun: false,
-				reason: 'Every case is solved except Pump PB off, which has an error to fix first.'
-			}
-		];
-		for (const state of states) {
-			await view.rerender(
-				base({ lineups: plan({}, { ...state, hint: runnable.hint }, { onadd, onsolveall }) })
-			);
-			const button = within(block()).getByRole('button', { name: /^Solve all/ });
-			expect(button).toBe(solveAll);
-			expect(button).toHaveFocus();
-			expect(button).toHaveAccessibleName(state.count ? 'Solve all (2)' : 'Solve all');
-			expect(button).toHaveAttribute('aria-disabled', 'true');
-			expect(button).toHaveAccessibleDescription(state.reason);
-			await fireEvent.click(button);
-		}
-		expect(onsolveall).toHaveBeenCalledTimes(1);
+		// The focus stays on Add: the block has no Solve all to give it to (build-density.md §19).
+		expect(add).toHaveFocus();
+		expect(
+			within(block()).queryAllByRole('button', { name: /^Solve all/, hidden: true })
+		).toHaveLength(0);
+		// The cases made (the caller's project now holds them): the same button, with the focus,
+		// refused and described by its visible refusal; a press does nothing.
+		await view.rerender(base({ lineups: plan({ project: c.project }, { onadd }) }));
+		const button = within(block()).getByRole('button', { name: ADD });
+		expect(button).toBe(add);
+		expect(button).toHaveFocus();
+		expect(button).toHaveAccessibleName('Add cases');
+		expect(button).toHaveAttribute('aria-disabled', 'true');
+		expect(button).toHaveAccessibleDescription(
+			'Every case with one pump off already exists: Pump PA off and Pump PB off.'
+		);
+		await fireEvent.click(button);
+		expect(onadd).toHaveBeenCalledTimes(1);
 	});
 
 	it('the other cases: the box, the cases on the chart (six at most), progress, Cancel, again', async () => {

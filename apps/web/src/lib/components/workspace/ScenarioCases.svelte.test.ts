@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { NetworkError, ValidationError } from '$lib/api/client';
 import type {
 	Component,
+	GoalSeekResponse,
 	Override,
 	Project,
 	ScenarioResult,
@@ -19,11 +20,13 @@ import type {
 	SystemCurveResponse
 } from '$lib/api/types';
 import type { Solver } from '$lib/state/project.svelte';
+import { outOfSight, wordsInSight } from '$lib/testing/helpers';
 import { pumpTransferSolved, response, systemCurveResponse } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { insertComponentInConnection, updateComponent } from '$lib/utils/edit';
 import { pumpTransferExample } from '$lib/utils/examples';
-import { createComponent } from '$lib/utils/factory';
+import { createComponent, createEmptyProject } from '$lib/utils/factory';
+import { newGoal, newVariable, toRequest } from '$lib/utils/goal-seek';
 import { withScenarios } from '$lib/utils/scenarios';
 import WorkspaceView from './Workspace.svelte';
 
@@ -155,6 +158,12 @@ describe('Compare cases', () => {
 				return response(pumpTransferSolved());
 			}
 		});
+		// Before the run both cases are to solve: the amber line says so and names the Scenarios
+		// menu's Solve all (build-density.md §19), so the check below that it has gone tests a line
+		// that is drawn otherwise.
+		expect(await openCompare()).toHaveTextContent(
+			'2 of 2 cases have results that are missing or out of date: Solve all, in the Scenarios menu at the top (Ctrl+Shift+Enter or ⌘+Shift+Enter), solves them one after another.'
+		);
 		await ws.solveAll();
 		await tick();
 		expect(ws.store.caseStatus('S1')).toBe('failed');
@@ -247,7 +256,8 @@ describe('solving cases', () => {
 		const held = heldSolver();
 		const ws = setup(twoCases(), held.solver);
 		const bar = await caseMenu();
-		const button = within(bar).getByRole('button', { name: 'Solve all' });
+		// Its name counts the cases while it can run (build-density.md §19).
+		const button = within(bar).getByRole('button', { name: 'Solve all (2)' });
 		button.focus();
 		await fireEvent.click(button);
 		await tick();
@@ -301,14 +311,17 @@ describe('solving cases', () => {
 		const ws = setup(twoCases([{ id: 'S1', name, overrides: [] }]));
 		ws.setCase('S1');
 		await tick();
-		const results = screen.getByRole('region', { name: 'Results' });
-		const button = within(results).getByRole('button', { name: `Solve ${name}` });
-		const visible = [...button.childNodes]
-			.filter((n) => !(n instanceof HTMLElement && n.classList.contains('sr-only')))
-			.map((n) => n.textContent)
-			.join('')
-			.trim();
-		expect(visible).toBe('Solve');
+		// The header's Solve, the one Solve (build-density.md §19; the Results pane has none). Its
+		// visible label is read, not the button's text: the button also holds "Solving…", drawn
+		// invisible in the same place, and the case's name for screen readers only.
+		const header = screen.getByRole('toolbar', { name: 'Project' });
+		const button = within(header).getByRole('button', { name: `Solve ${name}` });
+		const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
+		let visible = '';
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			if (!n.parentElement?.closest('.sr-only, .invisible')) visible += n.textContent ?? '';
+		}
+		expect(visible.trim()).toBe('Solve');
 	});
 });
 
@@ -554,5 +567,450 @@ describe('the record of a scenario’s solve', () => {
 		const marked = rows.filter((r) => /changed in this scenario/.test(r.textContent ?? ''));
 		expect(marked).toHaveLength(1);
 		expect(marked[0]).toHaveTextContent('Transfer pump → ');
+	});
+});
+
+// ---- One Solve, one Solve all (build-density.md §19) -------------------------------------------
+
+const SOLVE_ALL = /^Solve all( \(\d+\))?$/;
+const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
+/** Solve all's title when no reason passes: its shortcut (Solve's wording). */
+const ALL_KEYS = 'Solve all (Ctrl+Shift+Enter or ⌘+Shift+Enter)';
+const hint = (n: string) =>
+	`Solves each case whose results are missing or out of date, one after another: up to ${n}.`;
+const words = (text: string | null | undefined) => (text ?? '').replace(/\s+/g, ' ').trim();
+const scenariosButton = () => screen.getByRole('button', { name: /^Scenarios/ });
+const menuPanel = () => document.getElementById(scenariosButton().getAttribute('aria-controls')!)!;
+const header = () => screen.getByRole('toolbar', { name: 'Project' }).closest('header')!;
+const solveAllOf = (group: HTMLElement) =>
+	within(group).getByRole('button', { name: /^Solve all/ });
+/** Solve all's line: always its description. */
+const lineOf = (button: HTMLElement) =>
+	document.getElementById(button.getAttribute('aria-describedby') ?? '')!;
+/** A held solver that also answers a goal seek never (it runs until cancelled). */
+function heldWithGoalSeek() {
+	const held = heldSolver();
+	const solver: Solver = {
+		...held.solver,
+		goalSeek: () => new Promise<GoalSeekResponse>(() => {})
+	};
+	return { ...held, solver };
+}
+/** Start a goal seek on the base case (made-up setup: L2's flow by P1's speed). */
+function startGoalSeek(ws: ReturnType<typeof setup>) {
+	const project = ws.store.project;
+	void ws.store.runGoalSeek(
+		toRequest(
+			{
+				goals: [{ ...newGoal({ elementId: 'L2' }, 'link_flow'), target: 0.015 }],
+				variables: [
+					newVariable(project, { target: { kind: 'component', componentId: 'P1' }, field: 'speed' })
+				]
+			},
+			project,
+			null
+		)
+	);
+}
+
+describe('the Scenarios menu: Solve all leads it (build-density.md §19)', () => {
+	it('holds, in order: Solve all, its line, the status, a rule, the Case select, its note, Manage scenarios…', async () => {
+		setup(twoCases());
+		const group = await caseMenu();
+		const button = solveAllOf(group);
+		const line = lineOf(button);
+		const status = within(group).getByRole('status');
+		const select = within(group).getByRole('combobox', { name: 'Case' });
+		const label = group.querySelector(`label[for="${select.id}"]`)!;
+		const note = within(group).getByText(
+			'Edits change the base case and every scenario that does not set its own value.'
+		);
+		const manage = within(group).getByRole('button', { name: 'Manage scenarios…' });
+		// Read by nodes, text included: the words in that order and nothing else (the status is
+		// empty while nothing runs).
+		const parts: [string, Element[]][] = [
+			['Solve all', [button]],
+			['line', [line]],
+			['status', [status]],
+			['select', [label, select]],
+			['note', [note]],
+			['manage', [manage]]
+		];
+		const seen: string[] = [];
+		const walker = document.createTreeWalker(group, NodeFilter.SHOW_TEXT);
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			const text = n.textContent?.trim();
+			if (!text) continue;
+			const part = parts.find(([, els]) => els.some((el) => el.contains(n)))?.[0] ?? `“${text}”`;
+			if (seen.at(-1) !== part) seen.push(part);
+		}
+		expect(seen).toEqual(['Solve all', 'line', 'select', 'note', 'manage']);
+		// Each element after the one before, the empty status and the rule included.
+		const rule = group.querySelector<HTMLElement>('.border-t');
+		expect(rule).not.toBeNull();
+		expect(rule).toHaveClass('border-slate-200', 'pt-2');
+		const order = [button, line, status, rule!, label, select, note, manage];
+		for (let i = 1; i < order.length; i++) {
+			expect(
+				order[i - 1]!.compareDocumentPosition(order[i]!) & FOLLOWING,
+				`part ${i}`
+			).toBeTruthy();
+		}
+	});
+
+	it('Solve all is the primary button with its count while it can run; none when current, during a run or a goal seek', async () => {
+		const held = heldWithGoalSeek();
+		const ws = setup(twoCases(), held.solver);
+		let group = await caseMenu();
+		const button = within(group).getByRole('button', { name: 'Solve all (2)' });
+		expect(button).toHaveClass('btn', 'btn-primary');
+		expect(button).toHaveAttribute('data-solve-all');
+		expect(button).toHaveAttribute('aria-keyshortcuts', 'Control+Shift+Enter Meta+Shift+Enter');
+		expect(button).toHaveAttribute('title', ALL_KEYS);
+		expect(button).not.toHaveAttribute('aria-disabled', 'true');
+		expect(button.querySelector('svg')).toHaveClass('size-4');
+		// A run: no count beside its progress (the badge counts down).
+		await fireEvent.click(button);
+		await tick();
+		expect(ws.store.run).not.toBeNull();
+		expect(button).toHaveAccessibleName('Solve all');
+		expect(button).toHaveAttribute('aria-disabled', 'true');
+		expect(within(group).getByRole('status')).toHaveTextContent('Solving 1 of 2: Base case…');
+		held.release();
+		await vi.waitFor(() => expect(held.solve).toHaveBeenCalledTimes(2));
+		held.release();
+		await vi.waitFor(() => expect(ws.store.run).toBeNull());
+		await tick();
+		// Every case current.
+		group = await caseMenu();
+		expect(solveAllOf(group)).toHaveAccessibleName('Solve all');
+		expect(solveAllOf(group)).toHaveAttribute('aria-disabled', 'true');
+		// Out of date again: counted; then a goal seek: not.
+		ws.store.update((p) => {
+			p.connections[0]!.piping.pipes[0]!.length = 500;
+		}, 'change length');
+		await tick();
+		expect(solveAllOf(group)).toHaveAccessibleName('Solve all (2)');
+		startGoalSeek(ws);
+		await tick();
+		expect(ws.store.calculating).toBe('goalSeek');
+		expect(solveAllOf(group)).toHaveAccessibleName('Solve all');
+		expect(solveAllOf(group)).toHaveAttribute('aria-disabled', 'true');
+	});
+
+	it('shows its line while it can run and while a reason lasts; a passing reason is hidden and its title; always the description', async () => {
+		const held = heldWithGoalSeek();
+		const ws = setup(twoCases(), held.solver);
+		const group = await caseMenu();
+		const line = (text: string, form: 'shown' | 'passing') => {
+			const button = solveAllOf(group);
+			const el = lineOf(button);
+			expect(el, text).not.toBeNull();
+			expect(words(el.textContent), text).toBe(text);
+			expect(button, text).toHaveAccessibleDescription(text);
+			if (form === 'shown') {
+				expect(outOfSight(el), text).toBe(false);
+				// 12 px slate-600: the utilities, or the `hint` class that applies them.
+				const small =
+					el.classList.contains('hint') ||
+					['text-xs', 'text-slate-600'].every((c) => el.classList.contains(c));
+				expect(small, `${text}: ${el.className}`).toBe(true);
+				expect(button, text).toHaveAttribute('title', ALL_KEYS);
+			} else {
+				expect(el, text).toHaveClass('sr-only');
+				expect(outOfSight(el), text).toBe(true);
+				expect(button, text).toHaveAttribute('title', text);
+			}
+		};
+		line(hint('2 solves'), 'shown');
+		// A solve of the base case: passing.
+		const base = ws.solve();
+		await tick();
+		line('A solve of Base case is running; Cancel in the header stops it.', 'passing');
+		held.release();
+		await base;
+		await tick();
+		line(hint('1 solve'), 'shown');
+		// A solve of another case than the one shown: passing, named.
+		ws.setCase('S1');
+		const other = ws.solve();
+		ws.setCase(null);
+		await tick();
+		line('A solve of Higher tank is running; Cancel in the header stops it.', 'passing');
+		held.release();
+		await other;
+		await tick();
+		line("Every case's results are current.", 'shown');
+		// A goal seek: passing; cancelled, the lasting reason again.
+		startGoalSeek(ws);
+		await tick();
+		line('A goal seek is running; Cancel in the header stops it.', 'passing');
+		ws.store.cancelSolve();
+		await tick();
+		line("Every case's results are current.", 'shown');
+		// Solve all running: passing.
+		ws.store.update((p) => {
+			p.connections[0]!.piping.pipes[0]!.length = 500;
+		}, 'change length');
+		const run = ws.solveAll();
+		await tick();
+		line('Solve all is running; Cancel in the header stops it.', 'passing');
+		held.release();
+		await vi.waitFor(() => expect(held.solve).toHaveBeenCalledTimes(4));
+		held.release();
+		await run;
+	});
+
+	it('shows the lasting reasons on screen: an error to fix first, an empty network', async () => {
+		const ws = setup(twoCases([{ id: 'S1', name: 'Winter', overrides: [slower] }]), {
+			solve: async (_p, _o, request) => {
+				if (request?.scenarioId === 'S1') {
+					throw new ValidationError(
+						'Invalid input: 1 problem(s).',
+						['body.project.scenarios.0.overrides.0: made-up rule'],
+						400,
+						'VALIDATION_ERROR'
+					);
+				}
+				return response(pumpTransferSolved());
+			}
+		});
+		await ws.solveAll();
+		await tick();
+		const group = await caseMenu();
+		const button = solveAllOf(group);
+		const text = 'Every case is solved except Winter, which has an error to fix first.';
+		expect(button).toHaveAccessibleName('Solve all');
+		expect(button).toHaveAccessibleDescription(text);
+		expect(words(lineOf(button).textContent)).toBe(text);
+		expect(outOfSight(lineOf(button))).toBe(false);
+		document.body.innerHTML = '';
+		setup(
+			withScenarios(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }), [
+				{ id: 'S1', name: 'Winter', overrides: [] }
+			])
+		);
+		const empty = solveAllOf(await caseMenu());
+		expect(empty).toHaveAccessibleName('Solve all');
+		expect(empty).toHaveAttribute('aria-disabled', 'true');
+		expect(empty).toHaveAccessibleDescription('Add a component to the network first.');
+		expect(outOfSight(lineOf(empty))).toBe(false);
+	});
+
+	it('gives the focus on open to Solve all when it can run, else to the Case select', async () => {
+		const ws = setup(twoCases(), solvesOk);
+		await fireEvent.click(scenariosButton());
+		const group = screen.getByRole('group', { name: 'Case' });
+		await vi.waitFor(() => expect(document.activeElement).toBe(solveAllOf(group)));
+		expect(solveAllOf(group)).not.toHaveAttribute('aria-disabled', 'true');
+		await fireEvent.keyDown(group, { key: 'Escape' });
+		expect(document.activeElement).toBe(scenariosButton());
+		await ws.solveAll();
+		await tick();
+		await fireEvent.click(scenariosButton());
+		const select = within(screen.getByRole('group', { name: 'Case' })).getByRole('combobox', {
+			name: 'Case'
+		});
+		await vi.waitFor(() => expect(document.activeElement).toBe(select));
+	});
+
+	it('ignores a held Enter on Solve all: its repeated keydown is prevented, so no click follows', async () => {
+		const held = heldSolver();
+		const ws = setup(twoCases(), held.solver);
+		const button = solveAllOf(await caseMenu());
+		button.focus();
+		/** Enter's keydown on a focused button: a browser clicks it unless the keydown is prevented. */
+		const enter = async (repeat: boolean) => {
+			const proceed = await fireEvent.keyDown(button, { key: 'Enter', repeat });
+			if (proceed) await fireEvent.click(button, { detail: 0 });
+			return proceed;
+		};
+		// The Enter that opened the menu, held: its repeats reach Solve all.
+		expect(await enter(true)).toBe(false);
+		expect(held.solve).not.toHaveBeenCalled();
+		expect(ws.store.run).toBeNull();
+		// A press of its own runs it.
+		expect(await enter(false)).toBe(true);
+		expect(held.solve).toHaveBeenCalledTimes(1);
+		expect(ws.store.run).not.toBeNull();
+	});
+
+	it('sits right after its button, both in one wrapper, before the Project toolbar', () => {
+		setup(twoCases());
+		const button = scenariosButton();
+		const panel = menuPanel();
+		const toolbar = screen.getByRole('toolbar', { name: 'Project' });
+		expect(button.nextElementSibling).toBe(panel);
+		expect(button.compareDocumentPosition(panel) & FOLLOWING).toBeTruthy();
+		expect(panel.compareDocumentPosition(toolbar) & FOLLOWING).toBeTruthy();
+		expect(panel.parentElement).toBe(button.parentElement);
+		expect(panel.parentElement).toHaveClass('shrink-0', 'sm:relative');
+	});
+
+	it('closes when the focus leaves it and its button (to Undo); not on a focusout to nowhere or within', async () => {
+		setup(twoCases());
+		const group = await caseMenu();
+		const button = solveAllOf(group);
+		const open = () => expect(scenariosButton()).toHaveAttribute('aria-expanded', 'true');
+		button.focus();
+		// A window switch, or the panel hidden: no relatedTarget.
+		await fireEvent.focusOut(button, { relatedTarget: null });
+		open();
+		expect(menuPanel()).not.toHaveAttribute('hidden');
+		// Within the menu, and to its own button.
+		within(group).getByRole('combobox', { name: 'Case' }).focus();
+		await tick();
+		open();
+		scenariosButton().focus();
+		await tick();
+		open();
+		button.focus();
+		// Tab past it, or a press elsewhere that takes the focus.
+		const undo = screen.getByRole('button', { name: 'Undo' });
+		undo.focus();
+		await tick();
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'false');
+		expect(menuPanel()).toHaveAttribute('hidden');
+		expect(document.activeElement).toBe(undo);
+	});
+
+	it('stays open after a pointer press on Cancel during a run, its line saying the run was cancelled', async () => {
+		const held = heldSolver();
+		const ws = setup(twoCases(), held.solver);
+		const group = await caseMenu();
+		const button = solveAllOf(group);
+		// As a browser does it: the press focuses the button pressed.
+		button.focus();
+		await fireEvent.click(button, { detail: 1 });
+		expect(ws.store.run).not.toBeNull();
+		const cancel = screen.getByRole('button', { name: 'Cancel solving all cases' });
+		await fireEvent.pointerDown(cancel);
+		cancel.focus();
+		await fireEvent.click(cancel, { detail: 1 });
+		await tick();
+		expect(held.signals[0]?.aborted).toBe(true);
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'true');
+		expect(menuPanel()).not.toHaveAttribute('hidden');
+		const status = within(screen.getByRole('group', { name: 'Case' })).getByRole('status');
+		expect(status).toHaveTextContent(
+			/^Solve all was cancelled: the cases not solved keep what they had\.$/
+		);
+		expect(outOfSight(status)).toBe(false);
+	});
+
+	it('with the menu closed, the header says the progress, then the cancel line', async () => {
+		const held = heldSolver();
+		const ws = setup(twoCases(), held.solver);
+		void ws.solveAll();
+		await tick();
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'false');
+		// The closed menu's own line is hidden with it: the header's twin is the one live line.
+		const twin = () => within(header()).getByRole('status');
+		expect(twin()).toHaveClass('sr-only');
+		expect(twin()).toHaveTextContent(/^Solving 1 of 2: Base case…$/);
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solving all cases' }));
+		await tick();
+		expect(ws.store.run).toBeNull();
+		expect(twin()).toHaveTextContent(
+			/^Solve all was cancelled: the cases not solved keep what they had\.$/
+		);
+	});
+
+	it('raises an alert when a network error stops Solve all with the menu closed, naming the cases left; none with it open', async () => {
+		const ws = setup(
+			twoCases([
+				{ id: 'S1', name: 'Higher tank', overrides: [level6] },
+				{ id: 'S2', name: 'Copy', overrides: [] }
+			]),
+			{
+				solve: async (_p, _o, request) => {
+					if (request?.scenarioId === 'S1')
+						throw new NetworkError('The server is busy.', 503, 'SERVER_BUSY');
+					return response(pumpTransferSolved());
+				}
+			}
+		);
+		await ws.solveAll();
+		await tick();
+		const text =
+			'Solve all stopped after a network error: The server is busy. Solve all, in the Scenarios menu, solves the 2 cases left.';
+		expect(ws.notice).toMatchObject({ kind: 'error', text });
+		expect(screen.getByRole('alert')).toHaveTextContent(text);
+		// The badge keeps that count.
+		expect(scenariosButton()).toHaveAccessibleName('Scenarios (2), 2 cases to solve');
+		ws.dismissNotice();
+		await tick();
+		// From the open menu: its line says it; no notice.
+		const group = await caseMenu();
+		await fireEvent.click(within(group).getByRole('button', { name: 'Solve all (2)' }));
+		await vi.waitFor(() => expect(ws.store.runStop?.reason).toBe('network'));
+		await tick();
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'true');
+		expect(within(group).getByRole('status')).toHaveTextContent(
+			'Solve all stopped after a network error: The server is busy.'
+		);
+		expect(ws.notice).toBeNull();
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
+	it('ends a message without a full stop with one, and names the one case left', async () => {
+		const ws = setup(twoCases(), {
+			solve: async (_p, _o, request) => {
+				if (request?.scenarioId === 'S1')
+					throw new NetworkError('No answer from the calculation server', 0);
+				return response(pumpTransferSolved());
+			}
+		});
+		await ws.solveAll();
+		await tick();
+		const text =
+			'Solve all stopped after a network error: No answer from the calculation server. Solve all, in the Scenarios menu, solves the case left.';
+		expect(ws.notice).toMatchObject({ kind: 'error', text });
+		expect(screen.getByRole('alert')).toHaveTextContent(text);
+		expect(scenariosButton()).toHaveAccessibleName('Scenarios (1), 1 case to solve');
+	});
+});
+
+describe('Compare cases names the Scenarios menu’s Solve all (build-density.md §19)', () => {
+	it('has no Solve all; its amber line names the menu’s, plural then singular; the empty line alone', async () => {
+		const ws = setup(twoCases(), solvesOk);
+		// The Results tab shown (on a phone the pane is a tab; its words are read in sight).
+		ws.pane = 'results';
+		let compare = await openCompare();
+		const solveAlls = () =>
+			within(compare).queryAllByRole('button', { name: SOLVE_ALL, hidden: true });
+		const amber = () =>
+			[...compare.querySelectorAll('p')].find((p) =>
+				/missing or out of date/.test(p.textContent ?? '')
+			)!;
+		expect(solveAlls()).toHaveLength(0);
+		expect(words(amber().textContent)).toBe(
+			'2 of 2 cases have results that are missing or out of date: Solve all, in the Scenarios menu at the top (Ctrl+Shift+Enter or ⌘+Shift+Enter), solves them one after another.'
+		);
+		// On a touch screen the shortcut is not drawn.
+		expect(words(wordsInSight(amber()))).toBe(
+			'2 of 2 cases have results that are missing or out of date: Solve all, in the Scenarios menu at the top, solves them one after another.'
+		);
+		// The menu named with the Scenarios button's own icon, in one unbroken span with its word.
+		const named = [...amber().querySelectorAll('span')].find(
+			(s) => s.textContent?.trim() === 'Scenarios'
+		)!;
+		expect(named).toHaveClass('whitespace-nowrap');
+		expect(named.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+		expect(named.querySelector('svg')!.innerHTML).toBe(
+			scenariosButton().querySelector(':scope > svg')!.innerHTML
+		);
+		// No results yet: the line alone (the amber line above says how), and no Solve all.
+		expect(words(within(compare).getByText(/^No case has results yet/).textContent)).toBe(
+			'No case has results yet.'
+		);
+		// The base solved: one case left, the singular.
+		await ws.solve();
+		await tick();
+		compare = await openCompare();
+		expect(solveAlls()).toHaveLength(0);
+		expect(words(amber().textContent)).toBe(
+			'1 of 2 cases has results that are missing or out of date: Solve all, in the Scenarios menu at the top (Ctrl+Shift+Enter or ⌘+Shift+Enter), solves it.'
+		);
 	});
 });

@@ -759,7 +759,8 @@ export const LINEUP_BLOCK_WORDS = {
  * Add cases' own words since the Pumps tab's S4 (pumps-results-layout.md §5.3, §6.2), beside D24's,
  * which are unchanged (§6.3): the tag beside its heading, the plan disclosure's lead, and the line
  * after an Add that ticked "Also show the other cases' station duties", which the block's polite
- * line says too, since the focus moves on to its Solve all (D24 §7.8).
+ * line says too, since the line is drawn after Add, which keeps the focus, and nothing else would
+ * say it (build-density.md §19; D24 §7.8's handoff to the block's Solve all superseded).
  */
 export const ADD_CASES_WORDS = {
 	tag: 'Changes the project',
@@ -791,15 +792,22 @@ export function carriesFlow(
 	return !!result && result.status !== 'off' && Math.abs(result.operatingFlow) > DUTY_CHECK_FLOOR;
 }
 
-/** 4d's notice after Each pump off's add (unchanged). */
+/**
+ * The notice's tail after an add: Solve all is the Scenarios menu's (build-density.md §19), so the
+ * notice names where it is. Plain text: notices hold no icons.
+ */
+const ADDED_TAIL =
+	'Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.';
+
+/** 4d's notice after Each pump off's add, its tail naming the Scenarios menu's Solve all (§19). */
 export function addedNotice(names: readonly string[]): string {
-	return `Added ${names.length} ${plural(names.length, 'case', 'cases')} with one pump off: ${andList(names)}. Solve all solves every case not yet solved; Undo removes them.`;
+	return `Added ${names.length} ${plural(names.length, 'case', 'cases')} with one pump off: ${andList(names)}. ${ADDED_TAIL}`;
 }
 
 /** The notice after the add (§7.8): By number running's, names in «», or 4d's addedNotice. */
 export function lineupNotice(preset: LineupPreset, names: readonly string[]): string {
 	if (preset === 'each') return addedNotice(names);
-	return `Added ${names.length} ${plural(names.length, 'case', 'cases')} by number running: ${quotedList(names)}. Solve all solves every case not yet solved; Undo removes them.`;
+	return `Added ${names.length} ${plural(names.length, 'case', 'cases')} by number running: ${quotedList(names)}. ${ADDED_TAIL}`;
 }
 
 /** "«A», «B» and «C»": names hold commas and parentheses (decision 22). */
@@ -941,8 +949,6 @@ export interface LineupPlan {
 	/** Why nothing is offered (null: offered), and which gate. */
 	gate: string | null;
 	gateKind: LineupGate | null;
-	/** The block's Solve all is drawn: offered, or gates 4 to 6. */
-	showSolveAll: boolean;
 	/** What the preset makes (null under a gate). */
 	about: string | null;
 	/** The interchangeability sentence (§7.6; By number running only). */
@@ -1081,15 +1087,10 @@ function idWords(
  */
 export function lineupPlan(input: LineupPlanInput): LineupPlan {
 	const { project, shownCase, station, base, preset } = input;
-	const plan = (
-		gateKind: LineupGate | null,
-		gate: string | null,
-		showSolveAll: boolean
-	): LineupPlan => ({
+	const plan = (gateKind: LineupGate | null, gate: string | null): LineupPlan => ({
 		preset,
 		gate,
 		gateKind,
-		showSolveAll,
 		about: null,
 		sentence: null,
 		stopOrder: null,
@@ -1105,34 +1106,30 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 		undoLabel: LINEUP_UNDO_LABELS[preset],
 		notice: null
 	});
-	if (!station) return plan(null, null, false);
+	if (!station) return plan(null, null);
 	if (station.arrangement === 'series') {
 		return plan(
 			'series',
-			'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.',
-			false
+			'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.'
 		);
 	}
 	if (station.arrangement === 'mixed') {
 		return plan(
 			'mixed',
-			'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.',
-			false
+			'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.'
 		);
 	}
 	if (shownCase !== null) {
 		const shown = findScenario(project, shownCase)?.name ?? shownCase;
 		return plan(
 			'scenario',
-			`Cases are made from the base case: show the base case to add them. To study ${shown} with pumps off, duplicate it in Scenarios and set those pumps off there.`,
-			false
+			`Cases are made from the base case: show the base case to add them. To study ${shown} with pumps off, duplicate it in Scenarios and set those pumps off there.`
 		);
 	}
 	if (!base || base.stale) {
 		return plan(
 			'stale',
-			"The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now.",
-			true
+			"The base case's results are out of date: solve it again with Solve, at the top, so the pumps that run are read from the project as it is now."
 		);
 	}
 	const members = pumpsInOrder(project, input.memberIds);
@@ -1150,8 +1147,7 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 	if (on.length < 2) {
 		return plan(
 			'fewer_on',
-			`Needs two or more of these pumps switched on in the base case: ${andList(off.map(own))} ${off.length === 1 ? 'is' : 'are'} off.`,
-			true
+			`Needs two or more of these pumps switched on in the base case: ${andList(off.map(own))} ${off.length === 1 ? 'is' : 'are'} off.`
 		);
 	}
 	const carrying = on.filter((id) => carriesFlow(results[id]));
@@ -1159,8 +1155,7 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 	if (!carrying.length) {
 		return plan(
 			'no_flow',
-			'No pump of the group carries flow in the base case, so switching pumps off changes nothing.',
-			true
+			'No pump of the group carries flow in the base case, so switching pumps off changes nothing.'
 		);
 	}
 
@@ -1301,7 +1296,6 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 		preset,
 		gate: null,
 		gateKind: null,
-		showSolveAll: true,
 		about,
 		sentence: preset === 'running' ? curveSentence(project, on, results, label) : null,
 		stopOrder: stopView,

@@ -584,6 +584,26 @@ const menuPanel = () => document.getElementById(scenariosButton().getAttribute('
 const header = () => screen.getByRole('toolbar', { name: 'Project' }).closest('header')!;
 const solveAllOf = (group: HTMLElement) =>
 	within(group).getByRole('button', { name: /^Solve all/ });
+const CANCELLED_TEXT = 'Solve all was cancelled: the cases not solved keep what they had.';
+const CANCELLED = /^Solve all was cancelled: the cases not solved keep what they had\.$/;
+/** The header's screen-reader line (the menu's own status line is in the header too). */
+const headerTwin = () => header().querySelector<HTMLElement>(':scope > p[role="status"]')!;
+/** Every update, and the end of a step that waits a tick (the header's focus handoff). */
+async function settled() {
+	await tick();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	await tick();
+}
+/** The texts a live region takes, one per change: what a screen reader says (none for ''). */
+function sayings(region: HTMLElement): string[] & { stop: () => void } {
+	const said: string[] = [];
+	const observer = new MutationObserver(() => {
+		const text = words(region.textContent);
+		if (text) said.push(text);
+	});
+	observer.observe(region, { childList: true, characterData: true, subtree: true });
+	return Object.assign(said, { stop: () => observer.disconnect() });
+}
 /** Solve all's line: always its description. */
 const lineOf = (button: HTMLElement) =>
 	document.getElementById(button.getAttribute('aria-describedby') ?? '')!;
@@ -916,6 +936,169 @@ describe('the Scenarios menu: Solve all leads it (build-density.md §19)', () =>
 		);
 	});
 
+	it('after a pointer Cancel the focus stays in the open menu, on Solve all: Escape closes it', async () => {
+		const held = heldSolver();
+		const ws = setup(twoCases(), held.solver);
+		const group = await caseMenu();
+		const button = solveAllOf(group);
+		button.focus();
+		await fireEvent.click(button, { detail: 1 });
+		expect(ws.store.run).not.toBeNull();
+		// As Chromium does it: the press focuses Cancel, outside the menu, which stays open.
+		const cancel = screen.getByRole('button', { name: 'Cancel solving all cases' });
+		await fireEvent.pointerDown(cancel);
+		cancel.focus();
+		await fireEvent.click(cancel, { detail: 1 });
+		await settled();
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'true');
+		// Cancel gone, the focus goes back into the menu it shows, to Solve all (which resumes
+		// the run), not to the header's Solve under it: Escape and a Tab past it close it again
+		// (WCAG 2.4.11).
+		expect(document.activeElement).toBe(solveAllOf(group));
+		await fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'false');
+		expect(menuPanel()).toHaveAttribute('hidden');
+		expect(document.activeElement).toBe(scenariosButton());
+	});
+
+	it('after a pointer Cancel of a single solve the focus stays in the open menu; leaving it closes it', async () => {
+		const held = heldSolver();
+		const ws = setup(twoCases(), held.solver);
+		const group = await caseMenu();
+		solveAllOf(group).focus();
+		// Ctrl/⌘+Enter with the focus in the menu: a solve of the case shown.
+		void ws.solve();
+		await tick();
+		const cancel = screen.getByRole('button', { name: 'Cancel solve' });
+		await fireEvent.pointerDown(cancel);
+		cancel.focus();
+		await fireEvent.click(cancel, { detail: 1 });
+		await settled();
+		expect(held.signals[0]?.aborted).toBe(true);
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'true');
+		expect(document.activeElement).toBe(solveAllOf(group));
+		// A Tab past it, to Share: closed.
+		const share = within(header()).getByRole('button', { name: 'Share' });
+		share.focus();
+		await tick();
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'false');
+		expect(document.activeElement).toBe(share);
+	});
+
+	it('closes on Escape with the focus on its button (Shift+Tab from Solve all)', async () => {
+		setup(twoCases());
+		const group = await caseMenu();
+		await vi.waitFor(() => expect(document.activeElement).toBe(solveAllOf(group)));
+		scenariosButton().focus();
+		await tick();
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'true');
+		await fireEvent.keyDown(scenariosButton(), { key: 'Escape' });
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'false');
+		expect(menuPanel()).toHaveAttribute('hidden');
+		expect(document.activeElement).toBe(scenariosButton());
+	});
+
+	it('closes when the focus leaves Cancel for the page, Cancel pressed but not clicked', async () => {
+		const held = heldSolver();
+		const ws = setup(twoCases(), held.solver);
+		const group = await caseMenu();
+		solveAllOf(group).focus();
+		await fireEvent.click(solveAllOf(group), { detail: 1 });
+		expect(ws.store.run).not.toBeNull();
+		// The press focuses Cancel and keeps the menu open; the pointer leaves before the click.
+		const cancel = screen.getByRole('button', { name: 'Cancel solving all cases' });
+		await fireEvent.pointerDown(cancel);
+		cancel.focus();
+		await tick();
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'true');
+		// Tab from Cancel to Solve: the focus has left the menu, its button and Cancel.
+		const solve = header().querySelector<HTMLElement>('[data-solve-button]')!;
+		solve.focus();
+		await tick();
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'false');
+		expect(menuPanel()).toHaveAttribute('hidden');
+		expect(ws.store.run).not.toBeNull();
+	});
+
+	it('the header says a cancel once: closing the menu after it does not say it again', async () => {
+		const held = heldSolver();
+		const ws = setup(twoCases(), held.solver);
+		void ws.solveAll();
+		await tick();
+		const twin = headerTwin;
+		const said = sayings(twin());
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solving all cases' }));
+		await tick();
+		expect(twin()).toHaveTextContent(CANCELLED);
+		// Opened (its line says it) and closed, twice: the twin stays quiet.
+		for (let i = 0; i < 2; i++) {
+			await fireEvent.click(scenariosButton());
+			await tick();
+			expect(within(menuPanel()).getByRole('status')).toHaveTextContent(CANCELLED);
+			await fireEvent.keyDown(menuPanel(), { key: 'Escape' });
+			await tick();
+			expect(scenariosButton()).toHaveAttribute('aria-expanded', 'false');
+			expect(words(twin().textContent), `close ${i + 1}`).toBe('');
+		}
+		await Promise.resolve();
+		expect(said.filter((t) => t === CANCELLED_TEXT)).toHaveLength(1);
+		said.stop();
+	});
+
+	it('the header says a cancel once: not again after a solve and a case chosen', async () => {
+		const held = heldSolver();
+		const ws = setup(twoCases(), held.solver);
+		void ws.solveAll();
+		await tick();
+		const twin = headerTwin;
+		const said = sayings(twin());
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solving all cases' }));
+		await tick();
+		expect(twin()).toHaveTextContent(CANCELLED);
+		// A solve of the case shown, with the menu never opened: the cancel is old news.
+		const base = ws.solve();
+		await tick();
+		held.release();
+		await base;
+		await tick();
+		expect(words(twin().textContent)).toBe('');
+		// A case chosen from the menu, which closes it.
+		const group = await caseMenu();
+		await fireEvent.change(within(group).getByRole('combobox', { name: 'Case' }), {
+			target: { value: 'S1' }
+		});
+		await tick();
+		expect(ws.store.activeCase).toBe('S1');
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'false');
+		expect(words(twin().textContent)).toBe('');
+		await Promise.resolve();
+		expect(said.filter((t) => t === CANCELLED_TEXT)).toHaveLength(1);
+		said.stop();
+	});
+
+	it('a cancel made with the menu open is said by its line, not again by the header when it closes', async () => {
+		const held = heldSolver();
+		setup(twoCases(), held.solver);
+		const group = await caseMenu();
+		solveAllOf(group).focus();
+		await fireEvent.click(solveAllOf(group), { detail: 1 });
+		const twin = headerTwin;
+		const said = sayings(twin());
+		const cancel = screen.getByRole('button', { name: 'Cancel solving all cases' });
+		await fireEvent.pointerDown(cancel);
+		cancel.focus();
+		await fireEvent.click(cancel, { detail: 1 });
+		await settled();
+		expect(within(group).getByRole('status')).toHaveTextContent(CANCELLED);
+		await fireEvent.click(scenariosButton());
+		await tick();
+		expect(scenariosButton()).toHaveAttribute('aria-expanded', 'false');
+		expect(words(twin().textContent)).toBe('');
+		await Promise.resolve();
+		expect(said).not.toContain(CANCELLED_TEXT);
+		said.stop();
+	});
+
 	it('raises an alert when a network error stops Solve all with the menu closed, naming the cases left; none with it open', async () => {
 		const ws = setup(
 			twoCases([
@@ -968,6 +1151,69 @@ describe('the Scenarios menu: Solve all leads it (build-density.md §19)', () =>
 		expect(ws.notice).toMatchObject({ kind: 'error', text });
 		expect(screen.getByRole('alert')).toHaveTextContent(text);
 		expect(scenariosButton()).toHaveAccessibleName('Scenarios (1), 1 case to solve');
+	});
+
+	/** S1's first solve fails at the network; every later one is answered. */
+	function failsOnce(): Solver {
+		let failed = false;
+		return {
+			solve: async (_p, _o, request) => {
+				if (request?.scenarioId === 'S1' && !failed) {
+					failed = true;
+					throw new NetworkError('No answer from the calculation server', 0);
+				}
+				return response(pumpTransferSolved());
+			}
+		};
+	}
+
+	it('takes the alert away when Solve all resumes, by its keys or by the menu', async () => {
+		for (const by of ['keys', 'menu'] as const) {
+			document.body.innerHTML = '';
+			const ws = setup(twoCases(), failsOnce());
+			await ws.solveAll();
+			await tick();
+			expect(screen.getByRole('alert'), by).toHaveTextContent(/solves the case left\.$/);
+			if (by === 'keys') {
+				await ws.solveAll();
+			} else {
+				const group = await caseMenu();
+				await fireEvent.click(within(group).getByRole('button', { name: 'Solve all (1)' }));
+				await vi.waitFor(() => expect(ws.store.run).toBeNull());
+			}
+			await tick();
+			expect(ws.store.casesToSolve(), by).toEqual([]);
+			expect(scenariosButton(), by).toHaveAccessibleName('Scenarios (1)');
+			expect(ws.notice, by).toBeNull();
+			expect(screen.queryByRole('alert'), by).toBeNull();
+		}
+	});
+
+	it('takes the alert away when Solve solves the cases it names; never another notice', async () => {
+		const ws = setup(twoCases(), failsOnce());
+		await ws.solveAll();
+		await tick();
+		expect(screen.getByRole('alert')).toHaveTextContent(/solves the case left\.$/);
+		// The case left, solved by the header's Solve: nothing is left to solve.
+		ws.setCase('S1');
+		await ws.solve();
+		await tick();
+		expect(ws.store.casesToSolve()).toEqual([]);
+		expect(ws.notice).toBeNull();
+		expect(screen.queryByRole('alert')).toBeNull();
+		// A notice of another kind shown in its place stays when Solve all runs again.
+		document.body.innerHTML = '';
+		const other = setup(twoCases(), failsOnce());
+		await other.solveAll();
+		await tick();
+		other.notify('error', 'Could not rename the scenario: made-up problem.');
+		await other.solveAll();
+		await tick();
+		expect(other.store.casesToSolve()).toEqual([]);
+		expect(other.notice).toMatchObject({
+			kind: 'error',
+			text: 'Could not rename the scenario: made-up problem.'
+		});
 	});
 });
 

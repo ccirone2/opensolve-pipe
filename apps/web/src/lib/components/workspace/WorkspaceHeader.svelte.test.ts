@@ -38,11 +38,14 @@ describe('the header on short landscape screens (build-density.md §19)', () => 
 	it('is one pinned row from 35.5 rem wide when at most 20 rem tall', () => {
 		render(WorkspaceView, { workspace: testWorkspace(pumpTransferExample()) });
 		const bar = header();
+		// Above the trace's side panel (z-40, later in the page), which scrolls under it from
+		// 1024 px (the paint itself is read in tests/one-solve.e2e.ts).
 		expect(bar).toHaveClass(
 			'short:min-[35.5rem]:sticky',
 			'short:min-[35.5rem]:top-0',
-			'short:min-[35.5rem]:z-40'
+			'short:min-[35.5rem]:z-[45]'
 		);
+		expect(bar).not.toHaveClass('short:min-[35.5rem]:z-40');
 		// Its row: one row, no padding above and below.
 		const row = bar.firstElementChild!;
 		expect(row).toHaveClass('short:min-[35.5rem]:flex-nowrap', 'short:min-[35.5rem]:py-0');

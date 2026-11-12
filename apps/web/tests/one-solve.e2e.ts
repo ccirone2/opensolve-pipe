@@ -607,7 +607,37 @@ test('the Scenarios menu: Shift+Tab returns to Scenarios, Tab past it closes it,
 	expect(await seenBox(status), 'the cancel line seen').toBe(true);
 	expect(await seenLine(status), 'the cancel line seen as text').toBe(true);
 	await expect(all).toHaveAccessibleName('Solve all (7)');
+	// The press focused Cancel; Cancel gone, the focus is back in the menu it shows, on Solve
+	// all, not on the header's Solve outside it: Escape closes it (WCAG 2.4.11), and the header's
+	// screen-reader line does not say the cancel the menu's line said.
+	await expect(all).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(group).toBeHidden();
+	await expect(scenariosButton(page)).toBeFocused();
+	await expect(banner(page).locator(':scope > p[role="status"]')).toHaveText('');
 	for (const route of held.splice(0)) await route.abort().catch(() => {});
+	await page.unroute('**/api/v1/solve');
+
+	// A single solve (Ctrl+Enter with the focus in the menu) cancelled by the pointer: the
+	// same; a Tab past the menu then closes it, the focus never under it.
+	const single = await hold(page);
+	await scenariosButton(page).click();
+	await expect(all).toBeFocused();
+	await page.keyboard.press('Control+Enter');
+	await expect.poll(() => single.length).toBe(1);
+	await banner(page).getByRole('button', { name: 'Cancel solve' }).click();
+	await expect(cancelButton(page)).toHaveCount(0);
+	await expect(group).toBeVisible();
+	await expect(all).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(caseMenu(page)).toBeFocused();
+	await page.keyboard.press('Tab');
+	await page.keyboard.press('Tab');
+	await expect(group).toBeHidden();
+	await expect(
+		banner(page).getByRole('toolbar', { name: 'Project' }).getByRole('button', { name: /^Undo/ })
+	).toBeFocused();
+	for (const route of single.splice(0)) await route.abort().catch(() => {});
 	await page.unroute('**/api/v1/solve');
 });
 
@@ -644,8 +674,11 @@ test('a network stop with the menu closed raises an alert naming the cases left;
 	await page.unroute('**/api/v1/solve');
 	const counter = solveCounter(page);
 	await solveAll(page);
+	// Solve all resumed: the alert naming the cases left goes with the stop it was about.
+	await expect(alert).toHaveCount(0);
 	await expect(scenariosButton(page)).toHaveAccessibleName('Scenarios (6)', { timeout: 240_000 });
 	expect(counter.n).toBe(6);
+	await expect(alert).toHaveCount(0);
 });
 
 // ---- 5. The trace, its results out of date --------------------------------------------------------
@@ -789,6 +822,73 @@ for (const [width, height] of [
 		expect(box.y, 'Manage scenarios… below the pinned row').toBeGreaterThanOrEqual(row);
 		await manage.click();
 		await expect(page.getByRole('dialog', { name: 'Scenarios' })).toBeVisible();
+	});
+}
+
+for (const [width, height] of [
+	[1024, 320],
+	[1280, 320]
+] as const) {
+	test(`short ${width}×${height}: the trace's side panel, the page scrolled, never draws over the pinned row`, async ({
+		page,
+		browser
+	}) => {
+		test.setTimeout(180_000);
+		await page.setViewportSize({ width, height });
+		await open(page, await ownersProject(browser));
+		await solveConverged(page);
+		const nodes = await resultsView(page, 'Nodes');
+		await nodes
+			.getByRole('button', { name: /^Cooling tower basin/ })
+			.first()
+			.click();
+		const trace = traceOf(page, 'Cooling tower basin');
+		await expect(trace).toHaveAttribute('role', 'region');
+		expect((await headerParts(page)).position, 'the header pinned').toBe('sticky');
+		// Scrolled a little, then to the page's end: every header control is what is drawn at its
+		// centre, never the side panel scrolled up under the row (Solve always in view).
+		for (const at of [100, 'end'] as const) {
+			await page.evaluate(
+				(y) => window.scrollTo(0, y === 'end' ? document.documentElement.scrollHeight : y),
+				at
+			);
+			await expect
+				.poll(() => page.evaluate(() => window.scrollY), {
+					message: `the page scrolled (${at})`
+				})
+				.toBeGreaterThanOrEqual(at === 'end' ? 101 : 100);
+			const hits = await page.evaluate(() => {
+				const header = document.querySelector('header')!;
+				return [
+					...header.querySelectorAll<HTMLElement>(
+						'[role="toolbar"] button, button[aria-controls$="-cases"]'
+					)
+				]
+					.filter((el) => el.checkVisibility())
+					.map((el) => {
+						const r = el.getBoundingClientRect();
+						const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+						return {
+							name: el.getAttribute('aria-label') ?? el.textContent?.trim() ?? '',
+							top: r.top,
+							on: !!hit && el.contains(hit),
+							drawn: hit ? `${hit.tagName}.${hit.getAttribute('class') ?? ''}`.slice(0, 60) : ''
+						};
+					});
+			});
+			const names = hits.map((h) => h.name);
+			expect(names, `the header's controls, the page at ${at}`).toContain('Settings');
+			expect(names, `the header's controls, the page at ${at}`).toContain('Share');
+			for (const hit of hits) {
+				expect(hit.top, `${hit.name} in the pinned row, the page at ${at}`).toBeGreaterThanOrEqual(
+					0
+				);
+				expect(hit.on, `${hit.name} drawn at its centre, the page at ${at}: ${hit.drawn}`).toBe(
+					true
+				);
+			}
+		}
+		await expect(headerSolve(page)).toBeInViewport({ ratio: 1 });
 	});
 }
 

@@ -4,14 +4,14 @@
 	disabled, so keyboard focus stays on them. While a solve runs, Solve shows a spinner (with its
 	label "Solving…" only for screen readers below 24rem, where the label and Cancel do not both fit)
 	and Cancel (PRD §4.2), to its left, stops it; when Cancel goes with the focus on it (the solve
-	cancelled or answered), Solve takes the focus. Solve keeps one width whether it is solving or
-	not (both labels take their place in it, one of them invisible), so neither control appears
-	under the pointer where the other was; below 22.5rem, where Cancel would not fit beside a
-	labelled Solve, Solve shows its icon only, as Share does on phones (Settings below 768 px and
-	Scenarios below 1024 px, so the project name keeps its room in the one row from 640 px). The
-	second click of a double click (or double tap) does nothing, so it neither cancels the solve
-	the first started nor starts another after Cancel. Keyboard activation (a click with detail 0)
-	is not affected.
+	cancelled or answered), Solve takes the focus, or the Scenarios menu's Solve all while that menu
+	is open (below). Solve keeps one width whether it is solving or not (both labels take their
+	place in it, one of them invisible), so neither control appears under the pointer where the
+	other was; below 22.5rem, where Cancel would not fit beside a labelled Solve, Solve shows its
+	icon only, as Share does on phones (Settings below 768 px and Scenarios below 1024 px, so the
+	project name keeps its room in the one row from 640 px). The second click of a double click (or
+	double tap) does nothing, so it neither cancels the solve the first started nor starts another
+	after Cancel. Keyboard activation (a click with detail 0) is not affected.
 
 	Scenarios (proposal scenario-manager.md §6.2): the Scenarios button, right after the project
 	name (it ends the first row on phones), opens the scenario manager, or once the project has
@@ -33,16 +33,21 @@
 
 	The menu follows its button in the page (one wrapper holds both), so Tab goes Scenarios → menu
 	→ the Project toolbar and Shift+Tab from the menu's first control returns to Scenarios; under
-	the header on phones, under its button from 640 px. It closes on Escape (the focus back on
-	Scenarios), a case chosen, a press outside, the focus leaving it and its button (WCAG 2.4.11:
-	never left open over the control that has the focus; a focusout to nowhere, a window switch,
-	does not count) and a run that ran to its end. A press on Cancel is not outside: a cancelled or
-	stopped run keeps it open with its line saying so (build-density.md §13 item 4). While it is
-	closed, the header says Solve all's progress and a cancel for screen readers, and a network
-	stop raises an alert naming the cases left (with it open, its own line says each).
+	the header on phones, under its button from 640 px. It closes on Escape in it or on its button
+	(the focus back on Scenarios), a case chosen, a press outside, the focus leaving it, its button
+	and Cancel (WCAG 2.4.11: never left open over the control that has the focus; a focusout to
+	nowhere, a window switch, does not count) and a run that ran to its end. A press on Cancel is
+	not outside: a cancelled or stopped run keeps it open with its line saying so (build-density.md
+	§13 item 4), and the focus, which the press gave Cancel, goes back into it, to Solve all (which
+	resumes the run), when Cancel goes, so Escape and a Tab past it still close it. While it is
+	closed, the header says Solve all's progress, and once a cancel made while it was closed, for
+	screen readers (never again at a later close: one announcement per message); a network stop
+	raises an alert naming the cases left, which goes when Solve all runs again or nothing is left
+	to solve (with the menu open, its own line says each).
 
 	Short landscape screens (at most 20 rem tall, at least 35.5 rem wide): the header is one row
-	pinned to the top, so Solve is always in view; its height is measured into `--header-h` for
+	pinned to the top, so Solve is always in view, above the panes' layers (z-[45]: the trace's
+	side panel, z-40, scrolls under it from 1024 px); its height is measured into `--header-h` for
 	`scroll-padding-top` (routes/layout.css) and the menu's height. Narrower short windows (400 %
 	zoom) scroll as one page (build-density.md §11 item 14, WCAG 1.4.10).
 
@@ -148,18 +153,26 @@
 	let casesPanel: HTMLElement | undefined = $state();
 	const casesId = `${id}-cases`;
 	/**
+	 * A cancel of Solve all made with the menu closed, said once by the header (below): set when
+	 * the stop comes, gone when the menu opens (its own line says it) or the next calculation
+	 * starts, so no later close of the menu says it again (one announcement per message). Its
+	 * state stays in the store's runStop; this is the event.
+	 */
+	let cancelSaid = $state('');
+	/**
 	 * Said for screen readers while the menu is closed (its own line says each when open): Solve
-	 * all's progress, then a cancel. A network stop is an alert instead (below): one announcement
-	 * per message.
+	 * all's progress, then a cancel, once. A network stop is an alert instead (below): one
+	 * announcement per message.
 	 */
 	const runText = $derived.by(() => {
 		const run = store.run;
 		if (run) {
 			return `Solving ${run.index + 1} of ${run.cases.length}: ${ws.caseName(run.cases[run.index] ?? null)}…`;
 		}
-		return store.runStop?.reason === 'cancelled'
-			? 'Solve all was cancelled: the cases not solved keep what they had.'
-			: '';
+		return cancelSaid;
+	});
+	$effect(() => {
+		if (solving || seeking) cancelSaid = '';
 	});
 
 	/** The manager on the tab last used (CLAUDE.md D24, proposal pump-lineups.md §8.1). */
@@ -175,6 +188,7 @@
 		}
 		casesOpen = !casesOpen;
 		if (casesOpen) {
+			cancelSaid = '';
 			await tick();
 			// Solve all when it can run (the step the menu is opened for), else the case shown.
 			(
@@ -187,6 +201,13 @@
 	function closeCases(focusButton: boolean) {
 		casesOpen = false;
 		if (focusButton) scenariosButton?.focus();
+	}
+
+	/** Escape closes it from anywhere in it or on its button (Shift+Tab from Solve all). */
+	function casesKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape' || !casesOpen) return;
+		event.preventDefault();
+		closeCases(true);
 	}
 
 	/**
@@ -206,9 +227,9 @@
 		return () => document.removeEventListener('pointerdown', outside);
 	});
 	/**
-	 * Closed when the focus leaves it and its button (WCAG 2.4.11: a Tab past "Manage scenarios…"
-	 * left it open over the control focused). No relatedTarget (a window switch, the panel hidden)
-	 * is not a move away.
+	 * Closed when the focus leaves it and its button, or Cancel (which a press keeps it open for),
+	 * for the page (WCAG 2.4.11: a Tab past "Manage scenarios…" left it open over the control
+	 * focused). No relatedTarget (a window switch, the panel hidden, Cancel gone) is not a move away.
 	 */
 	function casesFocusout(event: FocusEvent) {
 		const to = event.relatedTarget;
@@ -229,14 +250,33 @@
 	/**
 	 * A network error stopped Solve all with the menu closed: an alert says so and names the cases
 	 * left, which the badge keeps counting (build-density.md §19). With the menu open its line says
-	 * it, so nothing is raised. Only a new stop: not one there when the header was drawn.
+	 * it, so nothing is raised. Only a new stop: not one there when the header was drawn. The
+	 * alert goes when Solve all runs again (a new stop, none, comes with each run) or nothing is
+	 * left to solve (the cases it names solved with Solve): an error notice otherwise stays until
+	 * dismissed, and would name cases no longer left. A cancel made with the menu closed is said
+	 * once (cancelSaid).
 	 */
 	let seenStop = untrack(() => store.runStop);
+	/** The id of the notice the last network stop raised, while it may still be shown. */
+	let stopAlert = 0;
+	function dismissStopAlert() {
+		if (stopAlert && untrack(() => ws.notice?.id) === stopAlert) ws.dismissNotice();
+		stopAlert = 0;
+	}
+	$effect(() => {
+		if (!toSolve) dismissStopAlert();
+	});
 	$effect(() => {
 		const stop = store.runStop;
 		if (stop === seenStop) return;
 		seenStop = stop;
-		if (stop?.reason !== 'network' || untrack(() => casesOpen)) return;
+		const open = untrack(() => casesOpen);
+		cancelSaid =
+			stop?.reason === 'cancelled' && !open
+				? 'Solve all was cancelled: the cases not solved keep what they had.'
+				: '';
+		dismissStopAlert();
+		if (stop?.reason !== 'network' || open) return;
 		const left = untrack(() => store.casesToSolve().length);
 		const message = stop.message.trim();
 		const said = message
@@ -246,6 +286,7 @@
 			? ` Solve all, in the Scenarios menu, solves ${left === 1 ? 'the case left' : `the ${left} cases left`}.`
 			: '';
 		ws.notify('error', said + rest);
+		stopAlert = untrack(() => ws.notice?.id ?? 0);
 	});
 
 	/**
@@ -302,24 +343,33 @@
 			return;
 		}
 		// Before the DOM drops Cancel at the end of a calculation: if it has the focus, Solve takes
-		// it, or Library when Cancel had taken the focus from it.
+		// it, or Library when Cancel had taken the focus from it. With the Scenarios menu still
+		// open (a press on Cancel keeps it open, and gives Cancel the focus), its Solve all takes
+		// it, inside the menu: on Solve, outside it, the menu would stay open over the controls a
+		// Tab then reaches, and Escape would not reach it (WCAG 2.4.11). A run that ran to its end
+		// has closed the menu by then.
 		const cancel = untrack(() => cancelButton);
 		const back = cancelFromLibrary;
 		cancelFromLibrary = false;
 		if (cancel && document.activeElement === cancel) {
 			void tick().then(() => {
+				const inMenu = casesOpen
+					? casesPanel?.querySelector<HTMLElement>('[data-solve-all]')
+					: undefined;
 				const library = libraryButton;
-				if (back && library && shown(library)) library.focus();
+				if (inMenu) inMenu.focus();
+				else if (back && library && shown(library)) library.focus();
 				else solveButton?.focus();
 			});
 		}
 	});
 </script>
 
-<!-- Pinned, one row, on short landscape screens (build-density.md §19); z-40 as the menu's. -->
+<!-- Pinned, one row, on short landscape screens (build-density.md §19), above the panes' layers:
+	the trace's side panel (z-40, later in the page) scrolls under it, not over Solve. -->
 <header
 	bind:this={headerElement}
-	class="relative border-b border-slate-200 bg-white short:min-[35.5rem]:sticky short:min-[35.5rem]:top-0 short:min-[35.5rem]:z-40"
+	class="relative border-b border-slate-200 bg-white short:min-[35.5rem]:sticky short:min-[35.5rem]:top-0 short:min-[35.5rem]:z-[45]"
 >
 	<!-- 44 px controls (touch targets, held by the e2e suite) with 2 px around them: two rows on
 		a phone, one from 640 px (build-density.md §7), and one with no room around it on a short
@@ -351,7 +401,12 @@
 			positioned there), under its button from 640 px. -->
 		{#if !empty || count}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div bind:this={casesArea} class="shrink-0 sm:relative" onfocusout={casesFocusout}>
+			<div
+				bind:this={casesArea}
+				class="shrink-0 sm:relative"
+				onfocusout={casesFocusout}
+				onkeydown={casesKeydown}
+			>
 				<button
 					bind:this={scenariosButton}
 					type="button"
@@ -392,24 +447,18 @@
 					{/if}
 				</button>
 				{#if count}
-					<!-- The Scenarios menu: over the panes; Escape, a press outside or the focus
-						leaving closes it. z-40: above the panes' sticky chrome, the Pumps tab's pinned
-						section nav (z-[35]) and the tables' sticky cells (z-30), so none takes a press
-						meant for it (pumps-results-layout.md §5.4); the trace panel and a sheet's
-						backdrop (z-40, later in the page) still draw over it, as before. On a short
-						screen it scrolls within what is left under the header. -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<!-- The Scenarios menu: over the panes; Escape (on the wrapper), a press outside
+						or the focus leaving closes it. z-40: above the panes' sticky chrome, the
+						Pumps tab's pinned section nav (z-[35]) and the tables' sticky cells (z-30), so
+						none takes a press meant for it (pumps-results-layout.md §5.4); the trace panel
+						and a sheet's backdrop (z-40, later in the page) still draw over it, as before,
+						but on a short screen, where the pinned header (z-[45]) holds it above them.
+						There it scrolls within what is left under the header. -->
 					<div
 						bind:this={casesPanel}
 						id={casesId}
 						hidden={!casesOpen}
 						class="absolute top-full z-40 mt-1 w-[min(26rem,calc(100vw-1rem))] rounded-lg border border-slate-200 bg-white p-3 shadow-lg max-sm:right-2 sm:left-0 short:max-h-[calc(100dvh-var(--header-h,3rem)-0.5rem)] short:overflow-y-auto"
-						onkeydown={(event) => {
-							if (event.key === 'Escape') {
-								event.preventDefault();
-								closeCases(true);
-							}
-						}}
 					>
 						<CaseMenu onmanage={openManager} onchoose={() => closeCases(true)} />
 					</div>
@@ -485,6 +534,7 @@
 					class="btn btn-icon sm:w-auto sm:px-3"
 					aria-label={cancelLabel}
 					onclick={cancel}
+					onfocusout={casesFocusout}
 				>
 					<Icon name="close" /><span class="hidden sm:inline">Cancel</span>
 				</button>

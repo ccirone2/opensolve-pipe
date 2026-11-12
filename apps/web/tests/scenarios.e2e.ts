@@ -342,9 +342,12 @@ test('cancel Solve all; then Solve all solves only the cases still missing', asy
 		await seenBox(bar.getByRole('status', { includeHidden: true })),
 		'the cancel line seen'
 	).toBe(true);
+	// The press focused Cancel; Cancel gone, the focus goes back into the open menu, to Solve all
+	// (which resumes the run), not to the header's Solve outside it (WCAG 2.4.11).
+	await expect(solveAllButton(page)).toBeFocused();
 	await expect(
 		page.getByRole('banner').getByRole('button', { name: /^Solve Base case$/ })
-	).toBeFocused();
+	).not.toBeFocused();
 	// The base keeps its results.
 	await expect(resultsStatus(page)).toHaveText('Last solve of Base case: converged');
 

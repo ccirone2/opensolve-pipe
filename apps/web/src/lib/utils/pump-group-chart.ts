@@ -21,9 +21,12 @@
  * response at that rise (no value between samples is made up here).
  *
  * Slice 4d (one pump off): other cases' station duties, each from that case's own group-curve
- * answer, are numbered slate rings (pump-group-one-off.ts says which cases, in which state, and
- * whether a ring is a point of the group system curve shown); duties within the duty checks'
- * tolerances share one ring.
+ * answer, are slate rings tagged with their case numbers (pump-group-one-off.ts says which cases,
+ * in which state, and whether a ring is a point of the group system curve shown); duties within
+ * the duty checks' tolerances share one ring. A case's number is its own on the whole Pumps tab
+ * (pump-chart.ts caseTags: "Base", then 1 to n by the Scenarios list), drawn in a box on the
+ * canvas and named "Case 2: …" in words; no character designates a case (owner, 2026-11-12, nit
+ * 5; docs/proposals/pumps-nits.md item 5, slice 5b).
  *
  * Slice L3 of pump lineups (CLAUDE.md D24, proposal pump-lineups.md §9): a ring's own group curve,
  * where pump-group-one-off.ts says it is drawn, is a slate line split as the group curve is, with
@@ -54,7 +57,14 @@ import type { OtherGroupCase } from './pump-group-one-off';
 import { readableText } from './flag-text';
 import { componentById } from './graph';
 import { portLabel } from './labels';
-import { pumpChartData, type ChartPoint } from './pump-chart';
+import {
+	caseNamed,
+	caseTagText,
+	compareCaseTags,
+	pumpChartData,
+	type CaseNumber,
+	type ChartPoint
+} from './pump-chart';
 import { pressureControlOnly } from './pump-groups';
 import { Formatter, pumpStatusLabel, type Column } from './results';
 import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
@@ -111,11 +121,10 @@ export const HELD_SYMBOL = '◇';
 
 /**
  * Other cases' station duties (slice 4d): slate rings, the pump chart's colour for other cases
- * (pump-chart-config.ts CHART_COLORS.slate, 7.6:1 on white; equal by test), numbered.
+ * (pump-chart-config.ts CHART_COLORS.slate, 7.6:1 on white; equal by test), each tagged with its
+ * case's number (nit 5, slice 5b).
  */
 export const GROUP_OTHER = '#475569';
-/** An other case's ring as text (the legend, the tables). */
-export const OTHER_SYMBOL = '○';
 
 /**
  * Other cases' own group curves (D24 slice L3): their one legend entry, on screen and in the image
@@ -260,8 +269,8 @@ export interface GroupChartData {
 export interface OtherCurve {
 	/** '' for the base, else the scenario id. */
 	key: string;
-	/** Its case's ring number. */
-	number: number;
+	/** Its case's number (pump-chart.ts caseTags). */
+	number: CaseNumber;
 	/** The case's name, "(out of date)" after it when its results are. */
 	name: string;
 	/** Members switched on in that case as solved (k), of `of`. */
@@ -273,15 +282,22 @@ export interface OtherCurve {
 	/** The response's points in rise order (display units), as groupCurveRuns splits them. */
 	solid: ChartPoint[][];
 	beyond: ChartPoint[][];
-	/** The dataset's label (tooltips) from 640 px and in the image: "1 · {name}: group curve, 3 running". */
+	/**
+	 * The dataset's label (tooltips) from 640 px and in the image: "Case 1: {name}, group curve, 3
+	 * running" ("Base case, group curve, 4 running").
+	 */
 	label: string;
-	/** Below 640 px, where a tooltip does not wrap: "1 · 3 running: group curve". */
+	/**
+	 * Below 640 px, where a tooltip does not wrap: "Case 1: 3 running, group curve" ("Base case: 4
+	 * running, group curve").
+	 */
 	shortLabel: string;
 }
 
 /** A case of a ring: its number, name and duty (display units, the flow as words give it). */
 export interface OtherRingCase {
-	number: number;
+	/** Its case's number (pump-chart.ts caseTags). */
+	number: CaseNumber;
 	/** The case's name, "(out of date)" after it when its results are. */
 	name: string;
 	/** Q_st in display units, 0 below the duty check's floor (dutyFlow). */
@@ -306,18 +322,23 @@ export interface OtherRingCase {
  * first of its cases; cases whose duties agree within the two duty checks' tolerances share one.
  */
 export interface OtherRing {
-	numbers: number[];
+	/** Its cases' numbers (pump-chart.ts caseTags), in order: "Base" first. */
+	numbers: CaseNumber[];
 	names: string[];
 	point: ChartPoint;
-	/** The dataset's and the legend's label: "1 · Pump PA off (station duty)". */
+	/**
+	 * The dataset's label (the image's legend, the tooltip): "Case 1: Pump PA off (station duty)";
+	 * merged, "Case 1: Pump PA off and case 2: Pump PB off (station duties, …)"; the base case by
+	 * its name.
+	 */
 	label: string;
 	/**
-	 * On the chart: "1 · Pump PA off", "1, 2 · A, B and 1 more" past two names; its numbers only
-	 * when every case of the ring has its own curve drawn (D24 §9.3: the labels and the legend
-	 * name them).
+	 * On the chart (pump-chart-config.ts fillLabel draws "[…]" as a box): "[1] Pump PA off",
+	 * "[1, 2] A, B and 1 more" past two names; its numbers alone, "[1]", when every case of the ring
+	 * has its own curve drawn (D24 §9.3: the labels and the legend name them).
 	 */
 	tag: string;
-	/** On a phone's screen: "1", "1, 2". */
+	/** On a phone's screen: "[1]", "[1, 2]". */
 	short: string;
 	cases: OtherRingCase[];
 }
@@ -463,15 +484,16 @@ function familyCurves(
 ): OtherCurve[] {
 	return others
 		.filter((o) => o.onChart && o.state === 'ready' && o.curve && o.number !== null)
-		.sort((a, b) => a.number! - b.number!)
+		.sort((a, b) => compareCaseTags(a.number!, b.number!))
 		.map((o) => {
 			const { points, on: k, of } = o.curve!;
 			const runs = groupCurveRuns(points, at);
 			const name = `${o.name}${o.stale ? ' (out of date)' : ''}`;
 			const running = runningWords(k, o.stale);
+			const tag = o.number!;
 			return {
 				key: o.key,
-				number: o.number!,
+				number: tag,
 				name,
 				k,
 				of,
@@ -479,8 +501,11 @@ function familyCurves(
 				running,
 				solid: runs.solid,
 				beyond: runs.beyond,
-				label: `${o.number} · ${name}: group curve, ${running}`,
-				shortLabel: `${o.number} · ${running}: group curve`
+				label:
+					tag === 'Base'
+						? `${name}, group curve, ${running}`
+						: `Case ${tag}: ${name}, group curve, ${running}`,
+				shortLabel: `${tag === 'Base' ? name : `Case ${tag}`}: ${running}, group curve`
 			};
 		});
 }
@@ -604,7 +629,7 @@ function otherRings(
 ): OtherRing[] {
 	const drawn = others
 		.filter((o) => o.onChart && o.state === 'ready' && o.duty && o.number !== null)
-		.sort((a, b) => a.number! - b.number!);
+		.sort((a, b) => compareCaseTags(a.number!, b.number!));
 	const rings: { first: { flow: number; head: number }; ring: OtherRing }[] = [];
 	for (const o of drawn) {
 		const duty = o.duty!;
@@ -640,21 +665,22 @@ function otherRings(
 		}
 	}
 	return rings.map(({ ring }) => {
-		const numbers = ring.numbers.join(', ');
+		const box = `[${caseTagText(ring.numbers)}]`;
 		const merged = ring.names.length > 1;
 		const shown =
 			ring.names.length <= 2
 				? ring.names.join(', ')
 				: `${ring.names.slice(0, 2).join(', ')} and ${ring.names.length - 2} more`;
+		const named = upperFirst(andList(ring.cases.map((c) => caseNamed(c.number, c.name))));
 		return {
 			...ring,
 			label: merged
-				? `${numbers} · ${andList(ring.names)} (station duties, equal within the duty checks' tolerances)`
-				: `${numbers} · ${ring.names[0]} (station duty)`,
+				? `${named} (station duties, equal within the duty checks' tolerances)`
+				: `${named} (station duty)`,
 			// Its numbers only when every case of it has its curve drawn (D24 §9.3): the labels on
 			// the curves, the legend, the notes and the tables name them, and lineup names are long.
-			tag: ring.cases.every((c) => c.drawn) ? numbers : `${numbers} · ${shown}`,
-			short: numbers
+			tag: ring.cases.every((c) => c.drawn) ? box : `${box} ${shown}`,
+			short: box
 		};
 	});
 }
@@ -717,6 +743,11 @@ export interface GroupLegendItem {
 	color: string;
 	dash?: number[];
 	symbol?: string;
+	/**
+	 * An other case's ring: its cases' numbers, which `label` names ("Case 1: …", as the image's
+	 * legend does); no character stands for it (nit 5, slice 5b).
+	 */
+	tags?: CaseNumber[];
 }
 
 /** The legend, in the chart's dataset order: one entry per line and per point. */
@@ -798,7 +829,7 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 			label: ring.label,
 			kind: 'marker',
 			color: GROUP_OTHER,
-			symbol: OTHER_SYMBOL
+			tags: ring.numbers
 		}))
 	];
 }
@@ -821,8 +852,8 @@ export interface CurveLabelInput {
 	anchor: { x: number; y: number } | null;
 	/** Members switched on in its case, as solved. */
 	k: number;
-	/** Its case's ring numbers; empty for this case's own (ink) curve. */
-	numbers: readonly number[];
+	/** Its case's number (caseTags); empty for this case's own (ink) curve. */
+	numbers: readonly CaseNumber[];
 }
 
 /** A label placed by placeCurveLabels. */
@@ -858,14 +889,15 @@ const CURVE_LABEL_EDGE = 2;
 const CURVE_LABEL_GAP = 3;
 
 /**
- * A curve's label (§9.3): another case's "{numbers} · {k} running" (numbers ascending), "{k}
- * running" on a phone (`compact`); this case's own "{k} running (this case)", "{k} running" on a
- * phone. The image takes the desktop's.
+ * A curve's label (§9.3): another case's "[{numbers}] {k} running" (its case numbers in a box,
+ * "Base" first and then ascending: pump-chart-config.ts fillLabel draws "[…]" as the box, so a
+ * case number never reads as a pump count; nit 5, slice 5b), "{k} running" on a phone
+ * (`compact`); this case's own "{k} running (this case)", "{k} running" on a phone. The image takes
+ * the desktop's.
  */
-export function curveLabelText(numbers: readonly number[], k: number, compact = false): string {
+export function curveLabelText(numbers: readonly CaseNumber[], k: number, compact = false): string {
 	if (!numbers.length) return compact ? `${k} running` : `${k} running (this case)`;
-	const sorted = [...numbers].sort((a, b) => a - b);
-	return compact ? `${k} running` : `${sorted.join(', ')} · ${k} running`;
+	return compact ? `${k} running` : `[${caseTagText(numbers)}] ${k} running`;
 }
 
 /**
@@ -900,7 +932,7 @@ function overlaps(a: PxBox, b: PxBox): boolean {
  *   plot's left edge.
  * - Labels of other cases' curves with equal k whose anchors are less than one label width apart
  *   (the width of the later one's own label) merge into one at the rightmost anchor, their numbers
- *   ascending: "1, 4, 5, 6 · 3 running". This case's label never merges.
+ *   ascending: "[1, 4, 5, 6] 3 running". This case's label never merges.
  * - From left to right, a label that would overlap one placed before or an obstacle (a ring's
  *   tag, a marker, a member's label) moves up one 14 px row, at most twice; a row that would leave
  *   the plot's top does not fit either. A label that still overlaps is left out, and `leftOut`
@@ -915,7 +947,7 @@ export function placeCurveLabels(
 ): CurveLabelPlacement {
 	type Group = {
 		curves: number[];
-		numbers: number[];
+		numbers: CaseNumber[];
 		k: number;
 		shown: boolean;
 		anchor: { x: number; y: number };
@@ -1068,14 +1100,18 @@ export interface GroupNotes {
 
 /** A ring's line in the ring list (pumps-results-layout.md §5.3 The ring list): its entry. */
 export interface OtherRingItem {
-	number: number;
+	/** Its case's number (caseTags): the list shows it in a box (the CaseTag) before the name. */
+	number: CaseNumber;
 	/** The case's name, "(out of date)" after it when its results are. */
 	name: string;
 	/** "{flow} {unit} at a rise of {rise} {unit}". */
 	at: string;
 	/** Its claim, then "; group curve: {words}" while the rings' own curves are judged. */
 	words: string;
-	/** The entry, `${number} · ${name}, ${at}: ${words}`, as the ring list's sentence has it. */
+	/**
+	 * The entry, `Case ${number}: ${name}, ${at}: ${words}` (the base case `${name}, …`), as the
+	 * ring list's sentence has it.
+	 */
 	text: string;
 }
 
@@ -1408,7 +1444,9 @@ export function otherNoteParts(
 		parts.off = `Other cases' station duties are not on the chart: tick “Also show the other cases' station duties” to compute them (${n} other ${n === 1 ? 'case' : 'cases'} with results).`;
 		return parts;
 	}
-	const cases = data.others.flatMap((ring) => ring.cases).sort((a, b) => a.number - b.number);
+	const cases = data.others
+		.flatMap((ring) => ring.cases)
+		.sort((a, b) => compareCaseTags(a.number, b.number));
 	/** The rings' own curves are judged (D24 §9.6): the frame sentence is L3's. */
 	const family = curve.drawn && cases.some((c) => c.curve !== null);
 	if (cases.length && station) {
@@ -1458,7 +1496,7 @@ export function otherNoteParts(
 					name: c.name,
 					at,
 					words,
-					text: `${c.number} · ${c.name}, ${at}: ${words}`
+					text: `${caseNamed(c.number, c.name, true)}, ${at}: ${words}`
 				};
 			})
 		};
@@ -1478,8 +1516,12 @@ export function otherNoteParts(
 	return parts;
 }
 
-/** The ring list's lead (§6.2: its words kept), now also the list's name on screen. */
-export const OTHER_RINGS_LEAD = 'Other cases on the chart (slate rings, numbered):';
+/**
+ * The ring list's lead, also the list's name on screen: the pump image's words for its other
+ * cases (chart-image.ts casesNote), each ring tagged with its case's number (nit 5, slice 5b).
+ */
+export const OTHER_RINGS_LEAD =
+	'Other cases on the chart (slate rings, each tagged with its case number):';
 
 /**
  * The other cases' notes as lines, in today's order (pumps-results-layout.md §5.3 The parts
@@ -1772,18 +1814,20 @@ export function groupSummary(
 		stationOf && data.station
 			? `; station duty ${fmt(data.station.flow)} ${data.flowUnit} at a rise of ${fmt(data.station.point.y)} ${data.headUnit} from ${stationPortWords(stationOf.station.inlet, project)} to ${stationPortWords(stationOf.station.outlet, project)}${on}`
 			: '';
-	const cases = data.others.flatMap((ring) => ring.cases).sort((a, b) => a.number - b.number);
+	const cases = data.others
+		.flatMap((ring) => ring.cases)
+		.sort((a, b) => compareCaseTags(a.number, b.number));
 	const others = cases.length
 		? `; other cases' station duties: ${cases
 				.map(
 					(c) =>
-						`${c.number} · ${c.name}, ${fmt(c.flow)} ${data.flowUnit} at a rise of ${fmt(c.rise)} ${data.headUnit} (${c.claim}${c.curve === null ? '' : `; group curve: ${c.curve}`})`
+						`${caseNamed(c.number, c.name)}, ${fmt(c.flow)} ${data.flowUnit} at a rise of ${fmt(c.rise)} ${data.headUnit} (${c.claim}${c.curve === null ? '' : `; group curve: ${c.curve}`})`
 				)
 				.join('; ')}`
 		: '';
-	// Their own group curves drawn (D24 §9.6): each by its ring number and its members on.
+	// Their own group curves drawn (D24 §9.6): each by its case number and its members on.
 	const family = data.otherCurves.length
-		? `; other cases' group curves drawn: ${andList(data.otherCurves.map((c) => `${c.number} (${c.running})`))}`
+		? `; other cases' group curves drawn: ${andList(data.otherCurves.map((c) => `${c.number === 'Base' ? 'Base case' : `case ${c.number}`} (${c.running})`))}`
 		: '';
 	const curve =
 		data.curve && data.missing < data.total ? '; group curve shown' : '; no group curve shown';
@@ -1995,7 +2039,12 @@ function sampleRows(
 export interface OtherCurveRowGroup {
 	/** '' for the base, else the scenario id. */
 	key: string;
-	/** The row group's header: "1 · {name}: 3 running" ("as last solved: 3 running" when stale). */
+	/** Its case's number (caseTags): the header shows it in a box (the CaseTag) before the words. */
+	tag: CaseNumber;
+	/**
+	 * The row group's header after its box: "{name}: 3 running" ("as last solved: 3 running" when
+	 * stale).
+	 */
 	header: string;
 	/** Every point of its response, in rise order, those cut from the chart included. */
 	rows: { rise: string; flow: string; note: string }[];
@@ -2014,10 +2063,11 @@ export function otherCurveRows(
 ): OtherCurveRowGroup[] {
 	return others
 		.filter((o) => o.onChart && o.state === 'ready' && o.curve && o.number !== null)
-		.sort((a, b) => a.number! - b.number!)
+		.sort((a, b) => compareCaseTags(a.number!, b.number!))
 		.map((o) => ({
 			key: o.key,
-			header: `${o.number} · ${o.name}${o.stale ? ' (out of date)' : ''}: ${runningWords(o.curve!.on, o.stale)}`,
+			tag: o.number!,
+			header: `${o.name}${o.stale ? ' (out of date)' : ''}: ${runningWords(o.curve!.on, o.stale)}`,
 			rows: sampleRows(o.curve!.points, [], prefs, project).map((row) => ({
 				rise: row.rise,
 				flow: row.flow,

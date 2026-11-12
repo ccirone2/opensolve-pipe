@@ -3,14 +3,19 @@
  * point is a reported value in display units. Pump results are made-up test inputs.
  */
 import { describe, expect, it } from 'vitest';
+import { designators } from '../testing/helpers';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '../testing/results';
 import { imageNoteLines } from './export/chart-image';
 import { pumpTransferExample } from './examples';
 import {
-	CASE_MARKERS,
-	caseMarkers,
+	caseNamed,
+	caseTagOf,
+	caseTags,
+	caseTagText,
+	caseTagWords,
 	chartNotes,
-	MARKER_SYMBOLS,
+	compareCaseTags,
+	inCaseOrder,
 	offCasesNote,
 	otherCasesData,
 	pumpChartCases,
@@ -25,6 +30,7 @@ import {
 	type PanelKey,
 	type PumpChecksInput
 } from './pump-chart';
+import { MAX_SCENARIOS, scenariosOf, withScenarios } from './scenarios';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
 const GPM = (231 * 0.0254 ** 3) / 60; // m³/s, US gallon = 231 in³
@@ -207,7 +213,8 @@ describe('pump chart data', () => {
 			SI_UNITS,
 			[0, 0.03],
 			1,
-			names
+			names,
+			{ S1: 1 }
 		);
 		expect(other!.systemRows[3]!.note).toContain(
 			'passes Flow limiter, which passes at most 20 L/s'
@@ -271,7 +278,9 @@ describe('pumps not running', () => {
 			],
 			SI_UNITS,
 			[0, 0.03],
-			1
+			1,
+			null,
+			{ S1: 1, S2: 2, S3: 3 }
 		).map((o) => o.row);
 		expect(rows).toEqual([
 			{ flow: '20', head: '22', speed: '87.32', state: 'Running' },
@@ -539,7 +548,7 @@ describe('one choice of cases: untickCase and tickCase', () => {
 	});
 });
 
-describe('the pump chart’s cases: slots and markers (pumps-results-layout.md §9 S8)', () => {
+describe('the pump chart’s cases: slots (pumps-results-layout.md §9 S8)', () => {
 	const other = (key: string, status: 'running' | 'off' | 'no_flow' = 'running') => ({
 		key,
 		result: { status }
@@ -578,127 +587,188 @@ describe('the pump chart’s cases: slots and markers (pumps-results-layout.md �
 		expect(keys(pumpChartCases(others, ['A'], false).off)).toEqual(['A', 'G']);
 	});
 
-	it('gives each case drawn its place’s marker, five shapes, the glyphs Chart.js draws', () => {
-		expect(CASE_MARKERS).toEqual(['triangle', 'rect', 'star', 'crossRot', 'triangleDown']);
-		expect(CASE_MARKERS.map((m) => MARKER_SYMBOLS[m])).toEqual(['△', '□', '✳\uFE0E', '×', '▽']);
-		expect(caseMarkers(['B', 'C', 'D'], ['B', 'C', 'D', 'E'])).toEqual({
-			B: 'triangle',
-			C: 'rect',
-			D: 'star'
-		});
-	});
+	// The five hollow markers (caseMarkers, MARKER_SYMBOLS) went with nit 5 (owner, 2026-11-12;
+	// Q1 "Shapes go too", Q2 "By list place"; docs/proposals/pumps-nits.md item 5, slice 5b): the
+	// tests that pinned them (S8 MARK-1/2/3, the five-case boundary, a marker kept past five, the
+	// off line by name and otherCasesData's markers) are replaced by the number tests below
+	// ("case numbers: caseTags and caseTagWords"), which hold each case's number fixed by case for
+	// any count, with no fallback.
+});
 
-	it('keeps each case’s marker while five cases or fewer are listed, whatever is ticked', () => {
-		const listed = ['B', 'C', 'D', 'E', 'F'];
-		const all = caseMarkers(listed, listed);
-		// C unticked: no other case's marker changes; ticked again, it has its own back.
-		const without = caseMarkers(['B', 'D', 'E', 'F'], listed, all);
-		expect(without).toEqual({ B: all.B, D: all.D, E: all.E, F: all.F });
-		expect(caseMarkers(listed, listed, without)).toEqual(all);
-		// From nothing remembered, the same: each its place's.
-		expect(caseMarkers(['F', 'C'], listed)).toEqual({ C: all.C, F: all.F });
-	});
-
-	it('keeps the marker of a case that stays drawn past five listed, through an untick, the curves switched and a tick', () => {
-		const off = pumpChartCases(others, [], false);
-		const first = caseMarkers(keys(off.shown), keys(off.listed));
-		expect(first).toEqual({
-			B: 'triangle',
-			C: 'rect',
-			D: 'star',
-			E: 'crossRot',
-			F: 'triangleDown'
-		});
-		// The curves switched on: A and B drawn again before them, F past the cap. Those that
-		// stay keep theirs; A takes the one F left.
-		const on = pumpChartCases(others, [], true);
-		const second = caseMarkers(keys(on.shown), keys(on.listed), first);
-		expect(second).toEqual({
-			A: 'triangleDown',
-			B: 'triangle',
-			C: 'rect',
-			D: 'star',
-			E: 'crossRot'
-		});
-		// D unticked, then G ticked into its place: the others keep theirs, G takes D's.
-		const third = caseMarkers(['A', 'B', 'C', 'E'], keys(on.listed), second);
-		expect(third).toEqual({ A: 'triangleDown', B: 'triangle', C: 'rect', E: 'crossRot' });
-		const fourth = caseMarkers(['A', 'B', 'C', 'E', 'G'], keys(on.listed), third);
-		expect(fourth).toEqual({ ...third, G: 'star' });
-		// Never two cases one marker.
-		for (const set of [first, second, third, fourth]) {
-			expect(new Set(Object.values(set)).size).toBe(Object.keys(set).length);
-		}
-	});
-
-	it('gives each case its place’s marker among the cases with a result while they are five or fewer: fixed by case, whatever is ticked, listed or remembered', () => {
-		// The one-off's four other cases: this pump is off in S1 and S4.
-		const all = ['S1', 'S2', 'S3', 'S4'];
-		const place: Record<string, string> = {
-			S1: 'triangle',
-			S2: 'rect',
-			S3: 'star',
-			S4: 'crossRot'
-		};
-		const only = (keys: string[]) => Object.fromEntries(keys.map((k) => [k, place[k]]));
-		// The other cases' system curves off: S1 and S4 take no slot; S2 and S3 have their own.
-		const off = caseMarkers(['S2', 'S3'], ['S2', 'S3'], {}, all);
-		expect(off).toEqual(only(['S2', 'S3']));
-		// Switched on: every case listed, each its own, the markers remembered changing none.
-		const on = caseMarkers(all, all, off, all);
-		expect(on).toEqual(place);
-		// S1 and S2 unticked, then ticked again, S1 first or S2 first: each its own again.
-		const without = caseMarkers(['S3', 'S4'], all, on, all);
-		expect(without).toEqual(only(['S3', 'S4']));
-		for (const first of ['S1', 'S2']) {
-			const one = caseMarkers(['S3', 'S4', first].sort(), all, without, all);
-			expect(one).toEqual(only(['S3', 'S4', first]));
-			expect(caseMarkers(all, all, one, all)).toEqual(place);
-		}
-		// Another pump shown, off in S2 and S4: S1 and S3 drawn, each its own, whatever was
-		// remembered.
-		expect(caseMarkers(['S1', 'S3'], ['S1', 'S3'], { S1: 'star', S3: 'triangle' }, all)).toEqual(
-			only(['S1', 'S3'])
+// Case numbers (owner, 2026-11-12, nit 5: "I don't like the use of special characters to
+// designate pumps and groups"; Q2 "By list place"; docs/proposals/pumps-nits.md item 5, slice
+// 5b): one number per case for the whole Pumps tab, "Base" for the base case, then 1 to n by the
+// scenario's place in the Scenarios list. They replace the five hollow markers (caseMarkers,
+// MARKER_SYMBOLS, the S8 tests MARK-1/2/3 and the five-case boundary): numbers never run out, so
+// nothing falls back and nothing is remembered.
+describe('case numbers: caseTags and caseTagWords (nit 5, slice 5b)', () => {
+	const scenario = (id: string, name = `Scenario ${id}`) => ({ id, name, overrides: [] });
+	const withCases = (ids: readonly string[]) =>
+		withScenarios(
+			pumpTransferExample(),
+			ids.map((id) => scenario(id))
 		);
-	});
 
-	it('gives each case its place’s marker among exactly five cases with a result, whatever is listed or remembered (S8 second check MARK-3)', () => {
-		const all = ['A', 'B', 'C', 'D', 'E'];
-		// Two of the five listed and drawn, the markers remembered otherwise: each its place's.
-		expect(caseMarkers(['B', 'E'], ['B', 'E'], { B: 'star', E: 'triangle' }, all)).toEqual({
-			B: 'rect',
-			E: 'triangleDown'
+	it('numbers the base case "Base", then each scenario 1 to n in the Scenarios list’s order', () => {
+		expect(caseTags(withCases(['S1', 'S2', 'S3', 'S4']))).toEqual({
+			'': 'Base',
+			S1: 1,
+			S2: 2,
+			S3: 3,
+			S4: 4
 		});
-		// Six: past five, the markers remembered are kept.
-		expect(
-			caseMarkers(['B', 'E'], ['B', 'E'], { B: 'star', E: 'triangle' }, [...all, 'F'])
-		).toEqual({ B: 'star', E: 'triangle' });
+		// A project without scenarios: the base case alone.
+		expect(caseTags(pumpTransferExample())).toEqual({ '': 'Base' });
 	});
 
-	it('names the cases that take no slot in one line, the screen’s and the image’s', () => {
-		expect(offCasesNote(['Pump PA off', 'Both pumps off (out of date)'])).toBe(
-			'Off in this case (no operating point): Pump PA off; Both pumps off (out of date).'
+	it('numbers by place alone: the ids play no part', () => {
+		// S1, S3, S2 in the list: 1, 2, 3 (by id it would read 1, 3, 2).
+		expect(caseTags(withCases(['S1', 'S3', 'S2']))).toEqual({ '': 'Base', S1: 1, S3: 2, S2: 3 });
+		// Ids that are not "S" and a number (an imported project's): by place too.
+		expect(caseTags(withCases(['winter', 'X9', 'S7']))).toEqual({
+			'': 'Base',
+			winter: 1,
+			X9: 2,
+			S7: 3
+		});
+	});
+
+	it('renumbers the scenarios after a deleted one, and only those', () => {
+		const project = withCases(['S1', 'S2', 'S3', 'S4']);
+		const deleted = withScenarios(
+			project,
+			scenariosOf(project).filter((s) => s.id !== 'S2')
 		);
-		expect(offCasesNote([])).toBeNull();
+		expect(caseTags(deleted)).toEqual({ '': 'Base', S1: 1, S3: 2, S4: 3 });
+		// One added at the end moves no number.
+		const added = withScenarios(project, [...scenariosOf(project), scenario('S5')]);
+		expect(caseTags(added)).toEqual({ ...caseTags(project), S5: 5 });
 	});
 
-	it('gives otherCasesData the markers by case, by default each its place’s', () => {
-		const input = ['S1', 'S2'].map((key) => ({
+	it('numbers eight cases 1 to 8, and the most a project holds, with no fallback: every number its own', () => {
+		const eight = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'];
+		expect(caseTags(withCases(eight))).toEqual({
+			'': 'Base',
+			...Object.fromEntries(eight.map((id, i) => [id, i + 1]))
+		});
+		const ids = Array.from({ length: MAX_SCENARIOS }, (_, i) => `S${i + 1}`);
+		const all = caseTags(withCases(ids));
+		expect(ids.map((id) => all[id])).toEqual(ids.map((_, i) => i + 1));
+		expect(new Set(Object.values(all)).size).toBe(MAX_SCENARIOS + 1);
+	});
+
+	it('reads the Scenarios list alone: no value, override, name or description changed moves a number', () => {
+		// Ticks, unticks, the case shown, the pump shown and the card's members are page state, never
+		// in the project; a solve changes no project. What a lineup or member change writes into the
+		// project (a pump's status override, a name that follows its pumps, D24 §4.5) moves none.
+		const project = withCases(['S1', 'S2', 'S3']);
+		const tags = caseTags(project);
+		const [s1, s2, s3] = scenariosOf(project);
+		const edited = withScenarios(structuredClone(project), [
+			{
+				...s1!,
+				name: 'Pump P1 off',
+				overrides: [{ kind: 'component', componentId: 'P1', field: 'status', value: 'off' }]
+			},
+			{ ...s2!, name: 'Renamed', description: 'A note' },
+			s3!
+		]);
+		const pump = edited.components.find((c) => c.id === 'P1')!;
+		edited.components = edited.components.map((c) =>
+			c === pump ? { ...c, name: 'Transfer pump, renamed' } : c
+		);
+		expect(caseTags(edited)).toEqual(tags);
+		// The same project, again: the same numbers.
+		expect(caseTags(structuredClone(project))).toEqual(tags);
+	});
+
+	it('words a tag for a screen reader: "Case 3:", "Cases 4, 5 and 6:", in number order', () => {
+		expect(caseTagWords([3])).toBe('Case 3:');
+		expect(caseTagWords([1, 5])).toBe('Cases 1 and 5:');
+		expect(caseTagWords([4, 5, 6])).toBe('Cases 4, 5 and 6:');
+		expect(caseTagWords([6, 4, 5])).toBe('Cases 4, 5 and 6:');
+	});
+
+	it('gives otherCasesData each case’s tag, fixed by case, never by its place among those given', () => {
+		const input = ['', 'S1', 'S2'].map((key) => ({
 			key,
-			name: key,
+			name: key ? `Case ${key}` : 'Base case',
 			result: pumpResult(),
 			stale: false,
 			system: null
 		}));
-		expect(otherCasesData(input, SI_UNITS, null, 1).map((o) => o.marker)).toEqual([
-			'triangle',
-			'rect'
+		const tags = { '': 'Base', S1: 3, S2: 1 } as const;
+		expect(otherCasesData(input, SI_UNITS, null, 1, null, tags).map((o) => o.tag)).toEqual([
+			'Base',
+			3,
+			1
 		]);
+		// One case alone: its own tag, not the first place's.
+		expect(otherCasesData(input.slice(2), SI_UNITS, null, 1, null, tags).map((o) => o.tag)).toEqual(
+			[1]
+		);
+	});
+
+	it('names the cases off in this case with their numbers, the screen’s line and the image’s', () => {
 		expect(
-			otherCasesData(input, SI_UNITS, null, 1, null, { S1: 'star', S2: 'triangleDown' }).map(
-				(o) => o.marker
-			)
-		).toEqual(['star', 'triangleDown']);
+			offCasesNote([
+				{ tag: 1, label: 'Pump PA off' },
+				{ tag: 4, label: 'Both pumps off (out of date)' }
+			])
+		).toEqual(
+			'Off in this case (no operating point): case 1: Pump PA off; case 4: Both pumps off (out of date).'
+		);
+		// The base case is its name: "Base" adds nothing to "Base case".
+		expect(
+			offCasesNote([
+				{ tag: 'Base', label: 'Base case' },
+				{ tag: 2, label: 'Pump PB off' }
+			])
+		).toEqual('Off in this case (no operating point): Base case; case 2: Pump PB off.');
+		expect(offCasesNote([])).toBeNull();
+		for (const line of [
+			offCasesNote([{ tag: 1, label: 'Pump PA off' }])!,
+			offCasesNote([{ tag: 'Base', label: 'Base case' }])!
+		]) {
+			expect(designators(line), line).toEqual([]);
+		}
+	});
+});
+
+// The helpers the lists, the rings and the labels share (nit 5, slice 5b): a case's number from
+// caseTags, their order ("Base" first, then ascending), the box's text and a case in words.
+describe('case numbers: order, the box and the words (nit 5, slice 5b)', () => {
+	const tags = { '': 'Base', S1: 1, S2: 2, S3: 3, S10: 10 } as const;
+
+	it('reads a case’s number from caseTags, the base case’s "Base" always, and refuses a case it has none for', () => {
+		expect(caseTagOf(tags, 'S2')).toBe(2);
+		expect(caseTagOf(tags, '')).toBe('Base');
+		expect(caseTagOf({}, '')).toBe('Base');
+		// Never a place among those given: a case without a number is a bug, not a case to number.
+		expect(() => caseTagOf(tags, 'S9')).toThrow('No case number for case S9.');
+	});
+
+	it('orders "Base" first, then ascending as numbers (10 after 3), and lists items in that order', () => {
+		const all: ('Base' | number)[] = [10, 3, 'Base', 1];
+		expect([...all].sort(compareCaseTags)).toEqual(['Base', 1, 3, 10]);
+		expect(compareCaseTags(2, 2)).toBe(0);
+		expect(compareCaseTags('Base', 'Base')).toBe(0);
+		const items = ['S10', 'S3', '', 'S1'].map((key) => ({ key }));
+		expect(inCaseOrder(items, tags).map((i) => i.key)).toEqual(['', 'S1', 'S3', 'S10']);
+		// A copy: the items given keep their order.
+		expect(items.map((i) => i.key)).toEqual(['S10', 'S3', '', 'S1']);
+	});
+
+	it('writes the box’s text in that order, and a case in words with its number, the base case by its name', () => {
+		expect(caseTagText([6, 1, 5, 4])).toBe('1, 4, 5, 6');
+		expect(caseTagText([3, 'Base'])).toBe('Base, 3');
+		expect(caseTagText(['Base'])).toBe('Base');
+		expect(caseNamed(2, 'Winter (out of date)')).toBe('case 2: Winter (out of date)');
+		expect(caseNamed(2, 'Winter', true)).toBe('Case 2: Winter');
+		expect(caseNamed('Base', 'Base case', true)).toBe('Base case');
+		for (const words of [caseNamed(2, 'Winter'), caseTagText([1, 2]), caseTagWords([1, 2])]) {
+			expect(designators(words), words).toEqual([]);
+		}
 	});
 });
 
@@ -784,7 +854,7 @@ describe('valueNotes: the notes about the values, in the screen’s order', () =
 			...v.checks
 		];
 		// The image's footer, less what the strip shows (the pump's and the curve's state).
-		const image = imageNoteLines(notes, [], {}).filter(
+		const image = imageNoteLines(notes, []).filter(
 			(line) => line !== notes.pump && line !== notes.curve?.text
 		);
 		expect([...screen].sort()).toEqual([...image].sort());

@@ -743,13 +743,81 @@ export function chartReadout(
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Hollow markers that tell other cases apart (with a direct label, the legend and the table:
- * never colour alone). 'rectRot' stays "held at zero flow". 'triangleDown' is Chart.js's
- * triangle turned over (pump-chart-config.ts draws it at 180°), in place of 'rectRounded', which
- * looked like 'rect' (pumps-results-layout.md §6.2 S8, F24).
+ * A case's number on the Pumps tab (owner, 2026-11-12, nit 5; Q2 "By list place";
+ * docs/proposals/pumps-nits.md item 5, slice 5b): "Base" for the base case, else its scenario's
+ * place in the Scenarios list, 1 to n. It tells other cases apart on both charts (a slate ring
+ * tagged with it), in every list, table, heading and image, in place of the five hollow markers.
  */
-export const CASE_MARKERS = ['triangle', 'rect', 'star', 'crossRot', 'triangleDown'] as const;
-export type CaseMarker = (typeof CASE_MARKERS)[number];
+export type CaseNumber = 'Base' | number;
+
+/**
+ * Every case's number (pumps-nits.md item 5, rule 4), keyed by case key ('' is the base): the
+ * base case "Base", then each scenario 1 to n by its place in the Scenarios list. It reads the list
+ * alone, never an id, a name, a value or page state, so a tick, an untick, a solve, a member
+ * change, the case shown and the pump shown move no number; a deleted scenario renumbers the ones
+ * after it. Numbers never run out: nothing falls back and nothing is remembered.
+ */
+export function caseTags(
+	project: Pick<Project, 'scenarios'>
+): Readonly<Record<string, CaseNumber>> {
+	const tags: Record<string, CaseNumber> = { '': 'Base' };
+	(project.scenarios ?? []).forEach((s, i) => {
+		tags[s.id] = i + 1;
+	});
+	return tags;
+}
+
+/**
+ * A case's number from caseTags: the base case's is "Base" whatever is given; a scenario's must be
+ * there (the cases and the numbers come from one project, so a missing one is a bug, not a case to
+ * number by its place).
+ */
+export function caseTagOf(tags: Readonly<Record<string, CaseNumber>>, key: string): CaseNumber {
+	if (key === '') return 'Base';
+	const tag = tags[key];
+	if (tag === undefined) throw new Error(`No case number for case ${key}.`);
+	return tag;
+}
+
+/** Case numbers in order: "Base" first, then ascending (a merged ring's, a curve label's). */
+export function compareCaseTags(a: CaseNumber, b: CaseNumber): number {
+	if (a === b) return 0;
+	if (a === 'Base') return -1;
+	if (b === 'Base') return 1;
+	return a - b;
+}
+
+/** `items` in their cases' number order (the lists, the ring list and the tables: rule 4). */
+export function inCaseOrder<T extends { key: string }>(
+	items: readonly T[],
+	tags: Readonly<Record<string, CaseNumber>>
+): T[] {
+	return [...items].sort((a, b) => compareCaseTags(caseTagOf(tags, a.key), caseTagOf(tags, b.key)));
+}
+
+/** The box's text: "3", "1, 4, 5, 6", "Base, 3", in order. */
+export function caseTagText(tags: readonly CaseNumber[]): string {
+	return [...tags].sort(compareCaseTags).join(', ');
+}
+
+/**
+ * The words a screen reader hears for a box of case numbers (the box itself is hidden from it):
+ * "Case 3:", "Cases 1 and 5:", "Cases 4, 5 and 6:", in number order. The base case's box has none:
+ * "Base case" beside it says it.
+ */
+export function caseTagWords(numbers: readonly number[]): string {
+	const sorted = [...numbers].sort((a, b) => a - b).map(String);
+	if (sorted.length <= 1) return `Case ${sorted.join('')}:`;
+	return `Cases ${sorted.slice(0, -1).join(', ')} and ${sorted[sorted.length - 1]}:`;
+}
+
+/**
+ * A case named in words with its number: "case 2: Winter (out of date)" ("Case 2: …" with
+ * `capital`); the base case its name alone ("Base case"), since "Base" adds nothing to it.
+ */
+export function caseNamed(tag: CaseNumber, label: string, capital = false): string {
+	return tag === 'Base' ? label : `${capital ? 'Case' : 'case'} ${tag}: ${label}`;
+}
 
 /** At most this many cases on the chart at once (the case shown and five others). */
 export const MAX_CHART_CASES = 6;
@@ -882,49 +950,6 @@ export function pumpChartCases<T extends { key: string; result: Pick<PumpResult,
 	};
 }
 
-/**
- * The markers of the cases drawn (§9 S8 Markers). While five other cases or fewer have a result
- * (`all`, by default those listed; the Pumps view gives the cases with a converged result
- * whatever the pump, the same for every pump, since a case can give one pump no result, a pump
- * closed off on both sides, and another one a result), each has the marker of its place among
- * them: fixed by case, whatever is ticked, the other cases' system curves switched or another
- * pump shown. Past five, five markers cannot be fixed by case: a case drawn `before` keeps its
- * marker for as long as it stays drawn, and a case newly drawn takes the marker of its place in
- * `listed` when no case drawn holds it, else the first one free. Then an untick, a tick, the
- * curves switched or another pump shown never changes the marker of a case that stays drawn, but
- * a case's marker follows the order of the steps, not its place, once the cases listed or drawn
- * have changed. Five markers, at most five other cases drawn: one is always free.
- */
-export function caseMarkers(
-	drawn: readonly string[],
-	listed: readonly string[] = drawn,
-	before: Readonly<Record<string, CaseMarker>> = {},
-	all: readonly string[] = listed
-): Record<string, CaseMarker> {
-	const byPlace = all.length <= CASE_MARKERS.length;
-	const order = byPlace ? all : listed;
-	const remembered = byPlace ? {} : before;
-	const markers: Record<string, CaseMarker> = {};
-	const taken = new Set<CaseMarker>();
-	for (const key of drawn) {
-		const kept = remembered[key];
-		if (kept && !taken.has(kept)) {
-			markers[key] = kept;
-			taken.add(kept);
-		}
-	}
-	for (const key of drawn) {
-		if (markers[key]) continue;
-		const place = order.indexOf(key);
-		const own = place >= 0 ? CASE_MARKERS[place % CASE_MARKERS.length] : undefined;
-		const marker = own && !taken.has(own) ? own : CASE_MARKERS.find((m) => !taken.has(m));
-		if (!marker) break;
-		markers[key] = marker;
-		taken.add(marker);
-	}
-	return markers;
-}
-
 export interface OtherCaseInput {
 	/** The case's id ('' for the base case). */
 	key: string;
@@ -941,7 +966,8 @@ export interface OtherCaseData {
 	key: string;
 	/** "Winter", or "Winter (out of date)". */
 	label: string;
-	marker: CaseMarker;
+	/** Its case's number (caseTags): its ring's tag on the chart, in the lists and the notes. */
+	tag: CaseNumber;
 	/** Its operating point (a running pump). */
 	operating: ChartPoint | null;
 	/** Its pump held at zero flow: (0, head across it). */
@@ -970,19 +996,19 @@ const STATE_WORDS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Chart data of the other cases with a result for this pump, each with its marker (`markers`, by
- * case: caseMarkers; by default each its place's), from their own PumpResult and system curve.
- * `speed` is the pump's speed in the case shown: a case whose pump runs at another speed also gets
- * its pump curve. `names` as for pumpChartData (names and kinds are the same in every case:
- * scenarios change values, never topology).
+ * Chart data of the other cases with a result for this pump, each with its case's number (`tags`,
+ * caseTags: fixed by case, never by its place among those given), from their own PumpResult and
+ * system curve. `speed` is the pump's speed in the case shown: a case whose pump runs at another
+ * speed also gets its pump curve. `names` as for pumpChartData (names and kinds are the same in
+ * every case: scenarios change values, never topology).
  */
 export function otherCasesData(
 	others: readonly OtherCaseInput[],
 	prefs: UnitPreferences,
 	ratedRange: [number, number] | null,
 	speed: number,
-	names: SystemCurveNames | null = null,
-	markers: Readonly<Record<string, CaseMarker>> = caseMarkers(others.map((o) => o.key))
+	names: SystemCurveNames | null,
+	tags: Readonly<Record<string, CaseNumber>>
 ): OtherCaseData[] {
 	const fmt = (v: number) => formatNumber(v, 4);
 	const same = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
@@ -995,7 +1021,7 @@ export function otherCasesData(
 		return {
 			key: other.key,
 			label: other.stale ? `${other.name} (out of date)` : other.name,
-			marker: markers[other.key] ?? CASE_MARKERS[0],
+			tag: caseTagOf(tags, other.key),
 			operating: data.operating,
 			held: data.held,
 			curve: drawn ? [...data.curve, ...data.extrapolated.flat()].sort((a, b) => a.x - b.x) : null,
@@ -1020,27 +1046,18 @@ export function otherCasesData(
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The other cases' markers as text (the case checkboxes, the table and the image's notes), each
- * the shape Chart.js draws: its 'star' is an eight-spoked asterisk, ✳, not ☆
- * (pumps-results-layout.md §6.2 S8, F24). ✳ is also an emoji, which Chromium draws as a green
- * picture where the page's font lacks it: U+FE0E after it asks for the text glyph, slate as the
- * others.
+ * "Off in this case (no operating point): case 1: Pump PA off; case 4: Both pumps off.", the line
+ * under the pump chart's case list and in the image's footer while the other cases' system curves
+ * are off, naming the cases that then take no slot (pumpChartCases' `off`;
+ * pumps-results-layout.md §6.2 S8), each with its number (nit 5, slice 5b; the base case by its
+ * name). Null when none.
  */
-export const MARKER_SYMBOLS: Readonly<Record<CaseMarker, string>> = {
-	triangle: '△',
-	rect: '□',
-	star: '✳\uFE0E',
-	crossRot: '×',
-	triangleDown: '▽'
-};
-
-/**
- * "Off in this case (no operating point): {cases}.", the line under the pump chart's case list
- * and in the image's footer while the other cases' system curves are off, naming the cases that
- * then take no slot (pumpChartCases' `off`; pumps-results-layout.md §6.2 S8). Null when none.
- */
-export function offCasesNote(labels: readonly string[]): string | null {
-	return labels.length ? `Off in this case (no operating point): ${labels.join('; ')}.` : null;
+export function offCasesNote(
+	entries: readonly { tag: CaseNumber; label: string }[]
+): string | null {
+	return entries.length
+		? `Off in this case (no operating point): ${entries.map((e) => caseNamed(e.tag, e.label)).join('; ')}.`
+		: null;
 }
 
 /** Why a system-curve point has no head, as the API's messages say (TSD §5.6). */

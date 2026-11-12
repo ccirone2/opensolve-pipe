@@ -7,14 +7,17 @@
  *   running, or Each pump off: 4d's cases, whose existing case is found by sameCase and whose
  *   idle member, on but carrying no flow, is read from its flow), drawn by PumpLineupsBlock.
  * - Other cases' station duties: each from that case's own group-curve answer (never computed
- *   here), drawn as a numbered ring only when its station is the one shown; a ring is called a
- *   point of the group system curve shown only when that case, as solved, is the same as this one
- *   outside the station (hydraulicFingerprint of each project without the station's interior, the
- *   design checks and the library entries no element outside refers to: D21, the curve depends on
- *   nothing inside), its flow is above zero, the curve has a rise at the computed flows on both
- *   sides of it, and the shown case's own system duty check agrees (D13). The chart takes the
- *   cases in lineupChartPriority's order (one lineup of each number running first), at most
- *   MAX_GROUP_CASES.
+ *   here), drawn as a ring tagged with its case's number (pump-chart.ts caseTags: "Base", then 1
+ *   to n by the Scenarios list; owner, 2026-11-12, nit 5, Q2 "By list place";
+ *   docs/proposals/pumps-nits.md item 5, slice 5b) only when its station is the one shown; a ring
+ *   is called a point of the group system curve shown only when that case, as solved, is the same
+ *   as this one outside the station (hydraulicFingerprint of each project without the station's
+ *   interior, the design checks and the library entries no element outside refers to: D21, the
+ *   curve depends on nothing inside), its flow is above zero, the curve has a rise at the computed
+ *   flows on both sides of it, and the shown case's own system duty check agrees (D13). The chart
+ *   draws the cases lineupChartPriority puts first (one lineup of each number running first), at
+ *   most MAX_GROUP_CASES; that priority chooses only which are drawn and which go past the cap:
+ *   the lists, the rings and the tables run in number order, and a number never moves.
  * - The curve family (D24 slice L3, proposal pump-lineups.md §9.1, §9.5): a ring's own group
  *   curve, from the same answer, is drawn only when this case's group curve is drawn, the ring's
  *   answer is a group curve, its station differs from this case's inside only in which members are
@@ -57,6 +60,7 @@ import {
 	stationPortWords,
 	type GroupSlot
 } from './pump-group-chart';
+import { caseTagOf, inCaseOrder, type CaseNumber } from './pump-chart';
 import { MAX_GROUP_PUMPS, pressureControlOnly, refusalWords, wordsText } from './pump-groups';
 import { carriesFlow, lineupChartPriority, memberLabels } from './pump-lineups';
 import { Formatter, flagsForElement, pumpStatusLabel, type Column } from './results';
@@ -272,7 +276,9 @@ export function dutyClaim(input: {
  * The keys of the cases on the chart: lineupChartPriority's order (D24 §4.6) without the cases
  * unticked under "Cases on this chart", at most MAX_GROUP_CASES. A case past the cap reads as
  * unticked, and the card's untick unticks those cases too (untickedAfter, pump-chart.ts), so the
- * place a case leaves stays free: none comes in by itself, and the case can be ticked again.
+ * place a case leaves stays free: none comes in by itself, and the case can be ticked again. The
+ * priority chooses only which cases are drawn and which go past the cap; the list "Cases on this
+ * chart" and the rings run in number order (pump-chart.ts caseTags, inCaseOrder; nit 5, slice 5b).
  */
 export function chartKeys(
 	keys: readonly { key: string; caseId: CaseId }[],
@@ -293,8 +299,11 @@ export interface OtherGroupCase {
 	stale: boolean;
 	/** On the chart: ticked under "Cases on this chart" and within the limit. */
 	onChart: boolean;
-	/** The ring number (the order of `valued` among the cases drawn); null when not drawn. */
-	number: number | null;
+	/**
+	 * Its ring's tag, its case's number (caseTags: fixed by case, never its place among the cases
+	 * drawn, so an untick or a tick moves no other ring's); null when not drawn.
+	 */
+	number: CaseNumber | null;
 	state:
 		| 'unticked'
 		| 'off'
@@ -364,8 +373,8 @@ export function groupCurveDrawn(state: GroupCurveState | undefined): boolean {
 
 export interface OtherCasesInput {
 	/**
-	 * The other cases with values (Compare's rule), in the chart's order (lineupChartPriority's,
-	 * unticked ones in their place; D24 §7.9): listed and numbered in this order.
+	 * The other cases with values (Compare's rule), in the order the list shows them: number order
+	 * (inCaseOrder; nit 5, slice 5b). Each ring is numbered by its case (`tags`), whatever the order.
 	 */
 	valued: readonly {
 		key: string;
@@ -394,7 +403,9 @@ export interface OtherCasesInput {
 	 * false): without it no other case's curve is drawn and none has a curve state.
 	 */
 	curveDrawn?: boolean;
-	/** The keys on the chart: ticked and within MAX_GROUP_CASES. */
+	/** Every case's number (pump-chart.ts caseTags of the project): a ring's tag. */
+	tags: Readonly<Record<string, CaseNumber>>;
+	/** The keys on the chart: ticked and within MAX_GROUP_CASES (chartKeys). */
 	shownKeys: ReadonlySet<string>;
 	/** "Also show the other cases' station duties" is ticked. */
 	othersOn: boolean;
@@ -434,10 +445,12 @@ const CALCULATION_WORDS: Readonly<Record<NonNullable<Calculating>, string>> = {
 	goalSeek: 'the goal seek'
 };
 
-/** Each other case with values, in the order given, in its state with its words and its ring. */
+/**
+ * Each other case with values, in the order given, in its state with its words and its ring, the
+ * ring tagged with its case's number (`tags`): an untick, a tick or the order given moves none.
+ */
 export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 	const { station, project } = input;
-	let number = 0;
 	return input.valued.map((v) => {
 		const base = {
 			key: v.key,
@@ -539,7 +552,7 @@ export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 			...base,
 			state: 'ready',
 			words: DUTY_CLAIM_WORDS[claim],
-			number: ++number,
+			number: caseTagOf(input.tags, v.key),
 			duty,
 			claim,
 			retry: false,
@@ -578,14 +591,29 @@ function otherCurveState(
 // Running combinations
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Running combinations' cases in the table's order (owner, 2026-11-12, nit 5; Q2 "By list place";
+ * docs/proposals/pumps-nits.md item 5, slice 5b): the case shown, then every other case in number
+ * order (caseTags), with values or not, ticked or not; the lineup priority plays no part.
+ */
+export function combinationsOrder(
+	caseIds: readonly CaseId[],
+	shown: CaseId,
+	tags: Readonly<Record<string, CaseNumber>>
+): CaseId[] {
+	const others = caseIds
+		.filter((c) => c !== shown)
+		.map((caseId) => ({ key: caseId ?? '', caseId }));
+	return [shown, ...inCaseOrder(others, tags).map((o) => o.caseId)];
+}
+
 export interface CombinationsInput {
 	/** The card's members, with their slots. */
 	members: readonly { id: string; name: string; slot: number }[];
 	/**
-	 * Every case, in the table's order (pumps-results-layout.md §5.3, §9 S5): the case shown, then
-	 * the other cases with values in lineupChartPriority's order (the chart's, whether a case is
-	 * ticked or not), then the cases without values in case order. The extremes name the first of
-	 * equal cases in this order.
+	 * Every case, in the table's order (pumps-results-layout.md §5.3; nit 5, slice 5b): the case
+	 * shown, then the other cases in number order (caseTags), whether ticked or not. The extremes
+	 * name the first of equal cases in this order.
 	 */
 	cases: readonly {
 		key: string;
@@ -597,8 +625,8 @@ export interface CombinationsInput {
 		stale: boolean;
 		/** The second line of a case with values (the station's duty and claim, or its state). */
 		station: string | null;
-		/** Its ring number on the chart, when drawn. */
-		ring?: number | null;
+		/** Its case's number (caseTags): its group's heading shows it in a box (the CaseTag). */
+		tag: CaseNumber;
 	}[];
 	prefs: UnitPreferences;
 	/** The stored project: component order. */
@@ -623,7 +651,9 @@ export interface CombinationGroup {
 	 * shown (pumps-results-layout.md §5.3 Pump names; §13 Later).
 	 */
 	shown: boolean;
-	/** "Pump PA off (out of date) · ring 1". */
+	/** Its case's number (caseTags), shown in a box before the heading. */
+	tag: CaseNumber;
+	/** "Pump PA off (out of date)", "Base case (shown)": its case's number is `tag`, never here. */
 	heading: string;
 	/**
 	 * The lineup line (D24 §7.10), read from the case's solve: "2 of 4 carrying flow: Pump P1 and
@@ -731,11 +761,12 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 	const groups = input.cases.map((c): CombinationGroup => {
 		const values = hasValues(c.response);
 		const stale = !!c.response && c.stale;
-		const heading = `${c.name}${c.shown ? ' (shown)' : ''}${stale ? ' (out of date)' : ''}${c.ring ? ` · ring ${c.ring}` : ''}`;
+		const heading = `${c.name}${c.shown ? ' (shown)' : ''}${stale ? ' (out of date)' : ''}`;
 		if (!values) {
 			return {
 				key: c.key,
 				shown: c.shown,
+				tag: c.tag,
 				heading,
 				lineup: null,
 				detail:
@@ -781,6 +812,7 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 		return {
 			key: c.key,
 			shown: c.shown,
+			tag: c.tag,
 			heading,
 			lineup: lineupLine(members, response, (id) => labels.get(id)?.name ?? id),
 			detail: c.station,

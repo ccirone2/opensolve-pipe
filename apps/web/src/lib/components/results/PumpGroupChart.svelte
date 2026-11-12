@@ -28,8 +28,10 @@
 	proposal pump-lineups.md §7): under the group table, the Add cases block (PumpLineupsBlock: By
 	number running or Each pump off, 4d's cases) adds in one step cases of the base case with pumps
 	off (a parallel station only, while the base case is shown and current) with Solve all beside
-	it; "Also show the other cases' station duties" draws each other case's duty as a numbered
-	slate ring ("Cases on this chart", at most six, one lineup of each number running first), said
+	it; "Also show the other cases' station duties" draws each other case's duty as a slate ring
+	tagged with its case's number (`tags`, pump-chart.ts caseTags: one number per case for the
+	whole Pumps tab, in a box, CaseTag, in every list, table and heading; nit 5, slice 5b) ("Cases
+	on this chart", in number order, at most six drawn, one lineup of each number running first), said
 	to lie on the group system curve shown only when that case leaves the rest of the network as
 	it is (D13 allowing); "Running combinations" lists every case's members with a line saying
 	which carry flow (D24 §7.10), a list on phones, with the extremes over the current cases (on
@@ -91,7 +93,7 @@
 		CombinationsTable,
 		OtherGroupCase
 	} from '$lib/utils/pump-group-one-off';
-	import { loadTableShown } from '$lib/utils/pump-chart';
+	import { loadTableShown, type CaseNumber } from '$lib/utils/pump-chart';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import BackToSections from './BackToSections.svelte';
 	import PumpGroupCombinations from './PumpGroupCombinations.svelte';
@@ -161,6 +163,14 @@
 		/** The other cases with values, each in its state (slice 4d). */
 		otherCases?: readonly OtherGroupCase[];
 		/**
+		 * Every case's number (pump-chart.ts caseTags of the project), one for the whole Pumps tab:
+		 * the cases' boxes in "Cases on this chart", the tables and the headings, ticked or not
+		 * (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5, slice 5b).
+		 */
+		tags?: Readonly<Record<string, CaseNumber>>;
+		/** The case shown's number: its "(shown)" tag. */
+		caseTag?: CaseNumber;
+		/**
 		 * The members switched on in this case as solved (D24 §9.3: its curve's label while other
 		 * cases' curves are drawn; null: not given).
 		 */
@@ -213,6 +223,8 @@
 		image,
 		lineups = null,
 		otherCases = [],
+		tags = { '': 'Base' },
+		caseTag = 'Base',
 		shownOn = null,
 		othersOn = false,
 		onothers,
@@ -553,6 +565,8 @@
 					{onretrysystem}
 					{oncancelsystem}
 					{others}
+					{tags}
+					{caseTag}
 					{othersOn}
 					{onothers}
 					{onotherstick}

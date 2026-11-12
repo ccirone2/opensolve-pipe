@@ -20,8 +20,9 @@ import type {
 /**
  * The chart's palette: categorical slots 1 and 2 of the dataviz reference palette (validated
  * light-mode pair) for the pump and system curves, the operating point in the primary ink, and
- * other cases in neutral slate (7.6:1 on white), told apart by marker and label. Identity is also
- * given by the legend, the dash pattern and the point marker, and by the data table.
+ * other cases in neutral slate (7.6:1 on white), slate rings told apart by their case numbers
+ * (nit 5, slice 5b). Identity is also given by the legend, the dash pattern and the point marker,
+ * and by the data table.
  */
 export const CHART_COLORS = {
 	pump: '#2a78d6',
@@ -73,6 +74,11 @@ export interface PumpChartConfigOptions {
 	speedRange?: boolean;
 	/** The design checks' limits (D19) are shown. */
 	checks?: boolean;
+	/**
+	 * A phone's screen: an other case's ring is labelled by its case number alone on the canvas
+	 * (the legend, the list and the data table name it); never in the image (nit 5, rule 4).
+	 */
+	compactLabels?: boolean;
 }
 
 /** Each panel's y-axis id and share of the height (proposal pump-chart.md §4.1). */
@@ -96,6 +102,66 @@ function legendStyle(dataset: {
 	return dataset.showLine === false && typeof dataset.pointStyle === 'string'
 		? dataset.pointStyle
 		: 'line';
+}
+
+/**
+ * A label's case tag (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5, rule 4): a
+ * label starting "[…]" ("[2] Winter", "[1, 4] 3 running", "[Base] Base case") shows the case
+ * numbers inside the brackets in a small box, then the words after it; a label without one is its
+ * words alone.
+ */
+export function labelTag(text: string): { tag: string | null; words: string } {
+	const tagged = /^\[([^\]]+)\](?: (.*))?$/s.exec(text);
+	return tagged ? { tag: tagged[1]!, words: tagged[2] ?? '' } : { tag: null, words: text };
+}
+
+/**
+ * Write a label where the label code puts it (left end `x`, baseline `y`, the font of `size` px
+ * set): a leading case tag (labelTag) as its numbers in a box exactly as wide as its bracketed text
+ * measures, so the label takes the width its text measures and is placed by it, from the font's
+ * size above the baseline to a quarter of it below (a text's box: descenders), with a white fill
+ * and a 1 px slate edge (the lists' CaseTag box, drawn), the numbers bold and centred in the
+ * legend's ink; then the words after it in the fill colour set. The font, fill and alignment are
+ * set back as they were.
+ */
+export function fillLabel(
+	ctx: CanvasRenderingContext2D,
+	text: string,
+	x: number,
+	y: number,
+	size: number
+): void {
+	const { tag, words } = labelTag(text);
+	if (tag === null) {
+		ctx.fillText(text, x, y);
+		return;
+	}
+	const { font, fillStyle, strokeStyle, lineWidth, textAlign, textBaseline } = ctx;
+	const width = ctx.measureText(`[${tag}]`).width;
+	const after = ctx.measureText(`[${tag}] `).width;
+	const top = y - size;
+	const height = size * 1.25;
+	ctx.beginPath();
+	if (typeof ctx.roundRect === 'function')
+		ctx.roundRect(x + 0.5, top + 0.5, width - 1, height - 1, 3);
+	else ctx.rect(x + 0.5, top + 0.5, width - 1, height - 1);
+	ctx.fillStyle = '#ffffff';
+	ctx.fill();
+	ctx.strokeStyle = CHART_COLORS.slate;
+	ctx.lineWidth = 1;
+	ctx.stroke();
+	ctx.font = `600 ${size - 2}px system-ui, sans-serif`;
+	ctx.fillStyle = CHART_COLORS.legend;
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'alphabetic';
+	ctx.fillText(tag, x + width / 2, y - 1);
+	ctx.font = font;
+	ctx.fillStyle = fillStyle;
+	ctx.strokeStyle = strokeStyle;
+	ctx.lineWidth = lineWidth;
+	ctx.textAlign = textAlign;
+	ctx.textBaseline = textBaseline;
+	if (words) ctx.fillText(words, x + after, y);
 }
 
 /** Dashed segments as one dataset, separated by gaps. */
@@ -351,8 +417,13 @@ function lowerDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean) {
 
 /**
  * The chart of one pump: its curve at the operating speed (dashed where extrapolated), the
- * system curve, the operating point or the zero-flow point, and the other cases (slate, with
- * their markers and direct labels), from the data of pumpChartData() and otherCasesData().
+ * system curve, the operating point or the zero-flow point, and the other cases, from the data of
+ * pumpChartData() and otherCasesData(). Each other case is a slate ring (r 10, 2 px, a
+ * transparent fill), drawn on top (`order: -1`) as the group chart's rings are, named "Case 2:
+ * Winter" in the legend and the tooltips and its system curve "System curve, case 2", and labelled
+ * on the canvas by its number in a box, then its name (its number alone on a phone's screen); the
+ * shapes △ □ ✳ × ▽ are gone (owner, 2026-11-12, nit 5; Q1 "Shapes go too";
+ * docs/proposals/pumps-nits.md item 5, slice 5b).
  */
 export function pumpChartConfig(
 	d: PumpChartData,
@@ -365,7 +436,8 @@ export function pumpChartConfig(
 		panels = ['head'],
 		cursor,
 		speedRange = false,
-		checks = false
+		checks = false,
+		compactLabels = false
 	}: PumpChartConfigOptions
 ): PumpChartConfig {
 	const shown = (key: PanelKey) => panels.includes(key);
@@ -476,7 +548,7 @@ export function pumpChartConfig(
 			...(c.system && c.system.some((p) => p.y !== null)
 				? [
 						{
-							label: `System curve, ${c.label}`,
+							label: `System curve, ${c.tag === 'Base' ? c.label : `case ${c.tag}`}`,
 							yAxisID: 'y',
 							data: c.system,
 							borderColor: SLATE,
@@ -492,21 +564,24 @@ export function pumpChartConfig(
 			...(c.operating || c.held
 				? [
 						{
-							label: c.label,
+							// The legend's and the tooltips' words: "Case 2: Winter", the base case its name.
+							label: c.tag === 'Base' ? c.label : `Case ${c.tag}: ${c.label}`,
 							yAxisID: 'y',
-							caseLabel: c.label,
+							// On the canvas: its number in a box, then its name; a phone's screen the box alone.
+							caseLabel: compactLabels && !forImage ? `[${c.tag}]` : `[${c.tag}] ${c.label}`,
 							data: [(c.operating ?? c.held) as ChartPoint],
 							borderColor: SLATE,
-							backgroundColor: '#ffffff',
+							backgroundColor: 'transparent',
 							borderWidth: 2,
-							// ▽ is the triangle turned over (pump-chart.ts CASE_MARKERS); the legend's
-							// entry takes the same turn (Chart.js's labels carry the point's rotation).
-							pointStyle: c.marker === 'triangleDown' ? ('triangle' as const) : c.marker,
-							pointRotation: c.marker === 'triangleDown' ? 180 : 0,
-							pointRadius: 7,
-							pointHoverRadius: 9,
+							pointStyle: 'circle' as const,
+							pointRadius: 10,
+							pointHoverRadius: 12,
 							pointHitRadius: 12,
-							showLine: false
+							showLine: false,
+							// Drawn last, on top (Chart.js draws the lowest order last), as the group
+							// chart's rings: the case shown's point at the same place shows through.
+							order: -1,
+							otherCase: true
 						}
 					]
 				: [])
@@ -520,14 +595,16 @@ export function pumpChartConfig(
 			const ctx = chart.ctx;
 			ctx.save();
 			ctx.fillStyle = SLATE;
-			ctx.font = `${forImage ? 14 : 12}px system-ui, sans-serif`;
-			// Above and below in turn, so the labels of close points do not overlap.
+			const caseSize = forImage ? 14 : 12;
+			ctx.font = `${caseSize}px system-ui, sans-serif`;
+			// Above and below in turn, so the labels of close points do not overlap: right of the
+			// ring (r 10), its number in a box, as the group chart labels its rings.
 			let n = 0;
 			chart.data.datasets.forEach((dataset, i) => {
 				const label = (dataset as { caseLabel?: string }).caseLabel;
 				const point = chart.getDatasetMeta(i).data[0];
 				if (!label || !point || !chart.isDatasetVisible(i)) return;
-				ctx.fillText(label, point.x + 9, n++ % 2 === 0 ? point.y - 9 : point.y + 19);
+				fillLabel(ctx, label, point.x + 10, n++ % 2 === 0 ? point.y - 10 : point.y + 20, caseSize);
 			});
 			// Short labels at one point of a line or marker ("BEP", "70 %"), in dataset order; a
 			// label that would overlap one already drawn is left out (the legend and notes name it).
@@ -715,13 +792,21 @@ export function pumpChartConfig(
 							!(chartData.datasets[item.datasetIndex ?? -1] as { duty?: boolean } | undefined)
 								?.duty,
 						...font(14),
-						// Curves as a line (dashed where dashed), the operating point as a dot.
+						// Curves as a line (dashed where dashed), the operating point as a dot, an other
+						// case as its ring. Chart.js lists datasets by `order`: the rings (−1, drawn on
+						// top) are listed where their datasets are, as before.
 						generateLabels: (c) =>
-							legendLabels(c).map((item) => ({
-								...item,
-								pointStyle: legendStyle(c.data.datasets[item.datasetIndex ?? -1] ?? {}) as
-									'circle' | 'line'
-							}))
+							legendLabels(c)
+								.map((item) => ({
+									...item,
+									pointStyle: legendStyle(c.data.datasets[item.datasetIndex ?? -1] ?? {}) as
+										'circle' | 'line'
+								}))
+								.sort(
+									(a, b) =>
+										legendOrder(c, a) - legendOrder(c, b) ||
+										(a.datasetIndex ?? 0) - (b.datasetIndex ?? 0)
+								)
 					}
 				},
 				tooltip: forImage
@@ -846,17 +931,20 @@ export interface PumpGroupConfigOptions {
  * flow), the group system curve in the system orange (gaps where a point has no rise; a direct
  * label at its end) and the station's duty, an ink dot labelled "Group" ("Group (crossing)" where
  * both duty checks agree). Nothing else: no combined curve and no member's system curve
- * (proposal §6.3, §7). Slice 4d: other cases' station duties, numbered slate rings with a
- * transparent fill, drawn on top (`order: -1`: Chart.js draws the last dataset in its sorted
- * order first) so a Group dot or a member's marker at the same place shows through; the image's
- * legend lists them last.
+ * (proposal §6.3, §7). Slice 4d: other cases' station duties, slate rings with a transparent
+ * fill, drawn on top (`order: -1`: Chart.js draws the last dataset in its sorted order first) so a
+ * Group dot or a member's marker at the same place shows through; the image's legend lists them
+ * last. Each ring is tagged with its case's number in a box ("[2] Pump PB off", fillLabel), named
+ * "Case 2: …" in the legend and the tooltip (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md
+ * item 5, slice 5b).
  *
  * D24 slice L3 (proposal pump-lineups.md §9.2–9.6): other cases' own group curves, where drawn,
  * slate at 1.5 px (dashed [6, 4] where a member runs beyond its data, gaps where a point has no
- * flow), under every other line (`order: 1`); their labels and this case's "{k} running (this
- * case)" placed by placeCurveLabels clear of the markers, the points' labels and the tags; the
- * axes' ranges the data sets (§9.4); one entry for the family in the image's legend; each curve's
- * tooltip label its case's, the short form on a phone's screen.
+ * flow), under every other line (`order: 1`); their labels ("[1] 3 running": the case numbers in a
+ * box) and this case's "{k} running (this case)" placed by placeCurveLabels clear of the markers,
+ * the points' labels and the tags; the axes' ranges the data sets (§9.4); one entry for the family
+ * in the image's legend; each curve's tooltip label its case's, the short form on a phone's screen.
+ * "Read along the curves" rings each point read, dashed [4, 3] as its rise line is (nit 5, rule 6).
  */
 export function pumpGroupConfig(
 	d: GroupChartData,
@@ -1092,7 +1180,8 @@ export function pumpGroupConfig(
 				const x =
 					point.x + 10 + width > chart.chartArea.right ? point.x - 10 - width : point.x + 10;
 				const y = n++ % 2 === 0 ? point.y - 10 : point.y + 20;
-				ctx.fillText(label, x, y);
+				// A ring's tag: its numbers in a box, then its names where they are shown (fillLabel).
+				fillLabel(ctx, label, x, y, size);
 				// The point's marker (its radius and half its border), then its label or a ring's tag.
 				const { pointRadius, borderWidth } = dataset as {
 					pointRadius?: number;
@@ -1143,7 +1232,8 @@ export function pumpGroupConfig(
 			ctx.textBaseline = 'alphabetic';
 			for (const label of placement.labels) {
 				ctx.fillStyle = label.shown ? INK : SLATE;
-				ctx.fillText(label.text, label.x, label.y);
+				// Another case's: its numbers in a box, then "3 running" (fillLabel).
+				fillLabel(ctx, label.text, label.x, label.y, size);
 			}
 			ctx.restore();
 			const { left, right, top, bottom } = chart.chartArea;
@@ -1210,8 +1300,8 @@ export function pumpGroupConfig(
 			compact
 		);
 	}
-	// "Read along the curves": the sample read, a dashed line at its rise and a ring on each
-	// point read there (drawn last, over the curves).
+	// "Read along the curves": the sample read, a dashed line at its rise and a dashed ring on
+	// each point read there (drawn last, over the curves).
 	const readoutMark: Plugin<'line'> = {
 		id: 'groupReadout',
 		afterDatasetsDraw(chart) {
@@ -1231,7 +1321,9 @@ export function pumpGroupConfig(
 				ctx.lineTo(chartArea.right, py);
 				ctx.stroke();
 			}
-			ctx.setLineDash([]);
+			// The rings on the points read: dashed as the rise line is, so none reads as an other
+			// case's solid slate ring (r 10) beside it (nit 5, rule 6).
+			ctx.setLineDash([4, 3]);
 			ctx.lineWidth = 2;
 			for (const p of mark.points) {
 				const px = x.getPixelForValue(p.x);
@@ -1341,6 +1433,16 @@ export function pumpGroupConfig(
 			}
 		}
 	};
+}
+
+/**
+ * A pump chart legend item's place: its dataset's `order`, an other case's ring (`order: −1`, so
+ * drawn on top) counted as 0, where its dataset is.
+ */
+function legendOrder(chart: ChartInstance, item: LegendItem): number {
+	const ds = chart.data.datasets[item.datasetIndex ?? -1] as
+		{ order?: number; otherCase?: boolean } | undefined;
+	return ds?.otherCase ? 0 : (ds?.order ?? 0);
 }
 
 /** 1 for a legend item of an other case's ring (slice 4d), else 0. */

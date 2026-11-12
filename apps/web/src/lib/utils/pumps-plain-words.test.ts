@@ -25,8 +25,10 @@ import { chartImageCaption, IMAGE_REASONS_IN, imageNoteLines } from './export/ch
 import * as lineupTable from './lineup-table';
 import * as pumpChart from './pump-chart';
 import {
+	caseTagOf,
+	caseTags,
 	chartNotes,
-	MARKER_SYMBOLS,
+	inCaseOrder,
 	offCasesNote,
 	otherCasesData,
 	PANELS,
@@ -62,7 +64,7 @@ import {
 import * as pumpGroups from './pump-groups';
 import { refusalWords, wordsText } from './pump-groups';
 import * as pumpLineups from './pump-lineups';
-import { lineupChartPriority, pumpLineup } from './pump-lineups';
+import { pumpLineup } from './pump-lineups';
 import { applyScenario } from './scenarios';
 import * as sectionNav from './section-nav';
 
@@ -170,7 +172,8 @@ const EDITS: readonly Edit[] = ['as answered', 'checks disagree', 'no group curv
 
 /**
  * The card's words for case `shown` of `c` with every other case of its scenarios on the chart,
- * as PumpsView gives them (lineupChartPriority's order, chartKeys' ticks), `curveStates` with
+ * as PumpsView gives them (number order with the project's case numbers, chartKeys' ticks by
+ * lineupChartPriority; nit 5, slice 5b), `curveStates` with
  * each case's inside and members switched on (D24 §9.1) or without them (4d's rings), after the
  * edit: the notes, as the screen and the image's footer give them, the accessible name, the
  * rings' cells, each case's words and the server's words the card shows.
@@ -196,10 +199,11 @@ function cardWords(c: FixtureCase, shown: string, edit: Edit, curveStates: boole
 	const keys = keysOf(c)
 		.filter((k) => k !== shown)
 		.map((key) => ({ key, caseId: key || null }));
+	const tags = caseTags(c.project);
 	const others =
 		station && keys.length
 			? otherGroupCases({
-					valued: lineupChartPriority(keys, c.project, c.memberIds).map((key) => {
+					valued: inCaseOrder(keys, tags).map(({ key }) => {
 						const theirs = answersOf(c, key);
 						let group = stateOf(theirs.groupCurve);
 						// Synthetic: each other case's own duty check disagrees too (W9).
@@ -224,6 +228,7 @@ function cardWords(c: FixtureCase, shown: string, edit: Edit, curveStates: boole
 								: {})
 						} satisfies OtherCasesInput['valued'][number];
 					}),
+					tags,
 					shownKeys: new Set(chartKeys(keys, c.project, c.memberIds, [])),
 					othersOn: true,
 					shownSettled: true,
@@ -331,12 +336,15 @@ function pumpChartWords(c: FixtureCase, shown: string, curves: boolean): Read[] 
 			}))
 			.filter((o): o is typeof o & { result: PumpResult } => !!o.result);
 		const cases = pumpChartCases(inputs, [], curves);
-		const others = otherCasesData(cases.shown, prefs, range, result.speed);
-		const off = offCasesNote(cases.off.map((o) => o.name));
+		const tags = caseTags(c.project);
+		const others = otherCasesData(cases.shown, prefs, range, result.speed, null, tags);
+		const off = offCasesNote(
+			cases.off.map((o) => ({ tag: caseTagOf(tags, o.key), label: o.name }))
+		);
 		const input = { data, result, system: undefined, shown: [...PANELS], speedShown: true };
 		const screen = chartNotes(input);
 		const image = chartNotes({ ...input, reasonsIn: IMAGE_REASONS_IN });
-		const lines = imageNoteLines(image, others, MARKER_SYMBOLS, off);
+		const lines = imageNoteLines(image, others, off);
 		const footer = chartImageCaption({
 			pumpName: id,
 			projectName: c.project.metadata.name,

@@ -12,6 +12,7 @@ import { NetworkError, TopologyError } from '$lib/api/client';
 import type { Component, Project, SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
+import { besideCaseTag, shownCaseTag } from '$lib/testing/helpers';
 import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { updateComponent } from '$lib/utils/edit';
@@ -95,11 +96,12 @@ describe('other cases on the pump chart (Compare’s rule)', () => {
 		]);
 		await showPumps();
 		const cases = await results().findByRole('group', { name: 'Cases on the chart' });
+		// Its case's number, its place in the Scenarios list (nit 5, slice 5b: in place of △).
 		expect(
 			within(cases)
 				.getAllByRole('checkbox')
-				.map((c) => c.closest('label')!.textContent!.trim())
-		).toEqual(['△ Converged']);
+				.map((c) => [shownCaseTag(c.closest('label')!), besideCaseTag(c.closest('label')!)])
+		).toEqual([['1', 'Converged']]);
 	});
 });
 
@@ -126,12 +128,8 @@ describe('"Cases on the chart" past its cap of five other cases', () => {
 			within(group)
 				.getAllByRole('checkbox')
 				.filter((b) => (b as HTMLInputElement).checked)
-				.map((b) =>
-					b
-						.closest('label')!
-						.textContent!.replace(/^[^A-Z]*/, '')
-						.trim()
-				);
+				// Its words beside its case's number (nit 5, slice 5b: the number's box and words).
+				.map((b) => besideCaseTag(b.closest('label')!));
 		const five = ['Case S1', 'Case S2', 'Case S3', 'Case S4', 'Case S5'];
 		expect(ticked()).toEqual(five);
 		expect(capped('Case S6')).toBe(true);

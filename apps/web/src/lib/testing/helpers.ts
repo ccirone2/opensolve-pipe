@@ -435,3 +435,30 @@ export function designators(where: Element | string): string[] {
 	}
 	return found;
 }
+
+/**
+ * The case number `el` shows in its CaseTag's box (components/ui/CaseTag.svelte; owner,
+ * 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5, slice 5b): the box's text, seen and
+ * hidden from screen readers, "3", "1, 5", "Base"; null without one.
+ */
+export function shownCaseTag(el: Element): string | null {
+	const tag = el.querySelector('[data-case-tag]');
+	if (!tag) return null;
+	const box =
+		tag.getAttribute('aria-hidden') === 'true' ? tag : tag.querySelector('[aria-hidden="true"]');
+	return box ? (box.textContent ?? '').replace(/\s+/g, ' ').trim() : null;
+}
+
+/** `el`'s words beside its CaseTags: its text without each tag's box and hidden words. */
+export function besideCaseTag(el: Element): string {
+	const copy = el.cloneNode(true) as Element;
+	for (const tag of copy.querySelectorAll('[data-case-tag]')) tag.remove();
+	return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/** What a screen reader reads of `el`'s text: its words without its aria-hidden parts. */
+export function spokenWords(el: Element): string {
+	const copy = el.cloneNode(true) as Element;
+	for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+	return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+}

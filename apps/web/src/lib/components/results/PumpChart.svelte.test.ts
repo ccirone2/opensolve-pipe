@@ -9,6 +9,7 @@ import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SystemCurveState } from '$lib/state/project.svelte';
 import {
+	caseTags,
 	chartNotes,
 	pumpChartData,
 	type OtherCaseInput,
@@ -17,12 +18,32 @@ import {
 } from '$lib/utils/pump-chart';
 import { fakeResizeObserver, sizeBox } from '$lib/testing/resize';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '$lib/testing/results';
-import { designators, outOfSight, wordsInSight } from '$lib/testing/helpers';
+import {
+	besideCaseTag,
+	designators,
+	outOfSight,
+	shownCaseTag,
+	spokenWords,
+	wordsInSight
+} from '$lib/testing/helpers';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
 import type { ChartImageRequest, ChartImageSource } from '$lib/utils/export/chart-image';
 import { DISCLAIMER } from '$lib/components/links';
 import PumpChart from './PumpChart.svelte';
+
+/**
+ * Every case's number as the Pumps view gives them (pump-chart.ts caseTags; owner, 2026-11-12,
+ * nit 5, Q2 "By list place"; docs/proposals/pumps-nits.md item 5, slice 5b): the tests' other
+ * cases are scenarios S1 to S8, numbered 1 to 8 by their place in the Scenarios list.
+ */
+const TAGS = caseTags({
+	scenarios: Array.from({ length: 8 }, (_, i) => ({
+		id: `S${i + 1}`,
+		name: `Scenario ${i + 1}`,
+		overrides: []
+	}))
+});
 
 interface Recorded {
 	data: {
@@ -720,6 +741,7 @@ describe('pump chart', () => {
 				ratedRange: [0, 0.03],
 				system: READY,
 				caseName: 'Base case',
+				tags: TAGS,
 				others,
 				othersControlled: true,
 				image: source
@@ -762,6 +784,7 @@ describe('pump chart', () => {
 				prefs: SI_UNITS,
 				ratedRange: [0, 0.03] as [number, number],
 				system: READY,
+				tags: TAGS,
 				others: [
 					{ key: 'S1', name: 'Winter', result: pumpResult(), stale: false, system: null },
 					{ key: 'S2', name: 'Pump off', result: pumpResult(off), stale: true, system: null }
@@ -771,7 +794,8 @@ describe('pump chart', () => {
 			};
 			const view = render(PumpChart, props);
 			await vi.waitFor(() => expect(charts).toHaveLength(1));
-			const line = 'Off in this case (no operating point): Pump off (out of date).';
+			// Nit 5, slice 5b: each case by its number (docs/proposals/pumps-nits.md item 5).
+			const line = 'Off in this case (no operating point): case 2: Pump off (out of date).';
 			expect(document.querySelector('[data-pump-off-cases]')).toHaveTextContent(line);
 			await fireEvent.click(button());
 			await vi.waitFor(() => expect(images.requests).toHaveLength(1));
@@ -1328,6 +1352,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			ratedRange: [0, 0.03],
 			system: READY,
 			caseName: 'Base case',
+			tags: TAGS,
 			others: [
 				{ ...other('S1', 'Winter', { speed: 0.9 }), system: systemCurveResponse() },
 				other('S2', 'Summer', offPump)
@@ -1372,20 +1397,29 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 				.getAllByRole('columnheader')
 				.map((h) => h.textContent)
 		).toEqual(['Case', 'Flow (L/s)', 'Head (m)', 'Speed (%)', 'State']);
+		// Each row headed by its case's number in a box, then its words (owner, 2026-11-12, nit 5;
+		// docs/proposals/pumps-nits.md item 5, slice 5b: in place of △ and □), the case shown's
+		// "Base"; each row header heard with its number's words before its name.
 		const rows = within(byCase)
 			.getAllByRole('row')
 			.slice(1)
 			.map((r) => [
-				squash(within(r).getByRole('rowheader').textContent),
+				shownCaseTag(within(r).getByRole('rowheader')),
+				besideCaseTag(within(r).getByRole('rowheader')),
 				...within(r)
 					.getAllByRole('cell')
 					.map((c) => c.textContent)
 			]);
 		expect(rows).toEqual([
-			['Base case (shown)', '20', '22', '100', 'Running'],
-			['△ Winter', '20', '22', '90', 'Running'],
-			['□ Summer', '—', '—', '—', 'Off']
+			['Base', 'Base case (shown)', '20', '22', '100', 'Running'],
+			['1', 'Winter', '20', '22', '90', 'Running'],
+			['2', 'Summer', '—', '—', '—', 'Off']
 		]);
+		const heads = within(byCase).getAllByRole('rowheader');
+		expect(heads[0]).toHaveAccessibleName('Base case (shown)');
+		expect(heads[1]).toHaveAccessibleName('Case 1: Winter');
+		expect(heads[2]).toHaveAccessibleName('Case 2: Summer');
+		expect(designators(byCase)).toEqual([]);
 		// A list below 640 px: its roles explicit, each value labelled by its column there.
 		expect(byCase).toHaveAttribute('role', 'table');
 		expect(byCase).toHaveClass('max-sm:block');
@@ -1415,6 +1449,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			ratedRange: [0, 0.03],
 			system: READY,
 			caseName: 'Base case',
+			tags: TAGS,
 			others: [{ ...other('S1', 'Winter'), system: systemCurveResponse() }],
 			onoverlay: vi.fn()
 		});
@@ -1482,6 +1517,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			ratedRange: [0, 0.03],
 			system: { status: 'ready', curve },
 			caseName: 'Base case',
+			tags: TAGS,
 			others: [{ ...other('S1', 'Winter'), system: systemCurveResponse() }],
 			onoverlay: vi.fn()
 		});
@@ -1542,6 +1578,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			names: { project, solved: project },
 			system: { status: 'ready', curve },
 			caseName: 'Base case',
+			tags: TAGS,
 			others: [{ ...other('S1', 'Winter'), system: curve }]
 		});
 		await fireEvent.click(
@@ -1574,6 +1611,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			prefs: SI_UNITS,
 			system: READY,
 			caseName: 'Base case',
+			tags: TAGS,
 			others: [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')],
 			ontick,
 			onoverlay: vi.fn()
@@ -1596,29 +1634,38 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		const grid = group.querySelector('legend + div')!;
 		expect(grid).toHaveClass('grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]');
 		const tag = grid.firstElementChild!;
-		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): its words alone, no ●
-		// before them, and nothing in it hidden from a screen reader.
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): no ● before its words;
+		// slice 5b: its case's number in a box, "Base", the one part hidden from a screen reader,
+		// which hears its words alone ("Base case" says it).
 		expect(designators(tag)).toEqual([]);
-		expect(squash(tag.textContent)).toBe('Base case (shown)');
+		expect(besideCaseTag(tag)).toBe('Base case (shown)');
+		expect(shownCaseTag(tag)).toBe('Base');
+		expect([...tag.querySelectorAll('[aria-hidden="true"]')]).toEqual([
+			tag.querySelector('[data-case-tag]')
+		]);
+		expect(spokenWords(tag)).toBe('Base case (shown)');
 		expect(tag).toHaveClass('rounded', 'bg-slate-100', 'text-xs');
 		expect(tag).not.toHaveClass('border');
 		expect(tag.querySelector('input')).toBeNull();
-		expect(tag.querySelector('[aria-hidden="true"]')).toBeNull();
-		// Each other case: its box, its marker in a column of its own, its name.
+		// Each other case: its box, its case's number in a box in a 2.5 rem column of its own (nit 5,
+		// slice 5b: in place of the 1 rem marker column), its name; its number's words heard first.
 		const boxes = within(group).getAllByRole('checkbox');
 		expect(boxes.map((b) => (b as HTMLInputElement).checked)).toEqual([true, true, true]);
-		expect(boxes.map((b) => b.closest('label')!.textContent!.trim())).toEqual([
-			'△ Winter',
-			'□ Summer',
-			'✳\uFE0E Spring'
+		expect(
+			boxes.map((b) => [shownCaseTag(b.closest('label')!), besideCaseTag(b.closest('label')!)])
+		).toEqual([
+			['1', 'Winter'],
+			['2', 'Summer'],
+			['3', 'Spring']
 		]);
 		for (const box of boxes) {
-			const marker = box.nextElementSibling!;
-			expect(marker).toHaveAttribute('aria-hidden', 'true');
-			expect(marker).toHaveClass('w-4', 'shrink-0');
+			const column = box.nextElementSibling!;
+			expect(column).toHaveClass('w-10', 'shrink-0');
+			expect(column.firstElementChild).toHaveAttribute('data-case-tag');
 			expect(box.closest('label')).toHaveClass('min-h-11');
 		}
-		expect(boxes[0]).toHaveAccessibleName('Winter');
+		expect(designators(group)).toEqual([]);
+		expect(boxes[0]).toHaveAccessibleName('Case 1: Winter');
 		// Then the switch for their system curves, its cost visible and its description.
 		const overlay = within(section as HTMLElement).getByRole('checkbox', {
 			name: "Also show the other cases' system curves"
@@ -1631,15 +1678,16 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		expect(cost).not.toHaveClass('sr-only');
 		// At every width: jsdom applies no CSS, so its markup says (§6.4 item 8).
 		expect(outOfSight(cost)).toBe(false);
-		// Unticked, a box keeps its column, so its name does not move (the marker goes). The
-		// choice is the page's (§9 S8): the box says so, and the page unticks it.
+		// Unticked, a box keeps its column and its case's number, so its name does not move (nit 5,
+		// slice 5b: the number stays, where the marker went). The choice is the page's (§9 S8): the
+		// box says so, and the page unticks it.
 		await fireEvent.click(boxes[1]!);
 		expect(ontick).toHaveBeenCalledExactlyOnceWith('S2', false);
 		await view.rerender({ ...props, unticked: ['S2'] });
-		const unticked = within(group).getByRole('checkbox', { name: 'Summer' });
+		const unticked = within(group).getByRole('checkbox', { name: 'Case 2: Summer' });
 		expect((unticked as HTMLInputElement).checked).toBe(false);
-		expect(unticked.nextElementSibling).toHaveClass('w-4');
-		expect(unticked.nextElementSibling!.textContent).toBe('');
+		expect(unticked.nextElementSibling).toHaveClass('w-10');
+		expect(shownCaseTag(unticked.nextElementSibling!)).toBe('2');
 	});
 
 	it('draws a capped box greyed, its name readable, aria-disabled and described by the cap', async () => {
@@ -1650,10 +1698,15 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			name: 'P',
 			prefs: SI_UNITS,
 			system: READY,
+			tags: TAGS,
 			others: names.map((n, i) => other(`S${i + 1}`, `Case ${n}`))
 		});
 		const group = screen.getByRole('group', { name: 'Cases on the chart' });
-		const box = (name: string) => within(group).getByRole('checkbox', { name: `Case ${name}` });
+		// Each named with its case's number first (nit 5, slice 5b): S1 to S7 are 1 to 7.
+		const box = (name: string) =>
+			within(group).getByRole('checkbox', {
+				name: `Case ${names.indexOf(name) + 1}: Case ${name}`
+			});
 		const cap = within(group).getByText('At most 6 cases at once.');
 		expect(cap).not.toHaveClass('sr-only');
 		expect(outOfSight(cap)).toBe(false);
@@ -1688,6 +1741,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			// An off case has its box while the other cases' system curves are asked for: then its
 			// system curve is drawn (pumps-results-layout.md §9 S8 Slots).
 			overlayCurves: true,
+			tags: TAGS,
 			others: [
 				other('S1', 'Pump P off', offPump),
 				other('S2', 'Check held', heldPump),
@@ -1698,7 +1752,15 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			]
 		});
 		const group = screen.getByRole('group', { name: 'Cases on the chart' });
-		const box = (name: string) => within(group).getByRole('checkbox', { name });
+		// Each named with its case's number first (nit 5, slice 5b): S1 to S6 are 1 to 6.
+		const numbers: Record<string, number> = {
+			'Pump P off': 1,
+			'Check held': 2,
+			Running: 3,
+			'Off past the cap': 6
+		};
+		const box = (name: string) =>
+			within(group).getByRole('checkbox', { name: `Case ${numbers[name]}: ${name}` });
 		const offBox = box('Pump P off');
 		expect(offBox).toHaveAccessibleDescription(NOTE);
 		const note = within(group).getAllByText(NOTE)[0]!;
@@ -1707,8 +1769,9 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		expect(note.parentElement).toBe(offBox.closest('label')!.parentElement);
 		expect(note).not.toHaveClass('sr-only');
 		expect(outOfSight(note)).toBe(false);
-		// The label keeps its name and words.
-		expect(offBox.closest('label')!.textContent!.trim()).toBe('△ Pump P off');
+		// The label keeps its name and words, its case's number in its box (nit 5, slice 5b).
+		expect(besideCaseTag(offBox.closest('label')!)).toBe('Pump P off');
+		expect(shownCaseTag(offBox.closest('label')!)).toBe('1');
 		// A pump held at zero flow has its point drawn: no note; nor a running one.
 		expect(box('Check held')).not.toHaveAccessibleDescription();
 		expect(box('Running')).not.toHaveAccessibleDescription();
@@ -1724,6 +1787,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			name: 'P',
 			prefs: SI_UNITS,
 			system: READY,
+			tags: TAGS,
 			others: [
 				other('S1', 'Pump P off', offPump),
 				other('S2', 'Case B'),
@@ -1738,14 +1802,24 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		const view = render(PumpChart, props);
 		await vi.waitFor(() => expect(charts).toHaveLength(1));
 		const group = screen.getByRole('group', { name: 'Cases on the chart' });
+		// Each label's case number and words (nit 5, slice 5b: its case's number, in place of the
+		// marker of its place).
 		const names = () =>
 			within(group)
 				.getAllByRole('checkbox')
-				.map((b) => b.closest('label')!.textContent!.trim());
-		const LINE = 'Off in this case (no operating point): Pump P off; Also off (out of date).';
-		// Off: no box for the two off cases, so the five others all fit, each with its marker; a
-		// held pump keeps its slot (its point is drawn).
-		expect(names()).toEqual(['△ Case B', '□ Check held', '✳\uFE0E Case D', '× Case E', '▽ Case F']);
+				.map((b) => [shownCaseTag(b.closest('label')!), besideCaseTag(b.closest('label')!)]);
+		const FIVE = [
+			['2', 'Case B'],
+			['3', 'Check held'],
+			['4', 'Case D'],
+			['5', 'Case E'],
+			['6', 'Case F']
+		];
+		const LINE =
+			'Off in this case (no operating point): case 1: Pump P off; case 7: Also off (out of date).';
+		// Off: no box for the two off cases, so the five others all fit, each with its case's
+		// number; a held pump keeps its slot (its point is drawn).
+		expect(names()).toEqual(FIVE);
 		const line = group.querySelector('[data-pump-off-cases]')!;
 		expect(line).toHaveTextContent(LINE);
 		expect(line.tagName).toBe('P');
@@ -1760,16 +1834,27 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		for (const box of within(group).getAllByRole('checkbox')) {
 			expect(box).not.toHaveAttribute('aria-disabled', 'true');
 		}
-		// The chart and its table draw the five, not the off cases.
+		// The chart and its table draw the five, not the off cases (each "Case n: name", nit 5).
 		const drawn = (charts.at(-1)!.config as Recorded).data.datasets.map((d) => d.label);
-		expect(drawn).toEqual(expect.arrayContaining(['Case B', 'Check held', 'Case F']));
-		expect(drawn).not.toContain('Pump P off');
+		expect(drawn).toEqual(
+			expect.arrayContaining(['Case 2: Case B', 'Case 3: Check held', 'Case 6: Case F'])
+		);
+		expect(drawn.filter((label) => label.includes('Pump P off'))).toEqual([]);
 
 		// On: the off cases take their slots, in order, so Case F, drawn before, goes past the
 		// cap, and shows it as any capped case does; Also off is past it too.
 		await view.rerender({ ...props, overlayCurves: true });
 		expect(group.querySelector('[data-pump-off-cases]')).toBeNull();
-		const box = (name: string) => within(group).getByRole('checkbox', { name }) as HTMLInputElement;
+		const numberOf: Record<string, number> = {
+			'Pump P off': 1,
+			'Case E': 5,
+			'Case F': 6,
+			'Also off (out of date)': 7
+		};
+		const box = (name: string) =>
+			within(group).getByRole('checkbox', {
+				name: `Case ${numberOf[name]}: ${name}`
+			}) as HTMLInputElement;
 		expect(box('Pump P off').checked).toBe(true);
 		expect(box('Pump P off')).toHaveAccessibleDescription('(off in this case: no operating point)');
 		expect(box('Case E').checked).toBe(true);
@@ -1782,9 +1867,9 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			'(off in this case: no operating point) At most 6 cases at once.'
 		);
 		expect(within(group).getByText('At most 6 cases at once.')).not.toHaveClass('sr-only');
-		// Off again: the five come back, each with the marker of its place.
+		// Off again: the five come back, each with its case's number.
 		await view.rerender({ ...props, overlayCurves: false });
-		expect(names()).toEqual(['△ Case B', '□ Check held', '✳\uFE0E Case D', '× Case E', '▽ Case F']);
+		expect(names()).toEqual(FIVE);
 		expect(group.querySelector('[data-pump-off-cases]')).toHaveTextContent(LINE);
 	});
 
@@ -1795,6 +1880,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			name: 'P',
 			prefs: SI_UNITS,
 			system: READY,
+			tags: TAGS,
 			others: [
 				other('S1', 'Pump P off', offPump),
 				other('S2', 'Case B'),
@@ -1810,47 +1896,76 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		const group = screen.getByRole('group', { name: 'Cases on the chart' });
 		// Six listed past a cap of five, and one case that takes no slot: both lines, in that order.
 		const off = group.querySelector('[data-pump-off-cases]')!;
-		expect(off).toHaveTextContent('Off in this case (no operating point): Pump P off.');
+		expect(off).toHaveTextContent('Off in this case (no operating point): case 1: Pump P off.');
 		const cap = within(group).getByText('At most 6 cases at once.');
 		expect([...group.children].map((c) => c.tagName)).toEqual(['LEGEND', 'DIV', 'P', 'P']);
 		expect(group.querySelector('legend + div')!.nextElementSibling).toBe(off);
 		expect(off.nextElementSibling).toBe(cap);
 	});
 
-	it('draws each case’s marker as the page gives it, fixed by case (§9 S8 Markers)', async () => {
+	// Nit 5, slice 5b (owner, 2026-11-12; Q2 "By list place"; docs/proposals/pumps-nits.md item 5):
+	// replaces "draws each case's marker as the page gives it" (§9 S8 Markers): each case's number
+	// is the page's (`tags`, caseTags of the project), never its place among the cases given or
+	// drawn, and the case shown's too (`caseTag`).
+	it('draws each case’s number as the page gives it, fixed by case, the case shown’s too (nit 5, slice 5b)', async () => {
 		withCanvas();
 		const props = {
 			result: pumpResult(),
 			name: 'P',
 			prefs: SI_UNITS,
 			system: READY,
-			caseName: 'Base case',
+			caseName: 'Autumn',
+			caseTag: 2,
+			tags: { '': 'Base', S1: 3, S2: 5, S3: 8, X: 2 } as const,
 			others: [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')],
 			unticked: ['S1'],
-			markers: { S2: 'rect', S3: 'star' } as const,
 			onoverlay: vi.fn()
 		};
 		render(PumpChart, props);
 		await vi.waitFor(() => expect(charts).toHaveLength(1));
 		const group = screen.getByRole('group', { name: 'Cases on the chart' });
-		// Winter unticked: Summer and Spring keep their markers, not shifted up.
+		// Winter unticked: every case keeps its own number, none shifted up.
 		expect(
 			within(group)
 				.getAllByRole('checkbox')
-				.map((b) => b.closest('label')!.textContent!.trim())
-		).toEqual(['Winter', '□ Summer', '✳\uFE0E Spring']);
+				.map((b) => [shownCaseTag(b.closest('label')!), besideCaseTag(b.closest('label')!)])
+		).toEqual([
+			['3', 'Winter'],
+			['5', 'Summer'],
+			['8', 'Spring']
+		]);
+		const shown = group.querySelector('legend + div')!.firstElementChild!;
+		expect([shownCaseTag(shown), besideCaseTag(shown), spokenWords(shown)]).toEqual([
+			'2',
+			'Autumn (shown)',
+			'Case 2: Autumn (shown)'
+		]);
+		// On the chart: slate rings, each named by its number (rule 4).
 		const points = (charts[0]!.config as { data: { datasets: Record<string, unknown>[] } }).data
 			.datasets;
-		expect(points.find((d) => d.label === 'Summer')).toMatchObject({ pointStyle: 'rect' });
-		expect(points.find((d) => d.label === 'Spring')).toMatchObject({ pointStyle: 'star' });
+		for (const [label, tag] of [
+			['Case 5: Summer', '[5] Summer'],
+			['Case 8: Spring', '[8] Spring']
+		])
+			expect(points.find((d) => d.label === label)).toMatchObject({
+				caseLabel: tag,
+				pointStyle: 'circle',
+				pointRadius: 10,
+				backgroundColor: 'transparent'
+			});
+		expect(points.some((d) => String(d.label).includes('Winter'))).toBe(false);
 		await fireEvent.click(
 			screen.getByRole('button', { name: 'Show data table of the pump chart' })
 		);
 		expect(
 			within(screen.getByRole('table', { name: 'Operating points by case' }))
 				.getAllByRole('rowheader')
-				.map((h) => squash(h.textContent))
-		).toEqual(['Base case (shown)', '□ Summer', '✳\uFE0E Spring']);
+				.map((h) => [shownCaseTag(h), besideCaseTag(h)])
+		).toEqual([
+			['2', 'Autumn (shown)'],
+			['5', 'Summer'],
+			['8', 'Spring']
+		]);
 	});
 
 	it('keeps the other cases’ system curves’ line always there: polite, not a status, never busy, Cancel after it', async () => {
@@ -1860,6 +1975,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			result: pumpResult(),
 			name: 'P',
 			prefs: SI_UNITS,
+			tags: TAGS,
 			others: [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')],
 			overlayCurves: true,
 			onoverlay: vi.fn(),
@@ -1942,6 +2058,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			name: 'P',
 			prefs: SI_UNITS,
 			system: READY,
+			tags: TAGS,
 			others: [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')],
 			oncanceloverlay: vi.fn()
 		};
@@ -2040,6 +2157,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			name: 'P',
 			prefs: SI_UNITS,
 			system: READY,
+			tags: TAGS,
 			others: [other('S1', 'Winter'), other('S2', 'Summer')],
 			overlayCurves: true,
 			onoverlay: vi.fn(),
@@ -2069,6 +2187,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			prefs: SI_UNITS,
 			system: READY,
 			caseName: 'Base case',
+			tags: TAGS,
 			others: [{ ...other('S1', 'Winter'), system: systemCurveResponse() }],
 			onoverlay: vi.fn(),
 			overlayProgress: { done: 0, total: 1 },
@@ -2443,6 +2562,7 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 			ratedRange: [0, 0.03],
 			system: READY,
 			caseName: 'Base case',
+			tags: TAGS,
 			others: [winter()],
 			onoverlay: vi.fn()
 		});
@@ -2539,6 +2659,7 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 			ratedRange: [0, 0.03],
 			system: READY,
 			caseName: 'Base case',
+			tags: TAGS,
 			others: [winter()],
 			onoverlay: vi.fn()
 		});
@@ -2558,6 +2679,7 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 			prefs: SI_UNITS,
 			system: { status: 'ready', curve: systemCurveResponse('P1', [1]) },
 			caseName: 'Base case',
+			tags: TAGS,
 			others: [winter(systemCurveResponse('P1', [3])), { ...winter(), key: 'S2', name: 'Summer' }],
 			onoverlay: vi.fn()
 		});
@@ -2645,6 +2767,7 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 			ratedRange: [0, 0.03],
 			system: READY,
 			caseName: 'Base case',
+			tags: TAGS,
 			others: [winter(systemCurveResponse('P1', [3]))],
 			onoverlay: vi.fn()
 		});
@@ -2739,6 +2862,7 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 				prefs: SI_UNITS,
 				system: READY,
 				caseName: 'Base case',
+				tags: TAGS,
 				others: [winter()],
 				onoverlay: vi.fn()
 			});

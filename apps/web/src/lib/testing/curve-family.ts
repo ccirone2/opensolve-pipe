@@ -3,12 +3,14 @@
  * Pumps together card's inputs for one case of the shared fixture's `lineups` station shown, with
  * the other cases as PumpsView gives them (each case as solved, its rest and its inside compared
  * with the shown case's by the app's own functions, its members switched on read by pumpLineup,
- * in lineupChartPriority's order, ticked as chartKeys takes them). Every response is the fixture's
- * real API answer (apps/api/tests/fixtures/pump_groups_input.py). Not used by the app.
+ * in number order with the project's case numbers, caseTags, ticked as chartKeys takes them by
+ * lineupChartPriority; nit 5, slice 5b). Every response is the fixture's real API answer
+ * (apps/api/tests/fixtures/pump_groups_input.py). Not used by the app.
  *
  * With the UI half: drawnChart, a stand-in for the Chart.js instance the chart's label plugin is
  * given (the unit projects have no canvas), mapping each dataset's points to pixels linearly over
- * the axes the configuration sets, or its data's extent, and recording the text written.
+ * the axes the configuration sets, or its data's extent, and recording the text and the boxes
+ * written (a case tag's box, pump-chart-config.ts fillLabel).
  */
 import type {
 	Flag,
@@ -19,7 +21,7 @@ import type {
 } from '../api/types';
 import { hydraulicFingerprint, type GroupCurveState } from '../state/project.svelte';
 import fixture from '../utils/__fixtures__/pump-groups-input.json';
-import { ratedCurveRange } from '../utils/pump-chart';
+import { caseTags, inCaseOrder, ratedCurveRange } from '../utils/pump-chart';
 import type { ChartDatum, PumpChartConfig } from '../utils/pump-chart-config';
 import {
 	groupChartData,
@@ -36,7 +38,7 @@ import {
 	type OtherCasesInput,
 	type OtherGroupCase
 } from '../utils/pump-group-one-off';
-import { lineupChartPriority, pumpLineup } from '../utils/pump-lineups';
+import { pumpLineup } from '../utils/pump-lineups';
 import { applyScenario } from '../utils/scenarios';
 
 export interface Answer {
@@ -116,7 +118,8 @@ export function lineupInput(shown: string, options: LineupViewOptions = {}): Oth
 	const { unticked = [], stale = [], without = false, edit = (v) => v } = options;
 	const keys = LINEUP_KEYS.filter((k) => k !== shown).map((key) => ({ key, caseId: key || null }));
 	const members = lineups.memberIds;
-	const order = lineupChartPriority(keys, lineups.project, members);
+	const tags = caseTags(lineups.project);
+	const order = inCaseOrder(keys, tags).map((k) => k.key);
 	const shownSolved = lineupSolved(shown);
 	const shownAnswers = lineupAnswers(shown);
 	return {
@@ -143,6 +146,7 @@ export function lineupInput(shown: string, options: LineupViewOptions = {}): Oth
 						})
 			})
 		),
+		tags,
 		shownKeys: new Set(chartKeys(keys, lineups.project, members, unticked)),
 		othersOn: true,
 		shownSettled: true,
@@ -186,6 +190,19 @@ export interface Written {
 	y: number;
 	color: string;
 	font: string;
+	/** The alignment it was written with ('start' unless set). */
+	align: string;
+}
+
+/** A box drawn on the stand-in canvas (a rect or roundRect path), its fill and its edge. */
+export interface DrawnBox {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	fill: string | null;
+	stroke: string | null;
+	lineWidth: number | null;
 }
 
 /**
@@ -217,8 +234,12 @@ export function drawnChart(
 	const py = (v: number) =>
 		plot.bottom - ((v - y.min) / (y.max - y.min)) * (plot.bottom - plot.top);
 	const written: Written[] = [];
+	const boxes: DrawnBox[] = [];
+	let path: DrawnBox | null = null;
 	const ctx = {
 		fillStyle: '',
+		strokeStyle: '',
+		lineWidth: 1,
 		font: '',
 		textAlign: 'start',
 		textBaseline: 'alphabetic',
@@ -226,7 +247,33 @@ export function drawnChart(
 		restore() {},
 		measureText: (text: string) => ({ width: text.length * charWidth }),
 		fillText(text: string, tx: number, ty: number) {
-			written.push({ text, x: tx, y: ty, color: this.fillStyle, font: this.font });
+			written.push({
+				text,
+				x: tx,
+				y: ty,
+				color: this.fillStyle,
+				font: this.font,
+				align: this.textAlign
+			});
+		},
+		beginPath() {
+			path = null;
+		},
+		rect(bx: number, by: number, w: number, h: number) {
+			path = { x: bx, y: by, w, h, fill: null, stroke: null, lineWidth: null };
+			boxes.push(path);
+		},
+		roundRect(bx: number, by: number, w: number, h: number) {
+			this.rect(bx, by, w, h);
+		},
+		fill() {
+			if (path) path.fill = this.fillStyle;
+		},
+		stroke() {
+			if (path) {
+				path.stroke = this.strokeStyle;
+				path.lineWidth = this.lineWidth;
+			}
 		}
 	};
 	const chart = {
@@ -243,5 +290,36 @@ export function drawnChart(
 		const plugin = config.plugins!.find((p) => p.id === 'groupLabels')!;
 		plugin.afterDatasetsDraw!(chart as never, {} as never, {} as never, undefined as never);
 	};
-	return { chart, written, px, py, x, y, draw };
+	/**
+	 * A label as fillLabel writes it, found by its text ("[1] 3 running", "Pump PA"): its left end,
+	 * its baseline, the colour and font of its words. A case tag's box must be there, `charWidth`
+	 * a character of its bracketed text wide, from the font's size above the baseline to a quarter
+	 * of it below, white with a slate edge, its numbers written centred in it; else undefined.
+	 */
+	const label = (text: string): Written | undefined => {
+		const tagged = /^\[([^\]]+)\](?: (.*))?$/s.exec(text);
+		if (!tagged) return written.find((w) => w.text === text);
+		const [, tag, words = ''] = tagged;
+		const width = (tag!.length + 2) * charWidth;
+		const after = (tag!.length + 3) * charWidth;
+		for (const box of boxes) {
+			const x0 = box.x - 0.5;
+			const number = written.find(
+				(w) => w.text === tag && w.align === 'center' && Math.abs(w.x - (x0 + width / 2)) < 1e-9
+			);
+			if (!number || Math.abs(box.w - (width - 1)) > 1e-9) continue;
+			const size = Number(/(\d+)px/.exec(number.font)?.[1]) + 2;
+			const y = number.y + 1;
+			if (Math.abs(box.y - 0.5 - (y - size)) > 1e-9) continue;
+			if (Math.abs(box.h - (size * 1.25 - 1)) > 1e-9) continue;
+			if (box.fill !== '#ffffff' || box.stroke !== '#475569' || box.lineWidth !== 1) continue;
+			if (!words) return { ...number, text, x: x0, y, align: 'start' };
+			const rest = written.find(
+				(w) => w.text === words && Math.abs(w.x - (x0 + after)) < 1e-9 && w.y === y
+			);
+			if (rest) return { ...rest, text, x: x0 };
+		}
+		return undefined;
+	};
+	return { chart, written, boxes, label, px, py, x, y, draw };
 }

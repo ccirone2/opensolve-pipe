@@ -83,7 +83,6 @@ import {
 	type GoalSeekSetup,
 	type WordsContext
 } from '../utils/goal-seek';
-import type { CaseMarker } from '../utils/pump-chart';
 import type { ElementRef } from '../utils/results';
 import {
 	componentById,
@@ -264,13 +263,6 @@ export class Workspace {
 	 */
 	pumpChartUnticked = $state.raw<readonly string[]>([]);
 	/**
-	 * The markers of the cases the pump chart drew last, so a case keeps its marker while it stays
-	 * drawn past five other cases with a result (pump-chart.ts caseMarkers, §9 S8; five or fewer
-	 * each have their place's). Not reactive: the Pumps view reads it as it gives the next ones,
-	 * and writes those.
-	 */
-	pumpChartMarkers: Readonly<Record<string, CaseMarker>> = {};
-	/**
 	 * The card's own, "Cases on this chart": the cases past its cap of six other cases when a case
 	 * it drew was unticked (untickedAfter), so the place left stays free. Page state, never shared
 	 * (§9 S8).
@@ -368,7 +360,6 @@ export class Workspace {
 		this.pumpGroupOthers = false;
 		this.casesUnticked = [];
 		this.pumpChartUnticked = [];
-		this.pumpChartMarkers = {};
 		this.pumpGroupUnticked = [];
 		this.pumpGroupChosen = false;
 		this.lineupPreset = 'running';

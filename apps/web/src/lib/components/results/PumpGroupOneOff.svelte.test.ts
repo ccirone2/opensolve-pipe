@@ -19,6 +19,7 @@ import { ValidationError } from '$lib/api/client';
 import type { Project, PumpGroupCurveResponse, Scenario, SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
+import { besideCaseTag, designators, shownCaseTag } from '$lib/testing/helpers';
 import { systemCurveResponse } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
@@ -229,7 +230,9 @@ describe('one pump off on the Pumps together card', () => {
 		await waitFor(() => expect(within(legend).getByText(/^Group system curve/)).toBeVisible());
 		// Then the new cases' duties, as rings.
 		await waitFor(() =>
-			expect(within(legend).getByText('2 · Pump PB off (station duty)')).toBeVisible()
+			// Its ring named by its case's number (owner, 2026-11-12, nit 5;
+			// docs/proposals/pumps-nits.md item 5, slice 5b: "Case 2: …" in place of "2 · …").
+			expect(within(legend).getByText('Case 2: Pump PB off (station duty)')).toBeVisible()
 		);
 		// In this order: none of the new cases is asked during the run, nor before the curve the
 		// run cancelled has answered again.
@@ -256,7 +259,9 @@ describe('one pump off on the Pumps together card', () => {
 		// And after the new cases' duties have answered and been drawn.
 		const legend = within(card()).getByRole('list', { name: 'Legend' });
 		await waitFor(() =>
-			expect(within(legend).getByText('2 · Pump PB off (station duty)')).toBeVisible()
+			// Its ring named by its case's number (owner, 2026-11-12, nit 5;
+			// docs/proposals/pumps-nits.md item 5, slice 5b: "Case 2: …" in place of "2 · …").
+			expect(within(legend).getByText('Case 2: Pump PB off (station duty)')).toBeVisible()
 		);
 		expect(others(calls).every((c) => c.settled)).toBe(true);
 		const after = within(block()).getByRole('button', { name: 'Solve all' });
@@ -271,11 +276,12 @@ describe('one pump off on the Pumps together card', () => {
 		ws.pumpGroupOthers = true;
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
-		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
-		// drawn once all four are, is S3's (in case order it was S4's).
+		// D24 §4.6: the requests go in the chart's order (S1, S4, S2, S3), so S3's ring, drawn once
+		// all four are, is the last; it carries its case's number, 3 (nit 5, slice 5b: no longer the
+		// fourth ring by the chart's order).
 		await waitFor(() =>
 			expect(within(within(card()).getByRole('figure')).getByRole('img')).toHaveAccessibleName(
-				/4 · Delivery tank 5 m higher/
+				/case 3: Delivery tank 5 m higher/
 			)
 		);
 		// Every case out of date, then S3 shown with its curves answered (its group system curve
@@ -352,15 +358,21 @@ describe('one pump off on the Pumps together card', () => {
 		const waits = "waits for Solve all to end, then for this case's curves";
 		expect(card().textContent).toContain(`Not on the chart: Pump PA off (${waits}).`);
 		const table = within(card()).getByRole('table', { name: 'Running combinations' });
-		expect(within(table).getByRole('rowheader', { name: /^Pump PA off/ })).toHaveTextContent(waits);
+		// Its heading named with its case's number first (nit 5, slice 5b).
+		expect(
+			within(table).getByRole('rowheader', { name: /^Case 1: Pump PA off/ })
+		).toHaveTextContent(waits);
 		expect(card().textContent).not.toContain('being computed');
 		release.S2.resolve();
 		await running;
 		const legend = within(card()).getByRole('list', { name: 'Legend' });
-		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
-		// drawn once all four are, is S3's (in case order it was S4's).
+		// D24 §4.6: the requests go in the chart's order (S1, S4, S2, S3), so S3's ring, drawn once
+		// all four are, is the last; it carries its case's number, 3 (nit 5, slice 5b: no longer the
+		// fourth ring by the chart's order).
 		await waitFor(() =>
-			expect(within(legend).getByText('4 · Delivery tank 5 m higher (station duty)')).toBeVisible()
+			expect(
+				within(legend).getByText('Case 3: Delivery tank 5 m higher (station duty)')
+			).toBeVisible()
 		);
 		// In the chart's order (D24 §4.6): S1 (1 running), S4 (0), then S2 and S3.
 		expect(calls.map((c) => [c.scenarioId, c.curve])).toEqual([
@@ -520,11 +532,12 @@ describe('one pump off on the Pumps together card', () => {
 		// Back to the same members: their curves for the case shown are still there, then each
 		// other case's is asked again, in the chart's order.
 		await fireEvent.click(pb());
-		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
-		// drawn once all four are, is S3's (in case order it was S4's).
+		// D24 §4.6: the requests go in the chart's order (S1, S4, S2, S3), so S3's ring, drawn once
+		// all four are, is the last; it carries its case's number, 3 (nit 5, slice 5b: no longer the
+		// fourth ring by the chart's order).
 		await waitFor(() =>
 			expect(within(within(card()).getByRole('figure')).getByRole('img')).toHaveAccessibleName(
-				/4 · Delivery tank 5 m higher/
+				/case 3: Delivery tank 5 m higher/
 			)
 		);
 		expect(calls.map((c) => [c.scenarioId, c.curve])).toEqual([
@@ -760,27 +773,30 @@ describe('one pump off on the Pumps together card', () => {
 			within(card()).getByRole('checkbox', { name: "Also show the other cases' station duties" })
 		);
 		const img = () => within(within(card()).getByRole('figure')).getByRole('img');
-		// D24 §7.9: the rings are numbered in the chart's order (S1, S4, S2, S3), so the fourth,
-		// drawn once all four are, is S3's (in case order it was S4's).
-		await waitFor(() => expect(img()).toHaveAccessibleName(/4 · Delivery tank 5 m higher/));
+		// D24 §4.6: the requests go in the chart's order (S1, S4, S2, S3), so S3's ring, drawn once
+		// all four are, is the last; it carries its case's number, 3 (nit 5, slice 5b: no longer the
+		// fourth ring by the chart's order).
+		await waitFor(() => expect(img()).toHaveAccessibleName(/case 3: Delivery tank 5 m higher/));
 		const name = img().getAttribute('aria-label')!;
 		// D24 §9.6: with this case's group curve drawn, each case's part gains "; group curve:
 		// {words}" (its own curve drawn for a case with one pump off, which has flow; the same as this
 		// case's for the delivery tank; none drawn for both pumps off), then the curves drawn.
+		// Each case by its number (nit 5, slice 5b): Pump PA off 1, Pump PB off 2, the tank 3, both
+		// off 4, in place of the rings' numbers by the chart's order.
 		expect(name).toMatch(
-			/1 · Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network; group curve: drawn \(1 running\): it crosses the group system curve at the ring\)/
+			/case 1: Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network; group curve: drawn \(1 running\): it crosses the group system curve at the ring\)/
 		);
 		expect(name).toMatch(
-			/3 · Pump PB off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network; group curve: drawn \(1 running\): it crosses the group system curve at the ring\)/
+			/case 2: Pump PB off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network; group curve: drawn \(1 running\): it crosses the group system curve at the ring\)/
 		);
 		expect(name).toMatch(
-			/4 · Delivery tank 5 m higher, [\d.]+ L\/s at a rise of [\d.]+ m \(No: the rest of the network differs from this case's; its own group system curve is not drawn; group curve: the same as this case's: the station is the same inside\)/
+			/case 3: Delivery tank 5 m higher, [\d.]+ L\/s at a rise of [\d.]+ m \(No: the rest of the network differs from this case's; its own group system curve is not drawn; group curve: the same as this case's: the station is the same inside\)/
 		);
 		expect(name).toMatch(
-			/2 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state; group curve: not drawn: no flow at any rise\)/
+			/case 4: Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state; group curve: not drawn: no flow at any rise\)/
 		);
 		expect(name).toMatch(
-			/; other cases' group curves drawn: 1 \(1 running\) and 3 \(1 running\); group curve shown; group system curve shown\.$/
+			/; other cases' group curves drawn: case 1 \(1 running\) and case 2 \(1 running\); group curve shown; group system curve shown\.$/
 		);
 		await fireEvent.click(
 			within(card()).getByRole('button', { name: 'Show data table of the group chart' })
@@ -790,35 +806,51 @@ describe('one pump off on the Pumps together card', () => {
 			.getAllByRole('row')
 			.slice(1)
 			.map((r) => r.querySelectorAll('td')[2]?.textContent);
-		// The table's rows in the rings' order (D24 §7.9): Pump PA off, Both pumps off, Pump PB off,
-		// Delivery tank 5 m higher.
+		// The table's rows in number order (nit 5, slice 5b; Q2 "By list place", in place of the
+		// rings' order, D24 §7.9): Pump PA off, Pump PB off, Delivery tank 5 m higher, Both pumps
+		// off.
+		expect(
+			within(table)
+				.getAllByRole('rowheader')
+				.map((h) => [shownCaseTag(h), besideCaseTag(h)])
+		).toEqual([
+			['1', 'Pump PA off'],
+			['2', 'Pump PB off'],
+			['3', 'Delivery tank 5 m higher'],
+			['4', 'Both pumps off']
+		]);
 		expect(claims).toEqual([
 			'Yes: the same rest of the network',
-			'Not said: at zero station flow the rest can hold more than one state',
 			'Yes: the same rest of the network',
-			"No: the rest of the network differs from this case's; its own group system curve is not drawn"
+			"No: the rest of the network differs from this case's; its own group system curve is not drawn",
+			'Not said: at zero station flow the rest can hold more than one state'
 		]);
-		// Running combinations: every case, the shown first, with its station line and ring, then
-		// the other cases in the chart's order (pumps-results-layout.md §5.3, §10 S5: D24 §4.6's,
-		// so the rings, numbered in it, §7.9, read 1 to 4).
+		// Running combinations: every case, the shown first, with its station line, then the other
+		// cases in number order, each heading led by its case's number in a box (owner, 2026-11-12,
+		// nit 5; Q2 "By list place"; docs/proposals/pumps-nits.md item 5, slice 5b: in place of the
+		// chart's order and " · ring n").
 		const combos = within(card()).getByRole('table', { name: 'Running combinations' });
 		const headings = within(combos)
 			.getAllByRole('rowheader')
 			.filter((h) => h.getAttribute('scope') === 'rowgroup')
-			.map((h) => h.firstElementChild!.textContent);
+			.map((h) => [shownCaseTag(h.firstElementChild!), besideCaseTag(h.firstElementChild!)]);
 		expect(headings).toEqual([
-			'Base case (shown)',
-			'Pump PA off · ring 1',
-			'Both pumps off · ring 2',
-			'Pump PB off · ring 3',
-			'Delivery tank 5 m higher · ring 4'
+			['Base', 'Base case (shown)'],
+			['1', 'Pump PA off'],
+			['2', 'Pump PB off'],
+			['3', 'Delivery tank 5 m higher'],
+			['4', 'Both pumps off']
 		]);
 	});
 
-	it('lists "Cases on this chart" and numbers the rings in the chart’s order (D24 §4.6, §7.9)', async () => {
+	// Nit 5, slice 5b (owner, 2026-11-12; Q2 "By list place"; docs/proposals/pumps-nits.md item
+	// 5): replaces "lists 'Cases on this chart' and numbers the rings in the chart's order (D24
+	// §4.6, §7.9)". The lineup priority still chooses the order of the requests and what is drawn;
+	// the list, the rings and Running combinations run in number order, each case its own number.
+	it('lists "Cases on this chart" in number order, each ring its case’s number; the lineup priority orders the requests (nit 5, slice 5b; D24 §4.6)', async () => {
 		// S1 Pump PA off and S2 Pump PB off (1 running each), S3 a tank level (no lineup), S4 both
 		// off (0 running): one lineup of each count first, most running first (S1, S4), then the
-		// other lineup (S2), then every other case (S3).
+		// other lineup (S2), then every other case (S3): the requests' order.
 		const { ws, calls } = setup(structuredClone(oneOff.project));
 		await ws.store.solveAll();
 		ws.pumpGroupOthers = true;
@@ -832,23 +864,23 @@ describe('one pump off on the Pumps together card', () => {
 				.filter((text) => text.endsWith('(station duty)'));
 		await waitFor(() => expect(rings()).toHaveLength(4));
 		expect(rings()).toEqual([
-			'○ 1 · Pump PA off (station duty)',
-			'○ 2 · Both pumps off (station duty)',
-			'○ 3 · Pump PB off (station duty)',
-			'○ 4 · Delivery tank 5 m higher (station duty)'
+			'Case 1: Pump PA off (station duty)',
+			'Case 2: Pump PB off (station duty)',
+			'Case 3: Delivery tank 5 m higher (station duty)',
+			'Case 4: Both pumps off (station duty)'
 		]);
 		expect(others(calls).map((c) => c.scenarioId)).toEqual(['S1', 'S4', 'S2', 'S3']);
 		const listed = () =>
 			within(within(card()).getByRole('group', { name: 'Cases on this chart' }))
 				.getAllByRole('checkbox')
-				.map((box) => box.closest('label')!.textContent!.replace(/\s+/g, ' ').trim());
+				.map((box) => [shownCaseTag(box.closest('label')!), besideCaseTag(box.closest('label')!)]);
 		expect(listed()).toEqual([
-			'○ 1 · Pump PA off',
-			'○ 2 · Both pumps off',
-			'○ 3 · Pump PB off',
-			'○ 4 · Delivery tank 5 m higher'
+			['1', 'Pump PA off'],
+			['2', 'Pump PB off'],
+			['3', 'Delivery tank 5 m higher'],
+			['4', 'Both pumps off']
 		]);
-		// Unticked, a case keeps its place in the list, and the rings after it are numbered on.
+		// Unticked, a case keeps its place in the list and its number, and every ring keeps its own.
 		await fireEvent.click(
 			within(within(card()).getByRole('group', { name: 'Cases on this chart' })).getByRole(
 				'checkbox',
@@ -856,31 +888,39 @@ describe('one pump off on the Pumps together card', () => {
 			)
 		);
 		await waitFor(() => expect(rings()).toHaveLength(3));
-		expect(listed()).toEqual([
-			'○ 1 · Pump PA off',
-			'Both pumps off',
-			'○ 2 · Pump PB off',
-			'○ 3 · Delivery tank 5 m higher'
+		expect(rings()).toEqual([
+			'Case 1: Pump PA off (station duty)',
+			'Case 2: Pump PB off (station duty)',
+			'Case 3: Delivery tank 5 m higher (station duty)'
 		]);
-		// Running combinations keeps the chart's order (pumps-results-layout.md §5.3, §10 S5), each
-		// case with its ring's number: the unticked case keeps its place, as in the list above.
+		expect(listed()).toEqual([
+			['1', 'Pump PA off'],
+			['2', 'Pump PB off'],
+			['3', 'Delivery tank 5 m higher'],
+			['4', 'Both pumps off']
+		]);
+		// Running combinations keeps number order (pumps-results-layout.md §5.3), each case with its
+		// number: the unticked case keeps its place and its number, as in the list above.
 		const combos = within(card()).getByRole('table', { name: 'Running combinations' });
 		const headings = within(combos)
 			.getAllByRole('rowheader')
 			.filter((h) => h.getAttribute('scope') === 'rowgroup')
-			.map((h) => h.firstElementChild!.textContent);
+			.map((h) => [shownCaseTag(h.firstElementChild!), besideCaseTag(h.firstElementChild!)]);
 		expect(headings).toEqual([
-			'Base case (shown)',
-			'Pump PA off · ring 1',
-			'Both pumps off',
-			'Pump PB off · ring 2',
-			'Delivery tank 5 m higher · ring 3'
+			['Base', 'Base case (shown)'],
+			['1', 'Pump PA off'],
+			['2', 'Pump PB off'],
+			['3', 'Delivery tank 5 m higher'],
+			['4', 'Both pumps off']
 		]);
 	}, 20_000);
 
-	it('Running combinations: the case shown, the cases with values in the chart’s order, then those without in case order, whatever is ticked; names trace buttons in the shown case’s group only (pumps-results-layout.md §5.3, §10 S5)', async () => {
+	// Nit 5, slice 5b (owner, 2026-11-12; Q2 "By list place"; docs/proposals/pumps-nits.md item
+	// 5): replaces S5's order (the cases with values in the chart's order, then those without in
+	// case order): every case in number order, with values or not, the case shown first.
+	it('Running combinations: the case shown, then every case in number order, with values or not, whatever is ticked; names trace buttons in the shown case’s group only (pumps-results-layout.md §5.3; nit 5, slice 5b)', async () => {
 		// S1 and S2 fail to solve: no values. S3 a tank level (no lineup) and S4 both off (0
-		// running), so the chart's order (D24 §4.6) puts S4 before S3; in case order S1 to S4.
+		// running): the chart's order (D24 §4.6) puts S4 before S3, which moves no case here.
 		const { ws, calls } = setup(structuredClone(oneOff.project), {
 			solve: async (_p, _o, request) => {
 				const id = request?.scenarioId;
@@ -900,53 +940,43 @@ describe('one pump off on the Pumps together card', () => {
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
 		await waitFor(() => expect(calls.filter((c) => c.scenarioId === null)).toHaveLength(2));
 		const table = () => within(card()).getByRole('table', { name: 'Running combinations' });
+		/** Each heading's first line: its case's number in a box, then its words. */
 		const headings = () =>
 			within(table())
 				.getAllByRole('rowheader')
 				.filter((h) => h.getAttribute('scope') === 'rowgroup')
-				.map((h) => h.firstElementChild!.textContent);
-		// "Also show …" off: no rings, the order already the chart's.
+				.map((h) => [shownCaseTag(h.firstElementChild!), besideCaseTag(h.firstElementChild!)]);
+		const ORDER = [
+			['Base', 'Base case (shown)'],
+			['1', 'Pump PA off'],
+			['2', 'Pump PB off'],
+			['3', 'Delivery tank 5 m higher'],
+			['4', 'Both pumps off']
+		];
+		// "Also show …" off: no rings, every case in number order with its number.
 		expect(ws.pumpGroupOthers).toBe(false);
-		expect(headings()).toEqual([
-			'Base case (shown)',
-			'Both pumps off',
-			'Delivery tank 5 m higher',
-			'Pump PA off',
-			'Pump PB off'
-		]);
+		expect(headings()).toEqual(ORDER);
 		// Its lead counts the two without results (§5.3 the lead).
 		expect(card().querySelector('[data-combinations-lead]')!.textContent).toMatch(
 			/^5 cases: 3 with current results \(.+\), none out of date, 2 without results\.$/
 		);
-		// On: the rings numbered in the same order; no case moves.
+		// On: the rings drawn, each tagged with its case's number; no case and no number moves.
+		const ringList = () =>
+			[...card().querySelectorAll('[data-group-rings] li')].map((li) => shownCaseTag(li));
 		await fireEvent.click(
 			within(card()).getByRole('checkbox', { name: "Also show the other cases' station duties" })
 		);
-		await waitFor(() =>
-			expect(headings()).toEqual([
-				'Base case (shown)',
-				'Both pumps off · ring 1',
-				'Delivery tank 5 m higher · ring 2',
-				'Pump PA off',
-				'Pump PB off'
-			])
-		);
-		// Unticked under "Cases on this chart": its ring goes, its place stays.
+		await waitFor(() => expect(ringList()).toEqual(['3', '4']));
+		expect(headings()).toEqual(ORDER);
+		// Unticked under "Cases on this chart": its ring goes, its place and its number stay.
 		await fireEvent.click(
 			within(within(card()).getByRole('group', { name: 'Cases on this chart' })).getByRole(
 				'checkbox',
 				{ name: /Both pumps off/ }
 			)
 		);
-		await waitFor(() =>
-			expect(headings()).toEqual([
-				'Base case (shown)',
-				'Both pumps off',
-				'Delivery tank 5 m higher · ring 1',
-				'Pump PA off',
-				'Pump PB off'
-			])
-		);
+		await waitFor(() => expect(ringList()).toEqual(['3']));
+		expect(headings()).toEqual(ORDER);
 		// Names: trace buttons in the shown case's group only (§5.3 Pump names), each opening
 		// that pump's trace for the case shown; plain row headers in every other group.
 		const groups = within(table()).getAllByRole('rowgroup').slice(1);
@@ -958,7 +988,8 @@ describe('one pump off on the Pumps together card', () => {
 		for (const group of groups.slice(1)) expect(within(group).queryAllByRole('button')).toEqual([]);
 		await fireEvent.click(within(groups[0]!).getByRole('button', { name: 'Pump PB' }));
 		expect(ws.inspected).toEqual({ kind: 'component', id: 'PB' });
-		expect(within(groups[1]!).getAllByRole('rowheader', { name: 'Pump PB' })).toHaveLength(1);
+		// Another case with values (Both pumps off, last in number order): plain row headers.
+		expect(within(groups[4]!).getAllByRole('rowheader', { name: 'Pump PB' })).toHaveLength(1);
 	}, 20_000);
 
 	it('Running combinations with a scenario shown: its group first with the trace buttons, which open its trace; none in the base case’s (pumps-results-layout.md §5.3 Pump names, §10 S5)', async () => {
@@ -970,11 +1001,15 @@ describe('one pump off on the Pumps together card', () => {
 		await waitFor(() => expect(calls.filter((c) => c.scenarioId === 'S3')).toHaveLength(2));
 		const table = within(card()).getByRole('table', { name: 'Running combinations' });
 		const groups = within(table).getAllByRole('rowgroup').slice(1);
+		// Each heading's first line's words beside its case's number (nit 5, slice 5b).
 		const heading = (g: HTMLElement) =>
-			within(g)
-				.getAllByRole('rowheader')
-				.find((h) => h.getAttribute('scope') === 'rowgroup')!.firstElementChild!.textContent;
+			besideCaseTag(
+				within(g)
+					.getAllByRole('rowheader')
+					.find((h) => h.getAttribute('scope') === 'rowgroup')!.firstElementChild!
+			);
 		expect(heading(groups[0]!)).toBe('Delivery tank 5 m higher (shown)');
+		expect(shownCaseTag(groups[0]!.querySelector('th[scope="rowgroup"]')!)).toBe('3');
 		expect(within(groups[0]!).getAllByRole('button')).toEqual([
 			within(groups[0]!).getByRole('button', { name: 'Pump PA' }),
 			within(groups[0]!).getByRole('button', { name: 'Pump PB' })
@@ -1000,9 +1035,10 @@ describe('one pump off on the Pumps together card', () => {
 		const region = within(card()).getByRole('table', {
 			name: 'Running combinations'
 		}).parentElement!;
+		// Each heading's first line's words beside its case's number (nit 5, slice 5b).
 		const headings = () =>
-			[...region.querySelectorAll('th[scope="rowgroup"]')].map(
-				(h) => h.firstElementChild!.textContent
+			[...region.querySelectorAll('th[scope="rowgroup"]')].map((h) =>
+				besideCaseTag(h.firstElementChild!)
 			);
 		const before = headings();
 		expect(before[0]).toBe('Delivery tank 5 m higher (shown)');
@@ -1015,7 +1051,12 @@ describe('one pump off on the Pumps together card', () => {
 		);
 		// Every case's two members: the base case and its four scenarios, each solved.
 		expect(rows).toHaveLength(10);
-		const caseOf = (r: Element) => r.querySelector('td[data-label="Case"]')!.textContent!.trim();
+		// Its Case cell's words beside its case's number (nit 5, slice 5b), the number its case's.
+		const caseOf = (r: Element) => besideCaseTag(r.querySelector('td[data-label="Case"]')!);
+		const shownCell = rows
+			.map((r) => r.querySelector('td[data-label="Case"]')!)
+			.find((cell) => besideCaseTag(cell) === 'Delivery tank 5 m higher (shown)')!;
+		expect(shownCaseTag(shownCell)).toBe('3');
 		for (const r of rows) {
 			expect(!!r.querySelector('button'), caseOf(r)).toBe(
 				caseOf(r) === 'Delivery tank 5 m higher (shown)'
@@ -1253,7 +1294,8 @@ describe('one pump off on the Pumps together card', () => {
 describe('"Cases on this chart" past its cap of six', () => {
 	it('keeps the place a case leaves free: the case unticked can be ticked again, or another into its place', async () => {
 		// Seven other cases: the one-off project's four and three copies of the base (no changes),
-		// so the seventh in the chart's order (Copy S7) is past the cap and reads as unticked.
+		// so the seventh in the chart's order (Copy S7) is past the cap and reads as unticked. The
+		// list runs in number order (nit 5, slice 5b; Q2): the lineup priority only chooses which.
 		const project = structuredClone(oneOff.project);
 		const copies = ['S5', 'S6', 'S7'].map((id) => ({ id, name: `Copy ${id}`, overrides: [] }));
 		const { ws } = setup(withScenarios(project, [...scenariosOf(project), ...copies]));
@@ -1269,19 +1311,15 @@ describe('"Cases on this chart" past its cap of six', () => {
 			within(group())
 				.getAllByRole('checkbox')
 				.filter((b) => (b as HTMLInputElement).checked)
-				.map((b) =>
-					b
-						.closest('label')!
-						.textContent!.replace(/^[^A-Z]*/, '')
-						.trim()
-				);
+				// Its words beside its case's number (nit 5, slice 5b: the number's box and words).
+				.map((b) => besideCaseTag(b.closest('label')!));
 		const hint = 'At most 6 other cases at once.';
 		await waitFor(() => expect(within(group()).getAllByRole('checkbox')).toHaveLength(7));
 		const six = [
 			'Pump PA off',
-			'Both pumps off',
 			'Pump PB off',
 			'Delivery tank 5 m higher',
+			'Both pumps off',
 			'Copy S5',
 			'Copy S6'
 		];
@@ -1325,7 +1363,10 @@ describe('"Cases on this chart" past its cap of six', () => {
 // One choice of cases for both charts (proposal pumps-results-layout.md §9 S8, §10 One choice of
 // cases, the owner's answer 2): the cases the user unticked one set for "Cases on the chart" and
 // "Cases on this chart"; the cases past each list's cap at an untick that chart's own; the pump
-// chart's list kept over a pump switch; its slots and markers.
+// chart's list kept over a pump switch; its slots; each case's number (owner, 2026-11-12, nit 5;
+// docs/proposals/pumps-nits.md item 5, slice 5b: in place of S8's markers). Both lists run in
+// number order (Q2): the card's arrays below moved from the chart's order (Pump PA off, Both pumps
+// off, Pump PB off, …) to it.
 describe('one choice of cases for the pump chart and the card', () => {
 	/** The one-off's four other cases and copies of the base (no changes), S5 onwards. */
 	function withCopies(ids: string[]) {
@@ -1335,12 +1376,8 @@ describe('one choice of cases for the pump chart and the card', () => {
 	}
 	const pumpCases = () => results().getByRole('group', { name: 'Cases on the chart' });
 	const cardCases = () => within(card()).getByRole('group', { name: 'Cases on this chart' });
-	/** A box's label without its marker or ring. */
-	const words = (b: HTMLElement) =>
-		b
-			.closest('label')!
-			.textContent!.replace(/^[^A-Z]*/, '')
-			.trim();
+	/** A box's label without its case's number (nit 5, slice 5b: its box and its words). */
+	const words = (b: HTMLElement) => besideCaseTag(b.closest('label')!);
 	const ticked = (group: HTMLElement) =>
 		within(group)
 			.getAllByRole('checkbox')
@@ -1350,6 +1387,18 @@ describe('one choice of cases for the pump chart and the card', () => {
 		within(group).getByRole('checkbox', { name: new RegExp(`${name}$`) }) as HTMLInputElement;
 	const capped = (group: HTMLElement, name: string) =>
 		box(group, name).getAttribute('aria-disabled') === 'true';
+	/**
+	 * The boxes' labels under "Cases on the chart": each case's number and words, and "(unticked)"
+	 * when not drawn (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5, slice 5b: a
+	 * case's number shows whether it is drawn or not, where S8's marker showed only when drawn).
+	 */
+	const labels = () =>
+		within(pumpCases())
+			.getAllByRole('checkbox')
+			.map(
+				(b) =>
+					`${shownCaseTag(b.closest('label')!)} ${besideCaseTag(b.closest('label')!)}${(b as HTMLInputElement).checked ? '' : ' (unticked)'}`
+			);
 	/** Solve every case, show the Pumps view, open the card with its other cases on. */
 	async function showBoth(ws: ReturnType<typeof setup>['ws']) {
 		await ws.store.solveAll();
@@ -1367,9 +1416,9 @@ describe('one choice of cases for the pump chart and the card', () => {
 		// The card draws six, in its order; Pump PA's chart five, its two off cases taking no slot.
 		expect(ticked(cardCases())).toEqual([
 			'Pump PA off',
-			'Both pumps off',
 			'Pump PB off',
 			'Delivery tank 5 m higher',
+			'Both pumps off',
 			'Copy S5',
 			'Copy S6'
 		]);
@@ -1394,8 +1443,8 @@ describe('one choice of cases for the pump chart and the card', () => {
 		await fireEvent.click(box(cardCases(), 'Pump PB off'));
 		expect(ticked(cardCases())).toEqual([
 			'Pump PA off',
-			'Both pumps off',
 			'Delivery tank 5 m higher',
+			'Both pumps off',
 			'Copy S5',
 			'Copy S6'
 		]);
@@ -1423,8 +1472,8 @@ describe('one choice of cases for the pump chart and the card', () => {
 		expect(ticked(pumpCases())).toEqual(['Delivery tank 5 m higher', 'Copy S6', 'Copy S7']);
 		expect(ticked(cardCases())).toEqual([
 			'Pump PA off',
-			'Both pumps off',
 			'Delivery tank 5 m higher',
+			'Both pumps off',
 			'Copy S6'
 		]);
 		expect(ws.casesUnticked).toEqual(['S2', 'S5']);
@@ -1453,9 +1502,9 @@ describe('one choice of cases for the pump chart and the card', () => {
 		]);
 		expect(ticked(cardCases())).toEqual([
 			'Pump PA off',
-			'Both pumps off',
 			'Pump PB off',
 			'Delivery tank 5 m higher',
+			'Both pumps off',
 			'Copy S5',
 			'Copy S6'
 		]);
@@ -1466,8 +1515,8 @@ describe('one choice of cases for the pump chart and the card', () => {
 		await fireEvent.click(box(cardCases(), 'Copy S7'));
 		const card6 = [
 			'Pump PA off',
-			'Both pumps off',
 			'Delivery tank 5 m higher',
+			'Both pumps off',
 			'Copy S5',
 			'Copy S6',
 			'Copy S7'
@@ -1489,16 +1538,12 @@ describe('one choice of cases for the pump chart and the card', () => {
 		expect(ws.pumpGroupUnticked).toEqual(['S8', 'S2']);
 	}, 30_000);
 
-	it('keeps the pump chart’s unticks over a pump switch, and its markers by case', async () => {
+	it('keeps the pump chart’s unticks over a pump switch, and its numbers by case', async () => {
 		const { ws } = setup(structuredClone(oneOff.project));
 		await showBoth(ws);
-		const labels = () =>
-			within(pumpCases())
-				.getAllByRole('checkbox')
-				.map((b) => b.closest('label')!.textContent!.trim());
-		expect(labels()).toEqual(['□ Pump PB off', '✳\uFE0E Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['2 Pump PB off', '3 Delivery tank 5 m higher']);
 		await fireEvent.click(box(pumpCases(), 'Delivery tank 5 m higher'));
-		expect(labels()).toEqual(['□ Pump PB off', 'Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['2 Pump PB off', '3 Delivery tank 5 m higher (unticked)']);
 		// Pump PB on the chart: its own cases, the one unticked still unticked.
 		await fireEvent.change(results().getByRole('combobox', { name: 'Pump chart' }), {
 			target: { value: 'PB' }
@@ -1508,10 +1553,12 @@ describe('one choice of cases for the pump chart and the card', () => {
 				results().getByRole('figure', { name: /^Pump and system curves: Pump PB/ })
 			).toBeTruthy()
 		);
-		expect(labels()).toEqual(['△ Pump PA off', 'Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['1 Pump PA off', '3 Delivery tank 5 m higher (unticked)']);
 		expect(
 			within(pumpCases()).getByText(/^Off in this case \(no operating point\):/)
-		).toHaveTextContent('Off in this case (no operating point): Pump PB off; Both pumps off.');
+		).toHaveTextContent(
+			'Off in this case (no operating point): case 2: Pump PB off; case 4: Both pumps off.'
+		);
 		expect(box(cardCases(), 'Delivery tank 5 m higher').checked).toBe(false);
 		// And back: as left.
 		await fireEvent.change(results().getByRole('combobox', { name: 'Pump chart' }), {
@@ -1522,11 +1569,11 @@ describe('one choice of cases for the pump chart and the card', () => {
 				results().getByRole('figure', { name: /^Pump and system curves: Pump PA/ })
 			).toBeTruthy()
 		);
-		expect(labels()).toEqual(['□ Pump PB off', 'Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['2 Pump PB off', '3 Delivery tank 5 m higher (unticked)']);
 		expect(ws.casesUnticked).toEqual(['S3']);
 	}, 30_000);
 
-	it('asks the other cases’ system curves only while they are on, for the cases drawn; a case they push past the cap shows it; each case drawn keeps its marker (§9 S8 Slots, Markers)', async () => {
+	it('asks the other cases’ system curves only while they are on, for the cases drawn; a case they push past the cap shows it; each case keeps its number (§9 S8 Slots; nit 5, slice 5b)', async () => {
 		const curves: (string | null)[] = [];
 		const { ws } = setup(withCopies(['S5', 'S6', 'S7']), {
 			systemCurve: async (_project, pumpId, options) => {
@@ -1535,68 +1582,54 @@ describe('one choice of cases for the pump chart and the card', () => {
 			}
 		});
 		await showBoth(ws);
-		const labels = () =>
-			within(pumpCases())
-				.getAllByRole('checkbox')
-				.map((b) => b.closest('label')!.textContent!.trim());
 		await waitFor(() => expect(curves).toEqual([null]));
-		// Off: Pump PA off and Both pumps off take no slot; the five others each their place's.
+		// Off: Pump PA off and Both pumps off take no slot; the five others drawn, each its number.
 		expect(labels()).toEqual([
-			'△ Pump PB off',
-			'□ Delivery tank 5 m higher',
-			'✳\uFE0E Copy S5',
-			'× Copy S6',
-			'▽ Copy S7'
+			'2 Pump PB off',
+			'3 Delivery tank 5 m higher',
+			'5 Copy S5',
+			'6 Copy S6',
+			'7 Copy S7'
 		]);
 		expect(within(pumpCases()).queryByText('At most 6 cases at once.')).toBeNull();
-		// Delivery tank unticked: every other case keeps its marker.
+		// Delivery tank unticked: every case keeps its number.
 		await fireEvent.click(box(pumpCases(), 'Delivery tank 5 m higher'));
-		expect(labels()).toEqual([
-			'△ Pump PB off',
-			'Delivery tank 5 m higher',
-			'✳\uFE0E Copy S5',
-			'× Copy S6',
-			'▽ Copy S7'
-		]);
+		const offAgain = [
+			'2 Pump PB off',
+			'3 Delivery tank 5 m higher (unticked)',
+			'5 Copy S5',
+			'6 Copy S6',
+			'7 Copy S7'
+		];
+		expect(labels()).toEqual(offAgain);
 		expect(curves).toEqual([null]);
-		// On: the off cases take their slots, so Copy S7 goes past the cap and shows it; the
-		// cases that stay keep their markers; the curves are asked for the five drawn only.
+		// On: the off cases take their slots, so Copy S7 goes past the cap and shows it; every case
+		// keeps its number; the curves are asked for the five drawn only.
 		await fireEvent.click(
 			results().getByRole('checkbox', { name: "Also show the other cases' system curves" })
 		);
 		await waitFor(() => expect(curves).toHaveLength(6));
 		expect([...curves.slice(1)].sort()).toEqual(['S1', 'S2', 'S4', 'S5', 'S6']);
 		expect(labels()).toEqual([
-			'□ Pump PA off',
-			'△ Pump PB off',
-			'Delivery tank 5 m higher',
-			'▽ Both pumps off',
-			'✳\uFE0E Copy S5',
-			'× Copy S6',
-			'Copy S7'
+			'1 Pump PA off',
+			'2 Pump PB off',
+			'3 Delivery tank 5 m higher (unticked)',
+			'4 Both pumps off',
+			'5 Copy S5',
+			'6 Copy S6',
+			'7 Copy S7 (unticked)'
 		]);
 		expect(capped(pumpCases(), 'Copy S7')).toBe(true);
 		expect(box(pumpCases(), 'Copy S7')).toHaveAccessibleDescription('At most 6 cases at once.');
 		expect(within(pumpCases()).queryByText(/^Off in this case/)).toBeNull();
-		// Off again: Copy S7 back with its marker; nothing more asked.
+		// Off again: Copy S7 drawn again with its number; nothing more asked.
 		await fireEvent.click(
 			results().getByRole('checkbox', { name: "Also show the other cases' system curves" })
 		);
-		expect(labels()).toEqual([
-			'△ Pump PB off',
-			'Delivery tank 5 m higher',
-			'✳\uFE0E Copy S5',
-			'× Copy S6',
-			'▽ Copy S7'
-		]);
+		expect(labels()).toEqual(offAgain);
 		expect(curves).toHaveLength(6);
 	}, 30_000);
 
-	/** The boxes' labels under "Cases on the chart", each with its marker when drawn. */
-	const labels = () =>
-		within(pumpCases())
-			.getAllByRole('checkbox')
-			.map((b) => b.closest('label')!.textContent!.trim());
 	const showPump = async (id: string, name: string) => {
 		await fireEvent.change(results().getByRole('combobox', { name: 'Pump chart' }), {
 			target: { value: id }
@@ -1634,9 +1667,9 @@ describe('one choice of cases for the pump chart and the card', () => {
 		await waitFor(() => expect(within(cardCases()).getAllByRole('checkbox').length).toBe(8));
 		const six = [
 			'Pump PA off',
-			'Both pumps off',
 			'Pump PB off',
 			'Delivery tank 5 m higher',
+			'Both pumps off',
 			'Copy S5',
 			'Copy S6'
 		];
@@ -1655,8 +1688,8 @@ describe('one choice of cases for the pump chart and the card', () => {
 		await waitFor(() => expect(within(cardCases()).getAllByRole('checkbox').length).toBe(8));
 		expect(ticked(cardCases())).toEqual([
 			'Pump PA off',
-			'Both pumps off',
 			'Delivery tank 5 m higher',
+			'Both pumps off',
 			'Copy S5',
 			'Copy S6',
 			'Copy S7'
@@ -1690,9 +1723,9 @@ describe('one choice of cases for the pump chart and the card', () => {
 		await waitFor(() => expect(within(cardCases()).getAllByRole('checkbox').length).toBe(8));
 		expect(ticked(cardCases())).toEqual([
 			'Pump PA off',
-			'Both pumps off',
 			'Pump PB off',
 			'Delivery tank 5 m higher',
+			'Both pumps off',
 			'Copy S6',
 			'Copy S7'
 		]);
@@ -1708,8 +1741,8 @@ describe('one choice of cases for the pump chart and the card', () => {
 			await fireEvent.click(box(cardCases(), 'Copy S7'));
 			const chosen = [
 				'Pump PA off',
-				'Both pumps off',
 				'Pump PB off',
+				'Both pumps off',
 				'Copy S5',
 				'Copy S6',
 				'Copy S7'
@@ -1737,19 +1770,24 @@ describe('one choice of cases for the pump chart and the card', () => {
 		}, 30_000);
 	}
 
-	it('gives each case its place’s marker among the cases with a result while they are five or fewer: through the curves switched, unticks and ticks in either order and another pump shown (§9 S8 Markers)', async () => {
+	// Nit 5, slice 5b (owner, 2026-11-12; Q2 "By list place"; docs/proposals/pumps-nits.md item
+	// 5): the S8 tests of the markers (§9 S8 Markers; S8 second check MARK-2 and MARK-3, the
+	// five-case boundary, the markers remembered past five) replaced by the same steps with each
+	// case's number, which is its place in the Scenarios list whatever has a result, is drawn or is
+	// shown, and never runs out.
+	it('keeps each case’s number through the curves switched, unticks and ticks in either order and another pump shown (nit 5, slice 5b; was §9 S8 Markers)', async () => {
 		const { ws } = setup(structuredClone(oneOff.project), {
 			systemCurve: async (_project, pumpId) => systemCurveResponse(pumpId)
 		});
 		await showBoth(ws);
-		// Off: Pump PA off and Both pumps off take no slot; the two drawn have their own places'.
+		// Off: Pump PA off and Both pumps off take no slot; the two drawn have their numbers.
 		await waitFor(() => expect(curvesBox()).toBeEnabled());
-		expect(labels()).toEqual(['□ Pump PB off', '✳︎ Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['2 Pump PB off', '3 Delivery tank 5 m higher']);
 		const four = [
-			'△ Pump PA off',
-			'□ Pump PB off',
-			'✳︎ Delivery tank 5 m higher',
-			'× Both pumps off'
+			'1 Pump PA off',
+			'2 Pump PB off',
+			'3 Delivery tank 5 m higher',
+			'4 Both pumps off'
 		];
 		await fireEvent.click(curvesBox());
 		await waitFor(() => expect(labels()).toEqual(four));
@@ -1759,35 +1797,40 @@ describe('one choice of cases for the pump chart and the card', () => {
 		]) {
 			for (const name of order) await fireEvent.click(box(pumpCases(), name));
 			expect(labels()).toEqual([
-				'Pump PA off',
-				'Pump PB off',
-				'✳︎ Delivery tank 5 m higher',
-				'× Both pumps off'
+				'1 Pump PA off (unticked)',
+				'2 Pump PB off (unticked)',
+				'3 Delivery tank 5 m higher',
+				'4 Both pumps off'
 			]);
 			for (const name of order) await fireEvent.click(box(pumpCases(), name));
 			expect(labels()).toEqual(four);
 		}
-		// Pump PB shown: the same cases, each the same marker; its own off cases without slots
+		// Pump PB shown: the same cases, each the same number; its own off cases without slots
 		// once the curves are off.
 		await showPump('PB', 'Pump PB');
 		expect(labels()).toEqual(four);
 		await fireEvent.click(curvesBox());
-		expect(labels()).toEqual(['△ Pump PA off', '✳︎ Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['1 Pump PA off', '3 Delivery tank 5 m higher']);
 		await showPump('PA', 'Pump PA');
-		expect(labels()).toEqual(['□ Pump PB off', '✳︎ Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['2 Pump PB off', '3 Delivery tank 5 m higher']);
 	}, 30_000);
 
-	it('gives each case its place’s marker among exactly five other cases with a result (§9 S8 Markers; S8 second check MARK-3)', async () => {
-		const { ws } = setup(withCopies(['S5']));
+	it('gives each case its number with five, six or more other cases with a result: no boundary (nit 5, slice 5b; was S8 second check MARK-3)', async () => {
+		const { ws } = setup(withCopies(['S5', 'S6']));
 		await ws.store.solveAll();
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
-		// Pump PA, the curves off: Pump PA off and Both pumps off take no slot; the three drawn
-		// have the markers of their places among the five, the fifth the last marker.
-		expect(labels()).toEqual(['□ Pump PB off', '✳︎ Delivery tank 5 m higher', '▽ Copy S5']);
+		// Pump PA, the curves off: Pump PA off and Both pumps off take no slot; the four drawn have
+		// their own numbers, past five cases with a result as before it.
+		expect(labels()).toEqual([
+			'2 Pump PB off',
+			'3 Delivery tank 5 m higher',
+			'5 Copy S5',
+			'6 Copy S6'
+		]);
 		expect(ws.casesUnticked).toEqual([]);
 	}, 30_000);
 
-	it('keeps a case’s marker over a pump switch when another case gives one pump no result: the places are among the cases with a result for any pump (§9 S8 Markers; S8 second check MARK-2)', async () => {
+	it('keeps a case’s number over a pump switch when another case gives one pump no result (nit 5, slice 5b; was S8 second check MARK-2)', async () => {
 		// A first case that closes Pump PA's valves: the API gives Pump PA no result in it (SDD
 		// §4.10, a pump closed off on both sides is absent, flagged ISOLATED_SECTION). Emulated:
 		// the base's answer without Pump PA's result.
@@ -1804,42 +1847,42 @@ describe('one choice of cases for the pump chart and the card', () => {
 		await ws.store.solveAll();
 		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
 		await showPump('PA', 'Pump PA');
-		// The five cases in order: Pump PA isolated, Pump PA off, Pump PB off, Delivery tank, Both
-		// pumps off. Pump PA's chart draws Pump PB off and Delivery tank, each its place's.
-		const onPA = ['✳︎ Pump PB off', '× Delivery tank 5 m higher'];
+		// The Scenarios list: Pump PA isolated 1, Pump PA off 2, Pump PB off 3, Delivery tank 4,
+		// Both pumps off 5. Pump PA's chart draws Pump PB off and Delivery tank, each its number.
+		const onPA = ['3 Pump PB off', '4 Delivery tank 5 m higher'];
 		expect(labels()).toEqual(onPA);
 		await showPump('PB', 'Pump PB');
-		expect(labels()).toEqual(['△ Pump PA isolated', '□ Pump PA off', '× Delivery tank 5 m higher']);
+		expect(labels()).toEqual(['1 Pump PA isolated', '2 Pump PA off', '4 Delivery tank 5 m higher']);
 		await showPump('PA', 'Pump PA');
 		expect(labels()).toEqual(onPA);
 	}, 30_000);
 
-	it('keeps each drawn case’s marker over a pump switch past five cases with a result: the markers remembered (§9 S8 Markers)', async () => {
+	it('keeps each case’s number over a pump switch past five cases with a result, nothing remembered (nit 5, slice 5b; was §9 S8 Markers, remembered)', async () => {
 		const { ws } = setup(withCopies(['S5', 'S6', 'S7']), {
 			systemCurve: async (_project, pumpId) => systemCurveResponse(pumpId)
 		});
 		await showBoth(ws);
 		await waitFor(() => expect(curvesBox()).toBeEnabled());
 		expect(labels()).toEqual([
-			'△ Pump PB off',
-			'□ Delivery tank 5 m higher',
-			'✳︎ Copy S5',
-			'× Copy S6',
-			'▽ Copy S7'
+			'2 Pump PB off',
+			'3 Delivery tank 5 m higher',
+			'5 Copy S5',
+			'6 Copy S6',
+			'7 Copy S7'
 		]);
-		// On: the off cases take the two markers left free, every case that stays keeps its own.
+		// On: the off cases take their slots, Copy S6 and S7 go past the cap; every number stays.
 		await fireEvent.click(curvesBox());
 		const seven = [
-			'× Pump PA off',
-			'△ Pump PB off',
-			'□ Delivery tank 5 m higher',
-			'▽ Both pumps off',
-			'✳︎ Copy S5',
-			'Copy S6',
-			'Copy S7'
+			'1 Pump PA off',
+			'2 Pump PB off',
+			'3 Delivery tank 5 m higher',
+			'4 Both pumps off',
+			'5 Copy S5',
+			'6 Copy S6 (unticked)',
+			'7 Copy S7 (unticked)'
 		];
 		await waitFor(() => expect(labels()).toEqual(seven));
-		// Pump PB draws the same five: each keeps its marker, though not its place's.
+		// Pump PB draws the same five: each keeps its number.
 		await showPump('PB', 'Pump PB');
 		expect(labels()).toEqual(seven);
 		await showPump('PA', 'Pump PA');
@@ -1896,8 +1939,8 @@ describe('one choice of cases for the pump chart and the card', () => {
 		// The card draws five, a place free.
 		expect(ticked(cardCases())).toEqual([
 			'Pump PA off',
-			'Both pumps off',
 			'Pump PB off',
+			'Both pumps off',
 			'Copy S5',
 			'Copy S6'
 		]);
@@ -1906,9 +1949,9 @@ describe('one choice of cases for the pump chart and the card', () => {
 		expect(capped(cardCases(), 'Delivery tank 5 m higher')).toBe(false);
 		expect(ticked(cardCases())).toEqual([
 			'Pump PA off',
-			'Both pumps off',
 			'Pump PB off',
 			'Delivery tank 5 m higher',
+			'Both pumps off',
 			'Copy S5',
 			'Copy S6'
 		]);
@@ -1989,5 +2032,341 @@ describe('one choice of cases for the pump chart and the card', () => {
 		await fireEvent.click(box(pumpCases(), 'Copy S5'));
 		expect(ws.casesUnticked).toEqual(['S5']);
 		expect(ws.pumpGroupUnticked).toEqual([]);
+	}, 30_000);
+});
+
+// Case numbers (owner, 2026-11-12, nit 5: "I don't like the use of special characters to
+// designate pumps and groups"; Q1 "Shapes go too", Q2 "By list place"; docs/proposals/pumps-nits.md
+// item 5, slice 5b): one number per case for the whole Pumps tab, "Base", then 1 to n by the
+// scenario's place in the Scenarios list, in a small box (CaseTag) in every list, ring list, table
+// and heading, the same on both charts. Ticks, unticks, solves, a member change, the case shown and
+// the pump shown move none; every list runs in that order (Running combinations the case shown
+// first), D24's lineup priority choosing only what the group chart draws and its cap. These replace
+// the S8 tests MARK-1/2/3 and the five-case boundary (the five hollow markers, fixed by place among
+// at most five), never loosened: numbers never run out.
+describe('case numbers on both charts (nit 5, slice 5b)', () => {
+	/** The case number an element shows: its CaseTag's box, seen and hidden from screen readers. */
+	function shownTag(el: Element): string | null {
+		const tag = el.querySelector('[data-case-tag]');
+		if (!tag) return null;
+		const box =
+			tag.getAttribute('aria-hidden') === 'true' ? tag : tag.querySelector('[aria-hidden="true"]');
+		return box ? box.textContent!.replace(/\s+/g, ' ').trim() : null;
+	}
+	/** Its words beside the tag: its text without the CaseTag. */
+	function besideTag(el: Element): string {
+		const copy = el.cloneNode(true) as Element;
+		for (const tag of copy.querySelectorAll('[data-case-tag]')) tag.remove();
+		return copy.textContent!.replace(/\s+/g, ' ').trim();
+	}
+	/** What a screen reader reads of it: its text without the aria-hidden parts. */
+	function spoken(el: Element): string {
+		const copy = el.cloneNode(true) as Element;
+		for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+		return copy.textContent!.replace(/\s+/g, ' ').trim();
+	}
+	const pumpCases = () => results().getByRole('group', { name: 'Cases on the chart' });
+	const cardCases = () => within(card()).getByRole('group', { name: 'Cases on this chart' });
+	/** A list's boxes in order: each label's words and the number beside them. */
+	/** A case's words and the number shown beside them. */
+	type Tagged = [string, string | null];
+	const listed = (group: HTMLElement) =>
+		within(group)
+			.getAllByRole('checkbox')
+			.map((b): Tagged => {
+				const label = b.closest('label')!;
+				return [besideTag(label), shownTag(label)];
+			});
+	/** The case shown at a list's head: its words and its number. */
+	const shownOf = (group: HTMLElement) => {
+		const tags = [...group.querySelectorAll('*')].filter(
+			(el) => !el.closest('label') && /\(shown\)$/.test(besideTag(el))
+		);
+		const el = tags.at(-1)!;
+		return [besideTag(el), shownTag(el)] as Tagged;
+	};
+	/** The ring list: each ring's case name and number, in its order. */
+	const ringList = () =>
+		[...card().querySelectorAll('[data-group-rings] li')].map((li): Tagged => [
+			besideTag(li).split(',')[0]!,
+			shownTag(li)
+		]);
+	/** A table's row headers: each case's words and number. */
+	const rowHeads = (table: HTMLElement) =>
+		within(table)
+			.getAllByRole('rowheader')
+			.map((th): Tagged => [besideTag(th), shownTag(th)]);
+	/** Running combinations' case headings: each heading's first line and its number. */
+	const headings = () =>
+		[
+			...within(card())
+				.getByRole('table', { name: 'Running combinations' })
+				.querySelectorAll('th[scope="rowgroup"]')
+		].map((th): Tagged => {
+			const first = [...th.children].find((c) => !c.matches('[data-case-tag]') && besideTag(c))!;
+			return [besideTag(first), shownTag(th)];
+		});
+	const curvesBox = () =>
+		results().getByRole('checkbox', { name: "Also show the other cases' system curves" });
+	const systemCurve: Solver['systemCurve'] = async (_project, pumpId) =>
+		systemCurveResponse(pumpId);
+	/** Solve every case, show the Pumps view, open the card with its other cases on. */
+	async function showBoth(ws: ReturnType<typeof setup>['ws']) {
+		await ws.store.solveAll();
+		ws.pumpGroupOthers = true;
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await waitFor(() =>
+			expect(within(cardCases()).getAllByRole('checkbox').length).toBeGreaterThan(0)
+		);
+	}
+	/** The one-off's four cases by name, each its number (S1 to S4 in its Scenarios list). */
+	const FOUR: Tagged[] = [
+		['Pump PA off', '1'],
+		['Pump PB off', '2'],
+		['Delivery tank 5 m higher', '3'],
+		['Both pumps off', '4']
+	];
+
+	it('gives "Both pumps off" one number, 4, in both lists, the ring list and both data tables (today × on one chart and ring 2 on the other)', async () => {
+		const { ws } = setup(structuredClone(oneOff.project), { systemCurve });
+		await showBoth(ws);
+		// The other cases' system curves on: Pump PA's chart lists all four.
+		await waitFor(() => expect(curvesBox()).toBeEnabled());
+		await fireEvent.click(curvesBox());
+		await waitFor(() => expect(within(pumpCases()).getAllByRole('checkbox')).toHaveLength(4));
+		await waitFor(() => expect(ringList()).toHaveLength(4));
+		// Its checkbox's name under either list: its number's words, then the words seen (WCAG
+		// 2.5.3, the visible box itself hidden from screen readers).
+		for (const group of [pumpCases(), cardCases()]) {
+			expect(within(group).getByRole('checkbox', { name: 'Case 4: Both pumps off' })).toBeTruthy();
+		}
+		expect(listed(pumpCases())).toEqual(FOUR);
+		expect(listed(cardCases())).toEqual(FOUR);
+		// The case shown heads both lists, its tag "Base".
+		expect(shownOf(pumpCases())).toEqual(['Base case (shown)', 'Base']);
+		expect(shownOf(cardCases())).toEqual(['Base case (shown)', 'Base']);
+		// The ring list, in number order, each line heard as its entry in the image's sentence.
+		expect(ringList()).toEqual(FOUR);
+		const both = [...card().querySelectorAll('[data-group-rings] li')].find((li) =>
+			besideTag(li).startsWith('Both pumps off,')
+		)!;
+		expect(spoken(both)).toMatch(/^Case 4: Both pumps off, 0 L\/s at a rise of 19 m: /);
+		// Both data tables: the pump chart's "Operating points by case" (the case shown first) and
+		// the group chart's "Other cases' station duties".
+		await fireEvent.click(
+			results().getByRole('button', { name: 'Show data table of the pump chart' })
+		);
+		await fireEvent.click(
+			within(card()).getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		const points = results().getByRole('table', { name: 'Operating points by case' });
+		expect(rowHeads(points)).toEqual([['Base case (shown)', 'Base'], ...FOUR]);
+		expect(within(points).getByRole('rowheader', { name: 'Case 4: Both pumps off' })).toBeTruthy();
+		const duties = within(card()).getByRole('table', { name: "Other cases' station duties" });
+		expect(rowHeads(duties)).toEqual(FOUR);
+		expect(within(duties).getByRole('rowheader', { name: 'Case 4: Both pumps off' })).toBeTruthy();
+	}, 30_000);
+
+	it('keeps every other case’s number when case 1 is unticked: no ring renumbered (today ++number renumbers)', async () => {
+		const { ws } = setup(structuredClone(oneOff.project));
+		await showBoth(ws);
+		await waitFor(() => expect(ringList()).toHaveLength(4));
+		await fireEvent.click(within(cardCases()).getByRole('checkbox', { name: /Pump PA off$/ }));
+		await waitFor(() => expect(ringList()).toHaveLength(3));
+		expect(ringList()).toEqual(FOUR.slice(1));
+		// Unticked, case 1 keeps its number in the list; every other case keeps its own.
+		expect(listed(cardCases())).toEqual(FOUR);
+		expect(
+			within(cardCases()).getByRole('checkbox', { name: 'Case 1: Pump PA off' })
+		).not.toBeChecked();
+		// Running combinations: the case shown first, then every case in number order, each its tag.
+		expect(headings()).toEqual([['Base case (shown)', 'Base'], ...FOUR]);
+		// The group chart's data table too, the unticked case with its number and its reason.
+		await fireEvent.click(
+			within(card()).getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		const duties = within(card()).getByRole('table', { name: "Other cases' station duties" });
+		expect(rowHeads(duties)).toEqual(FOUR);
+	}, 30_000);
+
+	it('lists every case in number order; the lineup priority chooses only what the group chart draws and its cap', async () => {
+		// The Scenarios list: the tank first, three copies of the base, then the lineups. Numbered
+		// by that place: the tank 1, the copies 2 to 4, Pump PA off 5, Pump PB off 6, both off 7.
+		// D24's priority draws the lineups first (S1, S4, S2), then the rest (S3, S5, S6): Copy S7,
+		// number 4, is past the cap of six.
+		const project = structuredClone(oneOff.project);
+		const byId = (id: string) => scenariosOf(project).find((s) => s.id === id)!;
+		const copy = (id: string) => ({ id, name: `Copy ${id}`, overrides: [] });
+		const { ws } = setup(
+			withScenarios(project, [
+				byId('S3'),
+				copy('S5'),
+				copy('S6'),
+				copy('S7'),
+				byId('S1'),
+				byId('S2'),
+				byId('S4')
+			])
+		);
+		await showBoth(ws);
+		const seven: Tagged[] = [
+			['Delivery tank 5 m higher', '1'],
+			['Copy S5', '2'],
+			['Copy S6', '3'],
+			['Copy S7', '4'],
+			['Pump PA off', '5'],
+			['Pump PB off', '6'],
+			['Both pumps off', '7']
+		];
+		await waitFor(() => expect(listed(cardCases())).toEqual(seven));
+		const box = (name: string) =>
+			within(cardCases()).getByRole('checkbox', { name: new RegExp(`${name}$`) });
+		expect(
+			within(cardCases())
+				.getAllByRole('checkbox')
+				.filter((b) => (b as HTMLInputElement).checked)
+				.map((b) => besideTag(b.closest('label')!))
+		).toEqual([
+			'Delivery tank 5 m higher',
+			'Copy S5',
+			'Copy S6',
+			'Pump PA off',
+			'Pump PB off',
+			'Both pumps off'
+		]);
+		expect(box('Copy S7')).toHaveAttribute('aria-disabled', 'true');
+		await waitFor(() => expect(ringList()).toHaveLength(6));
+		expect(ringList()).toEqual(seven.filter(([name]) => name !== 'Copy S7'));
+		// Running combinations: the case shown first, then every case in number order.
+		expect(headings()).toEqual([['Base case (shown)', 'Base'], ...seven]);
+		// Pump PA's chart: its cases in number order, those in which it is off named by number
+		// under the list (they take no slot while the other cases' system curves are off).
+		expect(listed(pumpCases())).toEqual(
+			seven.filter(([name]) => name !== 'Pump PA off' && name !== 'Both pumps off')
+		);
+		expect(
+			within(pumpCases()).getByText(/^Off in this case \(no operating point\):/)
+		).toHaveTextContent(
+			'Off in this case (no operating point): case 5: Pump PA off; case 7: Both pumps off.'
+		);
+	}, 30_000);
+
+	it('moves no number on a tick, an untick, a solve, a member change, the case shown or the pump shown', async () => {
+		const { ws } = setup(structuredClone(oneOff.project), { systemCurve });
+		await showBoth(ws);
+		await waitFor(() => expect(curvesBox()).toBeEnabled());
+		await fireEvent.click(curvesBox());
+		await waitFor(() => expect(within(pumpCases()).getAllByRole('checkbox')).toHaveLength(4));
+		// Every other case's station duty in before the steps: an untick of a case whose request
+		// still waits cancels it (the user's), and it would then not be computed for the case shown
+		// later (tickChoice, as before slice 5b).
+		await waitFor(() => expect(ringList()).toHaveLength(4));
+		/** Each case's number under both lists, by name, the case shown included. */
+		const numbers = () => {
+			const read = (group: HTMLElement): Tagged[] => [...listed(group), shownOf(group)];
+			return {
+				pump: Object.fromEntries(read(pumpCases())),
+				card: Object.fromEntries(read(cardCases()))
+			};
+		};
+		const base = Object.fromEntries([...FOUR, ['Base case (shown)', 'Base'] as Tagged]);
+		const expected = { pump: base, card: base };
+		expect(numbers()).toEqual(expected);
+		// An untick and a tick, under either list.
+		await fireEvent.click(within(pumpCases()).getByRole('checkbox', { name: /Pump PB off$/ }));
+		expect(numbers()).toEqual(expected);
+		await fireEvent.click(within(pumpCases()).getByRole('checkbox', { name: /Pump PB off$/ }));
+		expect(numbers()).toEqual(expected);
+		await fireEvent.click(
+			within(cardCases()).getByRole('checkbox', { name: /Delivery tank 5 m higher$/ })
+		);
+		expect(numbers()).toEqual(expected);
+		await fireEvent.click(
+			within(cardCases()).getByRole('checkbox', { name: /Delivery tank 5 m higher$/ })
+		);
+		expect(numbers()).toEqual(expected);
+		// A solve of the case shown (the card's list is drawn again once its curves answer).
+		await ws.solve();
+		await waitFor(() => expect(within(pumpCases()).getAllByRole('checkbox')).toHaveLength(4));
+		await waitFor(() =>
+			expect(within(card()).queryByRole('group', { name: 'Cases on this chart' })).not.toBeNull()
+		);
+		await waitFor(() => expect(within(cardCases()).getAllByRole('checkbox')).toHaveLength(4));
+		expect(numbers()).toEqual(expected);
+		// A member change and back: the card's members, Pump PB off the group (one pump: no other
+		// cases on the card then) and on again.
+		const member = () =>
+			within(within(card()).getByRole('group', { name: 'Pumps in the group' })).getByRole(
+				'checkbox',
+				{ name: /Pump PB/ }
+			);
+		await fireEvent.click(member());
+		expect(Object.fromEntries([...listed(pumpCases()), shownOf(pumpCases())])).toEqual(base);
+		await fireEvent.click(member());
+		await waitFor(() => expect(within(cardCases()).getAllByRole('checkbox')).toHaveLength(4));
+		expect(numbers()).toEqual(expected);
+		// Another case shown: Pump PB off (2) heads both lists; the base case is another case.
+		ws.setCase('S2');
+		await waitFor(() => expect(shownOf(pumpCases())).toEqual(['Pump PB off (shown)', '2']));
+		await waitFor(() => expect(shownOf(cardCases())).toEqual(['Pump PB off (shown)', '2']));
+		await waitFor(() =>
+			expect(Object.fromEntries(listed(pumpCases()))).toEqual({
+				'Base case': 'Base',
+				'Pump PA off': '1',
+				'Delivery tank 5 m higher': '3',
+				'Both pumps off': '4'
+			})
+		);
+		expect(Object.fromEntries(listed(cardCases()))).toEqual({
+			'Base case': 'Base',
+			'Pump PA off': '1',
+			'Delivery tank 5 m higher': '3',
+			'Both pumps off': '4'
+		});
+		ws.setCase(null);
+		await waitFor(() => expect(numbers()).toEqual(expected));
+		// Another pump shown: Pump PB's chart, the same numbers.
+		await fireEvent.change(results().getByRole('combobox', { name: 'Pump chart' }), {
+			target: { value: 'PB' }
+		});
+		await waitFor(() =>
+			expect(
+				results().getByRole('figure', { name: /^Pump and system curves: Pump PB/ })
+			).toBeTruthy()
+		);
+		await waitFor(() => expect(within(pumpCases()).getAllByRole('checkbox')).toHaveLength(4));
+		expect(numbers()).toEqual(expected);
+	}, 60_000);
+
+	it('draws no character for a case in either list, the ring list or either data table (the guard, extended)', async () => {
+		const { ws } = setup(structuredClone(oneOff.project), { systemCurve });
+		await showBoth(ws);
+		await waitFor(() => expect(curvesBox()).toBeEnabled());
+		await fireEvent.click(curvesBox());
+		await waitFor(() => expect(ringList()).toHaveLength(4));
+		await fireEvent.click(
+			results().getByRole('button', { name: 'Show data table of the pump chart' })
+		);
+		await fireEvent.click(
+			within(card()).getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		const places: [string, Element][] = [
+			['Cases on the chart', pumpCases()],
+			['Cases on this chart', cardCases()],
+			['the ring list', card().querySelector('[data-group-rings]')!],
+			[
+				'Operating points by case',
+				results().getByRole('table', { name: 'Operating points by case' })
+			],
+			[
+				"Other cases' station duties",
+				within(card()).getByRole('table', { name: "Other cases' station duties" })
+			]
+		];
+		for (const [name, el] of places) expect(designators(el), name).toEqual([]);
+		// Each place shows its cases' numbers instead.
+		for (const [name, el] of places)
+			expect(el.querySelector('[data-case-tag]'), name).not.toBeNull();
 	}, 30_000);
 });

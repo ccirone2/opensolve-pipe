@@ -32,12 +32,13 @@ import {
 	readyState
 } from '$lib/testing/curve-family';
 import fixture from './__fixtures__/pump-groups-input.json';
-import { ratedCurveRange } from './pump-chart';
+import { caseTagOf, caseTags, ratedCurveRange } from './pump-chart';
 import { DUTY_CHECK_FLOOR, groupTable, type GroupMemberInput } from './pump-group-chart';
 import { refusalWords, wordsText } from './pump-groups';
 import {
 	chartKeys,
 	combinationExtremes,
+	combinationsOrder,
 	combinationsLead,
 	DUTY_CLAIM_RULE,
 	DUTY_CLAIM_WORDS,
@@ -88,6 +89,8 @@ const body = (a: Answer) => a.body as PumpGroupCurveResponse;
 const station = body(oneOff.groupCurve).station;
 const baseSystem = body(oneOff.systemCurve!);
 const scenarioCase = (id: string) => oneOff.scenarioCases![id]!;
+/** The `one-off` cases' numbers (caseTags): the base "Base", S1 to S4 1 to 4. */
+const oneOffTags = caseTags(oneOff.project);
 
 describe("4d's names for one pump off", () => {
 	// 4d's block and its shape are gone: the Add cases block (PumpLineupsBlock) draws
@@ -318,6 +321,7 @@ describe('the other cases on the chart', () => {
 				shared: id !== 'S3',
 				solved: applyScenario(oneOff.project, id).project
 			})),
+			tags: oneOffTags,
 			shownKeys: new Set(['S1', 'S2', 'S3', 'S4']),
 			othersOn: true,
 			shownSettled: true,
@@ -363,7 +367,9 @@ describe('the other cases on the chart', () => {
 		expect(chartKeys(valued.slice(0, 4), project, members, [''])).toEqual(['S1', 'S3', 'S5']);
 	});
 
-	it('numbers the rings in the order given (the chart’s, D24 §7.9), each with its duty and claim', () => {
+	// Nit 5 (owner, 2026-11-12; Q2 "By list place"; docs/proposals/pumps-nits.md item 5, slice
+	// 5b): each ring its case's number (caseTags), never its place among the rings drawn.
+	it('numbers each ring by its case, each with its duty and claim', () => {
 		const others = otherGroupCases(input());
 		expect(others.map((o) => [o.key, o.state, o.number, o.claim])).toEqual([
 			['S1', 'ready', 1, 'on'],
@@ -376,13 +382,13 @@ describe('the other cases on the chart', () => {
 			head: body(scenarioCase('S1').groupCurve).duty!.head
 		});
 		expect(others[0]!.words).toBe('Yes: the same rest of the network');
-		// Unticked: no ring, and the next is numbered on.
+		// Unticked: no ring, and every other ring keeps its case's number (it was numbered on).
 		const unticked = otherGroupCases(input({ shownKeys: new Set(['S2', 'S3', 'S4']) }));
 		expect(unticked.map((o) => [o.state, o.number])).toEqual([
 			['unticked', null],
-			['ready', 1],
 			['ready', 2],
-			['ready', 3]
+			['ready', 3],
+			['ready', 4]
 		]);
 	});
 
@@ -521,9 +527,10 @@ describe('the other cases on the chart', () => {
 				{ ...first!, key: 'S2', caseId: 'S2', group: prvGroup, system: ready(prv.systemCurve!) }
 			]
 		});
+		// Its ring numbered by its case, S2's 2 (nit 5, slice 5b; it was 1, its place among the rings).
 		expect(answered.map((x) => [x.state, x.number])).toEqual([
 			['loading', null],
-			['ready', 1]
+			['ready', 2]
 		]);
 		expect(answered[1]!.duty!.flow).toBe(body(prv.systemCurve!).duty!.flow);
 	});
@@ -546,7 +553,8 @@ describe('Running combinations', () => {
 				status: 'solved' as const,
 				response: id ? scenarioCase(id).solve : oneOff.solve,
 				stale: false,
-				station: null
+				station: null,
+				tag: caseTagOf(oneOffTags, id ?? '')
 			})),
 			prefs,
 			project: oneOff.project,
@@ -629,7 +637,8 @@ describe('Running combinations', () => {
 					status: 'solved',
 					response: c.solve,
 					stale: false,
-					station: null
+					station: null,
+					tag: 'Base'
 				}
 			],
 			prefs,
@@ -676,7 +685,8 @@ describe('Running combinations', () => {
 						status: 'solved',
 						response: c.solve,
 						stale: false,
-						station: null
+						station: null,
+						tag: 'Base'
 					}
 				],
 				prefs: c.project.settings.units,
@@ -724,7 +734,8 @@ describe('Running combinations', () => {
 					status: 'solved' as const,
 					response: x.response,
 					stale: false,
-					station: null
+					station: null,
+					tag: caseTagOf(caseTags(c.project), x.key)
 				})),
 				prefs,
 				project: c.project
@@ -827,18 +838,199 @@ describe('Running combinations', () => {
 		expect(table.groups[0]!.heading).toBe('Base case');
 	});
 
-	it('heads each group with its state and ring, an out-of-date one tinted', () => {
+	// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5, slice 5b): its case's number
+	// beside the heading, in a box (`tag`), in place of " · ring 1" in the words.
+	it('heads each group with its state and its case’s number, an out-of-date one tinted', () => {
 		const base = combinationsInput();
 		const table = runningCombinations({
 			...base,
 			cases: [
 				{ ...base.cases[0]!, station: 'Station 55.15 L/s at a rise of 27.38 m' },
-				{ ...base.cases[1]!, stale: true, ring: 1, station: 'line' }
+				{ ...base.cases[1]!, stale: true, station: 'line' }
 			]
 		});
 		expect(table.groups[0]!.detail).toBe('Station 55.15 L/s at a rise of 27.38 m');
-		expect(table.groups[1]!.heading).toBe('Pump PA off (out of date) · ring 1');
+		expect([table.groups[1]!.tag, table.groups[1]!.heading]).toEqual([
+			1,
+			'Pump PA off (out of date)'
+		]);
 		expect(table.groups[1]!.stale).toBe(true);
+	});
+});
+
+// Case numbers (owner, 2026-11-12, nit 5; Q2 "By list place"; docs/proposals/pumps-nits.md item
+// 5, slice 5b): a ring's number is its case's (caseTags: "Base", then 1 to n by the Scenarios
+// list), never its place among the rings drawn, so an untick, a tick or the chart's order moves
+// none; D24's lineup priority only chooses which cases are drawn and which go past the cap.
+// Running combinations heads each case with its tag in place of " · ring n".
+describe('case numbers on the group chart and in Running combinations (nit 5, slice 5b)', () => {
+	const ready = (a: Answer): GroupCurveState => ({ status: 'ready', response: body(a) });
+	/**
+	 * The tags of `one-off` (caseTags, checked in the first test): S1 Pump PA off 1, S2 Pump PB off
+	 * 2, S3 the tank 3, S4 both off 4.
+	 */
+	const TAGS = { '': 'Base', S1: 1, S2: 2, S3: 3, S4: 4 } as const;
+	const tags = (): Readonly<Record<string, 'Base' | number>> => TAGS;
+	/** The four scenario cases in the chart's order (lineupChartPriority: S1, S4, S2, S3). */
+	function input(values: Partial<OtherCasesInput> = {}): OtherCasesInput {
+		return {
+			valued: ['S1', 'S4', 'S2', 'S3'].map((id) => ({
+				key: id,
+				caseId: id,
+				name: oneOff.project.scenarios!.find((s) => s.id === id)!.name,
+				stale: false,
+				group: ready(scenarioCase(id).groupCurve),
+				system: undefined,
+				shared: id !== 'S3',
+				solved: applyScenario(oneOff.project, id).project
+			})),
+			tags: tags(),
+			shownKeys: new Set(['S1', 'S2', 'S3', 'S4']),
+			othersOn: true,
+			shownSettled: true,
+			station,
+			systemShown: baseSystem,
+			memberIds: ['PA', 'PB'],
+			project: oneOff.project,
+			boxes: ['PA', 'PB'],
+			...values
+		};
+	}
+
+	it('numbers each ring by its case, whatever order the cases come in', () => {
+		// In the chart's order: Pump PA off 1, Both pumps off 4, Pump PB off 2, the tank 3 (today
+		// numbered 1 to 4 in that order, so Both pumps off was ring 2 here and × on the pump chart).
+		expect(otherGroupCases(input()).map((o) => [o.key, o.number])).toEqual([
+			['S1', 1],
+			['S4', 4],
+			['S2', 2],
+			['S3', 3]
+		]);
+		// The tags given are the project's own.
+		expect(caseTags(oneOff.project)).toEqual(TAGS);
+	});
+
+	it('keeps every other ring’s number when case 1 is unticked (no ring renumbered)', () => {
+		const unticked = otherGroupCases(input({ shownKeys: new Set(['S2', 'S3', 'S4']) }));
+		expect(unticked.map((o) => [o.key, o.state, o.number])).toEqual([
+			['S1', 'unticked', null],
+			['S4', 'ready', 4],
+			['S2', 'ready', 2],
+			['S3', 'ready', 3]
+		]);
+		// And past the cap or not on the chart for any reason: the others keep theirs.
+		const two = otherGroupCases(input({ shownKeys: new Set(['S3', 'S4']) }));
+		expect(two.filter((o) => o.number !== null).map((o) => [o.key, o.number])).toEqual([
+			['S4', 4],
+			['S3', 3]
+		]);
+	});
+
+	it('gives the base case its tag when it is another case (a scenario shown)', () => {
+		const shownS2 = otherGroupCases(
+			input({
+				valued: [
+					{
+						key: '',
+						caseId: null,
+						name: 'Base case',
+						stale: false,
+						group: ready(oneOff.groupCurve),
+						system: undefined,
+						shared: true,
+						solved: oneOff.project
+					},
+					...input().valued.filter((v) => v.key !== 'S2')
+				],
+				shownKeys: new Set(['', 'S1', 'S3', 'S4'])
+			})
+		);
+		expect(shownS2.map((o) => [o.key, o.number])).toEqual([
+			['', 'Base'],
+			['S1', 1],
+			['S4', 4],
+			['S3', 3]
+		]);
+	});
+
+	const members = [
+		{ id: 'PA', name: 'Pump PA', slot: 0 },
+		{ id: 'PB', name: 'Pump PB', slot: 1 }
+	];
+	/** Every case of `one-off` in number order, the base shown, each with its fixture solve and tag. */
+	const combinations = (): CombinationsInput => ({
+		members,
+		cases: [null, 'S1', 'S2', 'S3', 'S4'].map((id) => ({
+			key: id ?? '',
+			name: id ? oneOff.project.scenarios!.find((s) => s.id === id)!.name : 'Base case',
+			shown: id === null,
+			status: 'solved' as const,
+			response: id ? scenarioCase(id).solve : oneOff.solve,
+			stale: false,
+			station: null,
+			tag: tags()[id ?? '']!
+		})),
+		prefs: oneOff.project.settings.units,
+		project: oneOff.project
+	});
+
+	it('heads each case of Running combinations with its tag, never " · ring n"', () => {
+		const table = runningCombinations(combinations());
+		expect(table.groups.map((g) => [g.tag, g.heading])).toEqual([
+			['Base', 'Base case (shown)'],
+			[1, 'Pump PA off'],
+			[2, 'Pump PB off'],
+			[3, 'Delivery tank 5 m higher'],
+			[4, 'Both pumps off']
+		]);
+		// Out of date, and a scenario shown: the words without a ring, the tag beside them.
+		const base = combinations();
+		const stale = runningCombinations({
+			...base,
+			cases: [
+				{ ...base.cases[3]!, shown: true },
+				{ ...base.cases[0]!, shown: false },
+				{ ...base.cases[4]!, stale: true, station: 'line' }
+			]
+		});
+		expect(stale.groups.map((g) => [g.tag, g.heading])).toEqual([
+			[3, 'Delivery tank 5 m higher (shown)'],
+			['Base', 'Base case'],
+			[4, 'Both pumps off (out of date)']
+		]);
+		for (const g of [...table.groups, ...stale.groups]) expect(g.heading).not.toMatch(/ring/);
+	});
+});
+
+describe('Running combinations’ order (nit 5, slice 5b)', () => {
+	it('puts the case shown first, then every other case in number order, whatever order they come in', () => {
+		// The base shown: 1 to 4.
+		expect(combinationsOrder([null, 'S1', 'S2', 'S3', 'S4'], null, oneOffTags)).toEqual([
+			null,
+			'S1',
+			'S2',
+			'S3',
+			'S4'
+		]);
+		// A scenario shown: it first, then the base and the rest by number, from any order given.
+		expect(combinationsOrder(['S4', 'S2', null, 'S3', 'S1'], 'S3', oneOffTags)).toEqual([
+			'S3',
+			null,
+			'S1',
+			'S2',
+			'S4'
+		]);
+		// The Scenarios list reordered (S3, S1, S2, S4): its numbers, not the ids, set the order.
+		const project = withScenarios(structuredClone(oneOff.project), [
+			...['S3', 'S1', 'S2', 'S4'].map((id) => oneOff.project.scenarios!.find((s) => s.id === id)!)
+		]);
+		expect(combinationsOrder([null, 'S1', 'S2', 'S3', 'S4'], 'S2', caseTags(project))).toEqual([
+			'S2',
+			null,
+			'S3',
+			'S1',
+			'S4'
+		]);
 	});
 });
 
@@ -863,7 +1055,8 @@ describe('Running combinations’ lead (pumps-results-layout.md §5.3, §9 S5)',
 				status: 'solved' as const,
 				response: id ? c.scenarioCases![id]!.solve : c.solve,
 				stale: false,
-				station: null
+				station: null,
+				tag: caseTagOf(caseTags(c.project), id ?? '')
 			})),
 			prefs: c.project.settings.units,
 			project: c.project
@@ -1056,7 +1249,8 @@ describe('the extremes over the cases', () => {
 			status: 'solved' as const,
 			response: id ? scenarioCase(id).solve : oneOff.solve,
 			stale: false,
-			station: null
+			station: null,
+			tag: caseTagOf(oneOffTags, id ?? '')
 		})),
 		prefs,
 		project: oneOff.project
@@ -1158,7 +1352,8 @@ describe('the extremes over the cases', () => {
 					status: 'solved',
 					response: dead.solve,
 					stale: false,
-					station: null
+					station: null,
+					tag: 'Base'
 				},
 				{
 					key: 'S1',
@@ -1167,7 +1362,8 @@ describe('the extremes over the cases', () => {
 					status: 'solved',
 					response: dead.scenarioCases!.S1!.solve,
 					stale: false,
-					station: null
+					station: null,
+					tag: 1
 				}
 			],
 			prefs,
@@ -1188,7 +1384,8 @@ describe('the extremes over the cases', () => {
 				status: 'solved' as const,
 				response: dead.solve,
 				stale: false,
-				station: null
+				station: null,
+				tag: i === 0 ? ('Base' as const) : i
 			})),
 			prefs,
 			project: dead.project
@@ -1216,7 +1413,8 @@ describe('the extremes as a table (pumps-results-layout.md §5.3, §9 S5)', () =
 			status: 'solved' as const,
 			response: id ? scenarioCase(id).solve : oneOff.solve,
 			stale: false,
-			station: null
+			station: null,
+			tag: caseTagOf(oneOffTags, id ?? '')
 		})),
 		prefs,
 		project: oneOff.project
@@ -1232,7 +1430,8 @@ describe('the extremes as a table (pumps-results-layout.md §5.3, §9 S5)', () =
 			status: 'solved' as const,
 			response: dead.solve,
 			stale: false,
-			station: null
+			station: null,
+			tag: i === 0 ? ('Base' as const) : i
 		})),
 		prefs,
 		project: dead.project
@@ -1609,6 +1808,7 @@ describe('the station inside, and the other cases’ own group curves (D24 slice
 		expect(flows.every((q) => q !== null && Math.abs(q) <= DUTY_CHECK_FLOOR)).toBe(true);
 		const states = otherGroupCases({
 			valued: ['S1', 'S2', 'S3', 'S4'].map(oneOffInput),
+			tags: oneOffTags,
 			shownKeys: new Set(['S1', 'S2', 'S3', 'S4']),
 			othersOn: true,
 			shownSettled: true,

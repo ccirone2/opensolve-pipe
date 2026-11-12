@@ -31,8 +31,9 @@ import {
 	lineupView,
 	type LineupView
 } from '$lib/testing/curve-family';
+import { designators } from '$lib/testing/helpers';
 import fixture from './__fixtures__/pump-groups-input.json';
-import { ratedCurveRange } from './pump-chart';
+import { caseTags, compareCaseTags, ratedCurveRange } from './pump-chart';
 import {
 	CHART_COLORS,
 	GROUP_BEYOND_LABEL,
@@ -63,7 +64,7 @@ import {
 	OTHER_CURVES_CAPTION,
 	OTHER_CURVES_FRAME,
 	OTHER_CURVES_LABEL,
-	OTHER_SYMBOL,
+	OTHER_RINGS_LEAD,
 	otherCurveRows,
 	otherNoteLines,
 	otherNoteParts,
@@ -105,6 +106,8 @@ const f4 = (v: number) => formatNumber(v, 4);
 const ready = (a: Answer): GroupCurveState => ({ status: 'ready', response: body(a) });
 const scenario = (id: string) => oneOff.scenarioCases![id]!;
 const nameOf = (id: string) => oneOff.project.scenarios!.find((s) => s.id === id)!.name;
+/** The `one-off` cases' numbers (caseTags): the base "Base", S1 to S4 1 to 4. */
+const ONE_OFF_TAGS = caseTags(oneOff.project);
 
 const members: GroupMemberInput[] = oneOff.memberIds.map((id, slot) => {
 	const pump = oneOff.project.components.find((x) => x.id === id)!;
@@ -132,6 +135,7 @@ function others(ids = ['S1', 'S2', 'S3', 'S4']): OtherGroupCase[] {
 			shared: id !== 'S3',
 			solved: applyScenario(oneOff.project, id).project
 		})),
+		tags: ONE_OFF_TAGS,
 		shownKeys: new Set(ids),
 		othersOn: true,
 		shownSettled: true,
@@ -163,19 +167,28 @@ const frame = (s: string, d: string, arrangement = '') =>
 		.join(' ');
 
 describe('the rings', () => {
+	// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5, slice 5b): each ring named
+	// "Case n: …" in words and tagged "[n] …" on the canvas (its number drawn in a box), in place
+	// of "n · …".
 	it('puts each case drawn at its duty, in display units, numbered in case order', () => {
 		const data = groupChartData(members, prefs, group, system, others());
 		expect(data.others.map((r) => [r.numbers, r.names, r.label, r.tag, r.short])).toEqual([
-			[[1], ['Pump PA off'], '1 · Pump PA off (station duty)', '1 · Pump PA off', '1'],
-			[[2], ['Pump PB off'], '2 · Pump PB off (station duty)', '2 · Pump PB off', '2'],
+			[[1], ['Pump PA off'], 'Case 1: Pump PA off (station duty)', '[1] Pump PA off', '[1]'],
+			[[2], ['Pump PB off'], 'Case 2: Pump PB off (station duty)', '[2] Pump PB off', '[2]'],
 			[
 				[3],
 				['Delivery tank 5 m higher'],
-				'3 · Delivery tank 5 m higher (station duty)',
-				'3 · Delivery tank 5 m higher',
-				'3'
+				'Case 3: Delivery tank 5 m higher (station duty)',
+				'[3] Delivery tank 5 m higher',
+				'[3]'
 			],
-			[[4], ['Both pumps off'], '4 · Both pumps off (station duty)', '4 · Both pumps off', '4']
+			[
+				[4],
+				['Both pumps off'],
+				'Case 4: Both pumps off (station duty)',
+				'[4] Both pumps off',
+				'[4]'
+			]
 		]);
 		expect(data.others[0]!.point).toEqual({ x: duty('S1').flow * 1000, y: duty('S1').head });
 		expect(data.others[1]!.point).toEqual({ x: duty('S2').flow * 1000, y: duty('S2').head });
@@ -193,13 +206,14 @@ describe('the rings', () => {
 		const h = duty('S1').head;
 		const near = groupChartData(members, prefs, group, system, [s1!, moved(s2!, q * 1.004, h)]);
 		expect(near.others).toHaveLength(1);
+		// Nit 5 (slice 5b): "Case 1: … and case 2: …" in words, "[1, 2] …" on the canvas.
 		expect(near.others[0]).toMatchObject({
 			numbers: [1, 2],
 			names: ['Pump PA off', 'Pump PB off'],
 			label:
-				"1, 2 · Pump PA off and Pump PB off (station duties, equal within the duty checks' tolerances)",
-			tag: '1, 2 · Pump PA off, Pump PB off',
-			short: '1, 2',
+				"Case 1: Pump PA off and case 2: Pump PB off (station duties, equal within the duty checks' tolerances)",
+			tag: '[1, 2] Pump PA off, Pump PB off',
+			short: '[1, 2]',
 			point: { x: q * 1000, y: h }
 		});
 		const far = groupChartData(members, prefs, group, system, [s1!, moved(s2!, q * 1.006, h)]);
@@ -214,33 +228,41 @@ describe('the rings', () => {
 			moved(b!, q, h),
 			moved(c!, q, h)
 		]);
-		expect(three.others[0]!.tag).toBe('1, 2, 3 · Pump PA off, Pump PB off and 1 more');
+		expect(three.others[0]!.tag).toBe('[1, 2, 3] Pump PA off, Pump PB off and 1 more');
 		expect(three.others[0]!.label).toBe(
-			"1, 2, 3 · Pump PA off, Pump PB off and Delivery tank 5 m higher (station duties, equal within the duty checks' tolerances)"
+			"Case 1: Pump PA off, case 2: Pump PB off and case 3: Delivery tank 5 m higher (station duties, equal within the duty checks' tolerances)"
 		);
 	});
 
-	it('lists the rings in the legend after the station, in slate with their symbol', () => {
+	// Nit 5 (slice 5b): each ring's entry by its case's number, "Case n: …" with its numbers
+	// (`tags`), was "n · …" with ○; no character stands for it.
+	it('lists the rings in the legend after the station, in slate with their case numbers', () => {
 		const legend = groupLegend(groupChartData(members, prefs, group, system, others()));
 		const station = legend.findIndex((i) => i.key === 'station');
 		expect(legend.slice(station + 1)).toEqual(
-			[1, 2, 3, 4].map((n) => ({
-				key: `other-${n}`,
-				label: expect.stringMatching(new RegExp(`^${n} · .* \\(station duty\\)$`)),
-				kind: 'marker',
-				color: GROUP_OTHER,
-				symbol: OTHER_SYMBOL
-			}))
+			['Pump PA off', 'Pump PB off', 'Delivery tank 5 m higher', 'Both pumps off'].map(
+				(name, i) => ({
+					key: `other-${i + 1}`,
+					label: `Case ${i + 1}: ${name} (station duty)`,
+					kind: 'marker',
+					color: GROUP_OTHER,
+					tags: [i + 1]
+				})
+			)
 		);
+		for (const item of legend.slice(station + 1)) {
+			expect(item).not.toHaveProperty('symbol');
+			expect(designators(item.label), item.label).toEqual([]);
+		}
 		expect(GROUP_OTHER).toBe(CHART_COLORS.slate);
-		expect(OTHER_SYMBOL).toBe('○');
 	});
 
 	it('names every case drawn in the chart’s accessible name, with its claim', () => {
 		const data = groupChartData(members, prefs, group, system, others());
 		const summary = groupSummary(data, members, group, oneOff.project, system);
+		// Nit 5 (slice 5b): each case "case n: …", in place of "n · …".
 		const line = (id: string, n: number, flow: number, claim: string) =>
-			`${n} · ${nameOf(id)}, ${f4(flow)} L/s at a rise of ${f4(duty(id).head)} m (${claim})`;
+			`case ${n}: ${nameOf(id)}, ${f4(flow)} L/s at a rise of ${f4(duty(id).head)} m (${claim})`;
 		expect(summary).toContain(
 			`; other cases' station duties: ${[
 				line('S1', 1, duty('S1').flow * 1000, 'Yes: the same rest of the network'),
@@ -263,6 +285,116 @@ describe('the rings', () => {
 				system
 			)
 		).not.toContain('other cases');
+	});
+});
+
+// Case numbers (owner, 2026-11-12, nit 5; Q1 "Shapes go too", Q2 "By list place";
+// docs/proposals/pumps-nits.md item 5, slice 5b): each ring carries its case's number (caseTags),
+// fixed by case; the ring list's lead says so as the pump chart's note does, each entry is "Case n:
+// …" on screen and in the image's sentence, and a curve's label is "[tags] k running" (a phone's
+// "k running"). No ○ or other designator in the group image's other-cases lines.
+describe('the rings by case number (nit 5, slice 5b)', () => {
+	/** The `one-off` scenarios as the card has them, with the project's tags; `shown` on the chart. */
+	const tagged = (shown: readonly string[], ids = ['S1', 'S2', 'S3', 'S4']): OtherGroupCase[] =>
+		otherGroupCases({
+			valued: ids.map((id) => ({
+				key: id,
+				caseId: id,
+				name: nameOf(id),
+				stale: false,
+				group: ready(scenario(id).groupCurve),
+				system: undefined,
+				shared: id !== 'S3',
+				solved: applyScenario(oneOff.project, id).project
+			})),
+			tags: TAGS,
+			shownKeys: new Set(shown),
+			othersOn: true,
+			shownSettled: true,
+			station: group.station,
+			systemShown: system,
+			memberIds: oneOff.memberIds,
+			project: oneOff.project,
+			boxes: oneOff.memberIds
+		});
+	const LEAD = 'Other cases on the chart (slate rings, each tagged with its case number):';
+	/** `one-off`'s tags (caseTags): S1 to S4 by their place in its Scenarios list. */
+	const TAGS = { '': 'Base', S1: 1, S2: 2, S3: 3, S4: 4 } as const;
+	const at = (id: string, flow = duty(id).flow * 1000) =>
+		`${f4(flow)} L/s at a rise of ${f4(duty(id).head)} m`;
+
+	it('leads the ring list as the pump chart’s note leads its cases', () => {
+		expect(OTHER_RINGS_LEAD).toBe(LEAD);
+	});
+
+	it('keeps each ring its case’s number when case 1 is unticked, in number order', () => {
+		const data = groupChartData(members, prefs, group, system, tagged(['S2', 'S3', 'S4']));
+		expect(data.others.map((r) => [r.numbers, r.names])).toEqual([
+			[[2], ['Pump PB off']],
+			[[3], ['Delivery tank 5 m higher']],
+			[[4], ['Both pumps off']]
+		]);
+		// The tags given are the project's own.
+		expect(caseTags(oneOff.project)).toEqual(TAGS);
+	});
+
+	it('words each ring "Case n: …", the same words in the list and the image’s sentence, with no designator', () => {
+		const list = tagged(['S2', 'S3', 'S4']);
+		const data = groupChartData(members, prefs, group, system, list);
+		const parts = otherNoteParts(data, list, group, oneOff.project, {
+			drawn: false,
+			pressureControl: false,
+			labelsLeftOut: 0
+		});
+		const entries = [
+			`Case 2: Pump PB off, ${at('S2')}: Yes: the same rest of the network`,
+			`Case 3: Delivery tank 5 m higher, ${at('S3')}: No: the rest of the network differs from this case's; its own group system curve is not drawn`,
+			`Case 4: Both pumps off, ${at('S4', 0)}: Not said: at zero station flow the rest can hold more than one state`
+		];
+		expect(parts.rings!.lead).toBe(LEAD);
+		expect(parts.rings!.items.map((item) => item.text)).toEqual(entries);
+		const lines = otherNoteLines(parts);
+		expect(lines).toContain(`${LEAD} ${entries.join('; ')}.`);
+		// The unticked case: named in words, as before.
+		expect(lines).toContain('Not on the chart: Pump PA off (unticked under Cases on this chart).');
+		for (const line of lines) expect(designators(line), line).toEqual([]);
+		// Nor in the whole of the group image's footer.
+		const notes = groupNotes({
+			data,
+			members,
+			state: ready(oneOff.groupCurve),
+			system: ready(oneOff.systemCurve!),
+			project: oneOff.project,
+			prefs,
+			others: list
+		});
+		for (const line of notes.others) expect(designators(line), line).toEqual([]);
+	});
+
+	it('labels a curve "[tags] k running" (numbers ascending, "Base" first), a phone "k running", this case’s own as before', () => {
+		expect(curveLabelText([1], 3)).toBe('[1] 3 running');
+		expect(curveLabelText([6, 1, 5, 4], 3)).toBe('[1, 4, 5, 6] 3 running');
+		expect(curveLabelText([1, 4], 3, true)).toBe('3 running');
+		expect(curveLabelText([], 4)).toBe('4 running (this case)');
+		expect(curveLabelText([], 4, true)).toBe('4 running');
+		// A lineup shown: the base case is another case, its curve's tag "Base".
+		expect(curveLabelText(['Base'], 4)).toBe('[Base] 4 running');
+		expect(curveLabelText([3, 'Base'], 4)).toBe('[Base, 3] 4 running');
+		expect(curveLabelText(['Base'], 4, true)).toBe('4 running');
+		// Merged equal counts (§9.3): one label, its tags ascending; a case number never reads as a
+		// pump count ("1, 4 · 3 running" did).
+		const measure = (text: string) => text.length * 6;
+		const merged = placeCurveLabels(
+			[
+				{ anchor: { x: 300, y: 243 }, k: 3, numbers: [4] },
+				{ anchor: { x: 302, y: 243 }, k: 3, numbers: [1] },
+				{ anchor: { x: 400, y: 200 }, k: 2, numbers: [] }
+			],
+			[],
+			{ left: 40, right: 480, top: 10, bottom: 300 },
+			measure
+		);
+		expect(merged.labels.map((l) => l.text)).toEqual(['[1, 4] 3 running', '2 running (this case)']);
 	});
 });
 
@@ -295,10 +427,11 @@ describe('the notes', () => {
 			words: 'not on the chart (unticked under Cases on this chart)'
 		};
 		const notes = notesOf(list);
+		// Nit 5 (slice 5b): the lead and each entry by its case's number ("Case 1: …", was "1 · …").
 		expect(notes.others).toEqual([
 			frame('Tee T1 (run inlet)', 'Tee T2 (run outlet)', PARALLEL),
 			DUTY_CLAIM_RULE,
-			`Other cases on the chart (slate rings, numbered): 1 · Pump PA off, ${f4(duty('S1').flow * 1000)} L/s at a rise of ${f4(duty('S1').head)} m: Yes: the same rest of the network; 2 · Pump PB off, ${f4(duty('S2').flow * 1000)} L/s at a rise of ${f4(duty('S2').head)} m: Yes: the same rest of the network; 3 · Delivery tank 5 m higher, ${f4(duty('S3').flow * 1000)} L/s at a rise of ${f4(duty('S3').head)} m: No: the rest of the network differs from this case's; its own group system curve is not drawn.`,
+			`Other cases on the chart (slate rings, each tagged with its case number): Case 1: Pump PA off, ${f4(duty('S1').flow * 1000)} L/s at a rise of ${f4(duty('S1').head)} m: Yes: the same rest of the network; Case 2: Pump PB off, ${f4(duty('S2').flow * 1000)} L/s at a rise of ${f4(duty('S2').head)} m: Yes: the same rest of the network; Case 3: Delivery tank 5 m higher, ${f4(duty('S3').flow * 1000)} L/s at a rise of ${f4(duty('S3').head)} m: No: the rest of the network differs from this case's; its own group system curve is not drawn.`,
 			'Not on the chart: Both pumps off (unticked under Cases on this chart).'
 		]);
 		// The image's footer: after the system duty notes, before the members'.
@@ -356,6 +489,7 @@ describe('the notes', () => {
 					solved: null
 				}
 			],
+			tags: { S1: 1 },
 			shownKeys: new Set(['S1']),
 			othersOn: true,
 			shownSettled: true,
@@ -425,6 +559,7 @@ describe('the notes', () => {
 					solved: null
 				}
 			],
+			tags: { S1: 1 },
 			shownKeys: new Set(['S1']),
 			othersOn: true,
 			shownSettled: true,
@@ -507,6 +642,7 @@ describe('the notes', () => {
 				solved: applyScenario(oneOff.project, id).project
 			})),
 			// S4 unticked: with the box off, it is not listed either.
+			tags: ONE_OFF_TAGS,
 			shownKeys: new Set(['S1', 'S2', 'S3']),
 			othersOn: false,
 			shownSettled: true,
@@ -565,9 +701,10 @@ describe('the chart configuration', () => {
 		const data = groupChartData(members, prefs, group, system, others(['S1', 'S2']));
 		const sets = datasets(config(data));
 		const station = sets.findIndex((d) => d.label === data.station!.label);
+		// Nit 5 (slice 5b): named "Case n: …", tagged "[n] …" (its number in a box), was "n · …".
 		expect(sets.slice(station + 1).map((d) => d.label)).toEqual([
-			'1 · Pump PA off (station duty)',
-			'2 · Pump PB off (station duty)'
+			'Case 1: Pump PA off (station duty)',
+			'Case 2: Pump PB off (station duty)'
 		]);
 		expect(sets.at(-1)).toMatchObject({
 			data: [data.others[1]!.point],
@@ -580,19 +717,20 @@ describe('the chart configuration', () => {
 			pointHitRadius: 12,
 			showLine: false,
 			order: -1,
-			caseLabel: '2 · Pump PB off',
+			caseLabel: '[2] Pump PB off',
 			labelColor: CHART_COLORS.slate,
 			otherCase: true
 		});
 	});
 
 	it('labels a ring by its number on a phone’s screen, never in the image', () => {
+		// Nit 5 (slice 5b): its number in a box, "[1]", then its name; was "1" and "1 · Pump PA off".
 		const data = groupChartData(members, prefs, group, system, others(['S1']));
-		expect(datasets(config(data, { compactLabels: true })).at(-1)!.caseLabel).toBe('1');
+		expect(datasets(config(data, { compactLabels: true })).at(-1)!.caseLabel).toBe('[1]');
 		expect(datasets(config(data, { compactLabels: true, forImage: true })).at(-1)!.caseLabel).toBe(
-			'1 · Pump PA off'
+			'[1] Pump PA off'
 		);
-		expect(datasets(config(data)).at(-1)!.caseLabel).toBe('1 · Pump PA off');
+		expect(datasets(config(data)).at(-1)!.caseLabel).toBe('[1] Pump PA off');
 	});
 
 	it('lists the rings last in the image’s legend, the rest in their order', () => {
@@ -610,9 +748,10 @@ describe('the chart configuration', () => {
 		const labels = cfg.options!.plugins!.legend!.labels!.generateLabels!({
 			data: cfg.data
 		} as never).map((item) => item.text);
+		// Nit 5 (slice 5b): "Case n: …", was "n · …".
 		expect(labels.slice(-2)).toEqual([
-			'1 · Pump PA off (station duty)',
-			'2 · Pump PB off (station duty)'
+			'Case 1: Pump PA off (station duty)',
+			'Case 2: Pump PB off (station duty)'
 		]);
 		expect(labels.slice(0, -2)).toEqual(sets.filter((d) => d.order !== -1).map((d) => d.label));
 	});
@@ -624,9 +763,17 @@ describe('the chart configuration', () => {
 		const written: [string, string][] = [];
 		const ctx = {
 			fillStyle: '',
+			strokeStyle: '',
+			lineWidth: 1,
 			font: '',
+			textAlign: 'start',
+			textBaseline: 'alphabetic',
 			save() {},
 			restore() {},
+			beginPath() {},
+			rect() {},
+			fill() {},
+			stroke() {},
 			measureText: () => ({ width: 10 }),
 			fillText(text: string) {
 				written.push([text, this.fillStyle]);
@@ -643,7 +790,11 @@ describe('the chart configuration', () => {
 		};
 		const plugin = cfg.plugins!.find((p) => p.id === 'groupLabels')!;
 		plugin.afterDatasetsDraw!(chart as never, {} as never, {} as never, undefined as never);
-		expect(written).toContainEqual(['1 · Pump PA off', CHART_COLORS.slate]);
+		// Nit 5 (slice 5b): a ring's name in slate after its number, written in its box in the
+		// legend's ink (pump-chart-config.ts fillLabel); the brackets never reach the canvas.
+		expect(written).toContainEqual(['Pump PA off', CHART_COLORS.slate]);
+		expect(written).toContainEqual(['1', CHART_COLORS.legend]);
+		expect(written.some(([text]) => text.includes('['))).toBe(false);
 		expect(written).toContainEqual(['Group (crossing)', CHART_COLORS.ink]);
 		expect(written).toContainEqual(['Pump PA', CHART_COLORS.ink]);
 	});
@@ -689,9 +840,9 @@ const lineupFrame = [
 	"Each pump's own flow and head in each case are in Running combinations.",
 	L3_FRAME
 ].join(' ');
-/** A ring's entry in the notes' list, with its curve's words (§9.6). */
+/** A ring's entry in the notes' list, with its curve's words (§9.6): "Case n: …" (nit 5, slice 5b). */
 const entry = (n: number, key: keyof typeof NAMES, claim: string, curve: string) =>
-	`${n} · ${NAMES[key]}, ${f4(lps(lineupDuty(key).flow))} L/s at a rise of ${f4(lineupDuty(key).head)} m: ${claim}; group curve: ${curve}`;
+	`Case ${n}: ${NAMES[key]}, ${f4(lps(lineupDuty(key).flow))} L/s at a rise of ${f4(lineupDuty(key).head)} m: ${claim}; group curve: ${curve}`;
 const CROSSING = (k: string) => `drawn (${k}): it crosses the group system curve at the ring`;
 const ON = 'Yes: the same rest of the network';
 const notesFor = (view: LineupView, labelsLeftOut = 0) =>
@@ -755,33 +906,42 @@ describe('the curve family: which curves are drawn, and their points', () => {
 	});
 
 	it('draws the lineup siblings with the base shown, the base with a lineup shown, a stale case named so; no other', () => {
-		expect(lineupView('S1').data.otherCurves.map((c) => [c.key, c.k])).toEqual([
-			['', 4],
-			['S4', 3],
-			['S2', 2],
-			['S3', 1],
-			['S5', 3],
-			['S6', 3]
+		// Nit 5 (owner, 2026-11-12; Q2 "By list place"; docs/proposals/pumps-nits.md item 5, slice
+		// 5b): in number order, "Base" first (was the chart's order, S4 second), each named by its
+		// case's number ("Case 1: …", was "1 · …").
+		expect(lineupView('S1').data.otherCurves.map((c) => [c.key, c.number, c.k])).toEqual([
+			['', 'Base', 4],
+			['S2', 2, 2],
+			['S3', 3, 1],
+			['S4', 4, 3],
+			['S5', 5, 3],
+			['S6', 6, 3]
 		]);
+		const [base] = lineupView('S1').data.otherCurves;
+		expect(base).toMatchObject({
+			label: 'Base case, group curve, 4 running',
+			shortLabel: 'Base case: 4 running, group curve'
+		});
 		const [s1] = lineupView('').data.otherCurves;
 		expect(s1).toMatchObject({
 			name: NAMES.S1,
 			running: '3 running',
-			label: `1 · ${NAMES.S1}: group curve, 3 running`,
-			shortLabel: '1 · 3 running: group curve'
+			label: `Case 1: ${NAMES.S1}, group curve, 3 running`,
+			shortLabel: 'Case 1: 3 running, group curve'
 		});
 		const [stale] = lineupView('', { stale: ['S1'] }).data.otherCurves;
 		expect(stale).toMatchObject({
 			stale: true,
 			name: `${NAMES.S1} (out of date)`,
 			running: 'as last solved: 3 running',
-			label: `1 · ${NAMES.S1} (out of date): group curve, as last solved: 3 running`,
-			shortLabel: '1 · as last solved: 3 running: group curve'
+			label: `Case 1: ${NAMES.S1} (out of date), group curve, as last solved: 3 running`,
+			shortLabel: 'Case 1: as last solved: 3 running, group curve'
 		});
 		// The same inside (S8) and another inside (S7, a speed) are rings only; S4 and S5 unticked.
+		// Nit 5 (slice 5b): every other ring keeps its case's number (they were renumbered 1 to 6).
 		const swapped = lineupView('', { unticked: ['S4', 'S5'] });
 		expect(swapped.data.otherCurves.map((c) => c.key)).toEqual(['S1', 'S2', 'S3', 'S6']);
-		expect(swapped.data.others.map((r) => r.numbers)).toEqual([[1], [2], [3], [4], [5], [6]]);
+		expect(swapped.data.others.map((r) => r.numbers)).toEqual([[1], [2], [3], [6], [7], [8]]);
 		// Refused for an active PRV inside (synthetic: S2 with prv-inside's issues, its ring from
 		// its group system answer): a ring, no curve.
 		const prvIssues = (
@@ -819,6 +979,7 @@ describe('the curve family: which curves are drawn, and their points', () => {
 					on: pumpLineup(undefined, solved, oneOff.memberIds).on.length
 				};
 			}),
+			tags: ONE_OFF_TAGS,
 			shownKeys: new Set(['S1', 'S2', 'S3', 'S4']),
 			othersOn: true,
 			shownSettled: true,
@@ -857,11 +1018,12 @@ describe('the curve family: which curves are drawn, and their points', () => {
 		const plain = lineupView('', { without: true }).data;
 		expect(plain).toMatchObject({ xMax: null, curvesCut: false, yMax: null, systemCut: false });
 		expect(plain.system).toHaveLength(42);
+		// Nit 5 (slice 5b): the numbers in a box, "[1] …" (was "1 · …").
 		expect(plain.others.map((r) => r.tag)).toEqual([
-			`1 · ${NAMES.S1}`,
-			`2 · ${NAMES.S2}`,
-			`3 · ${NAMES.S3}`,
-			`4, 5, 6 · ${NAMES.S4}, ${NAMES.S5} and 1 more`
+			`[1] ${NAMES.S1}`,
+			`[2] ${NAMES.S2}`,
+			`[3] ${NAMES.S3}`,
+			`[4, 5, 6] ${NAMES.S4}, ${NAMES.S5} and 1 more`
 		]);
 		expect(
 			plain.others.flatMap((r) => r.cases.map((c) => [c.curve, c.curveCell, c.drawn]))
@@ -1011,21 +1173,30 @@ describe('the curve family: labels on the curves', () => {
 		obstacles: readonly PxBox[] = []
 	) => placeCurveLabels(curves, obstacles, plot, m4Width, compact);
 
+	// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5, slice 5b): another case's
+	// numbers in a box, "[1] 3 running" (pump-chart-config.ts fillLabel draws "[…]" as the box), in
+	// place of "1 · 3 running", so a case number never reads as a pump count.
 	it('words each label by view: desktop and image with the numbers, a phone the count; this case’s own', () => {
-		expect(curveLabelText([1], 3)).toBe('1 · 3 running');
-		expect(curveLabelText([6, 1, 5, 4], 3)).toBe('1, 4, 5, 6 · 3 running');
+		expect(curveLabelText([1], 3)).toBe('[1] 3 running');
+		expect(curveLabelText([6, 1, 5, 4], 3)).toBe('[1, 4, 5, 6] 3 running');
 		expect(curveLabelText([1], 3, true)).toBe('3 running');
 		expect(curveLabelText([], 4)).toBe('4 running (this case)');
 		expect(curveLabelText([], 4, true)).toBe('4 running');
 		// The image takes the desktop's words (it is never compact).
 		const { labels } = place(FAMILIES.ladder.desktop, DESKTOP, false);
 		expect(labels.map((l) => [l.text, l.shown])).toEqual([
-			['2 · 1 running', false],
-			['1 · 2 running', false],
+			['[2] 1 running', false],
+			['[1] 2 running', false],
 			['3 running (this case)', true]
 		]);
 	});
 
+	// Nit 5 (slice 5b): the desktop's boxes re-measured on the new words, with m4's placement
+	// written again outside the app. By m4's widths "[3] 1 running" is 5.9 px wider than "3 · 1
+	// running" ("[", "]" and a space, 6.6 + 6.6 + 3.3, for " · ", 3.3 + 4 + 3.3), as is each label
+	// of another case: each box's left edge is 5.9 px further left (rounded as m4 rounds), or, held
+	// at the plot's left edge (six's first), its right edge 5.9 px further right; every row, merge
+	// and other edge as before. The phone's words, "k running", are unchanged.
 	it('places m4’s four families as measured: merged equal counts, numbers ascending, at most three rows, none left out', () => {
 		expect(rows(place(FAMILIES.crane.phone, PHONE, true))).toEqual([
 			[0, '1 running', '52..108'],
@@ -1034,10 +1205,10 @@ describe('the curve family: labels on the curves', () => {
 			[1, '4 running', '190..246']
 		]);
 		expect(rows(place(FAMILIES.crane.desktop, DESKTOP, false))).toEqual([
-			[0, '3 · 1 running', '70..144'],
-			[0, '2 · 2 running', '160..234'],
+			[0, '[3] 1 running', '65..144'],
+			[0, '[2] 2 running', '154..234'],
 			// m4_labels.txt listed the merged numbers unsorted ("1, 5, 6, 4"); §9.3 sorts them.
-			[1, '1, 4, 5, 6 · 3 running', '214..327'],
+			[1, '[1, 4, 5, 6] 3 running', '208..327'],
 			[0, '4 running (this case)', '282..410']
 		]);
 		expect(rows(place(FAMILIES.ideal.phone, PHONE, true))).toEqual([
@@ -1047,9 +1218,9 @@ describe('the curve family: labels on the curves', () => {
 			[1, '4 running', '208..264']
 		]);
 		expect(rows(place(FAMILIES.ideal.desktop, DESKTOP, false))).toEqual([
-			[0, '3 · 1 running', '76..149'],
-			[0, '2 · 2 running', '174..248'],
-			[1, '1, 4, 5, 6 · 3 running', '232..346'],
+			[0, '[3] 1 running', '70..149'],
+			[0, '[2] 2 running', '168..248'],
+			[1, '[1, 4, 5, 6] 3 running', '226..346'],
 			[0, '4 running (this case)', '314..443']
 		]);
 		expect(rows(place(FAMILIES.ladder.phone, PHONE, true))).toEqual([
@@ -1058,8 +1229,8 @@ describe('the curve family: labels on the curves', () => {
 			[0, '3 running', '181..238']
 		]);
 		expect(rows(place(FAMILIES.ladder.desktop, DESKTOP, false))).toEqual([
-			[0, '2 · 1 running', '155..228'],
-			[0, '1 · 2 running', '264..338'],
+			[0, '[2] 1 running', '149..228'],
+			[0, '[1] 2 running', '258..338'],
 			[1, '3 running (this case)', '304..433']
 		]);
 		// N = 6: the third row is needed on a phone (two rows left one overlap, m3_labels.txt).
@@ -1072,11 +1243,11 @@ describe('the curve family: labels on the curves', () => {
 			[0, '6 running', '184..240']
 		]);
 		expect(rows(place(FAMILIES.six.desktop, DESKTOP, false))).toEqual([
-			[0, '5 · 1 running', '57..130'],
-			[1, '4 · 2 running', '109..182'],
-			[0, '3 · 3 running', '174..247'],
-			[1, '2 · 4 running', '239..312'],
-			[0, '1 · 5 running', '302..376'],
+			[0, '[5] 1 running', '57..136'],
+			[1, '[4] 2 running', '103..182'],
+			[0, '[3] 3 running', '168..247'],
+			[1, '[2] 4 running', '233..312'],
+			[0, '[1] 5 running', '296..376'],
 			[2, '6 running (this case)', '309..437']
 		]);
 		for (const family of Object.values(FAMILIES)) {
@@ -1094,19 +1265,25 @@ describe('the curve family: labels on the curves', () => {
 	});
 
 	it('merges equal counts only within one label width; never this case’s label, never other counts', () => {
-		const width = m4Width('2 · 2 running');
+		// Nit 5 (slice 5b): the words "[n] k running", was "n · k running". By m4's widths that label
+		// is 79.39999999999999 px, which 300 + dx − 300 cannot give back exactly in floating point
+		// (73.5 px, "2 · 2 running", could), so the boundary is measured in whole pixels, 6 px a
+		// character, as `across` below: one label width is then exactly 78 px.
+		const whole = (text: string) => text.length * 6;
+		const width = whole('[2] 2 running');
+		expect(width).toBe(78);
 		const pair = (dx: number): CurveLabelInput[] => [
 			{ anchor: { x: 300, y: 243 }, k: 2, numbers: [2] },
 			{ anchor: { x: 300 + dx, y: 243 }, k: 2, numbers: [1] }
 		];
-		expect(place(pair(width - 0.01), DESKTOP, false).labels.map((l) => l.text)).toEqual([
-			'1, 2 · 2 running'
-		]);
+		const pairTexts = (dx: number) =>
+			placeCurveLabels(pair(dx), [], DESKTOP, whole).labels.map((l) => l.text);
+		expect(pairTexts(width - 0.01)).toEqual(['[1, 2] 2 running']);
 		// One label width apart or more: two labels (unlike pumps' equal counts end far apart).
-		expect(place(pair(width), DESKTOP, false).labels.map((l) => l.text)).toEqual([
-			'2 · 2 running',
-			'1 · 2 running'
-		]);
+		expect(pairTexts(width)).toEqual(['[2] 2 running', '[1] 2 running']);
+		// By m4's widths, the same either side of the boundary.
+		expect(place(pair(m4Width('[2] 2 running') - 0.01), DESKTOP, false).labels).toHaveLength(1);
+		expect(place(pair(m4Width('[2] 2 running') + 1e-9), DESKTOP, false).labels).toHaveLength(2);
 		// This case's curve of the same count at the same end: never merged.
 		const own: CurveLabelInput[] = [
 			{ anchor: { x: 300, y: 243 }, k: 2, numbers: [] },
@@ -1116,7 +1293,7 @@ describe('the curve family: labels on the curves', () => {
 			place(own, DESKTOP, false)
 				.labels.map((l) => l.text)
 				.sort()
-		).toEqual(['1 · 2 running', '2 running (this case)']);
+		).toEqual(['2 running (this case)', '[1] 2 running']);
 		// Nor when another case's end comes first and this case's a pixel to its right.
 		const after: CurveLabelInput[] = [
 			{ anchor: { x: 300, y: 243 }, k: 2, numbers: [1] },
@@ -1124,7 +1301,7 @@ describe('the curve family: labels on the curves', () => {
 		];
 		const kept = place(after, DESKTOP, false).labels;
 		expect(kept.map((l) => [l.text, l.curves, l.shown])).toEqual([
-			['1 · 2 running', [0], false],
+			['[1] 2 running', [0], false],
 			['2 running (this case)', [1], true]
 		]);
 		expect(place(after, PHONE, true).labels.map((l) => [l.text, l.curves])).toEqual([
@@ -1147,8 +1324,8 @@ describe('the curve family: labels on the curves', () => {
 		]);
 		expect(crossed.labels[1]!.box.right).toBe(200 - 4);
 		expect(placeCurveLabels(across, [], plot, fixed).labels.map((l) => [l.text, l.row])).toEqual([
-			['2 · 1 running', 0],
-			['1, 3 · 2 running', 1]
+			['[2] 1 running', 0],
+			['[1, 3] 2 running', 1]
 		]);
 		// A curve with no point inside the plot has no label, and is not counted as left out.
 		const outside = place([{ anchor: null, k: 1, numbers: [1] }], DESKTOP, false);
@@ -1156,10 +1333,11 @@ describe('the curve family: labels on the curves', () => {
 	});
 
 	it('moves a label up past a marker, a ring’s tag or a member’s label; leaves it out after the third row, counted', () => {
-		// A marker over "3 · 1 running" on its own row: it moves up one row.
+		// A marker over "[3] 1 running" on its own row: it moves up one row (nit 5, slice 5b: the
+		// words and its left edge re-measured, as above).
 		const marker = { left: 100, right: 120, top: 225, bottom: 241 };
 		const moved = place(FAMILIES.crane.desktop, DESKTOP, false, [marker]);
-		expect(rows(moved)[0]).toEqual([1, '3 · 1 running', '70..144']);
+		expect(rows(moved)[0]).toEqual([1, '[3] 1 running', '65..144']);
 		// A ring's tag on the third row of "3 running" (N = 6, phone): no row is free.
 		const tag = { left: 100, right: 130, top: 166, bottom: 178 };
 		const crowded = place(FAMILIES.six.phone, PHONE, true, [tag]);
@@ -1175,8 +1353,8 @@ describe('the curve family: labels on the curves', () => {
 		const memberLabel = { left: 250, right: 300, top: 190, bottom: 215 };
 		const merged = place(FAMILIES.crane.desktop, DESKTOP, false, [memberLabel]);
 		expect(rows(merged)).toEqual([
-			[0, '3 · 1 running', '70..144'],
-			[0, '2 · 2 running', '160..234'],
+			[0, '[3] 1 running', '65..144'],
+			[0, '[2] 2 running', '154..234'],
 			[0, '4 running (this case)', '282..410']
 		]);
 		expect(merged.leftOut).toBe(4);
@@ -1190,7 +1368,7 @@ describe('the curve family: labels on the curves', () => {
 			DESKTOP,
 			m4Width
 		);
-		expect(high.labels.map((l) => [l.row, l.text])).toEqual([[0, '1 · 1 running']]);
+		expect(high.labels.map((l) => [l.row, l.text])).toEqual([[0, '[1] 1 running']]);
 		expect(high.leftOut).toBe(1);
 		// The notes count them.
 		expect(labelsLeftOutNote(4)).toBe(
@@ -1221,31 +1399,33 @@ describe('the curve family: labels on the curves', () => {
 		expect(curveAnchor([{ x: 301, y: 100 }], plot)).toBeNull();
 	});
 
+	// Nit 5 (slice 5b): the numbers in a box, "[1]" (was "1"), each ring its case's number: S7 and
+	// S8 are 7 and 8 whatever is unticked (they were renumbered 5 and 6).
 	it('tags a ring by its numbers only when every case of it has its curve drawn', () => {
 		expect(lineupView('').data.others.map((r) => [r.tag, r.short])).toEqual([
-			['1', '1'],
-			['2', '2'],
-			['3', '3'],
-			['4, 5, 6', '4, 5, 6']
+			['[1]', '[1]'],
+			['[2]', '[2]'],
+			['[3]', '[3]'],
+			['[4, 5, 6]', '[4, 5, 6]']
 		]);
 		// S4 and S5 unticked: S7 (another inside) and S8 (the same inside) keep 4d's tags; S8's
 		// duty moved onto S1's (synthetic) shares S1's ring, which then keeps 4d's tag too.
 		const view = lineupView('', { unticked: ['S4', 'S5'] });
 		expect(view.data.others.map((r) => r.tag)).toEqual([
-			'1',
-			'2',
-			'3',
-			'4',
-			`5 · ${NAMES.S7}`,
-			`6 · ${NAMES.S8}`
+			'[1]',
+			'[2]',
+			'[3]',
+			'[6]',
+			`[7] ${NAMES.S7}`,
+			`[8] ${NAMES.S8}`
 		]);
 		const s1 = view.others.find((o) => o.key === 'S1')!;
 		const shared = view.others.map((o) => (o.key === 'S8' ? { ...o, duty: s1.duty } : o));
 		const data = groupChartData(view.members, lineupPrefs, view.response, view.system, shared, 4);
 		expect(data.others[0]).toMatchObject({
-			numbers: [1, 6],
-			tag: `1, 6 · ${NAMES.S1}, ${NAMES.S8}`,
-			short: '1, 6'
+			numbers: [1, 8],
+			tag: `[1, 8] ${NAMES.S1}, ${NAMES.S8}`,
+			short: '[1, 8]'
 		});
 	});
 });
@@ -1277,7 +1457,7 @@ describe('the curve family: the legend, the notes, the accessible name and the t
 			lineupFrame,
 			"The group system curve is cut at the top, above every pump's head; the data tables list all their points.",
 			DUTY_CLAIM_RULE,
-			`Other cases on the chart (slate rings, numbered): ${[
+			`Other cases on the chart (slate rings, each tagged with its case number): ${[
 				entry(1, 'S1', ON, CROSSING('3 running')),
 				entry(2, 'S2', ON, CROSSING('2 running')),
 				entry(3, 'S3', ON, CROSSING('1 running')),
@@ -1303,16 +1483,16 @@ describe('the curve family: the legend, the notes, the accessible name and the t
 		const list = notesFor(view).others.find((l) => l.startsWith('Other cases on the chart'))!;
 		const words = (n: number, key: keyof typeof NAMES) => {
 			const o = view.others.find((x) => x.key === key)!;
-			return `${n} · ${NAMES[key]}, ${f4(lps(dutyFlow(o.duty!.flow)))} L/s at a rise of ${f4(o.duty!.head)} m: ${o.words}; group curve: `;
+			return `Case ${n}: ${NAMES[key]}, ${f4(lps(dutyFlow(o.duty!.flow)))} L/s at a rise of ${f4(o.duty!.head)} m: ${o.words}; group curve: `;
 		};
 		expect(list).toContain(
 			`${words(1, 'S1').replace(NAMES.S1, `${NAMES.S1} (out of date)`)}drawn (as last solved: 3 running): it crosses the group system curve at the ring;`
 		);
 		expect(list).toContain(
-			`${words(5, 'S7')}not drawn: the station differs inside in more than which pumps are switched on;`
+			`${words(7, 'S7')}not drawn: the station differs inside in more than which pumps are switched on;`
 		);
 		expect(list).toContain(
-			`${words(6, 'S8')}the same as this case's: the station is the same inside.`
+			`${words(8, 'S8')}the same as this case's: the station is the same inside.`
 		);
 		expect(view.others.find((o) => o.key === 'S8')!.words).toBe(
 			"No: the rest of the network differs from this case's; its own group system curve is not drawn"
@@ -1339,10 +1519,10 @@ describe('the curve family: the legend, the notes, the accessible name and the t
 		expect(notes[1]).toBe(DUTY_CLAIM_RULE);
 		const [s7, s8] = rings.map(
 			(o) =>
-				`${o.number} · ${NAMES[o.key as keyof typeof NAMES]}, ${f4(lps(dutyFlow(o.duty!.flow)))} L/s at a rise of ${f4(o.duty!.head)} m: ${o.words}; group curve: `
+				`Case ${o.number}: ${NAMES[o.key as keyof typeof NAMES]}, ${f4(lps(dutyFlow(o.duty!.flow)))} L/s at a rise of ${f4(o.duty!.head)} m: ${o.words}; group curve: `
 		);
 		expect(notes[2]).toBe(
-			`Other cases on the chart (slate rings, numbered): ${s7}not drawn: the station differs inside in more than which pumps are switched on; ${s8}the same as this case's: the station is the same inside.`
+			`Other cases on the chart (slate rings, each tagged with its case number): ${s7}not drawn: the station differs inside in more than which pumps are switched on; ${s8}the same as this case's: the station is the same inside.`
 		);
 	});
 
@@ -1355,8 +1535,9 @@ describe('the curve family: the legend, the notes, the accessible name and the t
 			lineups.project,
 			view.system
 		);
+		// Nit 5 (slice 5b): "case n: …" and "case n (k running)", was "n · …" and "n (k running)".
 		const part = (n: number, key: keyof typeof NAMES, k: string) =>
-			`${n} · ${NAMES[key]}, ${f4(lps(lineupDuty(key).flow))} L/s at a rise of ${f4(lineupDuty(key).head)} m (${ON}; group curve: ${CROSSING(k)})`;
+			`case ${n}: ${NAMES[key]}, ${f4(lps(lineupDuty(key).flow))} L/s at a rise of ${f4(lineupDuty(key).head)} m (${ON}; group curve: ${CROSSING(k)})`;
 		expect(summary).toContain(
 			`; other cases' station duties: ${[
 				part(1, 'S1', '3 running'),
@@ -1367,12 +1548,14 @@ describe('the curve family: the legend, the notes, the accessible name and the t
 				part(6, 'S6', '3 running')
 			].join(
 				'; '
-			)}; other cases' group curves drawn: 1 (3 running), 2 (2 running), 3 (1 running), 4 (3 running), 5 (3 running) and 6 (3 running); group curve shown; group system curve shown.`
+			)}; other cases' group curves drawn: case 1 (3 running), case 2 (2 running), case 3 (1 running), case 4 (3 running), case 5 (3 running) and case 6 (3 running); group curve shown; group system curve shown.`
 		);
 		const stale = lineupView('', { stale: ['S1'] });
 		expect(
 			groupSummary(stale.data, stale.members, stale.response, lineups.project, stale.system)
-		).toContain("; other cases' group curves drawn: 1 (as last solved: 3 running), 2 (2 running)");
+		).toContain(
+			"; other cases' group curves drawn: case 1 (as last solved: 3 running), case 2 (2 running)"
+		);
 		const plain = lineupView('', { without: true });
 		expect(
 			groupSummary(plain.data, plain.members, plain.response, lineups.project, plain.system)
@@ -1382,13 +1565,15 @@ describe('the curve family: the legend, the notes, the accessible name and the t
 	it('lists every point of each drawn curve in the new table, and its state in the duties table’s column', () => {
 		const view = lineupView('', { stale: ['S1'] });
 		const groups = otherCurveRows(view.others, lineupPrefs, lineups.project);
-		expect(groups.map((g) => g.header)).toEqual([
-			`1 · ${NAMES.S1} (out of date): as last solved: 3 running`,
-			`2 · ${NAMES.S2}: 2 running`,
-			`3 · ${NAMES.S3}: 1 running`,
-			`4 · ${NAMES.S4}: 3 running`,
-			`5 · ${NAMES.S5}: 3 running`,
-			`6 · ${NAMES.S6}: 3 running`
+		// Nit 5 (slice 5b): each group's case number apart (`tag`, shown in a box before the
+		// header), the header its words alone (was "1 · …").
+		expect(groups.map((g) => [g.tag, g.header])).toEqual([
+			[1, `${NAMES.S1} (out of date): as last solved: 3 running`],
+			[2, `${NAMES.S2}: 2 running`],
+			[3, `${NAMES.S3}: 1 running`],
+			[4, `${NAMES.S4}: 3 running`],
+			[5, `${NAMES.S5}: 3 running`],
+			[6, `${NAMES.S6}: 3 running`]
 		]);
 		for (const g of groups) {
 			const response = lineupBody(g.key);
@@ -1781,20 +1966,21 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		const phone = familyOf(config(data, { compactLabels: true }));
 		expect(screen.map((d) => d.curveNumber)).toEqual(phone.map((d) => d.curveNumber));
 		const byNumber = (sets: Dataset[], n: number) => sets.find((d) => d.curveNumber === n)!;
+		// Nit 5 (slice 5b): "Case n: …" (was "n · …").
 		expect(tooltip(config(data), byNumber(screen, 1), point)).toBe(
-			line(`1 · ${NAMES.S1}: group curve, 3 running`)
+			line(`Case 1: ${NAMES.S1}, group curve, 3 running`)
 		);
 		expect(tooltip(config(data), byNumber(screen, 2), point)).toBe(
-			line(`2 · ${NAMES.S2} (out of date): group curve, as last solved: 2 running`)
+			line(`Case 2: ${NAMES.S2} (out of date), group curve, as last solved: 2 running`)
 		);
 		expect(tooltip(config(data), byNumber(screen, 3), point)).toBe(
-			line(`3 · ${NAMES.S3}: group curve, 1 running`)
+			line(`Case 3: ${NAMES.S3}, group curve, 1 running`)
 		);
 		expect(tooltip(config(data, { compactLabels: true }), byNumber(phone, 1), point)).toBe(
-			line('1 · 3 running: group curve')
+			line('Case 1: 3 running, group curve')
 		);
 		expect(tooltip(config(data, { compactLabels: true }), byNumber(phone, 2), point)).toBe(
-			line('2 · as last solved: 2 running: group curve')
+			line('Case 2: as last solved: 2 running, group curve')
 		);
 		// Every dataset of a case carries its label, the beyond part's too.
 		for (const c of data.otherCurves) {
@@ -1811,7 +1997,7 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		const family = familyOf(cfg);
 		expect(family.map((d) => d.label)).toEqual(familyOf(config(data)).map((d) => d.label));
 		expect(family.find((d) => d.curveNumber === 2)!.label).toBe(
-			`2 · ${NAMES.S2} (out of date): group curve, as last solved: 2 running`
+			`Case 2: ${NAMES.S2} (out of date), group curve, as last solved: 2 running`
 		);
 		// Chart.js's own items, sorted as it sorts them (by `order`, then the datasets' order).
 		const sets = datasets(cfg);
@@ -2066,7 +2252,8 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 			GROUP_SYSTEM_TAG
 		]);
 		for (const o of drawn.obstacles) {
-			const written = chart.written.find((w) => w.text === o.text)!;
+			// A ring's tag as fillLabel writes it: its numbers in a box, then its names (nit 5).
+			const written = chart.label(o.text!)!;
 			if (o.kind === 'marker') {
 				const ds = points.find((d) => d.caseLabel === o.text)!;
 				const r = (ds.pointRadius as number) + (ds.borderWidth as number) / 2;
@@ -2105,16 +2292,20 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		expect(drawn.labels).toEqual(expected.labels);
 		expect(drawn.leftOut).toBe(expected.leftOut);
 		expect(drawn.labels.map((l) => l.text)).toContain('4 running (this case)');
-		// Written where placed: other cases' in slate, this case's in ink.
+		// Written where placed: other cases' in slate, this case's in ink; another case's numbers in
+		// a box before its words (nit 5, slice 5b: fillLabel, drawnChart's `label`).
 		for (const label of drawn.labels) {
-			expect(chart.written).toContainEqual({
+			expect(chart.label(label.text)).toEqual({
 				text: label.text,
 				x: label.x,
 				y: label.y,
 				color: label.shown ? CHART_COLORS.ink : CHART_COLORS.slate,
-				font: '12px system-ui, sans-serif'
+				font: '12px system-ui, sans-serif',
+				// The curve labels' alignment (PlacedCurveLabel: textAlign 'left').
+				align: 'left'
 			});
 		}
+		expect(chart.written.some((w) => w.text.includes('['))).toBe(false);
 		// Clear of every obstacle and of each other.
 		for (const [i, label] of drawn.labels.entries()) {
 			for (const o of drawn.obstacles) expect(boxesMeet(label.box, o.box), o.text).toBe(false);
@@ -2224,7 +2415,7 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 				shown
 			).toEqual([['3 running (this case)', [data.otherCurves.length]]]);
 			// The siblings' label names only their numbers, never this case's count among them.
-			const siblings = told[0]!.labels.find((l) => !l.shown && l.text.endsWith('· 3 running'))!;
+			const siblings = told[0]!.labels.find((l) => !l.shown && l.text.endsWith('] 3 running'))!;
 			expect(siblings.curves).not.toContain(data.otherCurves.length);
 		}
 	});
@@ -2243,11 +2434,7 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 			const labels = told[0]!.labels;
 			return {
 				texts: labels.map((l) => l.text).sort(),
-				fonts: [
-					...new Set(
-						chart.written.filter((w) => labels.some((l) => l.text === w.text)).map((w) => w.font)
-					)
-				]
+				fonts: [...new Set(labels.map((l) => chart.label(l.text)!.font))]
 			};
 		};
 		expect(texts({ compactLabels: true })).toEqual({
@@ -2255,8 +2442,9 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 			fonts: ['12px system-ui, sans-serif']
 		});
 		const image = texts({ compactLabels: true, forImage: true });
+		// Nit 5 (slice 5b): "[3] 1 running", was "3 · 1 running".
 		expect(image).toEqual({
-			texts: ['1, 4, 5, 6 · 3 running', '2 · 2 running', '3 · 1 running', '4 running (this case)'],
+			texts: ['4 running (this case)', '[1, 4, 5, 6] 3 running', '[2] 2 running', '[3] 1 running'],
 			fonts: ['14px system-ui, sans-serif']
 		});
 		expect(texts({})).toEqual({ ...image, fonts: ['12px system-ui, sans-serif'] });
@@ -2295,7 +2483,9 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 // into today's lines for the footer, word for word.
 
 describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
-	const LEAD = 'Other cases on the chart (slate rings, numbered):';
+	// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5, slice 5b): was "(slate rings,
+	// numbered):".
+	const LEAD = 'Other cases on the chart (slate rings, each tagged with its case number):';
 	const NONE = {
 		off: null,
 		frame: null,
@@ -2308,9 +2498,10 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 	/**
 	 * The parts of `notes`, checked as §10 asks of every state: joined they are the notes' lines in
 	 * today's order (the frame, the clip note, the rule, the ring list as one sentence, "Not on the
-	 * chart", the left-out count; the off line alone), and each ring's item is its entry.
+	 * chart", the left-out count; the off line alone), and each ring's item is its entry, numbered
+	 * by its case in `project` (caseTags; nit 5, slice 5b: never its place among the rings).
 	 */
-	const partsOf = (notes: GroupNotes) => {
+	const partsOf = (notes: GroupNotes, project: Pick<Project, 'scenarios'>) => {
 		const parts = notes.otherParts;
 		expect(otherNoteLines(parts)).toEqual(notes.others);
 		if (parts.off) {
@@ -2328,12 +2519,22 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 		);
 		if (parts.rings) {
 			expect(parts.rings.lead).toBe(LEAD);
-			// One item per ring number, in number order, each its entry word for word.
+			// One item per ring, each its case's number (was its place, 1 to n), in number order,
+			// each its entry word for word ("Case n: …", was "n · …").
+			const tags = caseTags(project);
+			const idOf = (name: string) =>
+				name === 'Base case'
+					? ''
+					: project.scenarios!.find((x) => x.name === name.replace(/ \(out of date\)$/, ''))!.id;
 			expect(parts.rings.items.map((i) => i.number)).toEqual(
-				parts.rings.items.map((_, k) => k + 1)
+				parts.rings.items.map((i) => tags[idOf(i.name)])
 			);
+			const numbers = parts.rings.items.map((i) => i.number);
+			expect(numbers).toEqual([...numbers].sort(compareCaseTags));
+			expect(new Set(numbers).size).toBe(numbers.length);
 			for (const item of parts.rings.items) {
-				expect(item.text).toBe(`${item.number} · ${item.name}, ${item.at}: ${item.words}`);
+				const named = item.number === 'Base' ? item.name : `Case ${item.number}: ${item.name}`;
+				expect(item.text).toBe(`${named}, ${item.at}: ${item.words}`);
 				expect(item.at).toMatch(/^-?[\d.]+ L\/s at a rise of -?[\d.]+ m$/);
 			}
 		}
@@ -2343,7 +2544,7 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 	it('gives the curve family’s notes as parts, which join into today’s lines (the base shown)', () => {
 		const view = lineupView('');
 		const notes = notesFor(view);
-		const parts = partsOf(notes);
+		const parts = partsOf(notes, lineups.project);
 		// Today's lines, word for word (as pinned in “says the frame, the clip note’s clauses …”).
 		const ringEntries = [
 			entry(1, 'S1', ON, CROSSING('3 running')),
@@ -2360,7 +2561,7 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 			lineupFrame,
 			clip,
 			DUTY_CLAIM_RULE,
-			`Other cases on the chart (slate rings, numbered): ${ringEntries.join('; ')}.`,
+			`Other cases on the chart (slate rings, each tagged with its case number): ${ringEntries.join('; ')}.`,
 			notOn
 		]);
 		// Each part is its line: the frame (L3's form), the clip note, the rule, "Not on the chart".
@@ -2401,20 +2602,25 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 		// "1 of 4 running" shown: the other curves cut at the right edge.
 		const right =
 			"Other cases' group curves are cut at the chart's right edge, the largest flow of this case's own lines and the rings; the data tables list all their points.";
-		expect(partsOf(notesFor(lineupView('S3'))).clip).toBe(right);
+		expect(partsOf(notesFor(lineupView('S3')), lineups.project).clip).toBe(right);
 		expect(notesFor(lineupView('S3')).others[1]).toBe(right);
 		// "2 of 4 running" shown: both cuts, in one clip note.
 		const both =
 			"Other cases' group curves are cut at the chart's right edge, the largest flow of this case's own lines and the rings; the group system curve is cut at the top, above every pump's head; the data tables list all their points.";
-		expect(partsOf(notesFor(lineupView('S2'))).clip).toBe(both);
+		expect(partsOf(notesFor(lineupView('S2')), lineups.project).clip).toBe(both);
 		// A stale case: "(out of date)" in its item's name and so in its entry.
-		const stale = partsOf(notesFor(lineupView('', { unticked: ['S4', 'S5'], stale: ['S1'] })));
+		const stale = partsOf(
+			notesFor(lineupView('', { unticked: ['S4', 'S5'], stale: ['S1'] })),
+			lineups.project
+		);
+		// Each ring its case's number, S4 and S5 unticked (nit 5, slice 5b: was 1 to 6).
+		expect(stale.rings!.items.map((i) => i.number)).toEqual([1, 2, 3, 6, 7, 8]);
 		const first = stale.rings!.items[0]!;
 		expect(first.name).toBe(`${NAMES.S1} (out of date)`);
-		expect(first.text.startsWith(`1 · ${NAMES.S1} (out of date), `)).toBe(true);
+		expect(first.text.startsWith(`Case 1: ${NAMES.S1} (out of date), `)).toBe(true);
 		expect(first.words).toMatch(/; group curve: drawn \(as last solved: 3 running\): /);
 		// The base unticked while another case is shown: "Not on the chart" names it.
-		const base = partsOf(notesFor(lineupView('S3', { unticked: [''] })));
+		const base = partsOf(notesFor(lineupView('S3', { unticked: [''] })), lineups.project);
 		expect(base.notOn).toMatch(
 			new RegExp(
 				`^Not on the chart: ${lineupCaseName('')} \\(unticked under Cases on this chart\\)`
@@ -2423,7 +2629,7 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 		expect(base.rings!.items.map((i) => i.name)).not.toContain(lineupCaseName(''));
 		// The left-out count, the last line.
 		const counted = notesFor(lineupView(''), 1);
-		const leftOut = partsOf(counted).leftOut;
+		const leftOut = partsOf(counted, lineups.project).leftOut;
 		expect(leftOut).toBe(
 			'Labels of 1 curve are left out for space; the data table lists every curve.'
 		);
@@ -2452,22 +2658,23 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 			claim: null,
 			words: 'not on the chart (unticked under Cases on this chart)'
 		};
-		const parts = partsOf(notesOf(list));
+		const parts = partsOf(notesOf(list), oneOff.project);
 		expect(parts.frame).toBe(frame('Tee T1 (run inlet)', 'Tee T2 (run outlet)', PARALLEL));
 		expect(parts.clip).toBeNull();
 		expect(parts.claim).toBe(DUTY_CLAIM_RULE);
+		// Nit 5 (slice 5b): "Case n: …", was "n · …".
 		expect(parts.rings!.items.map((i) => i.text)).toEqual([
-			`1 · Pump PA off, ${f4(duty('S1').flow * 1000)} L/s at a rise of ${f4(duty('S1').head)} m: Yes: the same rest of the network`,
-			`2 · Pump PB off, ${f4(duty('S2').flow * 1000)} L/s at a rise of ${f4(duty('S2').head)} m: Yes: the same rest of the network`,
-			`3 · Delivery tank 5 m higher, ${f4(duty('S3').flow * 1000)} L/s at a rise of ${f4(duty('S3').head)} m: No: the rest of the network differs from this case's; its own group system curve is not drawn`
+			`Case 1: Pump PA off, ${f4(duty('S1').flow * 1000)} L/s at a rise of ${f4(duty('S1').head)} m: Yes: the same rest of the network`,
+			`Case 2: Pump PB off, ${f4(duty('S2').flow * 1000)} L/s at a rise of ${f4(duty('S2').head)} m: Yes: the same rest of the network`,
+			`Case 3: Delivery tank 5 m higher, ${f4(duty('S3').flow * 1000)} L/s at a rise of ${f4(duty('S3').head)} m: No: the rest of the network differs from this case's; its own group system curve is not drawn`
 		]);
 		expect(parts.notOn).toBe(
 			'Not on the chart: Both pumps off (unticked under Cases on this chart).'
 		);
 		// Without a group system curve: no rule.
-		expect(partsOf(notesOf(others(['S1']), false)).claim).toBeNull();
+		expect(partsOf(notesOf(others(['S1']), false), oneOff.project).claim).toBeNull();
 		// No other case: no part at all.
-		expect(partsOf(notesOf([])).off).toBeNull();
+		expect(partsOf(notesOf([]), oneOff.project).off).toBeNull();
 		expect(notesOf([]).otherParts).toEqual(NONE);
 		// The duties not asked for: the off line alone.
 		const off = others().map((o) => ({
@@ -2478,7 +2685,7 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 			duty: null,
 			claim: null
 		}));
-		const offParts = partsOf(notesOf(off));
+		const offParts = partsOf(notesOf(off), oneOff.project);
 		expect(offParts.off).toBe(
 			"Other cases' station duties are not on the chart: tick “Also show the other cases' station duties” to compute them (4 other cases with results)."
 		);
@@ -2498,7 +2705,7 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 			prefs,
 			others: list
 		});
-		expect(partsOf(plain).frame).toBe(
+		expect(partsOf(plain, oneOff.project).frame).toBe(
 			[
 				"Each numbered slate ring is another case's station duty: that case's station flow and its rise from Tee T1 (run inlet) to Tee T2 (run outlet), drawn against the station's flow as the group system curve is, not a pump's own point.",
 				PARALLEL,
@@ -2523,6 +2730,7 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 					solved: null
 				}
 			],
+			tags: { S1: 1 },
 			shownKeys: new Set(['S1']),
 			othersOn: true,
 			shownSettled: true,
@@ -2554,7 +2762,9 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 				project: prv.project,
 				prefs: prvPrefs,
 				others: [ring!]
-			})
+			}),
+			// The ring's case, numbered 1 as `tags` gives it (prv-inside has no scenarios).
+			{ scenarios: [{ id: 'S1', name: 'Pump PA off', overrides: [] }] }
 		);
 		expect(prvParts.frame).toMatch(
 			/ With an active PRV or PSV inside, the station has no group curve, so none is drawn here; each ring is its case's duty from its group system curve where one is active in that case too, else from its group curve\.$/

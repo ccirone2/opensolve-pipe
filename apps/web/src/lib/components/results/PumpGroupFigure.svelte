@@ -30,7 +30,12 @@
 	import { STALE_CHUNK_MESSAGE } from '$lib/utils/export/load';
 	import type { Chart as ChartInstance } from 'chart.js';
 	import { mediaQuery } from '$lib/utils/media.svelte';
-	import { chartHeightRem, saveTableShown } from '$lib/utils/pump-chart';
+	import {
+		caseTagOf,
+		chartHeightRem,
+		saveTableShown,
+		type CaseNumber
+	} from '$lib/utils/pump-chart';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
 	import {
 		ARRANGEMENT_WORDS,
@@ -44,13 +49,11 @@
 		groupSampleRows,
 		groupSummary,
 		groupSystemRows,
-		GROUP_OTHER,
 		dutyCheckState,
 		dutyCheckWords,
 		HELD_SYMBOL,
 		OTHER_CURVE_COLUMN,
 		OTHER_CURVES_CAPTION,
-		OTHER_SYMBOL,
 		otherCurveRows,
 		placeCurveLabels,
 		systemDutyCheckState,
@@ -64,6 +67,7 @@
 	import type { OtherGroupCase } from '$lib/utils/pump-group-one-off';
 	import { formatNumber } from '$lib/utils/units';
 	import { sectionMark } from '$lib/utils/section-nav';
+	import CaseTag from '$lib/components/ui/CaseTag.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import CurveTable from './CurveTable.svelte';
 	import IssueDetail from './IssueDetail.svelte';
@@ -142,6 +146,13 @@
 		oncancelsystem?: () => void;
 		/** The other cases with values, each in its state, while the card shows a station. */
 		others: readonly OtherGroupCase[];
+		/**
+		 * Every case's number (pump-chart.ts caseTags): each case's box in the tables and in "Cases
+		 * on this chart", drawn or not (nit 5, slice 5b).
+		 */
+		tags: Readonly<Record<string, CaseNumber>>;
+		/** The case shown's number: its "(shown)" tag. */
+		caseTag: CaseNumber;
 		othersOn: boolean;
 		/** Tick or untick "Also show …" (absent: the project has no scenarios, no box). */
 		onothers?: (on: boolean) => void;
@@ -186,6 +197,8 @@
 		onretrysystem,
 		oncancelsystem,
 		others,
+		tags,
+		caseTag,
 		othersOn,
 		onothers,
 		onotherstick,
@@ -229,8 +242,11 @@
 	const systemRows = $derived(
 		systemShown ? groupSystemRows(systemShown, prefs, { project, solved }) : []
 	);
-	/** A case's ring, as drawn (its duty in display units, its claim in words). */
-	const ringCase = (n: number | null) =>
+	/**
+	 * A case's ring, as drawn (its duty in display units, its claim in words), by its ring's tag,
+	 * its case's number (OtherGroupCase.number; null when not drawn).
+	 */
+	const ringCase = (n: CaseNumber | null) =>
 		n === null ? null : (data.others.flatMap((r) => r.cases).find((c) => c.number === n) ?? null);
 	/** The rings' own curves are judged (D24 §9.6): "Its group curve" is a column. */
 	const curveColumn = $derived(data.others.some((r) => r.cases.some((c) => c.curveCell !== null)));
@@ -739,6 +755,20 @@
 										stroke-dasharray={item.dash?.join(' ') || undefined}
 									/></svg
 								>
+							{:else if item.tags}
+								<!-- An other case's ring as drawn (a slate ring, transparent inside), its
+									words naming its cases by number: no character stands for it (nit 5,
+									slice 5b). -->
+								<svg width="12" height="12" aria-hidden="true" class="mt-0.5 shrink-0"
+									><circle
+										cx="6"
+										cy="6"
+										r="5"
+										fill="none"
+										stroke={item.color}
+										stroke-width="2"
+									/></svg
+								>
 							{:else}
 								<span aria-hidden="true" style:color={item.color}>{item.symbol}</span>
 							{/if}
@@ -1096,11 +1126,11 @@
 											role="rowheader"
 											scope="row"
 											class="px-2 py-1 text-left font-normal max-sm:block max-sm:w-full max-sm:p-0 max-sm:font-medium max-sm:wrap-anywhere"
-											>{#if ring}<span aria-hidden="true" style:color={GROUP_OTHER}
-													>{`${OTHER_SYMBOL} `}</span
-												>{/if}{ring ? `${ring.number} · ` : ''}{other.name}{other.stale
-												? ' (out of date)'
-												: ''}</th
+											><!-- Its case's number in a reserved column (2.5 rem), drawn or not, so
+												every name starts at one edge (nit 5, slice 5b). --><span
+												class="inline-block w-10"><CaseTag tag={caseTagOf(tags, other.key)} /></span
+											>
+											{other.name}{other.stale ? ' (out of date)' : ''}</th
 										>
 										{#if ring}
 											<td
@@ -1182,8 +1212,9 @@
 											outOfDate ? 'bg-amber-50/60' : 'bg-slate-50/60'
 										]}
 									>
-										<span aria-hidden="true" style:color={GROUP_OTHER}>{`${OTHER_SYMBOL} `}</span
-										>{group.header}
+										<!-- Its case's number in a box, then its words (nit 5, slice 5b). -->
+										<CaseTag tag={group.tag} />
+										{group.header}
 									</th>
 								</tr>
 								{#each group.rows as row, i (i)}
@@ -1218,6 +1249,8 @@
 				10, §5.3): the switch, the cases, their live line and the ring notes, cut. -->
 			<PumpGroupOthers
 				{others}
+				{tags}
+				{caseTag}
 				{othersOn}
 				{onothers}
 				{onotherstick}

@@ -264,18 +264,21 @@ export async function renderChartImage(
 export const IMAGE_REASONS_IN =
 	"the app's data table and the System curves sheet of a results export say";
 
-/** The other cases on the chart with their markers (on screen, the case checkboxes say it). */
-export function casesNote(
-	others: readonly OtherCaseData[],
-	symbols: Readonly<Record<string, string>>
-): string | null {
+/**
+ * The other cases on the chart, each by its number (owner, 2026-11-12, nit 5; Q1 "Shapes go too";
+ * docs/proposals/pumps-nits.md item 5, slice 5b): "Other cases on the chart (slate rings, each
+ * tagged with its case number[; their system curves dotted]): Base case; case 2: Winter (out of
+ * date): off." The base case by its name ("Base" adds nothing to it); on screen, the case
+ * checkboxes say the same with each case's box. No character designates a case.
+ */
+export function casesNote(others: readonly OtherCaseData[]): string | null {
 	if (!others.length) return null;
 	const dotted = others.some((o) => o.system) ? '; their system curves dotted' : '';
-	const cases = others.map(
-		(o) =>
-			`${symbols[o.marker]} ${o.label}${o.row.state === 'Running' ? '' : `: ${o.row.state.toLowerCase()}`}`
-	);
-	return `Other cases on the chart (slate, hollow markers${dotted}): ${cases.join('; ')}.`;
+	const cases = others.map((o) => {
+		const named = o.tag === 'Base' ? o.label : `case ${o.tag}: ${o.label}`;
+		return `${named}${o.row.state === 'Running' ? '' : `: ${o.row.state.toLowerCase()}`}`;
+	});
+	return `Other cases on the chart (slate rings, each tagged with its case number${dotted}): ${cases.join('; ')}.`;
 }
 
 /**
@@ -286,7 +289,6 @@ export function casesNote(
 export function imageNoteLines(
 	notes: ChartNotes,
 	others: readonly OtherCaseData[],
-	symbols: Readonly<Record<string, string>>,
 	off: string | null = null
 ): string[] {
 	return [
@@ -297,7 +299,7 @@ export function imageNoteLines(
 		...notes.panels,
 		...notes.facts,
 		...notes.checks,
-		casesNote(others, symbols),
+		casesNote(others),
 		off
 	].filter((line): line is string => !!line);
 }
@@ -308,9 +310,8 @@ export interface ChartImageRequest {
 	config: PumpChartConfig;
 	/** The figure's notes (pump-chart.ts chartNotes, with `reasonsIn: IMAGE_REASONS_IN`). */
 	notes: ChartNotes;
-	/** The other cases drawn, and their markers as text (pump-chart.ts MARKER_SYMBOLS). */
+	/** The other cases drawn, each with its case's number (pump-chart.ts caseTags). */
 	others: readonly OtherCaseData[];
-	markerSymbols: Readonly<Record<string, string>>;
 	/** "Off in this case (no operating point): …." as the screen shows it (offCasesNote), or none. */
 	offCases?: string | null;
 	pumpName: string;
@@ -385,7 +386,7 @@ export async function downloadChartImage(
 			});
 		const lines = figure
 			? [...figure.lines]
-			: imageNoteLines(pump!.notes, pump!.others, pump!.markerSymbols, pump!.offCases ?? null);
+			: imageNoteLines(pump!.notes, pump!.others, pump!.offCases ?? null);
 		const drawnLines = figure?.drawnLines;
 		// A figure's notes that depend on its drawing are read once the image's chart is drawn.
 		const blob = drawnLines

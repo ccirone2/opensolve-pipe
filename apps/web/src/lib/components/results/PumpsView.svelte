@@ -22,8 +22,11 @@
 	order switched off, or Each pump off, 4d's cases) in one undo step, and turns on "Also show the
 	other cases' station duties": each other case's group curve is asked for (one request at a
 	time, after the case shown's curves and while no calculation runs; at most six cases, one
-	lineup of each number running first), its duty drawn as a numbered ring. "Running
-	combinations" lists every case's members. The card asks again for the curves a solve, Solve
+	lineup of each number running first), its duty drawn as a slate ring tagged with its case's
+	number (caseTags, computed once here and given to both charts: "Base", then 1 to n by the
+	Scenarios list; owner, 2026-11-12, nit 5, Q2 "By list place"; docs/proposals/pumps-nits.md item
+	5, slice 5b). "Running combinations" lists every case's members, the case shown first, then
+	every other case in number order. The card asks again for the curves a solve, Solve
 	all or goal seek cancelled, once no calculation runs; a change of members or of the case shown
 	withdraws the other cases' requests (those still waiting, on a case switch), which are asked
 	again after the shown case's.
@@ -61,7 +64,8 @@
 	import { settingsSourceLabel } from '$lib/utils/design-checks';
 	import { componentById } from '$lib/utils/graph';
 	import {
-		caseMarkers,
+		caseTagOf,
+		caseTags,
 		MAX_CHART_CASES,
 		pumpChartCases,
 		ratedCurveRange,
@@ -95,6 +99,7 @@
 	import {
 		chartKeys,
 		combinationExtremes,
+		combinationsOrder,
 		MAX_GROUP_CASES,
 		groupCurveDrawn,
 		otherGroupCases,
@@ -106,7 +111,6 @@
 		type OtherGroupCase
 	} from '$lib/utils/pump-group-one-off';
 	import {
-		lineupChartPriority,
 		lineupPlan,
 		movedStopOrder,
 		pumpLineup,
@@ -292,22 +296,15 @@
 	});
 
 	/**
-	 * The other cases whose last solve converged, by Compare's rule as `others`, whatever the pump:
-	 * the cases a pump's chart draws are among them, and their places are the same for every pump,
-	 * though a case can give one pump no result (a pump closed off on both sides, SDD §4.10) and
-	 * another one a result. caseMarkers' `all` (§9 S8 Markers; S8 second check MARK-2).
+	 * Every case's number for the whole Pumps tab (owner, 2026-11-12, nit 5; Q2 "By list place";
+	 * docs/proposals/pumps-nits.md item 5, slice 5b, rule 4): "Base", then 1 to n by the Scenarios
+	 * list, computed once and given to both charts, so a case has one number in every list, ring,
+	 * table, heading and image. It reads the Scenarios list alone: a tick, a solve, a member change,
+	 * the case shown or the pump shown moves none.
 	 */
-	const solvedOthers = $derived(
-		hasScenarios
-			? ws.store.caseIds
-					.filter((c) => c !== ws.store.activeCase)
-					.filter((c) => {
-						const response = caseResponse(ws.store.caseStatus(c), ws.store.resultsFor(c));
-						return !!response && response.success && response.solvedState.converged;
-					})
-					.map((c) => c ?? '')
-			: []
-	);
+	const tags = $derived(caseTags(ws.store.project));
+	/** The case shown's number: its "(shown)" tag on both charts. */
+	const shownTag = $derived(caseTagOf(tags, ws.store.activeCase ?? ''));
 
 	/**
 	 * One choice of cases for both charts (pumps-results-layout.md §9 S8, the owner's answer 2):
@@ -327,23 +324,6 @@
 	 */
 	const pumpCases = $derived(pumpChartCases(others, pumpUnticked, overlay));
 	const overlayKeys = $derived(pumpCases.shown.map((o) => o.key));
-	/**
-	 * Their markers (§9 S8 Markers, pump-chart.ts caseMarkers): while five other cases or fewer
-	 * have a converged result (solvedOthers, whatever the pump), each its place's among them, fixed
-	 * by case; past five, a case keeps its marker while it stays drawn, through an untick, the other
-	 * cases' system curves switched and another pump shown (the markers drawn last are page state,
-	 * ws.pumpChartMarkers).
-	 */
-	const pumpMarkers = $derived.by(() => {
-		const markers = caseMarkers(
-			overlayKeys,
-			pumpCases.listed.map((o) => o.key),
-			ws.pumpChartMarkers,
-			solvedOthers
-		);
-		ws.pumpChartMarkers = markers;
-		return markers;
-	});
 	/** The keys as one value: the requests below are made again only when the cases change. */
 	const overlayList = $derived(overlayKeys.join('\u0000'));
 
@@ -520,7 +500,9 @@
 
 	/**
 	 * The other cases with values by Compare's rule (a failed or not reached case's earlier
-	 * response is never used), in case order, while the card shows a station.
+	 * response is never used), in case order, which is number order (caseTags: the Scenarios
+	 * list's), while the card shows a station. "Cases on this chart" lists them, and the tables
+	 * give them, in this order (nit 5, slice 5b, rule 4).
 	 */
 	const valuedOthers = $derived.by(() => {
 		if (!hasScenarios || !groupStation) return [];
@@ -535,21 +517,13 @@
 	});
 	/**
 	 * The cases on the chart: one lineup of each number running first, most running first, then
-	 * the other lineups, then case order, at most six (D24 §4.6, lineupChartPriority).
+	 * the other lineups, then case order, at most six (D24 §4.6, lineupChartPriority). The priority
+	 * chooses only which cases are drawn and which go past the cap: each ring is tagged with its
+	 * case's number, and every list runs in number order (nit 5, slice 5b; Q2).
 	 */
 	const chartCaseKeys = $derived(
 		chartKeys(valuedOthers, ws.store.project, groupMembers, [...choice.unticked, ...choice.group])
 	);
-	/**
-	 * The other cases with values in the chart's order (D24 §4.6, unticked ones in their place):
-	 * "Cases on this chart" lists them, and the rings are numbered, in that order (§7.9, §6).
-	 */
-	const chartOrdered = $derived.by(() => {
-		const rank = new Map(
-			lineupChartPriority(valuedOthers, ws.store.project, groupMembers).map((key, i) => [key, i])
-		);
-		return [...valuedOthers].sort((a, b) => (rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0));
-	});
 	/**
 	 * Whether a case as solved is the same as the one shown outside the station (sharedRest),
 	 * kept while both projects and the station are the same objects: the fingerprints are not
@@ -606,7 +580,7 @@
 		if (!groupStation) return [];
 		const station = groupStation.station;
 		return otherGroupCases({
-			valued: chartOrdered.map((v) => {
+			valued: valuedOthers.map((v) => {
 				const solvedCase = ws.store.caseInputs(v.caseId);
 				const on = runningIn(solvedCase);
 				return {
@@ -623,6 +597,7 @@
 				};
 			}),
 			curveDrawn: groupCurveDrawn(groupState),
+			tags,
 			shownKeys: new Set(chartCaseKeys),
 			othersOn: ws.pumpGroupOthers,
 			shownSettled,
@@ -916,20 +891,13 @@
 	);
 
 	/**
-	 * Running combinations' order (pumps-results-layout.md §5.3, §9 S5): the case shown, then the
-	 * other cases with values in the chart's order (lineupChartPriority's, chartOrdered), then the
-	 * cases without values in case order. Neither an untick under "Cases on this chart" nor "Also
-	 * show …" moves a case: the chart's order holds whether a case is ticked or not.
+	 * Running combinations' order (pumps-results-layout.md §5.3; nit 5, slice 5b, Q2): the case
+	 * shown, then every other case in number order (combinationsOrder), with values or not. Neither
+	 * an untick under "Cases on this chart" nor "Also show …" moves a case.
 	 */
-	const combinationsOrder = $derived.by((): CaseId[] => {
-		const active = ws.store.activeCase;
-		const valued = new Set(chartOrdered.map((v) => v.caseId));
-		return [
-			active,
-			...chartOrdered.map((v) => v.caseId),
-			...ws.store.caseIds.filter((c) => c !== active && !valued.has(c))
-		];
-	});
+	const combinationsCases = $derived(
+		combinationsOrder(ws.store.caseIds, ws.store.activeCase, tags)
+	);
 	/** Running combinations: every case's members, in its order (slice 4d §3; §5.3). */
 	const combinationsInput = $derived.by((): CombinationsInput | null => {
 		if (!hasScenarios || !groupStation) return null;
@@ -944,7 +912,7 @@
 		const nameOf = (id: string) => groupPumps.find((p) => p.id === id)?.name ?? id;
 		return {
 			members: groupMembers.map((id) => ({ id, name: nameOf(id), slot: groupSlots.indexOf(id) })),
-			cases: combinationsOrder.map((c) => {
+			cases: combinationsCases.map((c) => {
 				const status = ws.store.caseStatus(c);
 				const results = ws.store.resultsFor(c);
 				const other = otherCases.find((o) => o.caseId === c);
@@ -963,7 +931,7 @@
 									? `${dutyLine(other.duty)}: ${other.words}`
 									: other.words
 								: null,
-					ring: other?.number ?? null
+					tag: caseTagOf(tags, c ?? '')
 				};
 			}),
 			prefs: ws.displayUnits,
@@ -1180,7 +1148,8 @@
 					{...hasScenarios ? { caseName: ws.caseName(ws.store.activeCase) } : {}}
 					{others}
 					unticked={pumpUnticked}
-					markers={pumpMarkers}
+					{tags}
+					caseTag={shownTag}
 					ontick={(key, on) => tickChoice('pump', key, on)}
 					overlayCurves={overlay}
 					onoverlay={setOverlay}
@@ -1219,6 +1188,8 @@
 			{image}
 			{lineups}
 			{otherCases}
+			{tags}
+			caseTag={shownTag}
 			{shownOn}
 			othersOn={ws.pumpGroupOthers}
 			{...hasScenarios ? { onothers: setOthers } : {}}

@@ -37,10 +37,17 @@ import {
 	readyState,
 	type LineupViewOptions
 } from '$lib/testing/curve-family';
-import { designators, outOfSight, wordsInSight } from '$lib/testing/helpers';
+import {
+	besideCaseTag,
+	designators,
+	outOfSight,
+	shownCaseTag,
+	spokenWords,
+	wordsInSight
+} from '$lib/testing/helpers';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
 import type { CurveLabelsDrawn, PumpChartConfig } from '$lib/utils/pump-chart-config';
-import { ratedCurveRange } from '$lib/utils/pump-chart';
+import { caseTagOf, caseTags, ratedCurveRange } from '$lib/utils/pump-chart';
 import {
 	DUTY_CLAIM_RULE,
 	GROUP_OTHER,
@@ -206,8 +213,12 @@ async function footerLines(): Promise<readonly string[]> {
 	return (images.requests.at(-1) as FigureImageRequest).lines;
 }
 
-/** The ring list's lead, which names it (pumps-results-layout.md §5.3; §6.2: its words kept). */
-const RING_LEAD = 'Other cases on the chart (slate rings, numbered):';
+/**
+ * The ring list's lead, which names it (pumps-results-layout.md §5.3), the pump image's words for
+ * its other cases since nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5, slice 5b:
+ * each ring tagged with its case's number, in place of "numbered").
+ */
+const RING_LEAD = 'Other cases on the chart (slate rings, each tagged with its case number):';
 
 /**
  * The words-on-screen guard (pumps-results-layout.md §10, §6.4 item 3): every line of the image's
@@ -1973,8 +1984,15 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			...handlers
 		};
 	}
+	// Every case's number as the Pumps view gives them (pump-chart.ts caseTags of the project; nit
+	// 5, slice 5b): the card shows each case's, drawn or not.
 	const base = (values: Record<string, unknown> = {}) =>
-		props(c, { system: systemReady(c), caseName: 'Base case', ...values });
+		props(c, {
+			system: systemReady(c),
+			caseName: 'Base case',
+			tags: caseTags(c.project),
+			...values
+		});
 	// §7.12: the h4 and region name "One pump off" becomes "Add cases".
 	const block = () => screen.getByRole('region', { name: 'Add cases' });
 	/** The add button, by any of its labels ("Add {n} case(s)", or "Add cases"). */
@@ -1996,6 +2014,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				shared: id !== 'S3',
 				solved: null
 			})),
+			tags: caseTags(c.project),
 			shownKeys: new Set(ids),
 			othersOn: true,
 			shownSettled: true,
@@ -2141,12 +2160,25 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					})
 		}));
 		const handlers = { onothers, onotherstick, oncancelothers, onretryothers };
-		const view = render(PumpGroupChart, base({ otherCases: seven, othersOn: true, ...handlers }));
+		// Their numbers, S1 to S7 in a Scenarios list (caseTags; nit 5, slice 5b).
+		const sevenTags = caseTags({
+			scenarios: seven.map((o) => ({ id: o.key, name: o.name, overrides: [] }))
+		});
+		const view = render(
+			PumpGroupChart,
+			base({ otherCases: seven, tags: sevenTags, othersOn: true, ...handlers })
+		);
 		const fieldset = screen.getByRole('group', { name: 'Cases on this chart' });
 		expect(fieldset).toHaveTextContent('Base case (shown)');
 		const boxes = within(fieldset).getAllByRole('checkbox') as HTMLInputElement[];
 		expect(boxes.map((b) => b.checked)).toEqual([true, true, true, true, true, true, false]);
-		expect(boxes[0]!.closest('label')).toHaveTextContent('○ 1 · Case 1');
+		// Each its case's number in a box, then its name (nit 5, slice 5b: in place of "○ 1 ·"),
+		// the seventh's too, though it is not drawn.
+		expect(
+			boxes.map((b) => [shownCaseTag(b.closest('label')!), besideCaseTag(b.closest('label')!)])
+		).toEqual(seven.map((o, i) => [String(i + 1), o.name]));
+		expect(boxes[0]).toHaveAccessibleName('Case 1: Case 1');
+		expect(designators(fieldset)).toEqual([]);
 		expect(boxes[6]).toHaveAttribute('aria-disabled', 'true');
 		expect(boxes[6]).toHaveAccessibleDescription('At most 6 other cases at once.');
 		// The capped look (§5.3, as the pump chart's): the box greyed, the name kept readable.
@@ -2288,26 +2320,35 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		// The case shown: a tag, not a control (§5.2 Tags), the grid's first item.
 		const grid = fieldset.querySelector('legend + div')!;
 		const tag = grid.firstElementChild!;
-		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): its words alone, no ●
-		// before them, and nothing in it hidden from a screen reader.
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): no ● before its words;
+		// slice 5b: its case's number in a box, "Base", the one part hidden from a screen reader,
+		// which hears its words alone ("Base case" says it).
 		expect(designators(tag)).toEqual([]);
-		expect(tag.textContent!.replace(/\s+/g, ' ').trim()).toBe('Base case (shown)');
-		expect(tag.querySelector('[aria-hidden="true"]')).toBeNull();
+		expect(besideCaseTag(tag)).toBe('Base case (shown)');
+		expect(shownCaseTag(tag)).toBe('Base');
+		expect([...tag.querySelectorAll('[aria-hidden="true"]')]).toEqual([
+			tag.querySelector('[data-case-tag]')
+		]);
+		expect(spokenWords(tag)).toBe('Base case (shown)');
 		expect(tag).toHaveClass('rounded', 'bg-slate-100', 'text-xs');
 		expect(tag.querySelector('input, button')).toBeNull();
 		expect(grid).toHaveClass('grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]');
-		// Each box: the ring and its number in a reserved column, then the name.
+		// Each box: its case's number in a box in a reserved 2.5 rem column (nit 5, slice 5b: in
+		// place of the ring and its number), then the name; its number's words heard first.
 		const labels = within(fieldset)
 			.getAllByRole('checkbox')
 			.map((b) => b.closest('label')!);
 		for (const label of labels) {
 			const column = label.querySelector('input + span')!;
 			expect(column).toHaveClass('w-10', 'shrink-0');
-			expect(column.querySelector('[aria-hidden="true"]')).toHaveTextContent('○');
+			expect(column.firstElementChild).toHaveAttribute('data-case-tag');
 		}
-		expect(
-			labels.map((l) => l.querySelector('input + span')!.textContent!.replace(/\s+/g, ' ').trim())
-		).toEqual(labels.map((_, i) => `○ ${i + 1} ·`));
+		expect(labels.map((l) => shownCaseTag(l.querySelector('input + span')!))).toEqual(
+			labels.map((_, i) => String(i + 1))
+		);
+		expect(within(fieldset).getAllByRole('checkbox')[0]).toHaveAccessibleName(
+			`Case 1: ${others()[0]!.name}`
+		);
 		// Then the name, wrapping, never cut; a stale case's with " (out of date)" (§5.3; S3 review
 		// MUT-13, MUT-08).
 		const staleFirst = others().map((o, i) => (i === 0 ? { ...o, stale: true } : o));
@@ -2518,7 +2559,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		for (const p of how.querySelectorAll('p')) expect(outOfSight(p)).toBe(true);
 		// The list after it, named by its lead (told apart from the legend), one item per ring.
 		const ringList = within(section).getByRole('list', {
-			name: 'Other cases on the chart (slate rings, numbered):'
+			name: RING_LEAD
 		});
 		expect(follows(how, ringList)).toBe(true);
 		const items = within(ringList).getAllByRole('listitem');
@@ -2546,9 +2587,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
 			return copy.textContent!.replace(/\s+/g, ' ').trim();
 		};
-		expect(lines).toContain(
-			`Other cases on the chart (slate rings, numbered): ${items.map(text).join('; ')}.`
-		);
+		expect(lines).toContain(`${RING_LEAD} ${items.map(text).join('; ')}.`);
 
 		// Without a group system curve: the frame alone, and the summary says so.
 		await view.rerender(
@@ -2704,7 +2743,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					status: 'solved',
 					response: c.solve,
 					stale: false,
-					station: 'Station 55.15 L/s at a rise of 27.38 m'
+					station: 'Station 55.15 L/s at a rise of 27.38 m',
+					tag: 'Base'
 				},
 				{
 					key: 'S2',
@@ -2714,7 +2754,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					response: c.scenarioCases.S2!.solve,
 					stale: false,
 					station: null,
-					ring: 2
+					tag: 2
 				}
 			],
 			prefs: c.project.settings.units,
@@ -2849,7 +2889,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					status: 'solved',
 					response: c.solve,
 					stale: false,
-					station: 'Station 55.15 L/s at a rise of 27.38 m'
+					station: 'Station 55.15 L/s at a rise of 27.38 m',
+					tag: 'Base'
 				},
 				{
 					key: 'S2',
@@ -2859,7 +2900,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					response: c.scenarioCases.S2!.solve,
 					stale: true,
 					station: null,
-					ring: 2
+					tag: 2
 				},
 				{
 					key: 'S9',
@@ -2868,7 +2909,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					status: 'solved',
 					response: dead.solve,
 					stale: false,
-					station: null
+					station: null,
+					tag: 9
 				},
 				{
 					key: 'S5',
@@ -2877,7 +2919,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					status: 'failed',
 					response: null,
 					stale: false,
-					station: null
+					station: null,
+					tag: 5
 				}
 			],
 			prefs: c.project.settings.units,
@@ -2899,13 +2942,23 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			.filter((h) => h.getAttribute('scope') === 'rowgroup');
 		// Each case with values gains D24's lineup line (§7.10) between its heading and 4d's station
 		// line, read from its solve (a case without values has none).
-		expect(headings.map((h) => h.textContent!.replace(/\s+/g, ' ').trim())).toEqual([
-			'Base case (shown) 2 of 2 carrying flow: Pump PA and Pump PB Station 55.15 L/s at a rise of 27.38 m',
-			'Pump PB off (out of date) · ring 2 1 of 2 carrying flow: Pump PA; off: Pump PB',
-			'Held (synthetic) 1 of 2 carrying flow: Pump PA; on, carrying no flow: Pump PB',
-			'Failed case Failed'
+		// Each heading's case number in a box before its words (owner, 2026-11-12, nit 5;
+		// docs/proposals/pumps-nits.md item 5, slice 5b: in place of " · ring 2"), every case's,
+		// drawn or not, with values or not; its words heard first.
+		expect(headings.map((h) => [shownCaseTag(h), besideCaseTag(h)])).toEqual([
+			[
+				'Base',
+				'Base case (shown) 2 of 2 carrying flow: Pump PA and Pump PB Station 55.15 L/s at a rise of 27.38 m'
+			],
+			['2', 'Pump PB off (out of date) 1 of 2 carrying flow: Pump PA; off: Pump PB'],
+			['9', 'Held (synthetic) 1 of 2 carrying flow: Pump PA; on, carrying no flow: Pump PB'],
+			['5', 'Failed case Failed']
 		]);
-		expect([...headings[0]!.children].map((line) => line.textContent)).toEqual([
+		expect(headings[1]).toHaveAccessibleName(
+			'Case 2: Pump PB off (out of date) 1 of 2 carrying flow: Pump PA; off: Pump PB'
+		);
+		expect(designators(table)).toEqual([]);
+		expect([...headings[0]!.children].map((line) => besideCaseTag(line))).toEqual([
 			'Base case (shown)',
 			'2 of 2 carrying flow: Pump PA and Pump PB',
 			'Station 55.15 L/s at a rise of 27.38 m'
@@ -3002,6 +3055,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		response,
 		stale: false,
 		station: null,
+		// Its case's number (caseTags), "S9" 9 for a synthetic case (nit 5, slice 5b).
+		tag: key === '' ? 'Base' : Number(key.slice(1)),
 		...values
 	});
 
@@ -3284,7 +3339,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			solvedCase('', 'Base case', c.solve, {
 				station: 'Station 55.15 L/s at a rise of 27.38 m'
 			}),
-			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve, { ring: 2 }),
+			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve),
 			solvedCase('S9', 'Held (synthetic)', dead.solve),
 			solvedCase('S5', 'Failed case', null)
 		]);
@@ -3315,7 +3370,9 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				.find((h) => h.getAttribute('scope') === 'rowgroup')!;
 			expect(heading).toHaveAttribute('colspan', String(columns.length));
 			const lines = [...heading.children];
-			expect(lines.map((l) => l.textContent)).toEqual(
+			// The first line's case number in its box, then its words (nit 5, slice 5b).
+			expect(shownCaseTag(lines[0]!)).toBe(String(group.tag));
+			expect(lines.map((l) => besideCaseTag(l))).toEqual(
 				[group.heading, group.lineup, group.detail].filter((t) => t !== null)
 			);
 			for (const l of lines) {
@@ -3328,9 +3385,13 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					'max-sm:static',
 					'max-sm:w-auto'
 				);
-				// On screen, every word of it (S6 review MUT-03: a line made invisible failed nothing).
+				// On screen, every word of it (S6 review MUT-03: a line made invisible failed nothing),
+				// but its case number's words for a screen reader, whose box shows the number (nit 5,
+				// slice 5b).
 				expect(outOfSight(l), l.textContent!).toBe(false);
-				expect(wordsInSight(l)).toBe(l.textContent);
+				const seen = l.cloneNode(true) as Element;
+				for (const heard of seen.querySelectorAll('[data-case-tag] .sr-only')) heard.remove();
+				expect(wordsInSight(l)).toBe(seen.textContent);
 			}
 			const rows = within(body).getAllByRole('row');
 			// The heading's row, a row per member, and a flag line after each flagged one's.
@@ -3419,14 +3480,17 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		render(PumpGroupChart, base({ combinations: runningCombinations(input), oninspect }));
 		const combos = screen.getByRole('table', { name: 'Running combinations' });
 		const groups = within(combos).getAllByRole('rowgroup').slice(1);
-		const heading = (g: HTMLElement) =>
-			within(g)
+		// Each heading's first line: its case's number in a box, then its words (nit 5, slice 5b).
+		const heading = (g: HTMLElement) => {
+			const first = within(g)
 				.getAllByRole('rowheader')
-				.find((h) => h.getAttribute('scope') === 'rowgroup')!.firstElementChild!.textContent;
+				.find((h) => h.getAttribute('scope') === 'rowgroup')!.firstElementChild!;
+			return [shownCaseTag(first), besideCaseTag(first)];
+		};
 		expect(groups.map(heading)).toEqual([
-			'Pump PB off (shown)',
-			'Base case',
-			'Delivery tank 5 m higher'
+			['2', 'Pump PB off (shown)'],
+			['Base', 'Base case'],
+			['3', 'Delivery tank 5 m higher']
 		]);
 		// The scenario shown: a button per member, each opening that pump's trace (for that case).
 		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): each button its pump's name
@@ -3488,14 +3552,18 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 	/**
 	 * The body as drawn: each row group, its heading's first line (null in the flat form) and its
 	 * rows, each pump's as "{name} | {case, flat only} | {npsh margin}", each flag line as "flags
-	 * of {id}" after the row it follows.
+	 * of {id}" after the row it follows. A heading's and a Case cell's words beside their case's
+	 * number (nit 5, slice 5b: the box, checked by `caseTags` below).
 	 */
 	const drawnGroups = () =>
 		within(combosRegion())
 			.getAllByRole('rowgroup')
 			.slice(1)
 			.map((g) => ({
-				heading: g.querySelector('th[scope="rowgroup"]')?.firstElementChild?.textContent ?? null,
+				heading: (() => {
+					const first = g.querySelector('th[scope="rowgroup"]')?.firstElementChild;
+					return first ? besideCaseTag(first) : null;
+				})(),
 				rows: [...g.querySelectorAll(':scope > tr')]
 					.filter((r) => !r.querySelector('th[scope="rowgroup"]'))
 					.map((r) => {
@@ -3507,7 +3575,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 						const margin = r.querySelector('td[data-label="NPSH margin (m)"]');
 						return [
 							squashed(name.textContent),
-							kase && squashed(kase.textContent),
+							kase && besideCaseTag(kase),
 							squashed(margin?.textContent)
 						]
 							.filter((t) => t !== null)
@@ -3580,6 +3648,10 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			);
 			expect(cell).not.toHaveClass('whitespace-nowrap');
 			expect(cell.firstElementChild).not.toHaveClass('whitespace-nowrap');
+			// Its case's number in a box before its name, as its group's heading has it (nit 5,
+			// slice 5b).
+			const group = table.groups.find((g) => g.heading === besideCaseTag(cell))!;
+			expect(shownCaseTag(cell)).toBe(String(group.tag));
 		}
 		// The flag lines span the row, the Case column with it.
 		for (const notes of combosRegion().querySelectorAll('[data-row-notes]')) {
@@ -3700,7 +3772,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		const groups = within(combosRegion()).getAllByRole('rowgroup').slice(1);
 		for (const g of groups) {
 			const isShown =
-				g.querySelector('th[scope="rowgroup"]')!.firstElementChild!.textContent === shown.heading;
+				besideCaseTag(g.querySelector('th[scope="rowgroup"]')!.firstElementChild!) ===
+				shown.heading;
 			expect(within(g).queryAllByRole('button')).toHaveLength(isShown ? shown.rows.length : 0);
 		}
 		// Flat: the rows whose Case is the shown case's, and only they.
@@ -3710,7 +3783,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		);
 		expect(rows.length).toBe(table.groups.reduce((n, g) => n + g.rows.length, 0));
 		for (const r of rows) {
-			const kase = squashed(r.querySelector('td[data-label="Case"]')!.textContent);
+			const kase = besideCaseTag(r.querySelector('td[data-label="Case"]')!);
 			expect(!!r.querySelector('th[scope="row"] button'), kase).toBe(kase === shown.heading);
 		}
 		expect(traced()).toHaveLength(shown.rows.length);
@@ -3758,35 +3831,55 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		);
 		const figure = screen.getByRole('figure');
 		const legend = within(figure).getByRole('list', { name: 'Legend' });
-		const items = within(legend)
-			.getAllByRole('listitem')
-			.map((li) => li.textContent!.trim());
+		// Each ring's entry: the ring drawn (a slate ring, transparent inside, hidden from screen
+		// readers), then its case named by its number (owner, 2026-11-12, nit 5;
+		// docs/proposals/pumps-nits.md item 5, slice 5b: in place of "○ 1 ·").
+		const entries = within(legend).getAllByRole('listitem');
+		const items = entries.map((li) => li.textContent!.trim());
 		expect(items.slice(-4)).toEqual([
-			'○ 1 · Pump PA off (station duty)',
-			'○ 2 · Pump PB off (station duty)',
-			'○ 3 · Delivery tank 5 m higher (station duty)',
-			'○ 4 · Both pumps off (station duty)'
+			'Case 1: Pump PA off (station duty)',
+			'Case 2: Pump PB off (station duty)',
+			'Case 3: Delivery tank 5 m higher (station duty)',
+			'Case 4: Both pumps off (station duty)'
 		]);
+		for (const li of entries.slice(-4)) {
+			const ring = li.querySelector('svg')!;
+			expect(ring).toHaveAttribute('aria-hidden', 'true');
+			const circle = ring.querySelector('circle')!;
+			expect(circle.getAttribute('stroke')).toBe(GROUP_OTHER);
+			expect(circle.getAttribute('fill')).toBe('none');
+			expect(designators(li)).toEqual([]);
+		}
 		expect(within(figure).getByRole('img')).toHaveAccessibleName(
-			/; other cases' station duties: 1 · Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network\); 2 · Pump PB off, .*; 4 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state\); group curve shown; group system curve shown\.$/
+			/; other cases' station duties: case 1: Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network\); case 2: Pump PB off, .*; case 4: Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state\); group curve shown; group system curve shown\.$/
 		);
 		await drawn();
 		await fireEvent.click(
 			screen.getByRole('button', { name: 'Show data table of the group chart' })
 		);
 		const table = screen.getByRole('table', { name: "Other cases' station duties" });
+		// Each row header: its case's number in a box, then its name (nit 5, slice 5b).
 		const rows = within(table)
 			.getAllByRole('row')
 			.slice(1)
 			.map((r) =>
 				[...r.querySelectorAll('th, td')].map((cell) =>
-					cell.textContent!.replace(/\s+/g, ' ').trim()
+					cell.tagName === 'TH'
+						? `${shownCaseTag(cell)} | ${besideCaseTag(cell)}`
+						: cell.textContent!.replace(/\s+/g, ' ').trim()
 				)
 			);
 		const duty = (id: string) =>
 			(c.scenarioCases[id]!.groupCurve.body as PumpGroupCurveResponse).duty!;
+		expect(rows.map((r) => r[0])).toEqual([
+			'1 | Pump PA off',
+			'2 | Pump PB off',
+			'3 | Delivery tank 5 m higher',
+			'4 | Both pumps off'
+		]);
+		expect(within(table).getAllByRole('rowheader')[0]).toHaveAccessibleName('Case 1: Pump PA off');
 		expect(rows[0]).toEqual([
-			'○ 1 · Pump PA off',
+			'1 | Pump PA off',
 			formatNumber(duty('S1').flow * 1000, 4),
 			formatNumber(duty('S1').head, 4),
 			'Yes: the same rest of the network'
@@ -3807,6 +3900,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				shared: id !== 'S3',
 				solved: null
 			})),
+			tags: caseTags(c.project),
 			shownKeys: new Set(['S1', 'S2', 'S3', 'S4']),
 			othersOn: false,
 			shownSettled: true,
@@ -3891,6 +3985,10 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 				curve: readyState(groupCurve),
 				system: readyState(systemCurve),
 				otherCases: view.others,
+				// Every case's number and the case shown's, as the Pumps view gives them (nit 5,
+				// slice 5b).
+				tags: caseTags(lineups.project),
+				caseTag: caseTagOf(caseTags(lineups.project), shown),
 				othersOn: true,
 				onothers: () => {},
 				shownOn: lineupOn(shown),
@@ -3948,26 +4046,33 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			'On the group system curve shown',
 			'Its group curve'
 		]);
+		// Each row header: its case's number in a box, then its name (nit 5, slice 5b).
 		const rows = within(table)
 			.getAllByRole('row')
 			.slice(1)
 			.map((r) =>
-				[...r.querySelectorAll('th, td')].map((c) => c.textContent!.replace(/\s+/g, ' ').trim())
+				[...r.querySelectorAll('th, td')].map((c) =>
+					c.tagName === 'TH'
+						? `${shownCaseTag(c)} | ${besideCaseTag(c)}`
+						: c.textContent!.replace(/\s+/g, ' ').trim()
+				)
 			);
-		// The cases in the chart's order: S1 (stale), S2, S3, S4, the unticked S5 and S6 in their
-		// place (no ring), then S7 and S8 within the cap.
+		// The cases in number order, each with its own number (owner, 2026-11-12, nit 5; Q2 "By
+		// list place"; docs/proposals/pumps-nits.md item 5, slice 5b: S7 and S8 are 7 and 8, no
+		// longer rings 5 and 6): S1 (stale), S2, S3, S4, the unticked S5 and S6 (no ring, their
+		// numbers kept), then S7 and S8 within the cap.
 		expect(rows.map((r) => [r[0], r[4]])).toEqual([
-			[`○ 1 · ${NAMES.S1} (out of date)`, crossing('as last solved: 3 running')],
-			[`○ 2 · ${NAMES.S2}`, crossing('2 running')],
-			[`○ 3 · ${NAMES.S3}`, crossing('1 running')],
-			[`○ 4 · ${NAMES.S4}`, crossing('3 running')],
-			[NAMES.S5, undefined],
-			[NAMES.S6, undefined],
+			[`1 | ${NAMES.S1} (out of date)`, crossing('as last solved: 3 running')],
+			[`2 | ${NAMES.S2}`, crossing('2 running')],
+			[`3 | ${NAMES.S3}`, crossing('1 running')],
+			[`4 | ${NAMES.S4}`, crossing('3 running')],
+			[`5 | ${NAMES.S5}`, undefined],
+			[`6 | ${NAMES.S6}`, undefined],
 			[
-				`○ 5 · ${NAMES.S7}`,
+				`7 | ${NAMES.S7}`,
 				'Not drawn: the station differs inside in more than which pumps are switched on'
 			],
-			[`○ 6 · ${NAMES.S8}`, "The same as this case's: the station is the same inside"]
+			[`8 | ${NAMES.S8}`, "The same as this case's: the station is the same inside"]
 		]);
 		// The cases not on the chart span the four columns after their name.
 		const unticked = within(table)
@@ -4158,14 +4263,18 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		const headers = groups.map((g) => within(g).getAllByRole('rowheader')[0]!);
 		expect(headers.map((h) => h.getAttribute('scope'))).toEqual(Array(6).fill('rowgroup'));
 		expect(headers.map((h) => h.getAttribute('colspan'))).toEqual(Array(6).fill('3'));
-		expect(headers.map((h) => h.textContent!.replace(/^○\s*/, '').trim())).toEqual([
-			`1 · ${NAMES.S1} (out of date): as last solved: 3 running`,
-			`2 · ${NAMES.S2}: 2 running`,
-			`3 · ${NAMES.S3}: 1 running`,
-			`4 · ${NAMES.S4}: 3 running`,
-			`5 · ${NAMES.S5}: 3 running`,
-			`6 · ${NAMES.S6}: 3 running`
+		// Each header: its case's number in a box, then its words (owner, 2026-11-12, nit 5;
+		// docs/proposals/pumps-nits.md item 5, slice 5b: in place of "○ 1 ·"), heard as "Case 1: …".
+		expect(headers.map((h) => [shownCaseTag(h), besideCaseTag(h)])).toEqual([
+			['1', `${NAMES.S1} (out of date): as last solved: 3 running`],
+			['2', `${NAMES.S2}: 2 running`],
+			['3', `${NAMES.S3}: 1 running`],
+			['4', `${NAMES.S4}: 3 running`],
+			['5', `${NAMES.S5}: 3 running`],
+			['6', `${NAMES.S6}: 3 running`]
 		]);
+		expect(headers[1]).toHaveAccessibleName(`Case 2: ${NAMES.S2}: 2 running`);
+		expect(designators(table)).toEqual([]);
 		// A stale case's header as Running combinations marks one.
 		expect(headers[0]).toHaveClass('bg-amber-50/60');
 		expect(headers[1]).toHaveClass('bg-slate-50/60');
@@ -4236,15 +4345,16 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		expect(frameNote!.textContent).toMatch(/The list below says, for each ring, which\.$/);
 		expect(rule!.textContent).toBe(DUTY_CLAIM_RULE);
 		expect(outOfSight(frameNote!)).toBe(true);
-		const lead = within(section).getByText('Other cases on the chart (slate rings, numbered):');
+		const lead = within(section).getByText(RING_LEAD);
 		const ringList = within(section).getByRole('list', {
-			name: 'Other cases on the chart (slate rings, numbered):'
+			name: RING_LEAD
 		});
 		expect(ringList).toHaveAttribute('aria-labelledby', lead.id);
 		expect(follows(how, lead)).toBe(true);
 		expect(follows(lead, ringList)).toBe(true);
-		// One line per ring, in number order: the glyph and number in a reserved column, the
-		// case's name in medium weight, the rest regular.
+		// One line per ring, in number order: its case's number in a box in a reserved 2.5 rem
+		// column (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5, slice 5b: in place
+		// of the glyph and number in 2.25 rem), the case's name in medium weight, the rest regular.
 		const items = within(ringList).getAllByRole('listitem');
 		const keys = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'] as const;
 		expect(items).toHaveLength(keys.length);
@@ -4255,11 +4365,10 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		};
 		for (const [i, li] of items.entries()) {
 			const column = li.firstElementChild!;
-			expect(column).toHaveClass('w-9', 'shrink-0');
-			const glyph = column.querySelector('[aria-hidden="true"]')!;
-			expect(glyph.textContent).toBe('○');
-			expect(glyph).toHaveStyle({ color: GROUP_OTHER });
-			expect(column.textContent!.replace(/\s+/g, ' ').trim()).toBe(`○ ${i + 1} ·`);
+			expect(column).toHaveClass('w-10', 'shrink-0');
+			expect(column.firstElementChild).toHaveAttribute('data-case-tag');
+			expect(shownCaseTag(column)).toBe(String(i + 1));
+			expect(designators(li)).toEqual([]);
 			const name = li.querySelector('.font-medium')!;
 			expect(name).toHaveClass('text-slate-900');
 			expect(name.textContent).toBe(NAMES[keys[i]!]);
@@ -4268,7 +4377,7 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			expect(name.parentElement).not.toHaveClass('truncate');
 			expect(text(li)).toMatch(
 				new RegExp(
-					`^${i + 1} · ${NAMES[keys[i]!]!.replace(/[()]/g, '\\$&')}, [\\d.]+ L/s at a rise of [\\d.]+ m: Yes: the same rest of the network; group curve: drawn \\(\\d running\\): it crosses the group system curve at the ring$`
+					`^Case ${i + 1}: ${NAMES[keys[i]!]!.replace(/[()]/g, '\\$&')}, [\\d.]+ L/s at a rise of [\\d.]+ m: Yes: the same rest of the network; group curve: drawn \\(\\d running\\): it crosses the group system curve at the ring$`
 				)
 			);
 			expect(outOfSight(li)).toBe(false);
@@ -4394,23 +4503,33 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		});
 		imageChart.draw();
 		// The image writes the curves' labels in the desktop's words at 14 px (§9.3, §9.6): the base
-		// (1, 4 running), "2 of 4 running" (3) and the 3-running cases merged, numbers ascending,
-		// and this case's own.
+		// (Base, 4 running), "2 of 4 running" (2) and the 3-running cases merged, numbers ascending,
+		// each led by its cases' numbers in a box (owner, 2026-11-12, nit 5;
+		// docs/proposals/pumps-nits.md item 5, slice 5b: "[1, 4, 5, 6] 3 running", in place of
+		// "2, 4, 5, 6 · 3 running" by the lineup priority's ring numbers), and this case's own.
 		const labels = imageChart.written.filter((w) => / running( \(this case\))?$/.test(w.text));
 		expect(labels.map((w) => w.text).sort()).toEqual([
 			'1 running (this case)',
-			'1 · 4 running',
-			'2, 4, 5, 6 · 3 running',
-			'3 · 2 running'
+			'2 running',
+			'3 running',
+			'4 running'
 		]);
+		for (const text of [
+			'1 running (this case)',
+			'[Base] 4 running',
+			'[1, 4, 5, 6] 3 running',
+			'[2] 2 running'
+		])
+			expect(imageChart.label(text), text).toMatchObject({ font: '14px system-ui, sans-serif' });
 		expect([...new Set(labels.map((w) => w.font))]).toEqual(['14px system-ui, sans-serif']);
+		expect(designators(labels.map((w) => w.text).join(' '))).toEqual([]);
 		const drawnLines = request.drawnLines!();
 		expect(drawnLines.some((l) => l.includes('left out for space'))).toBe(false);
 		expect(drawnLines).toEqual(request.lines.filter((l) => l !== sentence(placed.leftOut)));
 		// The image's datasets carry the family with its full labels.
 		const sets = request.config.data.datasets as unknown as Record<string, unknown>[];
 		expect(sets.filter((d) => d.curveFamily).map((d) => d.label)).toContain(
-			`1 · Base case: group curve, 4 running`
+			'Base case, group curve, 4 running'
 		);
 	}, 20_000);
 });

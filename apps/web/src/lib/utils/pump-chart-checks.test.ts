@@ -248,7 +248,7 @@ describe('the chart', () => {
 		const other: OtherCaseData = {
 			key: 'S1',
 			label: 'Faster',
-			marker: 'triangle',
+			tag: 1,
 			operating: { x: 40, y: 20 },
 			held: null,
 			curve: [

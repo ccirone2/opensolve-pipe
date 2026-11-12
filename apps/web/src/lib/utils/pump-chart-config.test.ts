@@ -1,13 +1,19 @@
 /**
  * The pump chart's configuration (proposal export.md §3.4): the screen's chart and the image's
  * fixed-size render draw the same datasets; the image has no animation, events or tooltip, is
- * drawn at 2× and has larger fonts; other cases are slate with their markers. Pump results are
- * made-up test inputs.
+ * drawn at 2× and has larger fonts; other cases are slate rings named by their case numbers. Pump
+ * results are made-up test inputs.
  */
 import { describe, expect, it } from 'vitest';
 import { pumpResult, systemCurveResponse } from '../testing/results';
 import { otherCasesData, pumpChartData } from './pump-chart';
-import { CHART_COLORS, pumpChartConfig, pumpGroupConfig } from './pump-chart-config';
+import {
+	CHART_COLORS,
+	fillLabel,
+	labelTag,
+	pumpChartConfig,
+	pumpGroupConfig
+} from './pump-chart-config';
 import { GROUP_SLOTS, groupChartData, type GroupMemberInput } from './pump-group-chart';
 import { formatNumber, SI_UNITS } from './units';
 
@@ -53,7 +59,9 @@ describe('pump chart configuration', () => {
 		});
 	});
 
-	it('draws the other cases in slate with their markers', () => {
+	// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5, slice 5b): a slate ring named
+	// by its case's number, in place of the hollow triangle named "Winter (out of date)".
+	it('draws the other cases in slate, each a ring named by its number', () => {
 		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
 		const others = otherCasesData(
 			[
@@ -67,45 +75,26 @@ describe('pump chart configuration', () => {
 			],
 			SI_UNITS,
 			[0, 0.03],
-			1
+			1,
+			null,
+			{ S1: 3 }
 		);
 		const config = pumpChartConfig(data, others, {
 			speedText: '100 % speed',
 			legendLabels,
 			format
 		});
-		const winter = config.data.datasets.find((d) => d.label === 'Winter (out of date)');
+		const winter = config.data.datasets.find((d) => d.label === 'Case 3: Winter (out of date)');
 		expect(winter).toMatchObject({
 			borderColor: CHART_COLORS.slate,
-			pointStyle: 'triangle',
+			pointStyle: 'circle',
 			showLine: false
 		});
 		expect(labelsOf(config)).toContain('Pump curve at 90 % speed (Winter, out of date)');
 	});
 
-	it('draws ▽ as Chart.js’s triangle turned over, the other markers unturned (pumps-results-layout.md §6.2 S8)', () => {
-		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
-		const cases = ['S1', 'S2', 'S3', 'S4', 'S5'].map((key) => ({
-			key,
-			name: `Case ${key}`,
-			result: pumpResult(),
-			stale: false,
-			system: null
-		}));
-		const config = pumpChartConfig(data, otherCasesData(cases, SI_UNITS, [0, 0.03], 1), {
-			speedText: '100 % speed',
-			legendLabels,
-			format
-		});
-		const point = (label: string) => config.data.datasets.find((d) => d.label === label);
-		expect(['Case S1', 'Case S2', 'Case S3', 'Case S4', 'Case S5'].map(point)).toMatchObject([
-			{ pointStyle: 'triangle', pointRotation: 0 },
-			{ pointStyle: 'rect', pointRotation: 0 },
-			{ pointStyle: 'star', pointRotation: 0 },
-			{ pointStyle: 'crossRot', pointRotation: 0 },
-			{ pointStyle: 'triangle', pointRotation: 180 }
-		]);
-	});
+	// ▽, the triangle turned over, went with the other shapes (nit 5, slice 5b): the test that drew
+	// it is replaced by "draws every other case as a slate ring" below, eight cases, none turned.
 });
 
 describe('the group chart’s member marks (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5)', () => {
@@ -152,5 +141,387 @@ describe('the group chart’s member marks (owner, 2026-11-12, nit 5; docs/propo
 				3
 			);
 		}
+	});
+});
+
+// Case numbers (owner, 2026-11-12, nit 5; Q1 "Shapes go too"; docs/proposals/pumps-nits.md item
+// 5, slice 5b): the pump chart's other cases are slate rings, as the group chart's are, named by
+// their numbers in the legend and the tooltips; the shapes △ □ ✳ × ▽ go. The canvas's own labels
+// keep today's code (a boxed number where a shape was), so they are not tested here.
+describe('the pump chart’s other cases as numbered slate rings (nit 5, slice 5b)', () => {
+	const legendLabels = () => [];
+	const format = (v: number) => formatNumber(v, 4);
+	const ids = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'];
+	const tags = Object.fromEntries(ids.map((id, i) => [id, i + 1]));
+	type Dataset = Record<string, unknown> & { label?: string };
+	const datasetsOf = (config: ReturnType<typeof pumpChartConfig>) =>
+		config.data.datasets as unknown as Dataset[];
+
+	it('draws every other case as a slate ring: r 10, 2 px, a transparent fill, on top; no shape tells them apart', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
+		const others = otherCasesData(
+			ids.map((key, i) => ({
+				key,
+				name: `Scenario ${key}`,
+				result: pumpResult({ operatingFlow: 0.002 * (i + 1), operatingHead: 30 - i }),
+				stale: false,
+				system: null
+			})),
+			SI_UNITS,
+			[0, 0.03],
+			1,
+			null,
+			tags
+		);
+		const config = pumpChartConfig(data, others, {
+			speedText: '100 % speed',
+			legendLabels,
+			format
+		});
+		const rings = datasetsOf(config).filter((d) => /^Case \d+: /.test(d.label ?? ''));
+		// The legend and the tooltips name each by its number (eight: none runs out).
+		expect(rings.map((d) => d.label)).toEqual(ids.map((id, i) => `Case ${i + 1}: Scenario ${id}`));
+		for (const ring of rings) {
+			expect(ring, ring.label).toMatchObject({
+				borderColor: CHART_COLORS.slate,
+				backgroundColor: 'transparent',
+				borderWidth: 2,
+				pointStyle: 'circle',
+				pointRadius: 10,
+				showLine: false,
+				// On top (Chart.js draws the lowest order last), as the group chart's rings.
+				order: -1
+			});
+			expect(ring.pointRotation ?? 0, ring.label).toBe(0);
+		}
+		// No other case's point is one of the old shapes.
+		const shapes = new Set(['triangle', 'rect', 'star', 'crossRot', 'triangleDown', 'rectRounded']);
+		expect(datasetsOf(config).filter((d) => shapes.has(d.pointStyle as string))).toEqual([]);
+	});
+
+	it('names an other case’s system curve by its number, the base case by its name', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
+		const others = otherCasesData(
+			[
+				{
+					key: '',
+					name: 'Base case',
+					result: pumpResult(),
+					stale: false,
+					system: systemCurveResponse()
+				},
+				{
+					key: 'S2',
+					name: 'Pump PB off',
+					result: pumpResult({ operatingFlow: 0.012 }),
+					stale: true,
+					system: systemCurveResponse()
+				}
+			],
+			SI_UNITS,
+			[0, 0.03],
+			1,
+			null,
+			{ '': 'Base', S2: 2 }
+		);
+		const labels = datasetsOf(
+			pumpChartConfig(data, others, { speedText: '100 % speed', legendLabels, format })
+		).map((d) => d.label);
+		expect(labels).toEqual(
+			expect.arrayContaining([
+				'Base case',
+				'System curve, Base case',
+				'Case 2: Pump PB off (out of date)',
+				'System curve, case 2'
+			])
+		);
+		// Never a name alone for a numbered case, nor the old "System curve, {name}".
+		expect(labels).not.toContain('Pump PB off (out of date)');
+		expect(labels).not.toContain('System curve, Pump PB off (out of date)');
+	});
+});
+
+// "Read along the curves" on the group chart (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md
+// item 5, rule 6): its rings are stroked dashed [4, 3], the rise line's own dash, so none reads as
+// an other case's solid slate ring (r 10) beside it; today they are solid at r 11.
+describe('the group chart’s readout rings (nit 5, slice 5b)', () => {
+	/** A context that records each stroke: whether its path holds an arc, and the dash then set. */
+	function recordingContext() {
+		const strokes: { arc: boolean; dash: number[]; color: string; width: number }[] = [];
+		let state = { dash: [] as number[] };
+		const saved: (typeof state)[] = [];
+		let arc = false;
+		const ctx = {
+			strokeStyle: '',
+			fillStyle: '',
+			lineWidth: 1,
+			font: '',
+			save() {
+				saved.push({ ...state, dash: [...state.dash] });
+			},
+			restore() {
+				state = saved.pop() ?? { dash: [] };
+			},
+			setLineDash(dash: number[]) {
+				state.dash = [...dash];
+			},
+			getLineDash: () => [...state.dash],
+			beginPath() {
+				arc = false;
+			},
+			moveTo() {},
+			lineTo() {},
+			arc() {
+				arc = true;
+			},
+			stroke() {
+				strokes.push({ arc, dash: [...state.dash], color: ctx.strokeStyle, width: ctx.lineWidth });
+			},
+			fill() {},
+			fillText() {},
+			measureText: () => ({ width: 10 })
+		};
+		return { ctx, strokes };
+	}
+
+	it('strokes the rings on the points read dashed [4, 3], as the rise line, in slate', () => {
+		const members: GroupMemberInput[] = [0, 1].map((slot) => ({
+			id: `P${slot + 1}`,
+			name: `Pump P${slot + 1}`,
+			result: pumpResult({ operatingFlow: 0.01 * (slot + 1) }),
+			ratedRange: [0, 0.03],
+			curveId: null,
+			slot,
+			flags: []
+		}));
+		const data = groupChartData(members, SI_UNITS, null);
+		const config = pumpGroupConfig(data, {
+			legendLabels: () => [],
+			format: (v: number) => formatNumber(v, 4),
+			readout: () => ({
+				rise: 20,
+				points: [
+					{ x: 5, y: 20 },
+					{ x: 10, y: 20 },
+					{ x: 15, y: 20 }
+				]
+			})
+		});
+		const plugin = config.plugins!.find((p) => p.id === 'groupReadout')!;
+		const { ctx, strokes } = recordingContext();
+		const chart = {
+			ctx,
+			chartArea: { left: 0, right: 1000, top: 0, bottom: 1000 },
+			scales: {
+				x: { getPixelForValue: (v: number) => v * 10 },
+				y: { getPixelForValue: (v: number) => 1000 - v * 10 }
+			}
+		};
+		plugin.afterDatasetsDraw!(chart as never, {} as never, {} as never, undefined as never);
+		const rings = strokes.filter((s) => s.arc);
+		const rise = strokes.filter((s) => !s.arc);
+		expect(rings).toHaveLength(3);
+		expect(rise).toHaveLength(1);
+		expect(rise[0]!.dash).toEqual([4, 3]);
+		for (const ring of rings) {
+			expect(ring.dash).toEqual([4, 3]);
+			expect(ring.color).toBe(CHART_COLORS.slate);
+		}
+	});
+});
+
+// The pump chart's other cases on the canvas (owner, 2026-11-12, nit 5;
+// docs/proposals/pumps-nits.md item 5, slice 5b): today's label code, a boxed number where the
+// shape was. A label "[2] Winter" is drawn by fillLabel as the number in a box as wide as "[2]"
+// measures, then the name; the legend keeps each ring where its dataset is, though `order: -1`
+// draws it on top.
+describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () => {
+	const legendLabels = () => [];
+	const format = (v: number) => formatNumber(v, 4);
+	type Dataset = Record<string, unknown> & { label?: string; caseLabel?: string };
+	const others = (stale = false) =>
+		otherCasesData(
+			[
+				{ key: '', name: 'Base case', result: pumpResult(), stale: false, system: null },
+				{
+					key: 'S2',
+					name: 'Winter',
+					result: pumpResult({ operatingFlow: 0.012, operatingHead: 25 }),
+					stale,
+					system: systemCurveResponse()
+				}
+			],
+			SI_UNITS,
+			[0, 0.03],
+			1,
+			null,
+			{ '': 'Base', S2: 2 }
+		);
+	const rings = (config: ReturnType<typeof pumpChartConfig>) =>
+		(config.data.datasets as unknown as Dataset[]).filter((d) => d.otherCase === true);
+
+	it('tags each ring "[n] name" on the canvas, "[n]" alone on a phone’s screen, never so in the image', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
+		const screen = pumpChartConfig(data, others(true), {
+			speedText: '100 %',
+			legendLabels,
+			format
+		});
+		expect(rings(screen).map((d) => d.caseLabel)).toEqual([
+			'[Base] Base case',
+			'[2] Winter (out of date)'
+		]);
+		const phone = pumpChartConfig(data, others(), {
+			speedText: '100 %',
+			legendLabels,
+			format,
+			compactLabels: true
+		});
+		expect(rings(phone).map((d) => d.caseLabel)).toEqual(['[Base]', '[2]']);
+		const image = pumpChartConfig(data, others(), {
+			speedText: '100 %',
+			legendLabels,
+			format,
+			compactLabels: true,
+			forImage: true
+		});
+		expect(rings(image).map((d) => d.caseLabel)).toEqual(['[Base] Base case', '[2] Winter']);
+	});
+
+	it('writes a tagged label as its number in a box, then its words, the label as wide as its text measures', () => {
+		expect(labelTag('[2] Winter')).toEqual({ tag: '2', words: 'Winter' });
+		expect(labelTag('[1, 4, 5, 6] 3 running')).toEqual({ tag: '1, 4, 5, 6', words: '3 running' });
+		expect(labelTag('[Base]')).toEqual({ tag: 'Base', words: '' });
+		expect(labelTag('Group (crossing)')).toEqual({ tag: null, words: 'Group (crossing)' });
+		const calls: unknown[][] = [];
+		const ctx = {
+			font: '12px system-ui, sans-serif',
+			fillStyle: '#475569',
+			strokeStyle: '#000000',
+			lineWidth: 3,
+			textAlign: 'left',
+			textBaseline: 'alphabetic',
+			measureText: (text: string) => ({ width: text.length * 6 }),
+			beginPath: () => calls.push(['beginPath']),
+			roundRect: (...a: number[]) => calls.push(['roundRect', ...a]),
+			fill() {
+				calls.push(['fill', this.fillStyle]);
+			},
+			stroke() {
+				calls.push(['stroke', this.strokeStyle, this.lineWidth]);
+			},
+			fillText(text: string, x: number, y: number) {
+				calls.push(['fillText', text, x, y, this.font, this.fillStyle, this.textAlign]);
+			}
+		};
+		fillLabel(ctx as unknown as CanvasRenderingContext2D, '[12] Winter', 100, 50, 12);
+		// The box: "[12]" measures 24 px; from the font's size above the baseline to a quarter of it
+		// below (12 + 3 px), on half pixels for a crisp 1 px edge, white with a slate edge.
+		expect(calls).toEqual([
+			['beginPath'],
+			['roundRect', 100.5, 38.5, 23, 14, 3],
+			['fill', '#ffffff'],
+			['stroke', CHART_COLORS.slate, 1],
+			// Its number bold, centred in it, in the legend's ink, 1 px above the baseline.
+			['fillText', '12', 112, 49, '600 10px system-ui, sans-serif', CHART_COLORS.legend, 'center'],
+			// Then the words where "[12] " ends, in the colour, font and alignment set.
+			['fillText', 'Winter', 130, 50, '12px system-ui, sans-serif', '#475569', 'left']
+		]);
+		// Everything set back.
+		expect([ctx.font, ctx.fillStyle, ctx.strokeStyle, ctx.lineWidth, ctx.textAlign]).toEqual([
+			'12px system-ui, sans-serif',
+			'#475569',
+			'#000000',
+			3,
+			'left'
+		]);
+		// A label without a tag: its text alone, as before.
+		calls.length = 0;
+		fillLabel(ctx as unknown as CanvasRenderingContext2D, 'BEP', 10, 20, 12);
+		expect(calls).toEqual([
+			['fillText', 'BEP', 10, 20, '12px system-ui, sans-serif', '#475569', 'left']
+		]);
+	});
+
+	it('draws each ring’s tag right of it with today’s label code, and the brackets never reach the canvas', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
+		const config = pumpChartConfig(data, others(), { speedText: '100 %', legendLabels, format });
+		const written: { text: string; x: number; y: number }[] = [];
+		const boxes: number[][] = [];
+		const ctx = {
+			font: '',
+			fillStyle: '',
+			strokeStyle: '',
+			lineWidth: 1,
+			textAlign: 'start',
+			textBaseline: 'alphabetic',
+			save() {},
+			restore() {},
+			measureText: (text: string) => ({ width: text.length * 6 }),
+			beginPath() {},
+			roundRect: (...a: number[]) => boxes.push(a),
+			fill() {},
+			stroke() {},
+			fillText: (text: string, x: number, y: number) => written.push({ text, x, y })
+		};
+		const sets = config.data.datasets as unknown as Dataset[];
+		const chart = {
+			ctx,
+			data: config.data,
+			isDatasetVisible: () => true,
+			getDatasetMeta: (i: number) => ({
+				data: (sets[i]!.data as unknown[]).map((_, k) => ({ x: 100 + 50 * i + k, y: 200 }))
+			})
+		};
+		const plugin = config.plugins!.find((p) => p.id === 'caseLabels')!;
+		plugin.afterDatasetsDraw!(chart as never, {} as never, {} as never, undefined as never);
+		const at = (label: string) => {
+			const i = sets.findIndex((d) => d.caseLabel === label);
+			return { x: 100 + 50 * i, y: 200 };
+		};
+		// Above the first ring and below the second (in turn), 10 px right of its centre (r 10).
+		const base = at('[Base] Base case');
+		const winter = at('[2] Winter');
+		expect(boxes).toEqual([
+			[base.x + 10 + 0.5, base.y - 10 - 12 + 0.5, 6 * 6 - 1, 14, 3],
+			[winter.x + 10 + 0.5, winter.y + 20 - 12 + 0.5, 3 * 6 - 1, 14, 3]
+		]);
+		expect(written).toContainEqual({ text: 'Base case', x: base.x + 10 + 7 * 6, y: base.y - 10 });
+		expect(written).toContainEqual({ text: 'Winter', x: winter.x + 10 + 4 * 6, y: winter.y + 20 });
+		expect(written.map((w) => w.text)).toEqual(
+			expect.arrayContaining(['Base', '2', 'Base case', 'Winter'])
+		);
+		expect(written.some((w) => w.text.includes('['))).toBe(false);
+	});
+
+	it('lists each ring in the legend where its dataset is, though it is drawn on top', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], systemCurveResponse());
+		const plain = pumpChartConfig(data, others(), { speedText: '100 %', legendLabels, format });
+		const sets = plain.data.datasets as unknown as Dataset[];
+		// Chart.js's own items, sorted as it sorts them (by `order`, then the datasets' order).
+		const sorted = sets
+			.map((d, i) => ({ d, i }))
+			.sort((a, b) => ((a.d.order as number) ?? 0) - ((b.d.order as number) ?? 0) || a.i - b.i);
+		const config = pumpChartConfig(data, others(), {
+			speedText: '100 %',
+			legendLabels: () => sorted.map(({ d, i }) => ({ text: d.label!, datasetIndex: i }) as never),
+			format
+		});
+		expect(sorted[0]!.d.otherCase).toBe(true);
+		const labels = config.options!.plugins!.legend!.labels!.generateLabels!({
+			data: config.data
+		} as never).map((item) => item.text);
+		// The datasets' order, but for those of a higher order listed after (as before: the rising
+		// stretch, `order: 1`), the rings in their place among the other cases' datasets.
+		const expected = sets
+			.map((d, i) => ({ d, i }))
+			.sort(
+				(a, b) =>
+					(a.d.otherCase ? 0 : ((a.d.order as number) ?? 0)) -
+						(b.d.otherCase ? 0 : ((b.d.order as number) ?? 0)) || a.i - b.i
+			)
+			.map(({ d }) => d.label);
+		expect(labels).toEqual(expected);
+		expect(labels.slice(-3)).toEqual(['Base case', 'System curve, case 2', 'Case 2: Winter']);
 	});
 });

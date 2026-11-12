@@ -18,14 +18,16 @@
 	loaded only when a chart is shown.
 
 	Other cases (proposal scenario-manager.md §6.13): the case shown keeps this encoding; every
-	other solved case with a result for this pump is drawn in slate, each with its own hollow
-	marker and a direct label: its operating point and, where the pump runs at another speed, its
-	pump curve. Their system curves are computed only on request (each costs about 41 solves), one
+	other solved case with a result for this pump is drawn in slate, a ring tagged with its case's
+	number (`tags`, pump-chart.ts caseTags: "Base", then 1 to n by the Scenarios list; owner,
+	2026-11-12, nit 5, Q1 "Shapes go too", Q2 "By list place"; docs/proposals/pumps-nits.md item 5,
+	slice 5b): its operating point and, where the pump runs at another speed, its pump curve. Their system curves are computed only on request (each costs about 41 solves), one
 	at a time, with Cancel. Checkboxes choose the cases shown (at most six at once); the data table
 	lists the operating points by case. The choice is the page's, one for this list and the Pumps
 	together card's (proposal pumps-results-layout.md §9 S8): `unticked` and `ontick`. A case in
 	which this pump is off takes no slot while their system curves are not asked for: it has no box,
-	and a line under the list names it. Each marker is fixed by case (`markers`).
+	and a line under the list names it. Every list and table shows each case's number in a box
+	(CaseTag), the case shown's too (`caseTag`); no character designates a case.
 
 	Design checks (CLAUDE.md D19): with checks on, a chip shows their limits: the preferred and
 	allowable operating regions shaded under the curves, the minimum flow, the NPSHa the NPSH margin
@@ -47,8 +49,7 @@
 		checksDrawn,
 		loadHiddenPanels,
 		loadTableShown,
-		caseMarkers,
-		MARKER_SYMBOLS,
+		caseTagOf,
 		MAX_CHART_CASES,
 		offCasesNote,
 		otherCasesData,
@@ -60,7 +61,7 @@
 		saveHiddenPanels,
 		saveTableShown,
 		valueNotes,
-		type CaseMarker,
+		type CaseNumber,
 		type ChipKey,
 		type OtherCaseInput,
 		type PanelKey,
@@ -69,6 +70,7 @@
 	} from '$lib/utils/pump-chart';
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
+	import CaseTag from '$lib/components/ui/CaseTag.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import CurveTable from './CurveTable.svelte';
 	import IssueDetail from './IssueDetail.svelte';
@@ -102,6 +104,8 @@
 		othersControlled?: boolean;
 		/** The case shown, in a project with scenarios ("Winter"): the caption names it. */
 		caseName?: string;
+		/** The case shown's number (pump-chart.ts caseTags): its "(shown)" tag and table row. */
+		caseTag?: CaseNumber;
 		/** Other cases with a result for this pump (their system curve when computed). */
 		others?: readonly OtherCaseInput[];
 		/**
@@ -109,8 +113,11 @@
 		 * and those past this chart's cap at an untick (pumps-results-layout.md §9 S8, page state).
 		 */
 		unticked?: readonly string[];
-		/** Each case drawn's marker, fixed by case (pump-chart.ts caseMarkers); by default its place's. */
-		markers?: Readonly<Record<string, CaseMarker>>;
+		/**
+		 * Every case's number (pump-chart.ts caseTags of the project), one for the whole Pumps tab:
+		 * each other case's ring, box and words (nit 5, slice 5b). Every case of `others` has one.
+		 */
+		tags?: Readonly<Record<string, CaseNumber>>;
 		/** Tick or untick another case: the page's one choice of cases (§9 S8). */
 		ontick?: (key: string, on: boolean) => void;
 		/** The other cases' system curves: requested (true) or not. */
@@ -147,9 +154,10 @@
 		onchecks,
 		othersControlled = false,
 		caseName,
+		caseTag = 'Base',
 		others = [],
 		unticked = [],
-		markers,
+		tags = { '': 'Base' },
 		ontick,
 		overlayCurves = false,
 		onoverlay,
@@ -167,19 +175,8 @@
 	const cases = $derived(pumpChartCases(others, unticked, overlayCurves));
 	const shownOthers = $derived(cases.shown);
 	const shownKeys = $derived(new Set(shownOthers.map((o) => o.key)));
-	/**
-	 * Each case drawn's marker: the page's, else each its place's among the cases with a result
-	 * while they are five or fewer, else among those listed (§9 S8 Markers, caseMarkers).
-	 */
-	const caseMarker = $derived(
-		markers ??
-			caseMarkers(
-				shownOthers.map((o) => o.key),
-				cases.listed.map((o) => o.key),
-				{},
-				others.map((o) => o.key)
-			)
-	);
+	/** A case's number (caseTags): fixed by case, whatever is ticked or drawn (nit 5, rule 4). */
+	const tagOf = (key: string) => caseTagOf(tags, key);
 	const otherData = $derived(
 		otherCasesData(
 			shownOthers,
@@ -187,15 +184,20 @@
 			ratedRange?.[0] != null && ratedRange?.[1] != null ? [ratedRange[0], ratedRange[1]] : null,
 			result.speed,
 			names,
-			caseMarker
+			tags
 		)
 	);
 	/**
-	 * "Off in this case (no operating point): …", for the cases that take no slot (§6.2 S8): under
-	 * the list on screen, and in the image's footer.
+	 * "Off in this case (no operating point): case 1: …", for the cases that take no slot (§6.2
+	 * S8), each by its number: under the list on screen, and in the image's footer.
 	 */
 	const offNote = $derived(
-		offCasesNote(cases.off.map((o) => (o.stale ? `${o.name} (out of date)` : o.name)))
+		offCasesNote(
+			cases.off.map((o) => ({
+				tag: tagOf(o.key),
+				label: o.stale ? `${o.name} (out of date)` : o.name
+			}))
+		)
 	);
 
 	/** The nearest ancestor that scrolls down (the Results pane's scroller), else the page's. */
@@ -424,18 +426,17 @@
 	let tablesOpen = $state<Record<string, boolean | undefined>>({});
 
 	const fmt = (v: number) => formatNumber(v, 4);
-	const markerOf = (key: string) => otherData.find((o) => o.key === key)?.marker;
 	const off = $derived(result.status === 'off');
 	/**
 	 * "Operating points by case" (pumps-results-layout.md §5.3, the data region): the case shown
-	 * first, then the other cases drawn, each with its marker; the speed a bare number under
-	 * "Speed (%)" ("—" for an off pump).
+	 * first, then the other cases drawn, each with its case's number (a box in its row header);
+	 * the speed a bare number under "Speed (%)" ("—" for an off pump).
 	 */
 	const caseRows = $derived([
 		{
 			key: '',
 			shown: true,
-			marker: null,
+			tag: caseTag,
 			label: `${caseName ?? 'This case'} (shown)`,
 			flow: data.operating ? fmt(data.operating.x) : data.held ? '0' : '—',
 			head: data.operating ? fmt(data.operating.y) : data.held ? fmt(data.held.y) : '—',
@@ -445,7 +446,7 @@
 		...otherData.map((o) => ({
 			key: o.key,
 			shown: false,
-			marker: MARKER_SYMBOLS[o.marker],
+			tag: o.tag,
 			label: o.label,
 			...o.row
 		}))
@@ -626,6 +627,8 @@
 		const panels = shown;
 		const speedRange = speedShown;
 		const checkLimits = checksShown;
+		// A phone's screen: each ring labelled by its number alone (the list names it; rule 4).
+		const compact = phone.current;
 		if (!element) return;
 		let cancelled = false;
 		let chart: ChartInstance<'line'> | null = null;
@@ -649,6 +652,7 @@
 						panels,
 						speedRange,
 						checks: checkLimits,
+						compactLabels: compact,
 						cursor: () => cursorNow
 					})
 				);
@@ -719,7 +723,6 @@
 				checksShown
 			}),
 			others: otherData,
-			markerSymbols: MARKER_SYMBOLS,
 			offCases: offNote,
 			pumpName: name,
 			...(caseName ? { caseName } : {}),
@@ -1078,10 +1081,11 @@
 										role="rowheader"
 										scope="row"
 										class="px-2 py-1 text-left font-normal max-sm:block max-sm:w-full max-sm:px-0 max-sm:pt-1 max-sm:font-medium max-sm:wrap-anywhere"
-										>{#if row.marker}<span aria-hidden="true" class="text-slate-600"
-												>{row.marker}</span
-											>
-											{row.label}{:else}{row.label}{/if}</th
+										><!-- Its case's number in a reserved column (2.5 rem), so every name starts
+											at one edge (nit 5, slice 5b). --><span
+											class="inline-block w-10"><CaseTag tag={row.tag} /></span
+										>
+										{row.label}</th
 									>
 									{#each cells as cell (cell.label)}
 										<td
@@ -1257,16 +1261,17 @@
 				<legend class="text-xs font-medium text-slate-700">Cases on the chart</legend>
 				<!-- An auto-fill grid, 13 rem at least: two columns in a 480 px pane, one on a phone. -->
 				<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-3">
-					<!-- The case shown: a tag, not a control (§5.2 Tags); its words alone, no ● before
-						them (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5). -->
+					<!-- The case shown: a tag, not a control (§5.2 Tags); its number in a box, then its
+						words, no ● before them (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md
+						item 5, slice 5b). -->
 					<span
 						class="col-span-full mt-1 justify-self-start rounded bg-slate-100 px-1.5 text-xs text-slate-700"
-						>{caseName ?? 'This case'} (shown)</span
+						><CaseTag tag={caseTag} /> {caseName ?? 'This case'} (shown)</span
 					>
 					{#each cases.listed as other (other.key)}
 						{@const on = shownKeys.has(other.key)}
 						{@const full = !on && shownOthers.length >= MAX_CHART_CASES - 1}
-						{@const marker = markerOf(other.key)}
+						{@const tag = tagOf(other.key)}
 						{@const offHere = other.result.status === 'off'}
 						{@const described = [offHere && `${id}-off-${caseId(other.key)}`, full && `${id}-full`]
 							.filter(Boolean)
@@ -1293,10 +1298,10 @@
 										ontick?.(other.key, event.currentTarget.checked);
 									}}
 								/>
-								<!-- The marker's column is kept, so a name never moves on tick. -->
-								<span aria-hidden="true" class="w-4 shrink-0 text-center text-slate-600"
-									>{marker ? MARKER_SYMBOLS[marker] : ''}</span
-								>
+								<!-- Its case's number in a reserved column (2.5 rem: nit 5, slice 5b), the
+									same ticked or not, so a name never moves on tick; its words heard
+									before the name (CaseTag). -->
+								<span class="w-10 shrink-0"><CaseTag {tag} /></span>
 								<span class="min-w-0 break-words"
 									>{other.name}{other.stale ? ' (out of date)' : ''}</span
 								>
@@ -1305,7 +1310,7 @@
 								<!-- Beside its box, outside its label, and in its description (§5.3). -->
 								<p
 									id="{id}-off-{caseId(other.key)}"
-									class="-mt-2 pb-2 pl-12 text-xs text-slate-600"
+									class="-mt-2 pb-2 pl-18 text-xs text-slate-600"
 								>
 									(off in this case: no operating point)
 								</p>

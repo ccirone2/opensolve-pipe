@@ -26,7 +26,7 @@ import type {
 } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
-import { outOfSight } from '$lib/testing/helpers';
+import { besideCaseTag, outOfSight, shownCaseTag } from '$lib/testing/helpers';
 import { testWorkspace } from '$lib/testing/workspace';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
 import { lineupPlan, type LineupPlanInput } from '$lib/utils/pump-lineups';
@@ -457,12 +457,15 @@ describe('the Add cases block in the workspace', () => {
 		// Solve all: the three cases, then each case's group curve (most running first), three rings.
 		await fireEvent.click(solveAll);
 		await waitFor(() => expect(solves).toEqual([null, 'S1', 'S2', 'S3']));
+		// Each ring named by its case's number, the case's place in the Scenarios list (owner,
+		// 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5, slice 5b: "Case 3: …" in place
+		// of "3 · …").
 		const legend = within(card()).getByRole('list', { name: 'Legend' });
 		await waitFor(() =>
-			expect(within(legend).getByText(`3 · ${NAMES[2]} (station duty)`)).toBeVisible()
+			expect(within(legend).getByText(`Case 3: ${NAMES[2]} (station duty)`)).toBeVisible()
 		);
-		expect(within(legend).getByText(`1 · ${NAMES[0]} (station duty)`)).toBeVisible();
-		expect(within(legend).getByText(`2 · ${NAMES[1]} (station duty)`)).toBeVisible();
+		expect(within(legend).getByText(`Case 1: ${NAMES[0]} (station duty)`)).toBeVisible();
+		expect(within(legend).getByText(`Case 2: ${NAMES[1]} (station duty)`)).toBeVisible();
 		expect(calls.filter((c) => c.scenarioId !== null).map((c) => [c.scenarioId, c.curve])).toEqual([
 			['S1', 'group'],
 			['S2', 'group'],
@@ -473,15 +476,17 @@ describe('the Add cases block in the workspace', () => {
 		const lines = within(combos)
 			.getAllByRole('rowheader')
 			.filter((h) => h.getAttribute('scope') === 'rowgroup')
-			.map((h) => [...h.children].slice(0, 2).map((line) => line.textContent));
+			// Each heading's case number in its box, then its two lines' words (nit 5, slice 5b: the
+			// number in a box, no " · ring n").
+			.map((h) => [
+				shownCaseTag(h),
+				...[...h.children].slice(0, 2).map((line) => besideCaseTag(line))
+			]);
 		expect(lines).toEqual([
-			['Base case (shown)', '4 of 4 carrying flow: Pump P1, Pump P2, Pump P3 and Pump P4'],
-			[`${NAMES[0]} · ring 1`, '3 of 4 carrying flow: Pump P1, Pump P2 and Pump P3; off: Pump P4'],
-			[
-				`${NAMES[1]} · ring 2`,
-				'2 of 4 carrying flow: Pump P1 and Pump P2; off: Pump P3 and Pump P4'
-			],
-			[`${NAMES[2]} · ring 3`, '1 of 4 carrying flow: Pump P1; off: Pump P2, Pump P3 and Pump P4']
+			['Base', 'Base case (shown)', '4 of 4 carrying flow: Pump P1, Pump P2, Pump P3 and Pump P4'],
+			['1', NAMES[0], '3 of 4 carrying flow: Pump P1, Pump P2 and Pump P3; off: Pump P4'],
+			['2', NAMES[1], '2 of 4 carrying flow: Pump P1 and Pump P2; off: Pump P3 and Pump P4'],
+			['3', NAMES[2], '1 of 4 carrying flow: Pump P1; off: Pump P2, Pump P3 and Pump P4']
 		]);
 		// Undo removes every case at once.
 		expect(ws.undo()).toBe(true);

@@ -663,6 +663,94 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		);
 	});
 
+	it("draws each pump's status as a pill holding its state word, tinted by the state, the qualifier after it as plain text and the cell's words the label's (docs/proposals/pumps-nits.md item 2)", async () => {
+		// Made-up results: the transfer pump holds a flow setpoint (CLAUDE.md D11), booster A is
+		// off and booster B gives no flow, the system head above its shutoff head.
+		const base = pumpTransferExample();
+		const a = createComponent('pump', base, { name: 'Booster pump A' });
+		const withA = insertComponentInConnection(base, 'L3', a);
+		const b = createComponent('pump', withA, { name: 'Booster pump B' });
+		const project = insertComponentInConnection(withA, 'L4', b);
+		(project.components.find((c) => c.id === 'P1') as Pump).control = {
+			mode: 'flow',
+			setpoint: 0.02,
+			minSpeed: 0.4
+		};
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({
+					speed: 0.873214,
+					control: { mode: 'flow', setpoint: 0.02, state: 'active', setpointAchieved: true }
+				}),
+				[a.id]: pumpResult({ status: 'off', operatingFlow: 0, hydraulicPower: 0 }),
+				[b.id]: pumpResult({ status: 'no_flow', operatingFlow: 0, operatingHead: 35 })
+			},
+			flags: [
+				flag({
+					code: 'PUMP_FLOW_REVERSAL',
+					severity: 'invalid',
+					message: 'made-up',
+					componentId: b.id,
+					details: { headRise: 35, shutoffHead: 30 }
+				})
+			]
+		});
+		const { panel } = await solveAndOpenPumps(project, solved);
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		const status = (name: string) =>
+			within(rowFor(table, name))
+				.getAllByRole('cell')
+				.find((c) => c.dataset.label === 'Status')!;
+		for (const [name, word, tone, label] of [
+			[
+				'Transfer pump',
+				'Running',
+				'bg-green-200 text-green-900',
+				'Running (holding flow setpoint)'
+			],
+			['Booster pump A', 'Off', 'bg-slate-200 text-slate-700', 'Off'],
+			[
+				'Booster pump B',
+				'No flow',
+				'bg-red-200 text-red-950',
+				'No flow (system head above shutoff)'
+			]
+		] as const) {
+			const cell = status(name);
+			const pills = cell.querySelectorAll('[data-status-pill]');
+			expect(pills, name).toHaveLength(1);
+			const pill = pills[0] as HTMLElement;
+			// The state word alone in the pill; no icon, glyph or border (never a flag or a control).
+			expect(pill.textContent, name).toBe(word);
+			expect(pill.children, name).toHaveLength(0);
+			expect(pill, name).toHaveClass(...tone.split(' '));
+			expect(pill, name).toHaveClass(
+				'inline-block',
+				'align-top',
+				'rounded-full',
+				'px-2',
+				'text-xs',
+				'leading-5',
+				'font-medium',
+				'whitespace-nowrap'
+			);
+			expect(pill.className, name).not.toMatch(/\bborder\b|\bpy-/);
+			// The cell's words are the label's, word for word: the export, Compare and the trace
+			// read the same words, and a screen reader hears them as before.
+			expect(cell.textContent!.trim(), name).toBe(label);
+			// The qualifier follows the pill as plain text, inside one element with it, so a phone's
+			// row wraps it after the pill.
+			expect(pill.parentElement!.textContent, name).toBe(label);
+			expect(pill.parentElement!.parentElement, name).toBe(cell);
+			expect(pill.previousSibling, name).toBeNull();
+		}
+		// Every other cell as before: its text alone.
+		expect(cells(rowFor(table, 'Transfer pump'))).toEqual(
+			expect.arrayContaining(['Flow 20 L/s: held', '87.32'])
+		);
+		expect(table.querySelectorAll('[data-status-pill]')).toHaveLength(3);
+	});
+
 	it('cancels the curve being computed; computed again on request, it is shown', async () => {
 		const { systemCurve, answers, panel } = await solveAndOpenPumps(
 			pumpTransferExample(),

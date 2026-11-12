@@ -7276,3 +7276,194 @@ test('Nits item 1: neither chart’s Show data table, pressed to Hide data table
 	}
 	await page.setViewportSize(viewport);
 });
+
+/**
+ * Results per pump's Status cells as drawn (pumps-nits.md item 2): each row's height and its
+ * Status cell's, the cell's padding and words, the pill's box and computed style, and the same row
+ * with its status as plain text, as it was before the pill: a clone in the same tbody, measured and
+ * removed at once, so a row is compared with itself and "no row grows" needs no recorded number.
+ */
+function readStatusPills(wrap: Element) {
+	const table = wrap.querySelector('table')!;
+	const box = table.parentElement!;
+	const rows = [...table.querySelectorAll('tbody tr')].filter((tr) =>
+		tr.querySelector('th[role="rowheader"]')
+	);
+	return {
+		box: { client: box.clientWidth, scroll: box.scrollWidth },
+		rows: rows.map((tr) => {
+			const cell = tr.querySelector<HTMLElement>('td[data-label="Status"]')!;
+			const pills = cell.querySelectorAll<HTMLElement>('[data-status-pill]');
+			const pill = pills[0];
+			const style = getComputedStyle(cell);
+			// Above and below its content box: its padding, and the divider over every row but the
+			// first (a 1 px border).
+			const above = parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop);
+			const below = parseFloat(style.paddingBottom) + parseFloat(style.borderBottomWidth);
+			const plain = tr.cloneNode(true) as HTMLElement;
+			const plainCell = plain.querySelector<HTMLElement>('td[data-label="Status"]')!;
+			plainCell.textContent = (cell.textContent ?? '').trim();
+			tr.after(plain);
+			const plainRow = plain.getBoundingClientRect().height;
+			const plainStatus = plainCell.getBoundingClientRect().height;
+			plain.remove();
+			const c = cell.getBoundingClientRect();
+			const p = pill?.getBoundingClientRect();
+			const ps = pill ? getComputedStyle(pill) : null;
+			return {
+				name: (tr.querySelector('th [class*="font-medium"]')?.textContent ?? '').trim(),
+				text: (cell.textContent ?? '').trim(),
+				row: tr.getBoundingClientRect().height,
+				plainRow,
+				status: c.height - above - below,
+				plainStatus: plainStatus - above - below,
+				pills: pills.length,
+				pill:
+					p && ps
+						? {
+								word: pill!.textContent,
+								height: p.height,
+								// From the cell's content box: the pill sits on its first line.
+								top: p.top - c.top - above,
+								right: p.right,
+								cellRight: c.right,
+								lineHeight: ps.lineHeight,
+								fontSize: ps.fontSize,
+								background: ps.backgroundColor,
+								color: ps.color,
+								border: ps.borderTopWidth,
+								paddingY: `${ps.paddingTop} ${ps.paddingBottom}`,
+								radius: parseFloat(ps.borderTopLeftRadius)
+							}
+						: null
+			};
+		})
+	};
+}
+
+/** The per-pump statuses of the three fixture projects the pill's tints and qualifiers need. */
+const STATUS_VIEWS: { view: string; statuses: [string, string, string][] }[] = [
+	{
+		view: 'controlled',
+		statuses: [
+			['Pump PA', 'Running', 'Running'],
+			['Pump PB', 'Running', 'Running (holding flow setpoint)']
+		]
+	},
+	{
+		view: 'dead-headed',
+		statuses: [
+			['Pump PA', 'Running', 'Running'],
+			['Pump PB', 'No flow', 'No flow (system head above shutoff)']
+		]
+	},
+	{
+		view: 'off',
+		statuses: [
+			['Pump PA', 'Running', 'Running'],
+			['Pump PB', 'Off', 'Off']
+		]
+	}
+];
+
+test('Nits item 2: each pump’s status a pill of its state word on its row’s 20 px line, tinted by the state, no row grown and nothing sideways, axe clean with the pills’ contrast checked, at 1280, 390 and 320 px (pumps-nits.md item 2; ui-guide, a state is a borderless pill)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	const tints = new Map<string, string>();
+	for (const { view, statuses } of STATUS_VIEWS) {
+		await page.setViewportSize(viewport);
+		await page.goto('/');
+		await open(page, projectOf(view));
+		await solveConverged(page);
+		const tab = await pumpsTab(page);
+		const wrap = tab.locator('[data-pump-table]');
+		await expect(wrap.getByRole('table', { name: 'Results per pump' })).toBeVisible();
+		for (const size of sizes) {
+			await page.setViewportSize(size);
+			await settle(page, 1000);
+			const where = `${view} at ${sizeOf(page)}`;
+			await noSidewaysScroll(page, where);
+			const read = await wrap.evaluate(readStatusPills);
+			console.log(`${where}: ${JSON.stringify(read)}`);
+			// A phone's list never scrolls sideways; from 640 px the table's box may.
+			if (isMobile) soft(read.box.scroll, `the table's box, ${where}`).toBe(read.box.client);
+			soft(
+				read.rows.map((r) => [r.name, r.pill?.word ?? null, r.text]),
+				`each pump's pill and its cell's words, ${where}`
+			).toEqual(statuses);
+			for (const r of read.rows) {
+				const what = `${r.name}'s Status, ${where}`;
+				soft(r.pills, `one pill, ${what}`).toBe(1);
+				if (!r.pill) continue;
+				// The pill's line is the row's 20 px line: line-height 20 px, no padding above or
+				// below it, so the line is not grown; the state word at 12 px; no border.
+				soft(r.pill.height, `the pill's height, ${what}`).toBe(20);
+				soft(r.pill.lineHeight, `the pill's line height, ${what}`).toBe('20px');
+				soft(r.pill.paddingY, `the pill's padding above and below, ${what}`).toBe('0px 0px');
+				soft(r.pill.fontSize, `the pill's font size, ${what}`).toBe('12px');
+				soft(r.pill.border, `the pill's border, ${what}`).toBe('0px');
+				soft(r.pill.radius, `the pill's rounded ends, ${what}`).toBeGreaterThanOrEqual(10);
+				soft(
+					Math.abs(r.pill.top),
+					`the pill on the cell's first line, ${what}`
+				).toBeLessThanOrEqual(0.5);
+				soft(r.pill.right, `the pill inside its cell, ${what}`).toBeLessThanOrEqual(
+					r.pill.cellRight + 0.5
+				);
+				// No row grows: the row and its Status line as with the status in plain text.
+				soft(
+					Math.abs(r.row - r.plainRow),
+					`the row's height (${r.row} px), ${what}`
+				).toBeLessThanOrEqual(0.5);
+				soft(
+					Math.abs(r.status - r.plainStatus),
+					`the Status line's height (${r.status} px), ${what}`
+				).toBeLessThanOrEqual(0.5);
+				// On a phone the cell is the Status line, its height its lines': 20 px lines, and one
+				// line at 390 px. From 640 px a cell is as tall as its row, which the name sets.
+				if (isMobile) {
+					soft(r.status % 20 < 0.5 || r.status % 20 > 19.5, `20 px lines, ${what}`).toBe(true);
+					if (sizeOf(page) !== '320x640') soft(r.status, `one 20 px line, ${what}`).toBe(20);
+				}
+				soft(r.pill.background, `the pill's fill, ${what}`).not.toBe('rgba(0, 0, 0, 0)');
+				const tint = `${r.pill.background} / ${r.pill.color}`;
+				soft(tints.get(r.pill.word!) ?? tint, `one tint per state word, ${what}`).toBe(tint);
+				tints.set(r.pill.word!, tint);
+			}
+			// The pills' contrast checked by axe's own rule, every pill a node it passed (none left
+			// incomplete).
+			const contrast = await new AxeBuilder({ page })
+				.include('[data-pump-table] [data-status-pill]')
+				.withRules(['color-contrast'])
+				.analyze();
+			soft(
+				contrast.violations.map((v) => `${v.id} (${v.nodes.length})`),
+				`the pills' colour contrast, ${where}`
+			).toEqual([]);
+			soft(
+				contrast.incomplete.map((v) => `${v.id} (${v.nodes.length})`),
+				`the pills' colour contrast left incomplete, ${where}`
+			).toEqual([]);
+			soft(
+				contrast.passes.flatMap((v) => v.nodes).length,
+				`the pills whose colour contrast passed, ${where}`
+			).toBe(statuses.length);
+		}
+		// The whole tab clean at each size, as every S-slice's views are, after the measurements
+		// (axeClean opens every disclosure).
+		for (const size of [...sizes].reverse()) {
+			await page.setViewportSize(size);
+			await settle(page, 1000);
+			await axeClean(page, `${view} at ${sizeOf(page)}`);
+		}
+	}
+	// Three states, three tints.
+	expect([...tints.keys()].sort()).toEqual(['No flow', 'Off', 'Running']);
+	expect(new Set([...tints.values()].map((t) => t.split(' / ')[0])).size).toBe(3);
+	await page.setViewportSize(viewport);
+});

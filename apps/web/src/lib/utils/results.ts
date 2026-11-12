@@ -158,6 +158,27 @@ export function flagTone(severity: Severity): string {
 			: 'border-slate-300 bg-slate-50 text-slate-700';
 }
 
+/**
+ * A pump's solved state as its status pill names it (pumpStatusParts; docs/proposals/pumps-nits.md
+ * item 2): the API's `PumpResult.status`, or 'unknown' for one this app does not know.
+ */
+export type PumpStatusState = PumpResult['status'] | 'unknown';
+
+/**
+ * A status pill's tint by the pump's state (pumps-nits.md item 2; contrast 7.49, 8.40 and 11.14
+ * to 1): green running, slate off, red no flow, which the API always flags invalid
+ * (PUMP_FLOW_REVERSAL); slate for a state this app does not know. By the state alone, never by the
+ * row's flags: a cavitating pump is still running, its flag on the line under its row, and a
+ * running pump short of its setpoint is flagged at info, so amber would invent a severity. The
+ * pill has no border, unlike flagTone's, so it never reads as a flag or a control.
+ */
+export const PUMP_STATUS_TONES: Readonly<Record<PumpStatusState, string>> = {
+	running: 'bg-green-200 text-green-900',
+	off: 'bg-slate-200 text-slate-700',
+	no_flow: 'bg-red-200 text-red-950',
+	unknown: 'bg-slate-200 text-slate-700'
+};
+
 export const SEVERITY_TITLES: Readonly<Record<Severity, string>> = {
 	invalid: 'Physically invalid',
 	warning: 'Warnings',
@@ -877,48 +898,76 @@ export function fittingTable(
 	};
 }
 
-/**
- * A pump's solved status. 'no_flow' covers two cases the API tells apart in its
- * PUMP_FLOW_REVERSAL flag (details headRise and shutoffHead): the system head across the pump
- * exceeds its shutoff head, or its discharge is closed off (e.g. behind a closed check valve)
- * and it runs dead-headed at its shutoff head. Without that flag the label stays neutral.
- */
-export function pumpStatusLabel(result: PumpResult, flags: readonly Flag[] = []): string {
-	if (result.status === 'running') return runningLabel(result.control);
-	if (result.status === 'off') return 'Off';
-	if (result.status !== 'no_flow') return humanize(result.status);
-	const reversal = flags.find((f) => f.code === 'PUMP_FLOW_REVERSAL');
-	const rise = reversal?.details.headRise;
-	const shutoff = reversal?.details.shutoffHead;
-	if (typeof rise === 'number' && typeof shutoff === 'number') {
-		return rise > shutoff
-			? 'No flow (system head above shutoff)'
-			: 'No flow (discharge closed off: dead-headed at shutoff head)';
-	}
-	return 'No flow (held at zero by its check)';
+/** A pump's status in two parts: the state word its pill holds and the qualifier after it. */
+export interface PumpStatusParts {
+	/** The pill's tint (PUMP_STATUS_TONES). */
+	state: PumpStatusState;
+	/** The state word: 'Running', 'Off', 'No flow', or a status this app does not know humanized. */
+	word: string;
+	/** What qualifies it, as plain text after the pill ('' for nothing): '(holding flow setpoint)'. */
+	detail: string;
 }
 
 /**
- * A running pump's status: plain 'Running' at a fixed speed; for a speed-controlled pump (CLAUDE.md
- * D11), whether its speed holds the setpoint or it runs at a limit of its drive. At a limit the
- * flow can still equal the setpoint (within the solver's flow tolerance; setpointAchieved).
+ * A pump's solved status, as its pill and the words after it (docs/proposals/pumps-nits.md item 2).
+ * 'no_flow' covers two cases the API tells apart in its PUMP_FLOW_REVERSAL flag (details headRise
+ * and shutoffHead): the system head across the pump exceeds its shutoff head, or its discharge is
+ * closed off (e.g. behind a closed check valve) and it runs dead-headed at its shutoff head.
+ * Without that flag the words stay neutral.
  */
-function runningLabel(control: PumpResult['control']): string {
-	if (!control) return 'Running';
+export function pumpStatusParts(result: PumpResult, flags: readonly Flag[] = []): PumpStatusParts {
+	if (result.status === 'running') {
+		return { state: 'running', word: 'Running', detail: runningDetail(result.control) };
+	}
+	if (result.status === 'off') return { state: 'off', word: 'Off', detail: '' };
+	if (result.status !== 'no_flow') {
+		return { state: 'unknown', word: humanize(result.status), detail: '' };
+	}
+	const reversal = flags.find((f) => f.code === 'PUMP_FLOW_REVERSAL');
+	const rise = reversal?.details.headRise;
+	const shutoff = reversal?.details.shutoffHead;
+	const detail =
+		typeof rise === 'number' && typeof shutoff === 'number'
+			? rise > shutoff
+				? '(system head above shutoff)'
+				: '(discharge closed off: dead-headed at shutoff head)'
+			: '(held at zero by its check)';
+	return { state: 'no_flow', word: 'No flow', detail };
+}
+
+/**
+ * A pump's solved status in words: pumpStatusParts' word and qualifier joined ('No flow (system
+ * head above shutoff)'). The words every reader has: the export, Compare, the Summary, the group
+ * tables, and the per-pump table's rows, which the trace and the results strip read; the table's
+ * own cell draws the word as a pill and says the same words (PumpsView's statusCell).
+ */
+export function pumpStatusLabel(result: PumpResult, flags: readonly Flag[] = []): string {
+	const { word, detail } = pumpStatusParts(result, flags);
+	return detail ? `${word} ${detail}` : word;
+}
+
+/**
+ * What qualifies a running pump's status: nothing at a fixed speed; for a speed-controlled pump
+ * (CLAUDE.md D11), whether its speed holds the setpoint or it runs at a limit of its drive. At a
+ * limit the flow can still equal the setpoint (within the solver's flow tolerance;
+ * setpointAchieved).
+ */
+function runningDetail(control: PumpResult['control']): string {
+	if (!control) return '';
 	const held = control.setpointAchieved === true;
 	switch (control.state) {
 		case 'active':
-			return 'Running (holding flow setpoint)';
+			return '(holding flow setpoint)';
 		case 'max_speed':
 			return held
-				? 'Running at maximum speed (holding flow setpoint)'
-				: 'Running at maximum speed (setpoint not met)';
+				? 'at maximum speed (holding flow setpoint)'
+				: 'at maximum speed (setpoint not met)';
 		case 'min_speed':
 			return held
-				? 'Running at minimum speed (holding flow setpoint)'
-				: 'Running at minimum speed (above setpoint)';
+				? 'at minimum speed (holding flow setpoint)'
+				: 'at minimum speed (above setpoint)';
 		default:
-			return 'Running';
+			return '';
 	}
 }
 

@@ -74,7 +74,9 @@ import {
 	readsAsSolved,
 	nodeTable,
 	pumpControlText,
+	PUMP_STATUS_TONES,
 	pumpStatusLabel,
+	pumpStatusParts,
 	pumpTable,
 	rowsForElement,
 	segmentFlags,
@@ -951,6 +953,153 @@ describe('speed-controlled pumps (CLAUDE.md D11)', () => {
 			['P1', 'Running (holding flow setpoint)', 'Flow 12 L/s: held', '87.32'],
 			['P2', 'Running', 'Fixed speed', '100']
 		]);
+	});
+});
+
+describe('pump status as a pill and its qualifier (docs/proposals/pumps-nits.md item 2)', () => {
+	const reversal = (headRise: number, shutoffHead: number) =>
+		flag({
+			code: 'PUMP_FLOW_REVERSAL',
+			severity: 'invalid',
+			message: 'made-up',
+			componentId: 'P1',
+			details: { headRise, shutoffHead }
+		});
+	// Made-up control results (CLAUDE.md D11): a flow setpoint of 12 L/s.
+	const control = (
+		state: NonNullable<PumpResult['control']>['state'],
+		setpointAchieved: boolean | null = state === 'active'
+	): PumpResult['control'] => ({ mode: 'flow', setpoint: 0.012, state, setpointAchieved });
+	const noFlow = pumpResult({ status: 'no_flow', operatingFlow: 0, operatingHead: 30 });
+	// Every label pumpStatusLabel gives, by the API's status, the state word in the pill and the
+	// qualifier after it as plain text; the label written out, so a word that moves fails here.
+	const LABELS: {
+		result: PumpResult;
+		flags: Flag[];
+		parts: { state: string; word: string; detail: string };
+		label: string;
+	}[] = [
+		{
+			result: pumpResult(),
+			flags: [],
+			parts: { state: 'running', word: 'Running', detail: '' },
+			label: 'Running'
+		},
+		{
+			result: pumpResult({ control: control('active') }),
+			flags: [],
+			parts: { state: 'running', word: 'Running', detail: '(holding flow setpoint)' },
+			label: 'Running (holding flow setpoint)'
+		},
+		{
+			result: pumpResult({ control: control('max_speed') }),
+			flags: [],
+			parts: { state: 'running', word: 'Running', detail: 'at maximum speed (setpoint not met)' },
+			label: 'Running at maximum speed (setpoint not met)'
+		},
+		{
+			result: pumpResult({ control: control('max_speed', true) }),
+			flags: [],
+			parts: {
+				state: 'running',
+				word: 'Running',
+				detail: 'at maximum speed (holding flow setpoint)'
+			},
+			label: 'Running at maximum speed (holding flow setpoint)'
+		},
+		{
+			result: pumpResult({ control: control('min_speed') }),
+			flags: [],
+			parts: { state: 'running', word: 'Running', detail: 'at minimum speed (above setpoint)' },
+			label: 'Running at minimum speed (above setpoint)'
+		},
+		{
+			result: pumpResult({ control: control('min_speed', true) }),
+			flags: [],
+			parts: {
+				state: 'running',
+				word: 'Running',
+				detail: 'at minimum speed (holding flow setpoint)'
+			},
+			label: 'Running at minimum speed (holding flow setpoint)'
+		},
+		{
+			result: pumpResult({ status: 'off', operatingFlow: 0 }),
+			flags: [],
+			parts: { state: 'off', word: 'Off', detail: '' },
+			label: 'Off'
+		},
+		{
+			result: noFlow,
+			flags: [reversal(35, 30)],
+			parts: { state: 'no_flow', word: 'No flow', detail: '(system head above shutoff)' },
+			label: 'No flow (system head above shutoff)'
+		},
+		{
+			result: noFlow,
+			flags: [reversal(30, 30)],
+			parts: {
+				state: 'no_flow',
+				word: 'No flow',
+				detail: '(discharge closed off: dead-headed at shutoff head)'
+			},
+			label: 'No flow (discharge closed off: dead-headed at shutoff head)'
+		},
+		{
+			result: noFlow,
+			flags: [],
+			parts: { state: 'no_flow', word: 'No flow', detail: '(held at zero by its check)' },
+			label: 'No flow (held at zero by its check)'
+		},
+		{
+			// A status this app does not know (the API's enum has three): humanized, toned as
+			// unknown.
+			result: pumpResult({ status: 'surging_hard' as PumpResult['status'] }),
+			flags: [],
+			parts: { state: 'unknown', word: 'Surging hard', detail: '' },
+			label: 'Surging hard'
+		}
+	];
+
+	it('gives each of the 11 labels as its state word and the qualifier after it', () => {
+		expect(new Set(LABELS.map((c) => c.label)).size).toBe(11);
+		for (const { result, flags, parts, label } of LABELS) {
+			expect(pumpStatusParts(result, flags), label).toEqual(parts);
+		}
+		// A running pump whose control is in no state of a running pump reads as plain Running, as
+		// its label does.
+		expect(pumpStatusParts(pumpResult({ control: control('off', null) }))).toEqual({
+			state: 'running',
+			word: 'Running',
+			detail: ''
+		});
+	});
+
+	it('joins the word and its qualifier into the label, word for word, everywhere it is used', () => {
+		for (const { result, flags, parts, label } of LABELS) {
+			expect(pumpStatusLabel(result, flags)).toBe(label);
+			expect(parts.detail ? `${parts.word} ${parts.detail}` : parts.word).toBe(label);
+			// The per-pump table's cell is the label: its words unchanged by the pill.
+			const solved = pumpTransferSolved({ pumpResults: { P1: result }, flags });
+			expect(pumpTable(project, solved, SI_UNITS).rows[0]!.cells.status, label).toBe(label);
+		}
+	});
+
+	it("tints the pill by the state alone: green running, slate off, red no flow, slate for one it does not know; never by the row's flags", () => {
+		expect(PUMP_STATUS_TONES).toEqual({
+			running: 'bg-green-200 text-green-900',
+			off: 'bg-slate-200 text-slate-700',
+			no_flow: 'bg-red-200 text-red-950',
+			unknown: 'bg-slate-200 text-slate-700'
+		});
+		// A cavitating pump stays a running one: its flag is on the line under its row.
+		const cavitating = flag({
+			code: 'CAVITATION',
+			severity: 'invalid',
+			message: 'made-up',
+			componentId: 'P1'
+		});
+		expect(pumpStatusParts(pumpResult(), [cavitating]).state).toBe('running');
 	});
 });
 

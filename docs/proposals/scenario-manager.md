@@ -486,6 +486,8 @@ Orphaned and not-applicable overrides are not physics. They appear in the respon
   - From 640 px there is one row.
 - **Solve** solves the active case. When scenarios exist its accessible name includes the case ("Solve Winter"); the visible label stays "Solve". The existing Cancel also cancels a Solve all run, with the accessible name "Cancel solving all cases". A solve goes on after a case switch: Solve keeps its spinner and Cancel, named "Cancel solving Winter" when another case is shown, and the other Solve buttons are unavailable until it ends (review fix, §10).
 
+*(As built since `build-density.md` §13 and §19, 2026-11-12: with scenarios the button opens the Scenarios menu (§6.3). While cases are to solve and the network has a component, its badge shows ▶ and their count in amber in place of the teal scenario count, counting down during Solve all, and its name adds them, "Scenarios (3), 2 cases to solve"; it is "Scenarios (3)" once every case is current. On short landscape screens (at most 20 rem tall, at least 35.5 rem wide) the header is one row pinned to the top. The other Solve buttons that wait for a solve are the Scenarios menu's Solve all and, below 1024 px, the trace sheet's Solve again.)*
+
 ### 6.3 Case bar (`workspace/ScenarioBar.svelte`, new)
 
 The bar appears only when the project has at least one scenario. It sits between the header and `<main>`: across both panes on desktop, and above the Build/Results tabs on phones, so it is visible in every pane.

@@ -631,7 +631,7 @@ It is extracted to `components/results/PumpLineupsBlock.svelte` (PumpGroupChart 
 
 **Kept from 4d:**
 - the gates and their order;
-- each gate's Solve all (gates 4 to 6 show it) and the shared `solveAllReason`;
+- each gate's Solve all (gates 4 to 6 show it) and the shared `solveAllReason`; *(since `build-density.md` §19, 2026-11-12, the owner's answer "Remove it (Recommended)": the block has no Solve all, under a gate or not; `solveAllReason` is read by the Scenarios menu's Solve all, through `solveAllState` in `utils/goal-seek.ts`)*
 - the request order and withdrawals;
 - "Also show the other cases' station duties" ticked by the add;
 - the rings, `dutyClaim`, `restOf`, `sharedRest`;
@@ -646,18 +646,18 @@ It is extracted to `components/results/PumpLineupsBlock.svelte` (PumpGroupChart 
 
 ### 7.2 Gates
 
-In 4d's order. The words of gates 1, 2, 3 and 6 change.
+In 4d's order. The words of gates 1, 2, 3 and 6 change *(and gate 4's since `build-density.md` §19)*.
 
 | # | When | Words |
 |---|---|---|
 | 1 | Series | `Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.` |
 | 2 | Mixed | `Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.` |
 | 3 | A scenario shown | `Cases are made from the base case: show the base case to add them. To study {shown} with pumps off, duplicate it in Scenarios and set those pumps off there.` |
-| 4 | Base out of date | 4d's: `The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now.` |
+| 4 | Base out of date | 4d's: `The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now.` *(Since `build-density.md` §19: `… solve it again with Solve, at the top, so …`.)* |
 | 5 | Fewer than two on | 4d's: `Needs two or more of these pumps switched on in the base case: {A and B} {is/are} off.` |
 | 6 | None carries flow | `No pump of the group carries flow in the base case, so switching pumps off changes nothing.` The test is §3.5's: no member is on with its flow above the floor. |
 
-While a gate holds, only its sentence, Solve all (gates 4 to 6) and, from slice L2 on, the "Pump lineups table…" button (§8.1) show (since `pumps-results-layout.md` S4, Solve all with its lasting reason visible, as outside a gate; its §6.4 item 7, §15 item 116).
+While a gate holds, only its sentence, Solve all (gates 4 to 6) and, from slice L2 on, the "Pump lineups table…" button (§8.1) show (since `pumps-results-layout.md` S4, Solve all with its lasting reason visible, as outside a gate; its §6.4 item 7, §15 item 116). *(Since `build-density.md` §19, 2026-11-12, the owner's answer "Remove it (Recommended)": no Solve all under any gate; only the gate's sentence and "Pump lineups table…" show.)*
 
 ### 7.3 The preset control
 

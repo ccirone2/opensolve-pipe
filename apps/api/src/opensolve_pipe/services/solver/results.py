@@ -225,9 +225,11 @@ def _vapor_pressure_detail(p_vap: float | None) -> float | str:
 
 
 def _npsh_margin_ratio(npsha: float | None, npshr: float | None) -> float | None:
-    """NPSHa / NPSHr (docs/proposals/pumps-nits.md, item 4): None where either is None, NPSHr is
-    0 (NPSHr ≥ 0, ``PumpCurve.npsh_required``) or the quotient is not finite (JSON has no inf).
-    With NPSHr > 0 it is below 1 exactly where the margin NPSHa − NPSHr is negative."""
+    """NPSHa / NPSHr (TSD §5.5): None where either is None, NPSHr is 0 (NPSHr ≥ 0,
+    ``PumpCurve.npsh_required``) or the quotient is not finite (JSON has no inf). Where a ratio is
+    given, it is below 1 exactly where the margin NPSHa − NPSHr is negative. Where NPSHr is 0, or
+    so small that the quotient is not finite, a negative NPSHa gives a negative margin
+    (CAVITATION) and no ratio."""
     if npsha is None or npshr is None or not npshr > 0.0:
         return None
     ratio = npsha / npshr

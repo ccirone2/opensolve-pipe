@@ -1,7 +1,8 @@
-"""The NPSH margin ratio (docs/proposals/pumps-nits.md, item 4): PumpResult.npsh_margin_ratio is
-NPSHa / NPSHr where both are known, NPSHr > 0 and the quotient is finite, and None otherwise; the
-pump's trace states its equation and value, and a note where NPSHr is 0; the methods summary
-states it.
+"""The NPSH margin ratio (TSD §5.5): PumpResult.npsh_margin_ratio is NPSHa / NPSHr where both are
+known, NPSHr > 0 and the quotient is finite, and None otherwise; the pump's trace states its
+equation and value, and a note where NPSHr is 0; the methods summary states it. Where a ratio is
+given it is below 1 exactly where the margin is negative; a pump with NPSHr 0 and NPSHa < 0
+cavitates with no ratio.
 
 Expected values are derived here, independently of solver code, as test_m3_solve does: the
 operating flow from Darcy–Weisbach with fluids' Colebrook against s² H₀(Q/s) through SciPy's
@@ -209,6 +210,63 @@ def test_a_quotient_too_large_to_represent_gives_no_ratio_and_a_note() -> None:
     [note] = [n for n in pump_trace(state).notes if "NPSH margin ratio" in n]
     assert note.startswith("NPSH margin ratio is not given:")
     assert "not a finite number" in note
+
+
+VACUUM = {"elevation": -5.0, "level": 0.5, "surface_pressure": -80000.0, "h2": 10.0}
+"""test_a_negative_npsha_gives_a_negative_ratio's vacuum tank 5 m below the pump: NPSHa < 0."""
+
+
+@pytest.mark.parametrize(
+    ("npshr", "why"),
+    [
+        ([(0.005, 0.0), (0.02, 0.0), (0.03, 0.0)], "NPSHr is 0 at the operating flow"),
+        ([(0.025, 0.0), (0.03, 4.0)], "NPSHr is 0 at the operating flow"),
+        ([(0.005, 1.0e-320), (0.02, 1.0e-320), (0.03, 1.0e-320)], "not a finite number"),
+    ],
+    ids=["zero-curve", "held-at-zero", "subnormal"],
+)
+def test_a_cavitating_pump_with_npshr_of_zero_has_no_ratio_but_a_negative_margin(
+    npshr: list[tuple[float, float]], why: str
+) -> None:
+    """NPSHr of 0 (or so small that NPSHa / NPSHr is not finite) with NPSHa < 0: the pump
+    cavitates, its margin is negative and CAVITATION is raised, and it has no ratio. A null ratio
+    is no sign of a safe margin; the field's description says so
+    (test_the_description_claims_below_1_only_where_a_ratio_is_given)."""
+    state = line(**VACUUM, npshr=npshr)
+    _, npsha, _ = closed_form(**VACUUM)  # the operating flow is the same with any NPSHr curve
+    pr = state.pump_results["PU"]
+    assert pr.status == "running"
+    assert pr.npsh_available == pytest.approx(npsha, rel=1e-9)
+    assert npsha < 0.0
+    assert pr.npsh_required is not None
+    assert pr.npsh_required == npshr[0][1]  # 0, or 1e-320, at the operating flow
+    assert pr.npsh_margin is not None
+    assert pr.npsh_margin < 0.0
+    assert pr.npsh_margin_ratio is None
+    assert ratio_json(state) is None
+    assert flags(state, "CAVITATION") == ["PU"]
+    assert values(state)["NPSH margin"] == pr.npsh_margin
+    assert VALUE not in values(state)
+    [note] = [n for n in pump_trace(state).notes if "NPSH margin ratio" in n]
+    assert note.startswith("NPSH margin ratio is not given:")
+    assert why in note
+    assert note.endswith("the margin NPSHa − NPSHr is given.")
+
+
+def test_the_description_claims_below_1_only_where_a_ratio_is_given() -> None:
+    """The published description (openapi.json, schema.d.ts) is the contract the web app reads.
+    "Below 1 exactly where npshMargin is negative" holds only where a ratio is given: a pump with
+    NPSHr 0 and NPSHa < 0 cavitates with no ratio
+    (test_a_cavitating_pump_with_npshr_of_zero_has_no_ratio_but_a_negative_margin)."""
+    description = PumpResult.model_fields["npsh_margin_ratio"].description
+    assert description is not None
+    sentences = [s.strip() for s in description.split(".")]
+    assert "Below 1 exactly where npshMargin is negative" not in sentences
+    assert "Where given, below 1 exactly where npshMargin is negative" in sentences
+    assert (
+        "where NPSHr is 0 (or the quotient is not finite) and NPSHa is negative, npshMargin is "
+        "negative and CAVITATION is raised"
+    ) in description
 
 
 def _floating_loop() -> SolvedState:

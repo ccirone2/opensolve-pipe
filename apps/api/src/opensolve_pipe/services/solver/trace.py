@@ -1194,7 +1194,7 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
     )
     if data.curve.npshr_curve is not None:
         t.equation("NPSH margin = NPSHa − NPSHr (negative: cavitation)")
-        # docs/proposals/pumps-nits.md, item 4: PumpResult.npsh_margin_ratio.
+        # TSD §5.5: PumpResult.npsh_margin_ratio.
         t.equation(
             "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
         )
@@ -1334,7 +1334,7 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
                 reasons.append("the suction pressure level is undetermined (UNDETERMINED_PRESSURE)")
             t.note(f"NPSH available is not computed: {'; '.join(reasons)}.")
         elif result.npsh_required is not None and result.npsh_margin_ratio is None:
-            # t.value leaves out a None, so say why the ratio is missing (pumps-nits.md, item 4).
+            # t.value leaves out a None, so say why the ratio is missing (TSD §5.5).
             why = (
                 "NPSHr is 0 at the operating flow, so NPSHa / NPSHr has no value"
                 if result.npsh_required == 0.0

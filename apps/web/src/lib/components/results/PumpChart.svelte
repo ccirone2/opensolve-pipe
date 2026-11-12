@@ -299,20 +299,63 @@
 		saveHiddenPanels(hidden);
 	}
 	/**
+	 * Room held at the figure's foot (px, below its last note) by the last chip pressed, so a chip
+	 * pressed with its pane at the end stays under the pointer too (review PUMPS-NITS-B1; below).
+	 */
+	let tail = $state(0);
+	/**
 	 * A chip stays under the pointer (ui-guide, a press moves nothing under the pointer; the owner's
 	 * nits of 2026-11-12, item 1, docs/proposals/pumps-nits.md): a panel's chip makes the canvas
 	 * above it a panel taller or shorter (chartHeightRem), so once the press is drawn its scroller
 	 * scrolls by what the chip moved, as switchOverlay does; a press from the keyboard too. Where the
 	 * browser already kept it in place (scroll anchoring) it moved nothing, and nothing scrolls.
+	 *
+	 * At the pane's end the scroll cannot take it all (review PUMPS-NITS-B1): pressed off, a panel's
+	 * chip takes its note below the row as well as its panel above it, so the pane's range shrinks
+	 * by both and the browser pulls the pane back to its new end, leaving the row lower by the note.
+	 * What the scroll could not take is held as room at the figure's foot, where the note was, and
+	 * scrolled; each press sets it anew (an "on" press gives the note back), and it goes as it is
+	 * scrolled out of sight below the pane (the effect below). Where even that cannot hold the chip
+	 * (a pane too short to scroll) none is held. At the pane's top nothing can (the tall-window
+	 * limit, pumps-nits.md item 1).
 	 */
 	async function pressChip(button: HTMLButtonElement, key: ChipKey) {
 		const before = button.getBoundingClientRect().top;
+		tail = 0;
 		togglePanel(key);
 		await tick();
 		if (!button.isConnected) return;
-		const moved = button.getBoundingClientRect().top - before;
-		if (Math.abs(moved) > 0.5) scrollerOf(button).scrollTop += moved;
+		/** Scroll by what the chip moved; what it is still off by. */
+		const follow = () => {
+			const moved = button.getBoundingClientRect().top - before;
+			if (Math.abs(moved) > 0.5) scrollerOf(button).scrollTop += moved;
+			return button.getBoundingClientRect().top - before;
+		};
+		const left = follow();
+		if (left <= 0.5) return;
+		tail = Math.ceil(left);
+		await tick();
+		if (button.isConnected && follow() > 0.5) tail = 0;
 	}
+	// The room held goes as it leaves the pane's view below, as far as it is out of sight: what lies
+	// after it is out of sight too, so nothing in view moves and the pane is never pulled back.
+	$effect(() => {
+		const el = figure;
+		if (!tail || !el) return;
+		const scroller = scrollerOf(el);
+		const whole = scroller === document.scrollingElement;
+		const target: EventTarget = whole ? window : scroller;
+		const trim = () => {
+			const bottom = whole
+				? scroller.clientHeight
+				: scroller.getBoundingClientRect().top + scroller.clientTop + scroller.clientHeight;
+			const top = el.getBoundingClientRect().bottom - tail;
+			const keep = Math.max(0, Math.min(tail, Math.ceil(bottom - top)));
+			if (keep < tail) tail = keep;
+		};
+		target.addEventListener('scroll', trim, { passive: true });
+		return () => target.removeEventListener('scroll', trim);
+	});
 	const phone = mediaQuery('(max-width: 639px)');
 	const heightRem = $derived(chartHeightRem(shown, phone.current));
 
@@ -694,7 +737,13 @@
 	canvas's, the part that is redrawn, so no live line below has a busy ancestor (§5.3 markup
 	rules, §7).
 -->
-<figure bind:this={figure} class="space-y-2" aria-labelledby="{id}-caption" tabindex="-1">
+<figure
+	bind:this={figure}
+	class="space-y-2"
+	style:padding-bottom={tail ? `${tail}px` : undefined}
+	aria-labelledby="{id}-caption"
+	tabindex="-1"
+>
 	<!-- Its words wrap, a 40-character unbroken name too, as the group chart's figcaption (§7
 		Targets: text reflows at 320 px; S7 review LAYOUT-5). -->
 	<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">

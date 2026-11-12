@@ -140,7 +140,10 @@
 	let selectedView = $state<ResultsView>('summary');
 	/**
 	 * Sorts the Summary asked for, per view (a new id applies one again): its links show the table
-	 * sorted on the extreme they name.
+	 * sorted on the extreme they name. A request is for the solve it was made on, as `visited` is:
+	 * a new solve drops them, so a view drawn anew for it (its tab pressed, not a link) never takes
+	 * an old one as new, which would show again a column the user hid after the link and store that
+	 * (review PUMPS-NITS-A1; docs/proposals/pumps-nits.md item 3). A view still drawn keeps its sort.
 	 */
 	let sortRequests = $state<Partial<Record<ResultsView, TableSort & { id: number }>>>({});
 	let sortRequestId = 0;
@@ -171,6 +174,7 @@
 			if (visitedFor !== forSolve) {
 				visitedFor = forSolve;
 				visited = [current];
+				sortRequests = {};
 			} else if (!visited.includes(current)) {
 				visited = [...visited, current];
 			}

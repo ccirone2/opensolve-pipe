@@ -7255,6 +7255,94 @@ test('Nits item 1: no press of a Show chip moves a chip, its row or the slider u
 	await page.setViewportSize(viewport);
 });
 
+test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, its row or the slider under it, though a panel’s note below the row goes with its panel, at 1280×800 and 1280×1000 (pumps-nits.md item 1; review PUMPS-NITS-B1)', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(
+		isMobile,
+		'On a phone the Show row is not in view at the end of the pane (review PUMPS-NITS-B1: 390×844, 360×740 and 320×640, four projects)'
+	);
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	// The examples where the review found it, each with its Show row in view at the pane's end:
+	// pressed off, a panel's chip takes its panel from the canvas above the row and its note from
+	// below it, so the pane's range shrinks by both and the browser pulls the pane back to its new
+	// end. On 9016510 that left the row lower by the note: Shaft power 36 px and NPSH 20 px on the
+	// transfer example, 52 and 56 px on the condenser's, the first and the last with the canvas
+	// then under the point pressed.
+	for (const { example, project, size } of [
+		{
+			example: 'the transfer example',
+			project: pumpTransferExample,
+			size: { width: 1280, height: 800 }
+		},
+		{
+			example: 'the condenser example',
+			project: () => exampleProject('condenser-water')!,
+			size: { width: 1280, height: 1000 }
+		}
+	]) {
+		await page.setViewportSize(size);
+		await page.goto('/');
+		await open(page, project());
+		await solveConverged(page);
+		const figure = await pumpFigure(page);
+		await settle(page, 1000);
+		const group = figure.getByRole('group', { name: 'Show' });
+		const chips = group.getByRole('button');
+		await expect(chips).toHaveText(['Efficiency', 'Shaft power', 'NPSH']);
+		const pressAt = async (i: number, where: string, by: 'pointer' | 'key' = 'pointer') => {
+			await scrollPane(page, { to: 1e7 });
+			await page.waitForTimeout(100);
+			const chip = chips.nth(i);
+			const was = await chip.getAttribute('aria-pressed');
+			const r = (await chip.boundingBox())!;
+			const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+			const before = await group.evaluate(readChips, point);
+			const what = `${before.chips[i]!.name} pressed ${was === 'true' ? 'off' : 'on'} by ${by} ${where}, ${example} at ${sizeOf(page)}`;
+			expect(before.hit, `the chip at the point pressed, ${what}`).toBe(before.chips[i]!.name);
+			if (by === 'key') {
+				await chip.focus();
+				await page.keyboard.press('Space');
+			} else await page.mouse.click(point.x, point.y);
+			await expect(chip).toHaveAttribute('aria-pressed', was === 'true' ? 'false' : 'true');
+			await page.waitForTimeout(300);
+			const after = await group.evaluate(readChips, point);
+			console.log(
+				`${what}: tops ${before.chips.map((c) => c.top).join(' ')} -> ${after.chips.map((c) => c.top).join(' ')}; at the point ${after.hit}`
+			);
+			soft(after.row, `the row's height, ${what}`).toBe(before.row);
+			for (const [k, c] of after.chips.entries()) {
+				const b = before.chips[k]!;
+				soft(Math.abs(c.top - b.top), `${c.name}'s top, ${what}`).toBeLessThanOrEqual(0.5);
+				soft(Math.abs(c.left - b.left), `${c.name}'s left, ${what}`).toBeLessThanOrEqual(0.5);
+			}
+			soft(
+				Math.abs(after.slider! - before.slider!),
+				`the slider's top, ${what}`
+			).toBeLessThanOrEqual(0.5);
+			soft(after.hit, `the chip still under the point pressed, ${what}`).toBe(
+				before.chips[i]!.name
+			);
+		};
+		// Each chip off in turn, then on in turn, the pane at its end before each press; then Shaft
+		// power off and on from the keyboard.
+		for (const i of [0, 1, 2, 0, 1, 2]) await pressAt(i, '(the pane at its end)');
+		for (const turn of [1, 2]) await pressAt(1, `(the pane at its end, turn ${turn})`, 'key');
+		// What a press held below the chart's notes goes once it is scrolled out of sight below the
+		// pane, so no blank band is left at the chart's foot.
+		await pressAt(1, '(the pane at its end, then scrolled to its top)');
+		await scrollPane(page, { to: 0 });
+		await page.waitForTimeout(150);
+		soft(
+			await figure.evaluate((el) => getComputedStyle(el).paddingBottom),
+			`the room held below the chart's notes once out of sight, ${example}`
+		).toBe('0px');
+		await pressAt(1, '(the pane at its end, after it was scrolled to its top)');
+	}
+});
+
 /**
  * A chart's Show data table as read for a press (pumps-nits.md item 1): its box, Download image's
  * box beside it, the height of their row, and whether the button is at the point pressed.
@@ -7621,6 +7709,73 @@ test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPS
 			await page.keyboard.press('Escape');
 			await expect(fieldsNamed(count)).toHaveCount(1);
 			await noSidewaysScroll(page, where);
+		}
+		if (isMobile) {
+			// A phone's "Sort by": the field chosen shows whole beside its direction and Fields, on
+			// one line, whatever Fields' count says, at 390, 360 and 320 px, chosen there or by the
+			// Summary's "Pumps, smallest first" (S6 review TBL-4; review PUMPS-NITS-A2: the default
+			// count, "(7 of 10)", took 54 px from it and cut "NPSH margin (m)" at 360 and 320 px).
+			const cut: string[] = [];
+			const select = wrap.getByRole('combobox', { name: 'Sort by, Results per pump' });
+			const fields = wrap.getByRole('button', { name: /^Fields/ });
+			const direction = wrap.getByRole('button', { name: /lowest first|highest first/ });
+			const check = async (where: string) => {
+				const m = await select.evaluate((el) => {
+					const s = el as HTMLSelectElement;
+					const css = getComputedStyle(s);
+					const context = document.createElement('canvas').getContext('2d')!;
+					context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+					const text = s.selectedOptions[0]?.text ?? '';
+					return {
+						text,
+						width: Math.ceil(context.measureText(text).width),
+						room: Math.floor(
+							s.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+						)
+					};
+				});
+				console.log(`${where}: "${m.text}" ${m.width} px in ${m.room - MENULIST_INNER}`);
+				if (m.room - MENULIST_INNER < m.width) {
+					cut.push(`${where}: "${m.text}" ${m.width} px in ${m.room - MENULIST_INNER}`);
+				}
+				if (!(await direction.count())) {
+					cut.push(`${where}: "${m.text}" chosen, no sort`);
+					return;
+				}
+				const tops = await Promise.all(
+					[select, direction, fields].map(async (c) => (await c.boundingBox())!.y)
+				);
+				if (Math.max(...tops) - Math.min(...tops) > 2) {
+					cut.push(`${where}: "${m.text}" chosen, Sort, its direction and Fields on ${tops}`);
+				}
+			};
+			for (const size of [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]) {
+				await page.setViewportSize(size);
+				await settle(page, 1000);
+				const where = `${view} at ${sizeOf(page)}`;
+				const link = (await resultsView(page, 'Summary')).getByRole('button', {
+					name: 'Pumps, smallest first'
+				});
+				if (view === 'condenser') await expect(link).toHaveCount(1);
+				if (await link.count()) {
+					await link.click();
+					await expect(select).toHaveValue('npshMargin');
+					await check(`${where}, by the Summary's link`);
+				} else {
+					await resultsView(page, 'Pumps');
+				}
+				const options = (await select.locator('option').allInnerTexts()).filter(
+					(o) => o !== 'Table order'
+				);
+				soft(options.length, `Sort by's fields, ${where}`).toBeGreaterThanOrEqual(5);
+				for (const option of options) {
+					await select.selectOption({ label: option });
+					await check(where);
+				}
+				await select.selectOption({ label: 'Table order' });
+				await expect(direction).toHaveCount(0);
+			}
+			soft(cut, `a field chosen cut short, or its line broken, ${view}`).toEqual([]);
 		}
 		if (view !== 'controlled') continue;
 		// NPSHa's box checked: its column shown and counted, the menu axe clean with both its

@@ -795,9 +795,10 @@
 <!-- One line on a phone: Sort (it takes what is left), its direction and Fields; Flagged only, when
 	offered, goes on the next (owner, 2026-10-31; proposal build-density.md §18). The field chosen
 	shows whole beside its direction and Fields, down to 320 px: while a sort is on, the word "Sort"
-	is for screen readers only (the field and its arrow say what is sorted), and the field keeps
-	no padding of its own for its arrow, which the browser draws beyond it (S6 review TBL-4;
-	pumps-results-layout.md §15 item 17). -->
+	is for screen readers only (the field and its arrow say what is sorted), and so is Fields'
+	count, which its name keeps (a table with default-hidden fields always has one: review
+	PUMPS-NITS-A2), and the field keeps no padding of its own for its arrow, which the browser
+	draws beyond it (S6 review TBL-4; pumps-results-layout.md §15 item 17). -->
 <div class="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
 	{#if sortChoices.length > 1}
 		<!-- Phones: the headings are not shown, so a field sorts the list (the same sort). -->
@@ -850,9 +851,10 @@
 				}}
 			>
 				<Icon name="list" class="size-4" />
-				<!-- Below 360 px its icon and count carry it, so Sort keeps its room. -->
-				<span class="max-[22.5rem]:sr-only">Fields</span><span class="text-slate-600"
-					>{fieldsCount}</span
+				<!-- Below 360 px its icon and count carry it, so Sort keeps its room; while a sort is
+					on, below 640 px, the count is for screen readers only (above). -->
+				<span class="max-[22.5rem]:sr-only">Fields</span><span
+					class={['text-slate-600', sort && 'max-sm:sr-only']}>{fieldsCount}</span
 				>
 			</button>
 			<!-- A phone: a sheet across the screen's width from its foot, over a dimmed page, as the

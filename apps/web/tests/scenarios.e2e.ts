@@ -4,6 +4,7 @@ import {
 	buildPane,
 	caseGroup,
 	caseMenu,
+	caseTagBoxes,
 	chooseCase,
 	currentHeading,
 	openCases,
@@ -220,12 +221,16 @@ test('solve one case and all of them, read the comparison and the other cases on
 	);
 	await expect(figure.getByRole('group', { name: 'Cases on the chart' })).toBeVisible();
 	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	// Each row headed by its case's number in a box, heard before its name (owner, 2026-11-12, nit
+	// 5; docs/proposals/pumps-nits.md item 5, slice 5b): "Base", then each scenario's place in the
+	// Scenarios list, the case shown first.
 	const byCase = figure.getByRole('table', { name: 'Operating points by case' });
-	await expect(byCase.getByRole('rowheader')).toHaveText([
-		'Slower pump (shown)',
-		/Base case$/,
-		/Higher tank$/
-	]);
+	const heads = byCase.getByRole('rowheader');
+	await expect(heads).toHaveCount(3);
+	await expect(heads.nth(0)).toHaveAccessibleName('Case 2: Slower pump (shown)');
+	await expect(heads.nth(1)).toHaveAccessibleName('Base case');
+	await expect(heads.nth(2)).toHaveAccessibleName('Case 1: Higher tank');
+	await expect(caseTagBoxes(heads)).toHaveText(['2', 'Base', '1']);
 	// The shown curve is computed for this solve; the other cases' only on request, on its grid,
 	// one at a time, with Cancel. Each curve table in its disclosure, opened first (proposal
 	// pumps-results-layout.md §9 S7).

@@ -34,6 +34,7 @@ import { IMPERIAL_UNITS } from '../src/lib/utils/units';
 import {
 	buildPane,
 	caseGroup,
+	caseTagBoxes,
 	chooseCase,
 	curveTableFold,
 	openCases,
@@ -2002,11 +2003,15 @@ const LONGEST_RUN = { card: 5, tab: 6 };
  * §5.7 row 8: the ring notes under "Other cases on the group chart" at 1280×800, "How to read the
  * rings" closed (its default), from the first note under the live line to the last: the lineups'
  * measured in S3 + 10 % (458 px, so 503), the condenser's set from S8's words, the mock's after-S8
- * 466 px + 10 % (S3 measured 402).
+ * 466 px + 10 % (S3 measured 402). Re-measured in nit 5's slice 5b (pumps-nits.md item 5,
+ * Budgets), its ring list a box column of 2.5 rem in place of "○ n ·" in 2.25 rem: the lineups'
+ * 458 px as before (the ring list 326 px both times); the condenser's 442 px (466 on e10d2cc,
+ * the ring list 390 px both times), since "Labels of 1 curve are left out for space" is no longer
+ * drawn: its curve labels, "[1, 4, 5, 6] 3 running" since 5b, all fit. Tightened to 442 + 10 %.
  */
 const RING_NOTES_1280: Readonly<Record<string, number>> = {
 	'2-lineups': 503,
-	'3-condenser': 513
+	'3-condenser': 487
 };
 /** §5.7 row 10: Tab stops from the card's header to the group chart's Show data table. */
 const TABS_TO_GROUP_TABLE = 20;
@@ -2894,8 +2899,10 @@ const OPEN_CARD_1280 = 6_296;
  * Running combinations as laid out (viewport px): its box and form; each case's group, its
  * heading's lines, its members' names and its flag lines, each read against the box's visible
  * width with the box at its start and scrolled to its end (the lines, names and flag lines are
- * sticky, §5.3); the cases of "Cases on this chart", ticked or not, which list them in the chart's
- * order (D24 §4.6); and "Other cases' station duties" while drawn (a list below 640 px, §9 S5).
+ * sticky, §5.3); the cases of "Cases on this chart", ticked or not, in their numbers' order, each
+ * with its case's number (owner, 2026-11-12, nit 5, Q2 "By list place"; docs/proposals/pumps-nits.md
+ * item 5, slice 5b); and "Other cases' station duties" while drawn (a list below 640 px, §9 S5).
+ * Each heading's words are read beside its case's number, which is read from its box.
  */
 function readCombinations() {
 	const card = document.querySelector('[data-pumps-together]');
@@ -2911,6 +2918,20 @@ function readCombinations() {
 		const copy = el.cloneNode(true) as Element;
 		for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
 		return squash(copy.textContent);
+	};
+	/** An element's words beside its case's number: without its CaseTag, box and words (nit 5). */
+	const beside = (el: Element) => {
+		const copy = el.cloneNode(true) as Element;
+		for (const tag of copy.querySelectorAll('[data-case-tag]')) tag.remove();
+		return squash(copy.textContent);
+	};
+	/** The case's number in its CaseTag's box inside `el`, "Base", "3"; null without one (nit 5). */
+	const tagOf = (el: Element | null | undefined) => {
+		const tag = el?.querySelector('[data-case-tag]');
+		if (!tag) return null;
+		const shown =
+			tag.getAttribute('aria-hidden') === 'true' ? tag : tag.querySelector('[aria-hidden="true"]');
+		return shown ? squash(shown.textContent) : null;
 	};
 	const seen = (el: Element) => {
 		const r = el.getBoundingClientRect();
@@ -2932,8 +2953,10 @@ function readCombinations() {
 		[...table.querySelectorAll(':scope > tbody')].map((tbody) => {
 			const heading = tbody.querySelector('th[scope="rowgroup"]')!;
 			return {
+				// Its case's number, in the box before the name (nit 5, slice 5b).
+				tag: tagOf(heading.firstElementChild),
 				lines: [...heading.children].map((line) => ({
-					text: squash(line.textContent),
+					text: beside(line),
 					// On screen, not only in its place (S6 review MUT-03: a line made invisible kept
 					// its text, position and box).
 					seen: seen(line),
@@ -2985,7 +3008,7 @@ function readCombinations() {
 	const fieldset = [...card.querySelectorAll('fieldset')].find(
 		(f) => squash(f.querySelector('legend')?.textContent) === 'Cases on this chart'
 	);
-	const tag = fieldset?.querySelector(':scope > div > span');
+	const shownTag = fieldset?.querySelector(':scope > div > span');
 	const duties = card.querySelector<HTMLElement>('[data-other-duties]');
 	const dutiesTable = duties?.querySelector('table');
 	const dutiesHead = dutiesTable?.querySelector('thead');
@@ -3000,11 +3023,15 @@ function readCombinations() {
 		titles: table.querySelectorAll('[title]').length,
 		atStart,
 		atEnd,
+		// Each entry's words and its case's number: the case shown's tag, then each box's label.
 		chartOrder:
-			fieldset && tag
+			fieldset && shownTag
 				? [
-						words(tag),
-						...[...fieldset.querySelectorAll('label > span.min-w-0')].map((s) => words(s))
+						{ name: beside(shownTag), tag: tagOf(shownTag) },
+						...[...fieldset.querySelectorAll('label')].map((label) => ({
+							name: words(label.querySelector('span.min-w-0') ?? label),
+							tag: tagOf(label)
+						}))
 					]
 				: null,
 		duties:
@@ -3074,12 +3101,33 @@ async function combinationsPart(
 	soft(m.columns, `no Flags column, ${where}`).not.toContain('Flags');
 	soft(m.nones, `"None" in Running combinations, ${where}`).toBe(0);
 	soft(m.titles, `a tooltip in Running combinations, ${where}`).toBe(0);
-	// The order (§5.3): the case shown, then the chart's, ticked or not.
-	const cases = m.atStart.map((g) => g.lines[0]?.text.replace(/ · ring \d+$/, '') ?? '');
+	// The order (§5.3), since nit 5 (owner, 2026-11-12, Q2 "By list place"; pumps-nits.md item 5,
+	// slice 5b): the case shown, then every other case in its number's order ("Base", then 1 to n
+	// by the Scenarios list), with values or not, each heading led by its number, one per case;
+	// "Cases on this chart" lists the cases it holds in the same order with the same numbers.
+	const cases = m.atStart.map((g) => g.lines[0]?.text ?? '');
+	const tags = m.atStart.map((g) => g.tag);
+	const rank = (tag: string | null) => (tag === 'Base' ? 0 : Number(tag));
+	soft(tags, `each case's number in its heading, ${where}`).not.toContain(null);
+	soft(new Set(tags).size, `one number per case in Running combinations, ${where}`).toBe(
+		tags.length
+	);
+	soft(
+		tags.slice(1).map(rank),
+		`Running combinations in number order after the case shown, ${where}`
+	).toEqual(
+		tags
+			.slice(1)
+			.map(rank)
+			.sort((a, b) => a - b)
+	);
 	if (m.chartOrder) {
+		soft(m.chartOrder.length, `"Cases on this chart" listed, ${where}`).toBeGreaterThan(1);
 		soft(
-			cases.slice(0, m.chartOrder.length),
-			`Running combinations in the chart's order, ${where}`
+			m.atStart
+				.map((g, i) => ({ name: cases[i]!, tag: g.tag }))
+				.filter((c) => m.chartOrder!.some((o) => o.name === c.name)),
+			`"Cases on this chart" in Running combinations' order, with its numbers, ${where}`
 		).toEqual(m.chartOrder);
 	}
 	soft(cases[0], `the case shown first, ${where}`).toMatch(/ \(shown\)/);
@@ -3280,8 +3328,26 @@ function readCombinationsTable() {
 		seen: seen(h.querySelector('button') ?? h)
 	}));
 	const bodies = [...table.querySelectorAll(':scope > tbody')];
-	const groupOf = (tr: Element) =>
-		squash(tr.closest('tbody')?.querySelector('th[scope="rowgroup"] > :first-child')?.textContent);
+	/**
+	 * A case's words beside its number (nit 5, slice 5b: a box before each case's name, in its
+	 * heading and in the Case column), and the number in that box ("Base", "3").
+	 */
+	const beside = (el: Element | null | undefined) => {
+		if (!el) return '';
+		const copy = el.cloneNode(true) as Element;
+		for (const tag of copy.querySelectorAll('[data-case-tag]')) tag.remove();
+		return squash(copy.textContent);
+	};
+	const tagOf = (el: Element | null | undefined) => {
+		const tag = el?.querySelector('[data-case-tag]');
+		if (!tag) return null;
+		const shown =
+			tag.getAttribute('aria-hidden') === 'true' ? tag : tag.querySelector('[aria-hidden="true"]');
+		return shown ? squash(shown.textContent) : null;
+	};
+	const headingOf = (tr: Element) =>
+		tr.closest('tbody')?.querySelector('th[scope="rowgroup"] > :first-child');
+	const groupOf = (tr: Element) => beside(headingOf(tr));
 	const rows = [...table.querySelectorAll(':scope > tbody > tr')]
 		.filter((r) => r.querySelector('th[scope="row"]'))
 		.map((r) => {
@@ -3292,7 +3358,9 @@ function readCombinationsTable() {
 				name: squash(name?.textContent),
 				nameSeen: seen(name),
 				nameWhole: whole(name),
-				case: kase ? squash(kase.textContent) : groupOf(r),
+				case: kase ? beside(kase) : groupOf(r),
+				// Its case's number, in its Case cell's box or its heading's (nit 5, slice 5b).
+				caseTag: tagOf(kase ?? headingOf(r)),
 				caseCell: kase
 					? {
 							// Its words in sight, not only its cell (whose header is ::before content).
@@ -3324,14 +3392,22 @@ function readCombinationsTable() {
 		});
 	// Each value on its line: in a row, the first line of every cell's words (a marked value's
 	// amount after its octagon included) shares one baseline with the cells beside it (§15 item
-	// 157: a marked value 3 px above its line on a phone; EXT-2).
+	// 157: a marked value 3 px above its line on a phone; EXT-2). A case's number in its box before
+	// the Case column's words (nit 5, slice 5b) is a box, not words: the words after it are read,
+	// and the box is held to a line of its cell instead: its words' first line (its middle within
+	// 1 px of theirs), or the whole line before it, where a word too long for the room left after
+	// the box starts on the next line (a 40-character unbroken name: `tagsAbove`, logged).
 	const offLine: string[] = [];
+	const tagsOffLine: string[] = [];
+	const tagsAbove: string[] = [];
+	const tagLines: number[] = [];
 	for (const tr of [...table.querySelectorAll(':scope > tbody > tr')].slice(0, 60)) {
 		const lines: { cell: string; top: number; bottom: number }[] = [];
 		for (const td of tr.querySelectorAll<HTMLElement>(':scope > td[data-label]')) {
 			const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
 			for (let n = walker.nextNode(); n; n = walker.nextNode()) {
 				if (!n.textContent?.trim() || n.parentElement?.closest('.sr-only')) continue;
+				if (n.parentElement?.closest('[data-case-tag]')) continue;
 				const range = document.createRange();
 				range.selectNodeContents(n);
 				const r = range.getClientRects()[0];
@@ -3341,6 +3417,18 @@ function readCombinationsTable() {
 						top: r.top,
 						bottom: r.bottom
 					});
+					const box = td
+						.querySelector('[data-case-tag]')
+						?.querySelector(':scope > [aria-hidden="true"]')
+						?.getBoundingClientRect();
+					if (box) {
+						const delta = (box.top + box.bottom - r.top - r.bottom) / 2;
+						const line = parseFloat(getComputedStyle(n.parentElement!).lineHeight);
+						const what = `"${beside(td).slice(0, 40)}": its box ${Math.round(box.top)} to ${Math.round(box.bottom)}, its words ${Math.round(r.top)} to ${Math.round(r.bottom)}`;
+						tagLines.push(Math.round(delta * 10) / 10);
+						if (Math.abs(delta + line) <= 1) tagsAbove.push(what);
+						else if (Math.abs(delta) > 1) tagsOffLine.push(what);
+					}
 				}
 				break;
 			}
@@ -3402,6 +3490,10 @@ function readCombinationsTable() {
 		flagged: flagged ? { seen: seen(flagged), text: squash(flagged.textContent) } : null,
 		rows,
 		offLine: [...new Set(offLine)].slice(0, 6),
+		tagsOffLine: tagsOffLine.slice(0, 6),
+		tagsAbove: [...new Set(tagsAbove.map((t) => t.replace(/: its box.*/, '')))],
+		// Each Case cell's box middle from its words' middle, px (logged).
+		tagLines: [...new Set(tagLines)],
 		covers: [...new Set(covers)]
 	};
 }
@@ -3466,6 +3558,8 @@ async function combinationsTablePart(page: Page, where: string, form: 'grouped' 
 	soft(m.rows.length, `Running combinations' rows, ${where}`).toBeGreaterThan(0);
 	for (const r of m.rows) {
 		const what = `"${r.name}" in "${r.case}", ${where}`;
+		// Its case's number before its case's words, in either form (nit 5, slice 5b).
+		soft(r.caseTag, `${what}: its case's number`).toMatch(/^(Base|\d+)$/);
 		soft(r.nameSeen, `${what}: its name in sight`).toBe(true);
 		soft(r.nameWhole, `${what}: its name shown to its end`).toBe(true);
 		soft(r.button, `${what}: a trace button in the shown case's rows only`).toBe(
@@ -3497,6 +3591,13 @@ async function combinationsTablePart(page: Page, where: string, form: 'grouped' 
 		}
 	}
 	soft(m.offLine, `Running combinations' values off their line, ${where}`).toEqual([]);
+	if (form === 'flat') {
+		console.log(
+			`${where}: each Case cell's box ${m.tagLines.join(', ')} px from its words' middle${m.tagsAbove.length ? `; on the line before its words in ${m.tagsAbove.join(', ')}` : ''}`
+		);
+		soft(m.tagLines.length, `the Case cells' boxes, ${where}`).toBeGreaterThan(0);
+	}
+	soft(m.tagsOffLine, `a Case cell's box off its words' line, ${where}`).toEqual([]);
 	soft(m.covers, `fills over Running combinations' right shadow, ${where}`).toEqual([]);
 	return m;
 }
@@ -3931,15 +4032,17 @@ test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump ch
 	// S8 (§9 S8 Slots, §6.2): while the other cases' system curves are off, a case in which Pump
 	// PA is off takes no slot: no box, and the line under the list names it, on screen at each
 	// size. The fixture's scenarios set PA off in "Pump PA off" and "Both pumps off"
-	// (pump-groups-input.json).
+	// (pump-groups-input.json), its cases 1 and 4 by the Scenarios list: since nit 5 (owner,
+	// 2026-11-12; docs/proposals/pumps-nits.md item 5, slice 5b) each case is named by its number,
+	// in the line's words and in each box's name ("Case 1: …", heard before its visible words).
 	const figure = await pumpFigure(page);
 	const cases = figure.getByRole('group', { name: 'Cases on the chart' });
 	const offLine = cases.locator('[data-pump-off-cases]');
 	await expect(offLine).toHaveText(
-		'Off in this case (no operating point): Pump PA off; Both pumps off.'
+		'Off in this case (no operating point): case 1: Pump PA off; case 4: Both pumps off.'
 	);
 	expect(await seenLine(offLine), `the off line on screen at ${sizeOf(page)}`).toBe(true);
-	for (const name of ['Pump PA off', 'Both pumps off']) {
+	for (const name of ['Case 1: Pump PA off', 'Case 4: Both pumps off']) {
 		await expect(cases.getByRole('checkbox', { name, exact: true })).toHaveCount(0);
 	}
 	// S1 (§5.3, §10), while the other cases' system curves are on (S8): a case in which Pump PA
@@ -3947,11 +4050,11 @@ test('one-off, the Pumps tab’s defaults: nothing scrolls sideways; the pump ch
 	await figure.getByRole('checkbox', { name: "Also show the other cases' system curves" }).check();
 	await expect(offLine).toHaveCount(0);
 	const NOTE = 'off in this case: no operating point';
-	for (const name of ['Pump PA off', 'Both pumps off']) {
+	for (const name of ['Case 1: Pump PA off', 'Case 4: Both pumps off']) {
 		const box = cases.getByRole('checkbox', { name, exact: true });
 		await expect(box).toHaveAccessibleDescription(new RegExp(`\\(${NOTE}\\)`));
 	}
-	for (const name of ['Pump PB off', 'Delivery tank 5 m higher']) {
+	for (const name of ['Case 2: Pump PB off', 'Case 3: Delivery tank 5 m higher']) {
 		const box = cases.getByRole('checkbox', { name, exact: true });
 		await expect(box).toHaveAccessibleDescription('');
 	}
@@ -4034,29 +4137,36 @@ test('lineups, every disclosure and data table open: nothing scrolls sideways; t
 	const card = tab.getByRole('region', { name: /^Pumps together/ });
 	const pumpCases = figure.getByRole('group', { name: 'Cases on the chart' });
 	const cardCases = card.getByRole('group', { name: 'Cases on this chart' });
+	// Since nit 5 (owner, 2026-11-12; pumps-nits.md item 5, slice 5b) each case is named by its
+	// number in both lists, "Case 2: …" (the lineups' S2), and each ring line keeps its case's
+	// number in its box whatever is unticked: the rings read as their numbers and names.
 	const TWO = '2 of 4 running (Pump P3, Pump P4 off)';
+	const TWO_BOX = `Case 2: ${TWO}`;
 	const rings = () =>
-		card
-			.locator('[data-group-rings] li .font-medium')
-			.evaluateAll((all) => all.map((n) => n.textContent));
+		card.locator('[data-group-rings] li').evaluateAll((all) =>
+			all.map((li) => {
+				const tag = li.querySelector('[data-case-tag] > [aria-hidden="true"]');
+				return `${tag?.textContent?.trim() ?? '?'} ${li.querySelector('.font-medium')?.textContent}`;
+			})
+		);
 	const ringsBefore = await rings();
-	expect(ringsBefore).toContain(TWO);
-	await expect(pumpCases.getByRole('checkbox', { name: TWO, exact: true })).toBeChecked();
-	await pumpCases.getByRole('checkbox', { name: TWO, exact: true }).uncheck();
-	await expect(cardCases.getByRole('checkbox', { name: TWO, exact: true })).not.toBeChecked();
-	await expect.poll(rings).toEqual(ringsBefore.filter((name) => name !== TWO));
+	expect(ringsBefore).toContain(`2 ${TWO}`);
+	await expect(pumpCases.getByRole('checkbox', { name: TWO_BOX, exact: true })).toBeChecked();
+	await pumpCases.getByRole('checkbox', { name: TWO_BOX, exact: true }).uncheck();
+	await expect(cardCases.getByRole('checkbox', { name: TWO_BOX, exact: true })).not.toBeChecked();
+	await expect.poll(rings).toEqual(ringsBefore.filter((ring) => ring !== `2 ${TWO}`));
 	// Pump P3 is off in that case: on its chart the case takes no slot and is named.
 	const select = tab.getByRole('combobox', { name: 'Pump chart' });
 	await select.selectOption({ label: 'Pump P3' });
 	await expect(tab.getByRole('figure', { name: /^Pump and system curves: Pump P3/ })).toBeVisible();
-	await expect(pumpCases.locator('[data-pump-off-cases]')).toContainText(TWO);
+	await expect(pumpCases.locator('[data-pump-off-cases]')).toContainText(`case 2: ${TWO}`);
 	// Pump P2 runs in it: its box is there, still unticked.
 	await select.selectOption({ label: 'Pump P2' });
 	await expect(tab.getByRole('figure', { name: /^Pump and system curves: Pump P2/ })).toBeVisible();
-	await expect(pumpCases.getByRole('checkbox', { name: TWO, exact: true })).not.toBeChecked();
+	await expect(pumpCases.getByRole('checkbox', { name: TWO_BOX, exact: true })).not.toBeChecked();
 	// Ticked again under "Cases on this chart": on both.
-	await cardCases.getByRole('checkbox', { name: TWO, exact: true }).check();
-	await expect(pumpCases.getByRole('checkbox', { name: TWO, exact: true })).toBeChecked();
+	await cardCases.getByRole('checkbox', { name: TWO_BOX, exact: true }).check();
+	await expect(pumpCases.getByRole('checkbox', { name: TWO_BOX, exact: true })).toBeChecked();
 	await expect.poll(rings).toEqual(ringsBefore);
 });
 
@@ -4249,9 +4359,10 @@ test('the other cases’ live line under their h5 is drawn empty before it speak
 	expect(spoke, 'the line said its progress').toBeDefined();
 	expect(spoke!.kind, 'as a change').toBe('change');
 	expect(spoke!.frame - log[0]!.frame, 'frames from insert to words').toBeGreaterThan(1);
-	// The rings drawn: the ring list, one line per ring, and "How to read the rings" closed.
+	// The rings drawn: the ring list, one line per ring, and "How to read the rings" closed. Its
+	// lead the pump image's words since nit 5 (pumps-nits.md item 5, slice 5b).
 	const rings = section.getByRole('list', {
-		name: 'Other cases on the chart (slate rings, numbered):'
+		name: 'Other cases on the chart (slate rings, each tagged with its case number):'
 	});
 	await expect(rings.getByRole('listitem')).toHaveCount(4);
 	await expect(section.locator('[data-group-rings-how]')).not.toHaveAttribute('open', /.*/);
@@ -6198,8 +6309,15 @@ function readStaleGroup() {
 			what: (cell.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 30),
 			bg: painted(cell)
 		}));
+	// Its heading's words beside its case's number, and the number in the box before them (owner,
+	// 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5, slice 5b).
+	const line = tbody.querySelector('th[scope="rowgroup"] > span');
+	const words = line?.cloneNode(true) as Element | undefined;
+	for (const tag of words?.querySelectorAll('[data-case-tag]') ?? []) tag.remove();
+	const tag = line?.querySelector('[data-case-tag] > [aria-hidden="true"]');
 	return {
-		heading: (tbody.querySelector('th[scope="rowgroup"] > span')?.textContent ?? '').trim(),
+		heading: (words?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+		tag: (tag?.textContent ?? '').trim(),
 		ambers,
 		cells: cells.map((c) => ({ ...c, amber: ambers.includes(c.bg) })),
 		tones: [...new Set(cells.map((c) => c.bg))]
@@ -6308,6 +6426,8 @@ test('S5 review: the extremes list’s names with a measure no case gives, each 
 		expect(g, `a group out of date, ${where}`).not.toBeNull();
 		console.log(`${where}: "${g!.heading}", tones ${JSON.stringify(g!.tones)}`);
 		expect.soft(g!.heading).toBe('Delivery tank 5 m higher (out of date)');
+		// Its case's number before it, the scenario's place in the list (nit 5, slice 5b).
+		expect.soft(g!.tag, `the stale case's number, ${where}`).toBe('8');
 		for (const cell of g!.cells) {
 			expect.soft(cell.amber, `"${cell.what}" amber (${cell.bg}), ${where}`).toBe(true);
 		}
@@ -7092,10 +7212,11 @@ test('S8 review: “Also show the other cases’ system curves” stays under th
 				else await page.mouse.click(point.x, point.y);
 				await expect(box).toBeChecked({ checked: on });
 				// Pump PA's two off cases: their boxes above the switch while the curves are on, the
-				// line naming them while they are off (§9 S8 Slots).
-				await expect(cases.getByRole('checkbox', { name: 'Pump PA off', exact: true })).toHaveCount(
-					on ? 1 : 0
-				);
+				// line naming them while they are off (§9 S8 Slots); case 1's box named by its
+				// number since nit 5 (pumps-nits.md item 5, slice 5b).
+				await expect(
+					cases.getByRole('checkbox', { name: 'Case 1: Pump PA off', exact: true })
+				).toHaveCount(on ? 1 : 0);
 				await expect(cases.locator('[data-pump-off-cases]')).toHaveCount(on ? 0 : 1);
 				await page.waitForTimeout(300);
 				const after = await box.evaluate(readSwitch, point);
@@ -7824,4 +7945,300 @@ test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPS
 		).toBeNull();
 	}
 	await page.setViewportSize(viewport);
+});
+
+// ---- Nit 5, slice 5b: one number per case (pumps-nits.md item 5) -------------------------------
+
+/**
+ * Every place on the Pumps tab that lists cases, each case as it is drawn there (owner,
+ * 2026-11-12, nit 5: "I don't like the use of special characters to designate pumps and groups";
+ * Q2 "By list place"; docs/proposals/pumps-nits.md item 5, rule 4): its words beside its CaseTag
+ * and the number in the tag's box. For the two case lists and the ring list, the box's reserved
+ * column (2.5 rem), whether the box sits inside it, where the name starts and, in the lists, how
+ * far the box's middle is from its checkbox's. For the pump chart's "Cases on the chart", its
+ * height and each name inside it (names moved 24 px right, from a 1 rem column, at 320 px too).
+ */
+function readCaseNumbers() {
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const tenth = (n: number) => Math.round(n * 10) / 10;
+	const panel = document.querySelector('[role="tabpanel"][id$="-panel-pumps"]')!;
+	const figure = [...panel.querySelectorAll('figure')].find((f) =>
+		squash(f.querySelector(':scope > figcaption')?.textContent).startsWith('Pump and system curves')
+	);
+	const card = panel.querySelector('[data-pumps-together]');
+	/** The box seen: the tag itself for "Base" (aria-hidden whole), else its aria-hidden child. */
+	const boxOf = (el: Element | null | undefined) => {
+		const tag = el?.querySelector('[data-case-tag]');
+		if (!tag) return null;
+		return tag.getAttribute('aria-hidden') === 'true'
+			? tag
+			: tag.querySelector(':scope > [aria-hidden="true"]');
+	};
+	const beside = (el: Element) => {
+		const copy = el.cloneNode(true) as Element;
+		for (const tag of copy.querySelectorAll('[data-case-tag]')) tag.remove();
+		return squash(copy.textContent);
+	};
+	/** Its box's column: the element that holds the tag (`w-10`, 2.5 rem), and the box in it. */
+	const column = (el: Element) => {
+		const box = boxOf(el);
+		const held = el.querySelector('[data-case-tag]')?.parentElement ?? null;
+		if (!box || !held) return { width: null, inside: false };
+		const b = box.getBoundingClientRect();
+		const c = held.getBoundingClientRect();
+		return {
+			width: tenth(c.width),
+			inside: b.left >= c.left - 0.5 && b.right <= c.right + 0.5 && b.width > 1
+		};
+	};
+	const fieldset = (scope: Element | null | undefined, legend: string) =>
+		[...(scope?.querySelectorAll('fieldset') ?? [])].find(
+			(f) => squash(f.querySelector(':scope > legend')?.textContent) === legend
+		) ?? null;
+	const list = (set: HTMLFieldSetElement | null) =>
+		set
+			? {
+					shown: (() => {
+						const tag = set.querySelector(':scope > div > span');
+						return tag ? { name: beside(tag), tag: squash(boxOf(tag)?.textContent) } : null;
+					})(),
+					entries: [...set.querySelectorAll('label')].map((label) => {
+						const input = label.querySelector('input')!.getBoundingClientRect();
+						const name = label.querySelector('span.min-w-0');
+						const box = boxOf(label)?.getBoundingClientRect();
+						const n = name?.getBoundingClientRect();
+						// An off case's note under it (the pump chart's list): where its words start.
+						const note = label.nextElementSibling;
+						const range = document.createRange();
+						if (note?.tagName === 'P') range.selectNodeContents(note);
+						const noteAt = note?.tagName === 'P' ? range.getClientRects()[0] : undefined;
+						return {
+							name: squash(name?.textContent),
+							tag: squash(boxOf(label)?.textContent) || null,
+							column: column(label),
+							// From the checkbox's right edge to the name's start: its gap, the column, a gap.
+							nameFrom: n ? tenth(n.left - input.right) : null,
+							// The box's middle against its checkbox's (a box set level with it).
+							level: box
+								? tenth((box.top + box.bottom) / 2 - (input.top + input.bottom) / 2)
+								: null,
+							nameInside: !!n && n.right <= set.getBoundingClientRect().right + 0.5,
+							// Its off note's words from its name's start (none: null).
+							noteFromName: noteAt && n ? tenth(noteAt.left - n.left) : null,
+							nameWhole: !!name && name.scrollWidth <= name.clientWidth + 1
+						};
+					}),
+					height: Math.round(set.getBoundingClientRect().height)
+				}
+			: null;
+	const ringList = card?.querySelector('[data-group-rings] ul');
+	const tableNamed = (scope: Element | null | undefined, caption: string) =>
+		[...(scope?.querySelectorAll('table') ?? [])].find(
+			(t) =>
+				squash(t.querySelector('caption')?.textContent) === caption ||
+				t.getAttribute('aria-label') === caption
+		) ?? null;
+	const rowHeaders = (table: HTMLTableElement | null) =>
+		table
+			? [...table.querySelectorAll('tbody th')].map((th) => ({
+					name: beside(th),
+					tag: squash(boxOf(th)?.textContent) || null,
+					column: column(th)
+				}))
+			: null;
+	return {
+		pumpList: list(fieldset(figure, 'Cases on the chart')),
+		cardList: list(fieldset(card, 'Cases on this chart')),
+		rings: ringList
+			? [...ringList.querySelectorAll(':scope > li')].map((li) => {
+					const words = li.querySelector('span.min-w-0');
+					return {
+						name: squash(li.querySelector('.font-medium')?.textContent),
+						tag: squash(boxOf(li)?.textContent) || null,
+						column: column(li),
+						nameFrom: words
+							? tenth(words.getBoundingClientRect().left - li.getBoundingClientRect().left)
+							: null
+					};
+				})
+			: null,
+		byCase: rowHeaders(tableNamed(figure, 'Operating points by case')),
+		duties: rowHeaders(tableNamed(card, "Other cases' station duties"))
+	};
+}
+
+test('Nit 5, slice 5b: one number per case in the one-off, the same in both charts’ lists, the ring list and both data tables, kept over an untick; each in a 2.5 rem box column; nothing sideways; axe clean (pumps-nits.md item 5, rule 4)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(360_000);
+	const soft = expect.configure({ soft: true });
+	await oneOff(page);
+	const tab = await pumpsTab(page);
+	const figure = await pumpFigure(page);
+	// The fixture's scenarios in the Scenarios list's order (pump-groups-input.json): each case's
+	// number its place there, the base case "Base" (Q2 "By list place").
+	const CASES = [
+		{ name: 'Pump PA off', tag: '1' },
+		{ name: 'Pump PB off', tag: '2' },
+		{ name: 'Delivery tank 5 m higher', tag: '3' },
+		{ name: 'Both pumps off', tag: '4' }
+	];
+	// Every case in every place: on the pump chart Pump PA's off cases take a slot only while the
+	// other cases' system curves are on (§9 S8 Slots); on the card the station duties drawn; both
+	// data tables shown.
+	await figure.getByRole('checkbox', { name: "Also show the other cases' system curves" }).check();
+	await settle(page);
+	const card = await openCard(page, tab);
+	await card.getByRole('checkbox', { name: "Also show the other cases' station duties" }).check();
+	const ringList = card.getByRole('list', {
+		name: 'Other cases on the chart (slate rings, each tagged with its case number):'
+	});
+	await expect(ringList.getByRole('listitem')).toHaveCount(4, { timeout: 120_000 });
+	await settle(page);
+	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
+	await settle(page);
+	const pumpCases = figure.getByRole('group', { name: 'Cases on the chart' });
+	const cardCases = card.getByRole('group', { name: 'Cases on this chart' });
+	const byCase = figure.getByRole('table', { name: 'Operating points by case' });
+	const duties = card.getByRole('table', { name: "Other cases' station duties" });
+
+	// Each case found by its number's words, once in each place (WCAG 2.5.3: the box's number is
+	// heard before the name the checkbox shows).
+	for (const { name, tag } of CASES) {
+		const said = `Case ${tag}: ${name}`;
+		await expect(pumpCases.getByRole('checkbox', { name: said, exact: true })).toHaveCount(1);
+		await expect(cardCases.getByRole('checkbox', { name: said, exact: true })).toHaveCount(1);
+		await expect(byCase.getByRole('rowheader', { name: said, exact: true })).toHaveCount(1);
+		await expect(duties.getByRole('rowheader', { name: said, exact: true })).toHaveCount(1);
+		await expect(ringList.getByRole('listitem').filter({ hasText: name })).toHaveCount(1);
+		await expect(caseTagBoxes(ringList.getByRole('listitem').filter({ hasText: name }))).toHaveText(
+			tag
+		);
+	}
+
+	const pick = (entries: { name: string; tag: string | null }[] | null | undefined) =>
+		entries?.map(({ name, tag }) => ({ name, tag })) ?? null;
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `the one-off at ${sizeOf(page)}`;
+		const m = await page.evaluate(readCaseNumbers);
+		// One number per case, the same everywhere, every list and table in number order: the two
+		// case lists (the case shown first, "Base"), the ring list, and both data tables.
+		soft(m.pumpList?.shown, `"Cases on the chart": the case shown, ${where}`).toEqual({
+			name: 'Base case (shown)',
+			tag: 'Base'
+		});
+		soft(m.cardList?.shown, `"Cases on this chart": the case shown, ${where}`).toEqual({
+			name: 'Base case (shown)',
+			tag: 'Base'
+		});
+		soft(pick(m.pumpList?.entries), `"Cases on the chart", ${where}`).toEqual(CASES);
+		soft(pick(m.cardList?.entries), `"Cases on this chart", ${where}`).toEqual(CASES);
+		soft(pick(m.rings), `the ring list, ${where}`).toEqual(CASES);
+		soft(pick(m.byCase), `"Operating points by case", ${where}`).toEqual([
+			{ name: 'Base case (shown)', tag: 'Base' },
+			...CASES
+		]);
+		soft(pick(m.duties), `"Other cases' station duties", ${where}`).toEqual(CASES);
+
+		// The reserved columns (pumps-nits.md item 5, Budgets): 2.5 rem for the box in both case
+		// lists, the ring list and both tables, the box inside it, so every name starts at one
+		// edge: in the lists 8 px after the checkbox, the column, 8 px; in the ring list the
+		// column and 4 px. Each box level with its checkbox.
+		for (const [what, cases] of [
+			['"Cases on the chart"', m.pumpList],
+			['"Cases on this chart"', m.cardList]
+		] as const) {
+			const entries = cases?.entries ?? [];
+			console.log(
+				`${where}: ${what} ${cases?.height} px high; names ${[...new Set(entries.map((e) => e.nameFrom))].join(', ')} px after their checkboxes; each box ${[...new Set(entries.map((e) => e.level))].join(', ')} px from its checkbox's middle`
+			);
+			for (const e of entries) {
+				soft(e.column.width, `${what}: "${e.name}"'s column, ${where}`).toBe(40);
+				soft(e.column.inside, `${what}: "${e.name}"'s box inside its column, ${where}`).toBe(true);
+				soft(e.nameFrom, `${what}: where "${e.name}" starts, ${where}`).toBe(56);
+				soft(
+					Math.abs(e.level ?? 99),
+					`${what}: "${e.name}"'s box level with its checkbox, ${where}`
+				).toBeLessThanOrEqual(1);
+				soft(e.nameInside, `${what}: "${e.name}" inside its list, ${where}`).toBe(true);
+				soft(e.nameWhole, `${what}: "${e.name}" shown to its end, ${where}`).toBe(true);
+				// An off case's note starts under its name, past the column (pl-18 since 5b).
+				if (e.noteFromName !== null) {
+					soft(
+						Math.abs(e.noteFromName),
+						`${what}: "${e.name}"'s off note under its name, ${where}`
+					).toBeLessThanOrEqual(0.5);
+				}
+			}
+		}
+		const notes = (m.pumpList?.entries ?? []).filter((e) => e.noteFromName !== null);
+		soft(
+			notes.map((e) => e.name),
+			`the off notes under "Cases on the chart", ${where}`
+		).toEqual(['Pump PA off', 'Both pumps off']);
+		for (const r of m.rings ?? []) {
+			soft(r.column.width, `the ring list: "${r.name}"'s column, ${where}`).toBe(40);
+			soft(r.column.inside, `the ring list: "${r.name}"'s box inside its column, ${where}`).toBe(
+				true
+			);
+			soft(r.nameFrom, `the ring list: where "${r.name}" starts, ${where}`).toBe(44);
+		}
+		for (const [what, rows] of [
+			['"Operating points by case"', m.byCase ?? []],
+			['"Other cases\' station duties"', m.duties ?? []]
+		] as const) {
+			for (const r of rows) {
+				soft(r.column.width, `${what}: "${r.name}"'s column, ${where}`).toBe(40);
+				soft(r.column.inside, `${what}: "${r.name}"'s box inside its column, ${where}`).toBe(true);
+			}
+		}
+		await noSidewaysScroll(page, where);
+	}
+	await page.setViewportSize(viewport);
+	await settle(page, 1000);
+
+	// Numbers fixed by case (rule 4): case 1 unticked under "Cases on this chart", which unticks it
+	// on the pump chart too (§9 S8, one choice of cases); every case keeps its number in both lists
+	// (case 1's box too, unticked) and in the station duties' table, which lists every case drawn
+	// or not; the ring list and "Operating points by case" lose case 1 alone. Ticked again, all
+	// as before.
+	const before = await page.evaluate(readCaseNumbers);
+	const one = cardCases.getByRole('checkbox', { name: 'Case 1: Pump PA off', exact: true });
+	await one.uncheck();
+	await expect(
+		pumpCases.getByRole('checkbox', { name: 'Case 1: Pump PA off', exact: true })
+	).not.toBeChecked();
+	await expect(ringList.getByRole('listitem')).toHaveCount(3);
+	await settle(page);
+	const unticked = await page.evaluate(readCaseNumbers);
+	expect(pick(unticked.pumpList?.entries), 'case 1 unticked: "Cases on the chart"').toEqual(CASES);
+	expect(pick(unticked.cardList?.entries), 'case 1 unticked: "Cases on this chart"').toEqual(CASES);
+	expect(pick(unticked.rings), 'case 1 unticked: the ring list').toEqual(CASES.slice(1));
+	expect(pick(unticked.byCase), 'case 1 unticked: "Operating points by case"').toEqual([
+		{ name: 'Base case (shown)', tag: 'Base' },
+		...CASES.slice(1)
+	]);
+	expect(pick(unticked.duties), `case 1 unticked: "Other cases' station duties"`).toEqual(CASES);
+	await one.check();
+	await expect(ringList.getByRole('listitem')).toHaveCount(4, { timeout: 120_000 });
+	await settle(page);
+	const again = await page.evaluate(readCaseNumbers);
+	for (const place of ['pumpList', 'cardList'] as const) {
+		expect(pick(again[place]?.entries), `case 1 ticked again: ${place}`).toEqual(
+			pick(before[place]?.entries)
+		);
+	}
+	for (const place of ['rings', 'byCase', 'duties'] as const) {
+		expect(pick(again[place]), `case 1 ticked again: ${place}`).toEqual(pick(before[place]));
+	}
+
+	// axe over the changed lists and tables, every disclosure open (the boxes' hidden words, the
+	// checkboxes' names, the tables' row headers).
+	await axeClean(page, `the one-off, every case drawn, at ${sizeOf(page)}`);
 });

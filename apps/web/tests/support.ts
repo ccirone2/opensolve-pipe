@@ -229,6 +229,15 @@ export async function openCurveTable(scope: Locator, caption: string): Promise<L
 	return table;
 }
 
+/**
+ * The boxes of case numbers in `scope` (components/ui/CaseTag.svelte; owner, 2026-11-12, nit 5;
+ * docs/proposals/pumps-nits.md item 5, slice 5b): each the number as seen, "3", "1, 5", "Base",
+ * hidden from screen readers (the base case's wholly, a scenario's after its visually hidden
+ * words "Case 3:", which an accessible name reads instead).
+ */
+export const caseTagBoxes = (scope: Locator): Locator =>
+	scope.locator('[data-case-tag][aria-hidden="true"], [data-case-tag] > [aria-hidden="true"]');
+
 /** A number as shown in the results: 4 significant figures. */
 export const sig4 = (value: number) => String(Number(value.toPrecision(4)));
 /** Rounded toward zero to 4 significant digits: how a bound a value must stay below is shown. */

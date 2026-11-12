@@ -12,6 +12,7 @@ import type {
 	SolveResponse
 } from '../src/lib/api/types';
 import {
+	caseTagBoxes,
 	curveTableFold,
 	downloadFrom,
 	expectNothingSent,
@@ -33,8 +34,8 @@ import {
  * the station (points without a rise, and why) and a PRV inside it (no group curve, the group
  * system curve all the same). Slice 4c: the export writes the group computed, in five sheets after
  * System curves, sending nothing. Slice 4d: the cases with one pump off added in one step and
- * solved with Solve all, each case's pumps in Running combinations, each station duty a numbered
- * ring on the base case's group system curve, offered for pumps in parallel only, and axe clean
+ * solved with Solve all, each case's pumps in Running combinations, each station duty a slate ring
+ * tagged with its case's number on the base case's group system curve, offered for pumps in parallel only, and axe clean
  * with everything open; since D24 through the Add cases block with Each pump off chosen. D24 slice
  * L1b (pump-lineups.md §10.1): By number running on four pumps, the stop order moved by keyboard
  * on desktop and by taps on a phone, three cases added and solved, each with its lineup line in
@@ -719,16 +720,20 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 }) => {
 	const { card, base, solves, duties } = await addAndSolve(page);
 	// Running combinations: every case, the shown first, each pump's values from its own solve.
+	// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5, slice 5b): each heading led by
+	// its case's number in a box, "Base", then 1 and 2 by the Scenarios list, heard as "Case 1:"
+	// before the name (no " · ring n" after it).
 	const combos = card.getByRole('table', { name: 'Running combinations' });
 	const group = (name: RegExp) =>
 		combos.getByRole('rowgroup').filter({ has: page.getByRole('rowheader', { name }) });
 	await expect(group(/^Base case \(shown\)/)).toHaveCount(1);
-	await expect(group(/^Pump PA off/)).toHaveCount(1);
-	await expect(group(/^Pump PB off/)).toHaveCount(1);
+	await expect(group(/^Case 1: Pump PA off/)).toHaveCount(1);
+	await expect(group(/^Case 2: Pump PB off/)).toHaveCount(1);
+	await expect(caseTagBoxes(combos.locator('th[scope="rowgroup"]'))).toHaveText(['Base', '1', '2']);
 	const cases = [
 		[/^Base case \(shown\)/, base],
-		[/^Pump PA off/, solves.S1.solvedState],
-		[/^Pump PB off/, solves.S2.solvedState]
+		[/^Case 1: Pump PA off/, solves.S1.solvedState],
+		[/^Case 2: Pump PB off/, solves.S2.solvedState]
 	] as const;
 	for (const [name, solved] of cases) {
 		for (const pump of ['PA', 'PB']) {
@@ -744,7 +749,7 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 			if (r.npshMargin !== null) shows(await cell('NPSH margin (m)'), r.npshMargin);
 		}
 	}
-	const paWithoutPb = group(/^Pump PB off/)
+	const paWithoutPb = group(/^Case 2: Pump PB off/)
 		.getByRole('row')
 		.filter({ has: page.getByRole('rowheader', { name: 'Pump PA', exact: true }) });
 	await expect(paWithoutPb.locator('[data-label="Inside curve data"]')).toHaveText(
@@ -768,11 +773,12 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 		/^[\d.]+ L\/s in Pump PB off; beyond its curve data/
 	);
 
-	// Each case's station duty, a numbered ring on the base case's group system curve.
+	// Each case's station duty, a slate ring on the base case's group system curve, named by its
+	// case's number (nit 5, slice 5b: "Case 1: …", no "1 ·").
 	const figure = card.getByRole('figure');
 	const legend = figure.getByRole('list', { name: 'Legend' });
-	await expect(legend.getByText('1 · Pump PA off (station duty)')).toBeVisible();
-	await expect(legend.getByText('2 · Pump PB off (station duty)')).toBeVisible();
+	await expect(legend.getByText('Case 1: Pump PA off (station duty)')).toBeVisible();
+	await expect(legend.getByText('Case 2: Pump PB off (station duty)')).toBeVisible();
 	await expect(
 		legend.getByRole('listitem').filter({ hasText: /^\s*Group system curve/ })
 	).toHaveCount(1);
@@ -785,7 +791,7 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 		[2, 'Pump PB off', duties[1]!]
 	] as const) {
 		const match = new RegExp(
-			`${n} · ${label}, ([\\d.]+) L/s at a rise of ([\\d.]+) m \\(Yes: the same rest of the network; group curve: drawn \\(1 running\\): it crosses the group system curve at the ring\\)`
+			`case ${n}: ${label}, ([\\d.]+) L/s at a rise of ([\\d.]+) m \\(Yes: the same rest of the network; group curve: drawn \\(1 running\\): it crosses the group system curve at the ring\\)`
 		).exec(name);
 		expect(match, name).not.toBeNull();
 		shows(match![1]!, answer.body.duty!.flow * 1000);
@@ -794,6 +800,15 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
 	const table = card.getByRole('table', { name: "Other cases' station duties" });
 	for (const [i, answer] of duties.entries()) {
+		// Each row headed by its case's number in a box and its name (nit 5, slice 5b).
+		const header = table
+			.getByRole('row')
+			.nth(i + 1)
+			.getByRole('rowheader');
+		await expect(header).toHaveAccessibleName(
+			`Case ${i + 1}: ${['Pump PA off', 'Pump PB off'][i]}`
+		);
+		await expect(caseTagBoxes(header)).toHaveText(String(i + 1));
 		const cells = table
 			.getByRole('row')
 			.nth(i + 1)
@@ -861,8 +876,9 @@ test('one pump off is offered for pumps in parallel only', async ({ page }) => {
 
 test('the Pumps together card with its cases passes axe, everything open', async ({ page }) => {
 	const { card } = await addAndSolve(page);
+	// Nit 5, slice 5b: the ring's entry names its case by number.
 	await expect(card.getByRole('figure').getByRole('list', { name: 'Legend' })).toContainText(
-		'2 · Pump PB off (station duty)'
+		'Case 2: Pump PB off (station duty)'
 	);
 	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
 	await openEveryDisclosure(page);
@@ -990,15 +1006,22 @@ test('add cases by number running: the stop order moved, three cases added and s
 	);
 
 	// 5. Running combinations: four groups, each with its lineup line and each pump's values from
-	// its own solve, in display units; three rings.
+	// its own solve, in display units; three rings. Nit 5 (slice 5b): each heading led by its case's
+	// number, the case's place in the Scenarios list, heard as "Case n:" before the name.
 	const combos = card.getByRole('table', { name: 'Running combinations' });
 	const group = (heading: RegExp) =>
 		combos.getByRole('rowgroup').filter({ has: page.getByRole('rowheader', { name: heading }) });
 	const escape = (text: string) => text.replace(/[()]/g, '\\$&');
 	const cases = [
 		[/^Base case \(shown\)/, base],
-		...names.map((n, i) => [new RegExp(`^${escape(n)} · ring ${i + 1}`), solved[i]!] as const)
+		...names.map((n, i) => [new RegExp(`^Case ${i + 1}: ${escape(n)}`), solved[i]!] as const)
 	] as const;
+	await expect(caseTagBoxes(combos.locator('th[scope="rowgroup"]'))).toHaveText([
+		'Base',
+		'1',
+		'2',
+		'3'
+	]);
 	await expect(combos.getByRole('rowgroup')).toHaveCount(1 + cases.length);
 	const pumps = ['P1', 'P2', 'P3', 'P4'];
 	for (const [heading, state] of cases) {
@@ -1022,7 +1045,7 @@ test('add cases by number running: the stop order moved, three cases added and s
 	}
 	const legend = card.getByRole('figure').getByRole('list', { name: 'Legend' });
 	for (const [i, n] of names.entries()) {
-		await expect(legend.getByText(`${i + 1} · ${n} (station duty)`)).toBeVisible();
+		await expect(legend.getByText(`Case ${i + 1}: ${n} (station duty)`)).toBeVisible();
 	}
 	await expect(legend.getByText(/ \(station duty\)$/)).toHaveCount(3);
 
@@ -1067,17 +1090,18 @@ test('the curve family: after adding cases by number running, each lineup’s ow
 	const running = [3, 2, 1];
 
 	// 1. The chart's accessible name: each case's curve in its words, then the curves drawn
-	// (§9.6), every lineup the same as the base outside the station.
+	// (§9.6), every lineup the same as the base outside the station; each case by its number
+	// (nit 5, slice 5b: "case 1", no bare "1").
 	const figure = card.getByRole('figure');
 	const img = figure.getByRole('img');
 	await expect(img).toHaveAccessibleName(
-		/; other cases' group curves drawn: 1 \(3 running\), 2 \(2 running\) and 3 \(1 running\); group curve shown; group system curve shown\.$/
+		/; other cases' group curves drawn: case 1 \(3 running\), case 2 \(2 running\) and case 3 \(1 running\); group curve shown; group system curve shown\.$/
 	);
 	const accessible = (await img.getAttribute('aria-label'))!;
 	for (const [i, name] of names.entries()) {
 		expect(accessible).toMatch(
 			new RegExp(
-				`${i + 1} · ${name.replace(/[()]/g, '\\$&')}, [\\d.]+ L/s at a rise of [\\d.]+ m \\(Yes: the same rest of the network; group curve: drawn \\(${running[i]} running\\): it crosses the group system curve at the ring\\)`
+				`case ${i + 1}: ${name.replace(/[()]/g, '\\$&')}, [\\d.]+ L/s at a rise of [\\d.]+ m \\(Yes: the same rest of the network; group curve: drawn \\(${running[i]} running\\): it crosses the group system curve at the ring\\)`
 			)
 		);
 	}
@@ -1108,13 +1132,15 @@ test('the curve family: after adding cases by number running, each lineup’s ow
 	await expect(table).toBeVisible();
 	await expect(table.getByRole('rowgroup')).toHaveCount(1 + names.length);
 	for (const [i, name] of names.entries()) {
+		// Its header led by its case's number in a box (nit 5, slice 5b), heard as "Case n:".
 		const group = table.getByRole('rowgroup').filter({
 			has: page.getByRole('rowheader', {
-				name: `${i + 1} · ${name}: ${running[i]} running`,
+				name: `Case ${i + 1}: ${name}: ${running[i]} running`,
 				exact: true
 			})
 		});
 		await expect(group).toHaveCount(1);
+		await expect(caseTagBoxes(group.getByRole('rowheader').first())).toHaveText(String(i + 1));
 		const points = [...family[i]!.body.points].sort((a, b) => a.head - b.head);
 		expect(points).toHaveLength(42);
 		await expect(group.getByRole('row')).toHaveCount(1 + points.length);

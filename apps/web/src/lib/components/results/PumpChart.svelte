@@ -298,6 +298,21 @@
 		hidden = hidden.includes(key) ? hidden.filter((p) => p !== key) : [...hidden, key];
 		saveHiddenPanels(hidden);
 	}
+	/**
+	 * A chip stays under the pointer (ui-guide, a press moves nothing under the pointer; the owner's
+	 * nits of 2026-11-12, item 1, docs/proposals/pumps-nits.md): a panel's chip makes the canvas
+	 * above it a panel taller or shorter (chartHeightRem), so once the press is drawn its scroller
+	 * scrolls by what the chip moved, as switchOverlay does; a press from the keyboard too. Where the
+	 * browser already kept it in place (scroll anchoring) it moved nothing, and nothing scrolls.
+	 */
+	async function pressChip(button: HTMLButtonElement, key: ChipKey) {
+		const before = button.getBoundingClientRect().top;
+		togglePanel(key);
+		await tick();
+		if (!button.isConnected) return;
+		const moved = button.getBoundingClientRect().top - before;
+		if (Math.abs(moved) > 0.5) scrollerOf(button).scrollTop += moved;
+	}
 	const phone = mediaQuery('(max-width: 639px)');
 	const heightRem = $derived(chartHeightRem(shown, phone.current));
 
@@ -703,7 +718,9 @@
 			<canvas bind:this={canvas} aria-hidden="true"></canvas>
 		</div>
 		{#if chips.length}
-			<!-- Toggle chips (§5.3, Reading): filled with a check when on, outlined when off. -->
+			<!-- Toggle chips (§5.3, Reading): filled with a checked box when on, outlined with an empty
+				box when off, the 16 px mark first in both, so a press changes no chip's width and the
+				row never rewraps (pumps-nits.md item 1). -->
 			<div role="group" aria-label="Show" class="flex flex-wrap items-center gap-2">
 				<span class="text-xs font-medium text-slate-700" aria-hidden="true">Show</span>
 				{#each chips as chip (chip)}
@@ -712,10 +729,11 @@
 						type="button"
 						class={['btn px-3', on && 'border-blue-700 bg-blue-50 text-blue-900 hover:bg-blue-100']}
 						aria-pressed={on}
-						onclick={() => togglePanel(chip)}
-						>{#if on}<Icon name="check" class="size-4 shrink-0 text-blue-700" />{/if}{CHIP_LABELS[
-							chip
-						]}</button
+						onclick={(event) => void pressChip(event.currentTarget, chip)}
+						><Icon
+							name={on ? 'box-check' : 'box'}
+							class={['size-4 shrink-0', on ? 'text-blue-700' : 'text-slate-500']}
+						/>{CHIP_LABELS[chip]}</button
 					>
 				{/each}
 			</div>
@@ -843,8 +861,20 @@
 				aria-controls="{id}-table"
 				onclick={toggleTable}
 			>
-				<!-- The space outside the hidden suffix, so every name computation keeps it. -->
-				{tableShown ? 'Hide data table' : 'Show data table'}
+				<!-- One width for both words (pumps-nits.md item 1): Show and Hide stacked in one
+					grid cell, the one not said invisible and aria-hidden, so the swap moves nothing beside
+					it (it moved Download image 6.5 px at 390 and 1280 px). The space outside the hidden
+					suffix, so every name computation keeps it. -->
+				<span class="grid" data-table-words>
+					<span
+						class={['col-start-1 row-start-1', tableShown && 'invisible']}
+						aria-hidden={tableShown || undefined}>Show data table</span
+					>
+					<span
+						class={['col-start-1 row-start-1', !tableShown && 'invisible']}
+						aria-hidden={!tableShown || undefined}>Hide data table</span
+					>
+				</span>
 				<span class="sr-only">of the pump chart</span>
 			</button>
 			{#if image}

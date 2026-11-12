@@ -1456,11 +1456,27 @@ describe('the members, the station and the group chart’s reading (pumps-result
 			'This solve did not converge: its values are not a solution, so no image is made.';
 		const view = render(PumpGroupChart, props(c, { image: image({ unavailable: lasting }) }));
 		const show = screen.getByRole('button', { name: 'Show data table of the group chart' });
-		// The visible words unchanged, the suffix visually hidden after a space outside it (§6.2).
+		// The visible words unchanged, the suffix visually hidden after a space outside it (§6.2);
+		// the word not said kept beside them in one grid cell, invisible and aria-hidden, so the
+		// swap moves nothing beside the button (the owner's nits of 2026-11-12, item 1,
+		// docs/proposals/pumps-nits.md): its text read without it.
+		const said = () => {
+			const copy = show.cloneNode(true) as Element;
+			for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+			return squash(copy.textContent);
+		};
+		const unsaid = () => show.querySelectorAll('[data-table-words] > [aria-hidden="true"]');
 		expect(show.querySelector('.sr-only')!.textContent).toBe('of the group chart');
-		expect(squash(show.textContent)).toBe('Show data table of the group chart');
+		expect(said()).toBe('Show data table of the group chart');
+		expect(unsaid()).toHaveLength(1);
+		expect(unsaid()[0]).toHaveTextContent(/^Hide data table$/);
+		expect(unsaid()[0]).toHaveClass('invisible', 'col-start-1', 'row-start-1');
 		await fireEvent.click(show);
 		expect(screen.getByRole('button', { name: 'Hide data table of the group chart' })).toBe(show);
+		expect(said()).toBe('Hide data table of the group chart');
+		expect(unsaid()).toHaveLength(1);
+		expect(unsaid()[0]).toHaveTextContent(/^Show data table$/);
+		expect(unsaid()[0]).toHaveClass('invisible', 'col-start-1', 'row-start-1');
 		const download = screen.getByRole('button', { name: /^Download image of the pumps together/ });
 		const reason = screen.getByText(lasting);
 		expect(reason).toHaveClass('text-xs');

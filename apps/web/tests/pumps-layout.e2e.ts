@@ -2297,11 +2297,13 @@ async function cardPart(
 	for (; stops < 80; stops++) {
 		const at = await page.evaluate(() => {
 			const a = document.activeElement;
-			return (
-				!!a &&
-				/^(Show|Hide) data table of the group chart$/.test(
-					(a.textContent ?? '').replace(/\s+/g, ' ').trim()
-				)
+			if (a?.tagName !== 'BUTTON') return false;
+			// Its words as said: the word not said, kept beside them invisible and aria-hidden so
+			// that the swap keeps one width (pumps-nits.md item 1), left out.
+			const copy = a.cloneNode(true) as Element;
+			for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+			return /^(Show|Hide) data table of the group chart$/.test(
+				(copy.textContent ?? '').replace(/\s+/g, ' ').trim()
 			);
 		});
 		if (at) break;
@@ -7096,4 +7098,181 @@ test('S8 second check: “Also show the other cases’ system curves” stays un
 		).toBeLessThanOrEqual(1);
 		soft(settled.hit, `the switch still under the point pressed once settled, ${where}`).toBe(true);
 	}
+});
+
+// ---- The owner's nits of 2026-11-12 (docs/proposals/pumps-nits.md) ------------------------------
+
+/**
+ * The pump chart's Show row as read for a press (pumps-nits.md item 1): each chip's box, the row's
+ * height, the slider's top under it, and the chip at the point pressed.
+ */
+function readChips(group: Element, point: { x: number; y: number }) {
+	const slider = group.closest('figure')!.querySelector('input[type="range"]');
+	return {
+		row: group.getBoundingClientRect().height,
+		chips: [...group.querySelectorAll('button')].map((b) => {
+			const r = b.getBoundingClientRect();
+			return { name: b.textContent!.trim(), top: r.top, left: r.left, width: r.width };
+		}),
+		slider: slider ? slider.getBoundingClientRect().top : null,
+		hit: document.elementFromPoint(point.x, point.y)?.closest('button')?.textContent?.trim() ?? null
+	};
+}
+
+test('Nits item 1: no press of a Show chip moves a chip, its row or the slider under it, by pointer or key, at 1280, 390 and 320 px (pumps-nits.md item 1; ui-guide, toggle chips; a press moves nothing under the pointer)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	await oneOff(page);
+	const figure = await pumpFigure(page);
+	const group = figure.getByRole('group', { name: 'Show' });
+	const chips = group.getByRole('button');
+	// Three panel chips, whose presses make the canvas above a panel taller or shorter (96 px on a
+	// phone, 112 on a desktop: chartHeightRem), and Design checks, the fourth: on 673d266 a chip
+	// pressed off lost its check and 24 px of width, so the row's wrap changed (§15 item 42: 3 rows
+	// at 320×640, 2 at 390×844 and 1280×800).
+	await expect(chips).toHaveText(['Efficiency', 'Shaft power', 'NPSH', 'Design checks']);
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	const pressAt = async (i: number, where: string, by: 'pointer' | 'key' = 'pointer') => {
+		const chip = chips.nth(i);
+		const was = await chip.getAttribute('aria-pressed');
+		const r = (await chip.boundingBox())!;
+		const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+		const before = await group.evaluate(readChips, point);
+		const what = `${before.chips[i]!.name} pressed ${was === 'true' ? 'off' : 'on'} by ${by} ${where} at ${sizeOf(page)}`;
+		expect(before.hit, `the chip at the point pressed, ${what}`).toBe(before.chips[i]!.name);
+		if (by === 'key') {
+			await chip.focus();
+			await page.keyboard.press('Space');
+		} else if (isMobile) await page.touchscreen.tap(point.x, point.y);
+		else await page.mouse.click(point.x, point.y);
+		await expect(chip).toHaveAttribute('aria-pressed', was === 'true' ? 'false' : 'true');
+		await page.waitForTimeout(300);
+		const after = await group.evaluate(readChips, point);
+		console.log(
+			`${what}: row ${before.row} -> ${after.row}; tops ${before.chips.map((c) => c.top).join(' ')} -> ${after.chips.map((c) => c.top).join(' ')}; lefts ${before.chips.map((c) => c.left).join(' ')} -> ${after.chips.map((c) => c.left).join(' ')}; widths ${before.chips.map((c) => c.width).join(' ')} -> ${after.chips.map((c) => c.width).join(' ')}`
+		);
+		soft(after.row, `the row's height, ${what}`).toBe(before.row);
+		for (const [k, c] of after.chips.entries()) {
+			const b = before.chips[k]!;
+			soft(Math.abs(c.top - b.top), `${c.name}'s top, ${what}`).toBeLessThanOrEqual(0.5);
+			soft(Math.abs(c.left - b.left), `${c.name}'s left, ${what}`).toBeLessThanOrEqual(0.5);
+			soft(Math.abs(c.width - b.width), `${c.name}'s width, ${what}`).toBeLessThanOrEqual(0.5);
+		}
+		soft(Math.abs(after.slider! - before.slider!), `the slider's top, ${what}`).toBeLessThanOrEqual(
+			0.5
+		);
+		soft(after.hit, `the chip still under the point pressed, ${what}`).toBe(before.chips[i]!.name);
+	};
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		// Each chip off in turn, then on in turn, the row in the middle of the pane as a user
+		// reading the chart reaches it; then a panel's chip off and on from the keyboard.
+		const centred = async () => {
+			await group.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+			await page.waitForTimeout(200);
+		};
+		for (const i of [0, 1, 2, 3, 0, 1, 2, 3]) {
+			await centred();
+			await pressAt(i, '(the row centred)');
+		}
+		for (const turn of [1, 2]) {
+			await centred();
+			await pressAt(1, `(the row centred, turn ${turn})`, 'key');
+		}
+		// The canvas's top at the pane's top, the whole canvas and the row in view (at the project's
+		// size; at 320×640 the row is then below the pane): where the browser's own scroll anchoring
+		// holds the canvas, not the row.
+		if (size !== viewport) continue;
+		for (const turn of [1, 2]) {
+			await figure.locator('[role="img"]').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+			await page.waitForTimeout(200);
+			await pressAt(0, `(the canvas at the pane’s top, turn ${turn})`);
+		}
+	}
+	await page.setViewportSize(viewport);
+});
+
+/**
+ * A chart's Show data table as read for a press (pumps-nits.md item 1): its box, Download image's
+ * box beside it, the height of their row, and whether the button is at the point pressed.
+ */
+function readTableToggle(toggle: Element, point: { x: number; y: number }) {
+	const row = toggle.parentElement!;
+	const image = row.querySelector('[data-chart-image]');
+	const box = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return { top: r.top, left: r.left, width: r.width };
+	};
+	return {
+		row: row.getBoundingClientRect().height,
+		toggle: box(toggle),
+		image: image ? box(image) : null,
+		hit: document.elementFromPoint(point.x, point.y)?.closest('button') === toggle
+	};
+}
+
+test('Nits item 1: neither chart’s Show data table, pressed to Hide data table and back, moves itself or Download image beside it, or rewraps their row, at 1280, 390 and 320 px (pumps-nits.md item 1; ui-guide, a press moves nothing under the pointer)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	await oneOff(page);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const figure = await pumpFigure(page);
+	const toggles = [
+		{
+			chart: 'the pump chart',
+			button: figure.getByRole('button', { name: /^(Show|Hide) data table of the pump chart$/ })
+		},
+		{
+			chart: 'the group chart',
+			button: card.getByRole('button', { name: /^(Show|Hide) data table of the group chart$/ })
+		}
+	];
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		for (const { chart, button } of toggles) {
+			for (const shown of [true, false]) {
+				const where = `${chart}'s ${shown ? 'Show' : 'Hide'} data table pressed at ${sizeOf(page)}`;
+				await button.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+				await page.waitForTimeout(200);
+				const r = (await button.boundingBox())!;
+				const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+				const before = await button.evaluate(readTableToggle, point);
+				expect(before.hit, `the button at the point pressed, ${where}`).toBe(true);
+				expect(before.image, `Download image beside it, ${where}`).not.toBeNull();
+				if (isMobile) await page.touchscreen.tap(point.x, point.y);
+				else await page.mouse.click(point.x, point.y);
+				await expect(button).toHaveAttribute('aria-expanded', String(shown));
+				await page.waitForTimeout(300);
+				const after = await button.evaluate(readTableToggle, point);
+				console.log(
+					`${where}: row ${before.row} -> ${after.row}; button ${JSON.stringify(before.toggle)} -> ${JSON.stringify(after.toggle)}; Download image ${JSON.stringify(before.image)} -> ${JSON.stringify(after.image)}`
+				);
+				soft(after.row, `their row's height, ${where}`).toBe(before.row);
+				for (const key of ['top', 'left', 'width'] as const) {
+					soft(
+						Math.abs(after.toggle[key] - before.toggle[key]),
+						`the button's ${key}, ${where}`
+					).toBeLessThanOrEqual(0.5);
+					soft(
+						Math.abs(after.image![key] - before.image![key]),
+						`Download image's ${key}, ${where}`
+					).toBeLessThanOrEqual(0.5);
+				}
+				soft(after.hit, `the button still under the point pressed, ${where}`).toBe(true);
+			}
+		}
+	}
+	await page.setViewportSize(viewport);
 });

@@ -18,6 +18,8 @@
 		| 'alert'
 		| 'octagon'
 		| 'check'
+		| 'box'
+		| 'box-check'
 		| 'home'
 		| 'branch'
 		| 'insert'
@@ -92,6 +94,14 @@
 		<path d="M12 8v5M12 16.5h.01" />
 	{:else if name === 'check'}
 		<path d="m5 12 5 5 9-10" />
+	{:else if name === 'box'}
+		<!-- A toggle chip's mark when off: the box its check fills when on (ui-guide, toggle chips;
+			pumps-nits.md item 1). -->
+		<rect x="4" y="4" width="16" height="16" rx="3" />
+	{:else if name === 'box-check'}
+		<!-- A toggle chip's mark when on: the same box, checked. -->
+		<rect x="4" y="4" width="16" height="16" rx="3" />
+		<path d="m8 12 3 3 5-6" />
 	{:else if name === 'home'}
 		<path d="m3 11 9-8 9 8" />
 		<path d="M5 10v10h14V10" />

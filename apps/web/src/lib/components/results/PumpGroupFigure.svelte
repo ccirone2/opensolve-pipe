@@ -668,8 +668,20 @@
 					aria-controls="{id}-data"
 					onclick={toggleTable}
 				>
-					<!-- The space outside the hidden suffix, so every name computation keeps it. -->
-					{tableShown ? 'Hide data table' : 'Show data table'}
+					<!-- One width for both words (pumps-nits.md item 1): Show and Hide stacked in one
+						grid cell, the one not said invisible and aria-hidden, so the swap moves nothing beside
+						it (it moved Download image 6.5 px at 390 and 1280 px). The space outside the hidden
+						suffix, so every name computation keeps it. -->
+					<span class="grid" data-table-words>
+						<span
+							class={['col-start-1 row-start-1', tableShown && 'invisible']}
+							aria-hidden={tableShown || undefined}>Show data table</span
+						>
+						<span
+							class={['col-start-1 row-start-1', !tableShown && 'invisible']}
+							aria-hidden={!tableShown || undefined}>Hide data table</span
+						>
+					</span>
 					<span class="sr-only">of the group chart</span>
 				</button>
 				{#if image}

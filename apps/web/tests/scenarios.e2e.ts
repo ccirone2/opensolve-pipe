@@ -210,14 +210,16 @@ test('solve one case and all of them, read the comparison and the other cases on
 		compare.getByRole('button', { name: 'Transfer pump · Efficiency' }).filter({ visible: true })
 	).toHaveCount(1);
 
-	// The pump chart of the case shown names it, and lists the other cases' operating points.
+	// The pump chart of the case shown names it, and lists the other cases' operating points, each
+	// by the number its ring is tagged with, the base case by its name (owner, 2026-11-12, nit 5;
+	// docs/proposals/pumps-nits.md item 5, slice 5b, rule 4; was "; Higher tank ").
 	await resultsPane(page).getByRole('tab', { name: 'Slower pump' }).click();
 	const pumps = await resultsView(page, 'Pumps');
 	const figure = pumps.getByRole('figure', {
 		name: 'Pump and system curves: Transfer pump, Slower pump'
 	});
 	await expect(figure.getByRole('img')).toHaveAccessibleName(
-		/other cases' operating points: Base case .* at .*; Higher tank /
+		/other cases' operating points: Base case .* at .*; case 1: Higher tank /
 	);
 	await expect(figure.getByRole('group', { name: 'Cases on the chart' })).toBeVisible();
 	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();

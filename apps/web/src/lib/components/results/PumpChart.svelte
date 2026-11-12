@@ -49,6 +49,7 @@
 		checksDrawn,
 		loadHiddenPanels,
 		loadTableShown,
+		caseNamed,
 		caseTagOf,
 		MAX_CHART_CASES,
 		offCasesNote,
@@ -493,12 +494,14 @@
 		const extrapolated = data.extrapolated.length
 			? '; dashed: extrapolated beyond the curve data'
 			: '';
+		// Each by the number its ring is tagged with on the canvas, "case 3: Winter", the base case
+		// by its name, as the group chart's says them (nit 5, slice 5b, rule 4).
 		const otherPoints = otherData.length
 			? `; other cases' operating points: ${otherData
 					.map((o) =>
 						o.operating
-							? `${o.label} ${fmt(o.operating.x)} ${data.flowUnit} at ${fmt(o.operating.y)} ${data.headUnit}`
-							: `${o.label} ${o.row.state.toLowerCase()}`
+							? `${caseNamed(o.tag, o.label)} ${fmt(o.operating.x)} ${data.flowUnit} at ${fmt(o.operating.y)} ${data.headUnit}`
+							: `${caseNamed(o.tag, o.label)} ${o.row.state.toLowerCase()}`
 					)
 					.join('; ')}`
 			: '';

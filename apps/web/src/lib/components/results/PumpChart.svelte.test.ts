@@ -1968,6 +1968,33 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		]);
 	});
 
+	// Nit 5, slice 5b, rule 4 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): the chart's
+	// text alternative says what the canvas draws, each other case by the number its ring is tagged
+	// with ("case 3: Winter"), the base case by its name, as the group chart's says "case 1: …".
+	// It named them without numbers before this check (5b integration).
+	it('names each other case drawn by its number in the chart’s text alternative, the base case by its name (nit 5, rule 4)', async () => {
+		withCanvas();
+		render(PumpChart, {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			caseName: 'Autumn',
+			caseTag: 2,
+			tags: { '': 'Base', S1: 3, S2: 5, X: 2 },
+			others: [
+				other('', 'Base case'),
+				other('S1', 'Winter', { operatingFlow: 0.012, operatingHead: 25 }),
+				other('S2', 'Summer', heldPump)
+			],
+			onoverlay: vi.fn()
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
+			"; other cases' operating points: Base case 20 L/s at 22 m; case 3: Winter 12 L/s at 25 m; case 5: Summer held at zero flow"
+		);
+	});
+
 	it('keeps the other cases’ system curves’ line always there: polite, not a status, never busy, Cancel after it', async () => {
 		withCanvas();
 		const oncanceloverlay = vi.fn();

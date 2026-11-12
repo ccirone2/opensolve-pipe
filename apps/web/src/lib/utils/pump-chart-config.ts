@@ -119,10 +119,13 @@ export function labelTag(text: string): { tag: string | null; words: string } {
  * Write a label where the label code puts it (left end `x`, baseline `y`, the font of `size` px
  * set): a leading case tag (labelTag) as its numbers in a box exactly as wide as its bracketed text
  * measures, so the label takes the width its text measures and is placed by it, from the font's
- * size above the baseline to a quarter of it below (a text's box: descenders), with a white fill
- * and a 1 px slate edge (the lists' CaseTag box, drawn), the numbers bold and centred in the
- * legend's ink; then the words after it in the fill colour set. The font, fill and alignment are
- * set back as they were.
+ * size above the baseline to a quarter of it below (a text's box: descenders), with a 1 px slate
+ * edge (the lists' CaseTag box, drawn), the numbers bold and centred in the legend's ink; then the
+ * words after it in the fill colour set. The font, fill and alignment are set back as they were.
+ *
+ * The box is not filled: today's label code puts a label where it falls, so a white box hid the
+ * mark under it (the group duty's dot, the case shown's operating point); unfilled, a mark shows
+ * through it as through the plain text before. Keeping labels off marks is the placer's (slice 5c).
  */
 export function fillLabel(
 	ctx: CanvasRenderingContext2D,
@@ -145,8 +148,6 @@ export function fillLabel(
 	if (typeof ctx.roundRect === 'function')
 		ctx.roundRect(x + 0.5, top + 0.5, width - 1, height - 1, 3);
 	else ctx.rect(x + 0.5, top + 0.5, width - 1, height - 1);
-	ctx.fillStyle = '#ffffff';
-	ctx.fill();
 	ctx.strokeStyle = CHART_COLORS.slate;
 	ctx.lineWidth = 1;
 	ctx.stroke();

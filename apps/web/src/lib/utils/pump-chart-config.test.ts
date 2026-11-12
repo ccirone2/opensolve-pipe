@@ -416,11 +416,15 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		};
 		fillLabel(ctx as unknown as CanvasRenderingContext2D, '[12] Winter', 100, 50, 12);
 		// The box: "[12]" measures 24 px; from the font's size above the baseline to a quarter of it
-		// below (12 + 3 px), on half pixels for a crisp 1 px edge, white with a slate edge.
+		// below (12 + 3 px), on half pixels for a crisp 1 px edge, a slate edge and no fill. Nit 5,
+		// slice 5b integration: moved from "white with a slate edge" (['fill', '#ffffff'] before the
+		// stroke). Today's label code puts a label wherever it falls, so a white box hid the mark under
+		// it: the group duty's ink dot in the one-off and lineups views at 1280 and 390 px, half the
+		// case shown's operating point on the one-off's pump chart. Unfilled, a mark shows through it
+		// as it did through the plain text before; keeping labels off marks is 5c's placer's.
 		expect(calls).toEqual([
 			['beginPath'],
 			['roundRect', 100.5, 38.5, 23, 14, 3],
-			['fill', '#ffffff'],
 			['stroke', CHART_COLORS.slate, 1],
 			// Its number bold, centred in it, in the legend's ink, 1 px above the baseline.
 			['fillText', '12', 112, 49, '600 10px system-ui, sans-serif', CHART_COLORS.legend, 'center'],

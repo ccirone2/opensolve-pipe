@@ -294,7 +294,9 @@ export function drawnChart(
 	 * A label as fillLabel writes it, found by its text ("[1] 3 running", "Pump PA"): its left end,
 	 * its baseline, the colour and font of its words. A case tag's box must be there, `charWidth`
 	 * a character of its bracketed text wide, from the font's size above the baseline to a quarter
-	 * of it below, white with a slate edge, its numbers written centred in it; else undefined.
+	 * of it below, unfilled with a slate edge, its numbers written centred in it; else undefined.
+	 * Nit 5, slice 5b integration: moved from "white with a slate edge" (a fill of '#ffffff'): the
+	 * white box hid the mark a label fell on (the group duty's dot), so fillLabel no longer fills.
 	 */
 	const label = (text: string): Written | undefined => {
 		const tagged = /^\[([^\]]+)\](?: (.*))?$/s.exec(text);
@@ -312,7 +314,7 @@ export function drawnChart(
 			const y = number.y + 1;
 			if (Math.abs(box.y - 0.5 - (y - size)) > 1e-9) continue;
 			if (Math.abs(box.h - (size * 1.25 - 1)) > 1e-9) continue;
-			if (box.fill !== '#ffffff' || box.stroke !== '#475569' || box.lineWidth !== 1) continue;
+			if (box.fill !== null || box.stroke !== '#475569' || box.lineWidth !== 1) continue;
 			if (!words) return { ...number, text, x: x0, y, align: 'start' };
 			const rest = written.find(
 				(w) => w.text === words && Math.abs(w.x - (x0 + after)) < 1e-9 && w.y === y

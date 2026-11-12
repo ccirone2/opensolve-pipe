@@ -37,7 +37,7 @@ import {
 	readyState,
 	type LineupViewOptions
 } from '$lib/testing/curve-family';
-import { outOfSight, wordsInSight } from '$lib/testing/helpers';
+import { designators, outOfSight, wordsInSight } from '$lib/testing/helpers';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
 import type { CurveLabelsDrawn, PumpChartConfig } from '$lib/utils/pump-chart-config';
 import { ratedCurveRange } from '$lib/utils/pump-chart';
@@ -274,6 +274,9 @@ describe('the card', () => {
 		await fireEvent.click(toggle);
 		expect(toggle).toHaveAttribute('aria-expanded', 'true');
 		const members = screen.getByRole('group', { name: 'Pumps in the group' });
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): a pump is its name, no
+		// slot symbol before it.
+		expect(designators(members)).toEqual([]);
 		expect(
 			within(members)
 				.getAllByRole('checkbox')
@@ -282,8 +285,8 @@ describe('the card', () => {
 					(box as HTMLInputElement).checked
 				])
 		).toEqual([
-			['▲ Pump PA', true],
-			['■ Pump PB', true]
+			['Pump PA', true],
+			['Pump PB', true]
 		]);
 		await drawn();
 	});
@@ -974,35 +977,37 @@ describe('the members, the station and the group chart’s reading (pumps-result
 		// An auto-fill grid of 13 rem at least: two columns in a 480 px pane, one on a phone.
 		const grid = members.querySelector('legend + div')!;
 		expect(grid).toHaveClass('grid', 'grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]');
-		// Every label: the box, the slot symbol's column (kept while unticked), then the name.
+		// Every label: the box, then the name (nit 5, owner, 2026-11-12; docs/proposals/pumps-nits.md
+		// item 5: no slot symbol, so no column for one), ticked or not.
 		const label = (n: number) =>
 			screen.getByRole('checkbox', { name: `Pump P${n}` }).closest('label')!;
+		expect(designators(members)).toEqual([]);
 		for (const n of [1, 7]) {
-			const [box, symbol, name] = [...label(n).children];
+			expect(label(n).children).toHaveLength(2);
+			const [box, name] = [...label(n).children];
 			expect(box!.tagName).toBe('INPUT');
-			expect(symbol).toHaveAttribute('aria-hidden', 'true');
-			expect(symbol).toHaveClass('w-4', 'shrink-0');
-			expect(name).toHaveTextContent(`Pump P${n}`);
+			expect(name!.textContent).toBe(`Pump P${n}`);
 			expect(name).toHaveClass('min-w-0', 'wrap-break-word');
 			// Wrapped, never cut with an ellipsis: its end tells two pumps apart (§15 item 17; S3
 			// review MUT-08).
 			expect(name).not.toHaveClass('truncate');
+			expect(label(n).querySelector('[aria-hidden="true"]')).toBeNull();
 		}
-		expect(label(1).children[1]).toHaveTextContent('▲');
-		expect(label(7).children[1]!.textContent).toBe('');
 		// Capped (ui-guide): the box greyed, the row not-allowed, the name kept readable.
 		const seventh = screen.getByRole('checkbox', { name: 'Pump P7' });
 		expect(seventh).toHaveClass('opacity-45');
 		expect(label(7)).toHaveClass('cursor-not-allowed', 'text-slate-600');
 		expect(screen.getByRole('checkbox', { name: 'Pump P1' })).not.toHaveClass('opacity-45');
 		expect(label(1)).not.toHaveClass('cursor-not-allowed');
-		// Unticked, a name keeps its place: the symbol's column is the same element, emptied.
-		const name = label(2).children[2]!;
+		// Unticked, a name keeps its place: the same element, right after its box, nothing put
+		// before it (nit 5: no symbol's column to empty).
+		const name = label(2).children[1]!;
 		await view.rerender(
 			props(c, { pumps, slots: ['P1', null, 'P3', 'P4', 'P5', 'P6'], curve: undefined })
 		);
-		expect(label(2).children[2]).toBe(name);
-		expect(label(2).children[1]!.textContent).toBe('');
+		expect(label(2).children).toHaveLength(2);
+		expect(label(2).children[1]).toBe(name);
+		expect(name.textContent).toBe('Pump P2');
 		expect(seventh).not.toHaveClass('opacity-45');
 	});
 
@@ -2283,7 +2288,11 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		// The case shown: a tag, not a control (§5.2 Tags), the grid's first item.
 		const grid = fieldset.querySelector('legend + div')!;
 		const tag = grid.firstElementChild!;
-		expect(tag).toHaveTextContent('● Base case (shown)');
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): its words alone, no ●
+		// before them, and nothing in it hidden from a screen reader.
+		expect(designators(tag)).toEqual([]);
+		expect(tag.textContent!.replace(/\s+/g, ' ').trim()).toBe('Base case (shown)');
+		expect(tag.querySelector('[aria-hidden="true"]')).toBeNull();
 		expect(tag).toHaveClass('rounded', 'bg-slate-100', 'text-xs');
 		expect(tag.querySelector('input, button')).toBeNull();
 		expect(grid).toHaveClass('grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]');
@@ -2660,8 +2669,11 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		]);
 		// Each paragraph its own check and its own Details (§5.3 item 2), the words unchanged.
 		const duty = region.querySelector('[data-group-duty]')!;
-		expect(duty.textContent!.replace(/\s+/g, ' ')).toMatch(
-			/^● Group duty \(station's flow\): [\d.]+ L\/s at a rise of [\d.]+ m; parallel\. Duty check: the group curve passes through it; /
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): the sentence starts with its
+		// words, "Group duty", no ● before them.
+		expect(designators(duty)).toEqual([]);
+		expect(duty.textContent!.replace(/\s+/g, ' ').trim()).toMatch(
+			/^Group duty \(station's flow\): [\d.]+ L\/s at a rise of [\d.]+ m; parallel\. Duty check: the group curve passes through it; /
 		);
 		expect(duty.querySelectorAll('details')).toHaveLength(1);
 		expect(
@@ -3417,11 +3429,14 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			'Delivery tank 5 m higher'
 		]);
 		// The scenario shown: a button per member, each opening that pump's trace (for that case).
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): each button its pump's name
+		// alone, no slot symbol before it.
+		expect(designators(combos)).toEqual([]);
 		expect(
 			within(groups[0]!)
 				.getAllByRole('button')
 				.map((b) => b.textContent)
-		).toEqual(['▲Pump PA', '■Pump PB']);
+		).toEqual(['Pump PA', 'Pump PB']);
 		await fireEvent.click(within(groups[0]!).getByRole('button', { name: 'Pump PB' }));
 		expect(oninspect).toHaveBeenLastCalledWith('PB');
 		// The base case not shown: plain row headers, as every other case's.
@@ -3707,7 +3722,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(oninspect).toHaveBeenLastCalledWith('PB');
 	});
 
-	it('Running combinations: its heading lines unfilled, so the box’s sideways shadow runs past them, the names at one edge after their slot symbols (§9 S6b; §15 item 157)', () => {
+	it('Running combinations: its heading lines unfilled, so the box’s sideways shadow runs past them, each name its row header’s only words, no slot symbol or column before it (§9 S6b; §15 item 157; nit 5)', () => {
 		const table = runningCombinations(s6bInput());
 		render(PumpGroupChart, base({ combinations: table, oninspect: () => {} }));
 		expect(combosRegion()).toHaveClass('scroll-shadow-x', '@container');
@@ -3718,10 +3733,21 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			expect(th.className).not.toMatch(/(^|\s)bg-/);
 			for (const line of th.children) expect(line.className).not.toMatch(/(^|\s)bg-/);
 		}
-		// Every slot symbol in a 1 rem column of its own, so every name starts at one edge.
-		const symbols = [...combosRegion().querySelectorAll('th[scope="row"] [aria-hidden="true"]')];
-		expect(symbols.length).toBe(table.groups.reduce((n, g) => n + g.rows.length, 0));
-		for (const symbol of symbols) expect(symbol).toHaveClass('w-4', 'shrink-0', 'text-center');
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): no slot symbol, so no 1 rem
+		// column for one (§15 item 157's): each name is its row header's only content, its words
+		// first, so every name starts at one edge; nothing hidden from a screen reader.
+		expect(designators(combosRegion())).toEqual([]);
+		const names = [...combosRegion().querySelectorAll('th[scope="row"]')];
+		expect(names.length).toBe(table.groups.reduce((n, g) => n + g.rows.length, 0));
+		const rowNames = table.groups.flatMap((g) => g.rows.map((r) => r.name));
+		expect(names.map((th) => th.textContent)).toEqual(rowNames);
+		for (const th of names) {
+			expect(th.querySelector('[aria-hidden="true"]')).toBeNull();
+			expect(th.querySelector('.w-4')).toBeNull();
+			// The button (or words) holds the name's span alone.
+			expect(th.firstElementChild!.children).toHaveLength(1);
+			expect(th.firstElementChild!.firstElementChild).toHaveClass('min-w-0');
+		}
 	});
 
 	it('the figure: the rings in the legend and the name, the data table’s rows, no image while computed', async () => {
@@ -4558,7 +4584,7 @@ describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station,
 			.getAllByRole('row')
 			.map((r) => {
 				const header = within(r).queryByRole('rowheader');
-				// The name's own span: its slot symbol (aria-hidden) before it.
+				// The name's own span (since nit 5, the row header's only words: no slot symbol).
 				if (header) return squash(header.querySelector('span.min-w-0')!.textContent);
 				return `flags of ${r.querySelector('[data-row-notes]')!.getAttribute('data-row-notes')}`;
 			});
@@ -4590,16 +4616,25 @@ describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station,
 				`${squash(line.closest('tr')!.previousElementSibling!.querySelector('th span.min-w-0')!.textContent)}, flags:`
 			]);
 		}
-		// Every slot symbol in a 1 rem column of its own, so every name starts at one edge, as in
-		// Running combinations (§15 item 157; S6 review MUT-04).
-		const symbols = [...region().querySelectorAll('th[scope="row"] [aria-hidden="true"]')];
-		expect(symbols).toHaveLength(3);
-		for (const symbol of symbols) expect(symbol).toHaveClass('w-4', 'shrink-0', 'text-center');
-		// Each name its slot symbol (aria-hidden) and its trace button, wrapping at 12 rem.
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): no slot symbol, so no 1 rem
+		// column for one (§15 item 157; S6 review MUT-04): each name is its row header's only
+		// content, its words first, so every name starts at one edge, as in Running combinations.
+		expect(designators(region())).toEqual([]);
+		const names = [...region().querySelectorAll('th[scope="row"]')];
+		const rowNames = order().filter((n) => !n.startsWith('flags of '));
+		expect(rowNames).toHaveLength(3);
+		expect(names.map((th) => th.textContent)).toEqual(rowNames);
+		for (const th of names) {
+			expect(th.querySelector('[aria-hidden="true"]')).toBeNull();
+			expect(th.querySelector('.w-4')).toBeNull();
+		}
+		// Each name its trace button, wrapping at 12 rem, the name's span alone inside it.
 		const header = within(region()).getByRole('rowheader', { name: 'Pump P2' });
 		const button = within(header).getByRole('button', { name: 'Pump P2' });
 		expect(button).toHaveClass('w-max', 'max-w-48', 'wrap-break-word', 'max-sm:wrap-anywhere');
-		expect(button.querySelector('[aria-hidden="true"]')!.textContent).not.toBe('');
+		expect(button.children).toHaveLength(1);
+		expect(button.firstElementChild).toHaveClass('min-w-0');
+		expect(button.textContent).toBe('Pump P2');
 		expect(header).not.toHaveClass('sm:min-w-[11rem]');
 	});
 

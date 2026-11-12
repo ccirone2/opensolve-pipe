@@ -7,7 +7,8 @@
 import { describe, expect, it } from 'vitest';
 import { pumpResult, systemCurveResponse } from '../testing/results';
 import { otherCasesData, pumpChartData } from './pump-chart';
-import { CHART_COLORS, pumpChartConfig } from './pump-chart-config';
+import { CHART_COLORS, pumpChartConfig, pumpGroupConfig } from './pump-chart-config';
+import { GROUP_SLOTS, groupChartData, type GroupMemberInput } from './pump-group-chart';
 import { formatNumber, SI_UNITS } from './units';
 
 describe('pump chart configuration', () => {
@@ -104,5 +105,52 @@ describe('pump chart configuration', () => {
 			{ pointStyle: 'crossRot', pointRotation: 0 },
 			{ pointStyle: 'triangle', pointRotation: 180 }
 		]);
+	});
+});
+
+describe('the group chart’s member marks (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5)', () => {
+	/**
+	 * The point styles Chart.js 4.5.1 draws as open paths, stroked only: its drawPoint moves and
+	 * draws lines for `cross`, `crossRot`, `star`, `line` and `dash`, and its fill() then fills no
+	 * area (node_modules/chart.js/dist/chunks/helpers.dataset.js, drawPointLegend). Such a mark is
+	 * its border alone, on the chart and in the image's legend.
+	 */
+	const STROKE_ONLY = new Set(['cross', 'crossRot', 'star', 'line', 'dash']);
+
+	it('strokes every stroke-only member mark in its slot’s colour, 3 px or more: none is drawn white, as slot 3’s star was', () => {
+		// A member in each of the six slots, running.
+		const members: GroupMemberInput[] = GROUP_SLOTS.map((_, slot) => ({
+			id: `P${slot + 1}`,
+			name: `Pump P${slot + 1}`,
+			result: pumpResult({ operatingFlow: 0.005 * (slot + 1) }),
+			ratedRange: [0, 0.03],
+			curveId: null,
+			slot,
+			flags: []
+		}));
+		const data = groupChartData(members, SI_UNITS, null);
+		const config = pumpGroupConfig(data, {
+			legendLabels: () => [],
+			format: (v: number) => formatNumber(v, 4)
+		});
+		// Each member's point: a dataset of one point, no line, naming its member.
+		type Mark = (typeof config.data.datasets)[number] & { memberIds?: string[] };
+		const marks = (config.data.datasets as Mark[]).filter(
+			(d) => d.showLine === false && d.memberIds?.length === 1
+		);
+		expect(marks.map((d) => d.memberIds![0])).toEqual(['P1', 'P2', 'P3', 'P4', 'P5', 'P6']);
+		const stroked = marks.filter((d) => STROKE_ONLY.has(d.pointStyle as string));
+		// The slots whose marker is stroke-only, as GROUP_SLOTS gives them (★, × and + today).
+		expect(stroked.map((d) => d.pointStyle)).toEqual(
+			GROUP_SLOTS.map((s) => s.marker).filter((m) => STROKE_ONLY.has(m))
+		);
+		expect(stroked.length).toBeGreaterThan(0);
+		for (const mark of stroked) {
+			const slot = GROUP_SLOTS[marks.indexOf(mark)]!;
+			expect(mark.borderColor, `${mark.label}'s ${String(mark.pointStyle)}`).toBe(slot.color);
+			expect(mark.borderWidth, `${mark.label}'s ${String(mark.pointStyle)}`).toBeGreaterThanOrEqual(
+				3
+			);
+		}
 	});
 });

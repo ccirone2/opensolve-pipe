@@ -1208,10 +1208,11 @@
 				<legend class="text-xs font-medium text-slate-700">Cases on the chart</legend>
 				<!-- An auto-fill grid, 13 rem at least: two columns in a 480 px pane, one on a phone. -->
 				<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-3">
-					<!-- The case shown: a tag, not a control (§5.2 Tags). -->
+					<!-- The case shown: a tag, not a control (§5.2 Tags); its words alone, no ● before
+						them (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5). -->
 					<span
 						class="col-span-full mt-1 justify-self-start rounded bg-slate-100 px-1.5 text-xs text-slate-700"
-						><span aria-hidden="true">●</span> {caseName ?? 'This case'} (shown)</span
+						>{caseName ?? 'This case'} (shown)</span
 					>
 					{#each cases.listed as other (other.key)}
 						{@const on = shownKeys.has(other.key)}

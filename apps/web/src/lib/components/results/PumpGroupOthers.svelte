@@ -23,12 +23,7 @@
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
-	import {
-		GROUP_OTHER,
-		OTHER_SYMBOL,
-		STATION_SYMBOL,
-		type OtherNoteParts
-	} from '$lib/utils/pump-group-chart';
+	import { GROUP_OTHER, OTHER_SYMBOL, type OtherNoteParts } from '$lib/utils/pump-group-chart';
 	import { MAX_GROUP_CASES, type OtherGroupCase } from '$lib/utils/pump-group-one-off';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useSectionNav } from './section-nav.svelte';
@@ -169,10 +164,11 @@
 			<legend class="text-xs font-medium text-slate-700">Cases on this chart</legend>
 			<!-- An auto-fill grid, 13 rem at least, as the pump chart's (§5.3, §15 item 35). -->
 			<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-3">
-				<!-- The case shown: a tag, not a control (§5.2 Tags). -->
+				<!-- The case shown: a tag, not a control (§5.2 Tags); its words alone, no ● before them
+					(owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5). -->
 				<span
 					class="col-span-full mt-1 justify-self-start rounded bg-slate-100 px-1.5 text-xs text-slate-700"
-					><span aria-hidden="true">{STATION_SYMBOL}</span> {caseName ?? 'This case'} (shown)</span
+					>{caseName ?? 'This case'} (shown)</span
 				>
 				{#each others as other (other.key)}
 					{@const capped = !other.onChart && othersFull}

@@ -2012,6 +2012,14 @@ const RING_NOTES_1280: Readonly<Record<string, number>> = {
 const TABS_TO_GROUP_TABLE = 20;
 /** §5.7 row 4: the lineups' group legend at 390×844: measured in S3 + 10 % (332 px), and ≤ 452 px. */
 const LEGEND_390 = 365;
+/**
+ * Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): a pump is its name, so no column
+ * is kept before it for a slot symbol (§15 item 157's 1 rem, and its 4 px gap). In the card's two
+ * tables a name's words start at its row header's edge plus the cell's and the name's padding
+ * (px-1 each): 8 px, 28 px with the column. In "Pumps in the group" they start right after the
+ * box, the label's gap (gap-2): 8 px, 32 px with the column. Measured at every size; at most this.
+ */
+const NAME_INSET = 8;
 
 /**
  * No name in the card cut short: no button, summary, label, list item, legend or heading, and
@@ -2081,6 +2089,31 @@ async function cardPart(
 			LONGEST_RUN.tab
 		);
 		return;
+	}
+
+	// Nit 5 (NAME_INSET): each member's name right after its box, no column kept for a symbol.
+	const memberInsets = await page.evaluate(() => {
+		const c = document.querySelector('[data-pumps-together]')!;
+		const members = [...c.querySelectorAll('fieldset')].find(
+			(f) => f.querySelector(':scope > legend')?.textContent?.trim() === 'Pumps in the group'
+		);
+		return [...(members?.querySelectorAll('label') ?? [])].map((label) => {
+			const box = label.querySelector('input')!.getBoundingClientRect();
+			const name = label.querySelector('span.min-w-0')!;
+			return {
+				name: (name.textContent ?? '').trim(),
+				inset: name.getBoundingClientRect().left - box.right
+			};
+		});
+	});
+	console.log(
+		`${where}: the members' names ${[...new Set(memberInsets.map((m) => Math.round(m.inset)))].join(', ')} px after their boxes`
+	);
+	soft(memberInsets.length, `the members' boxes, ${where}`).toBeGreaterThan(0);
+	for (const member of memberInsets) {
+		soft(member.inset, `"${member.name}" right after its box, ${where}`).toBeLessThanOrEqual(
+			NAME_INSET + 0.5
+		);
 	}
 
 	// §5.7 row 5: the station's first value under the card's header.
@@ -2873,7 +2906,7 @@ function readCombinations() {
 	if (!card || !block || !box) return null;
 	const table = box.querySelector('table')!;
 	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
-	/** An element's words without its aria-hidden marks (a slot's symbol, a ring). */
+	/** An element's words without its aria-hidden marks (a ring; a slot's symbol before nit 5). */
 	const words = (el: Element) => {
 		const copy = el.cloneNode(true) as Element;
 		for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
@@ -2910,11 +2943,14 @@ function readCombinations() {
 				})),
 				members: [...tbody.querySelectorAll('th[scope="row"]')].map((th) => {
 					const name = th.firstElementChild!;
+					const own = name.querySelector('span.min-w-0');
 					return {
 						name: words(name),
 						button: name.tagName === 'BUTTON',
 						inView: inView(name),
-						shown: shownWhole(name) && [...name.children].every(shownWhole)
+						shown: shownWhole(name) && [...name.children].every(shownWhole),
+						// Where its words start in its row header (nit 5, NAME_INSET).
+						inset: own ? own.getBoundingClientRect().left - th.getBoundingClientRect().left : null
 					};
 				}),
 				notes: [...tbody.querySelectorAll<HTMLElement>('[data-row-notes]')].map((note) => ({
@@ -3065,6 +3101,11 @@ async function combinationsPart(
 				soft(member.button, `${what}: "${member.name}" a trace button`).toBe(g === 0);
 				soft(member.inView, `${what}: "${member.name}" in the box's view`).toBe(true);
 				soft(member.shown, `${what}: "${member.name}" shown to its end`).toBe(true);
+				// Nit 5: its words at its row header's edge, no column kept for a slot symbol.
+				soft(member.inset, `${what}: where "${member.name}" starts`).not.toBeNull();
+				soft(member.inset ?? 99, `${what}: where "${member.name}" starts`).toBeLessThanOrEqual(
+					NAME_INSET + 0.5
+				);
 			}
 			for (const note of group.notes) {
 				soft(note.label, `${what}: a flag line's label`).toBe('Flags');
@@ -3581,8 +3622,10 @@ function readGroupTable() {
 					seen: seen(name),
 					whole: !!name && name.scrollWidth <= name.clientWidth + 1,
 					button: !!th.querySelector('button'),
-					// Where its words start, after its slot symbol's 1 rem column (§15 item 157).
-					left: name ? name.getBoundingClientRect().left : null
+					// Where its words start (§15 item 157), and how far into its row header: since nit
+					// 5 no 1 rem column is kept before them for a slot symbol (NAME_INSET).
+					left: name ? name.getBoundingClientRect().left : null,
+					inset: name ? name.getBoundingClientRect().left - th.getBoundingClientRect().left : null
 				};
 			}),
 		lines: [...(table?.querySelectorAll('[data-row-notes]') ?? [])].map((line) => {
@@ -3674,13 +3717,23 @@ async function groupTablePart(page: Page, where: string) {
 		soft(member.whole, `the name "${member.name}" shown to its end, ${where}`).toBe(true);
 		soft(member.button, `the name "${member.name}" a trace button, ${where}`).toBe(true);
 	}
-	// Every name starts at one edge, whatever its slot symbol's width (§15 item 157; S6 review
-	// MUT-04: the symbols' 1 rem column taken away failed nothing).
+	// Every name starts at one edge (§15 item 157; S6 review MUT-04), and since nit 5 at its row
+	// header's edge: no column kept before it for a slot symbol (NAME_INSET; 28 px with one).
 	const lefts = m.members.map((member) => member.left ?? 0);
 	soft(
 		Math.max(...lefts) - Math.min(...lefts),
 		`the group table's names start at one edge, ${where}`
 	).toBeLessThanOrEqual(0.5);
+	const insets = m.members.map((member) => member.inset ?? 99);
+	console.log(
+		`${where}: the group table's names ${[...new Set(insets.map(Math.round))].join(', ')} px into their row headers`
+	);
+	for (const [i, inset] of insets.entries()) {
+		soft(
+			inset,
+			`where "${m.members[i]!.name}" starts in its row header, ${where}`
+		).toBeLessThanOrEqual(NAME_INSET + 0.5);
+	}
 	for (const line of m.lines) {
 		const what = `the flag line of ${line.id}, ${where}`;
 		soft(line.label, `${what}: labelled`).toBe('Flags');

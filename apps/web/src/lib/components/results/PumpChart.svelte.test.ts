@@ -17,7 +17,7 @@ import {
 } from '$lib/utils/pump-chart';
 import { fakeResizeObserver, sizeBox } from '$lib/testing/resize';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '$lib/testing/results';
-import { outOfSight, wordsInSight } from '$lib/testing/helpers';
+import { designators, outOfSight, wordsInSight } from '$lib/testing/helpers';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
 import type { ChartImageRequest, ChartImageSource } from '$lib/utils/export/chart-image';
@@ -1213,8 +1213,10 @@ describe('pump chart layout (pumps-results-layout.md §5.3)', () => {
 		const order = [
 			/^The head rises with flow from 0 to 5 L\/s \(amber\)/,
 			/^NPSHa falls below NPSHr at about 22\.5 L\/s \(read from the drawn lines\)/,
-			/^Best efficiency point \(\+\): 70 % at 12 L\/s/,
-			/^Shutoff head \(–\): 30 m\.$/,
+			// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): BEP and the dash in
+			// words, not "(+)" and "(–)".
+			/^Best efficiency point \(BEP\): 70 % at 12 L\/s/,
+			/^Shutoff head \(the dash at zero flow\): 30 m\.$/,
 			/^Efficiency: the duty's flow is outside the efficiency curve's data/,
 			/^Shaft power ρgQH\/η over the flows/,
 			/^Dashed: the pump curve extrapolated beyond its data \(0 to 30 L\/s/,
@@ -1594,11 +1596,14 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		const grid = group.querySelector('legend + div')!;
 		expect(grid).toHaveClass('grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]');
 		const tag = grid.firstElementChild!;
-		expect(squash(tag.textContent)).toBe('● Base case (shown)');
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): its words alone, no ●
+		// before them, and nothing in it hidden from a screen reader.
+		expect(designators(tag)).toEqual([]);
+		expect(squash(tag.textContent)).toBe('Base case (shown)');
 		expect(tag).toHaveClass('rounded', 'bg-slate-100', 'text-xs');
 		expect(tag).not.toHaveClass('border');
 		expect(tag.querySelector('input')).toBeNull();
-		expect(tag.querySelector('[aria-hidden="true"]')).toHaveTextContent('●');
+		expect(tag.querySelector('[aria-hidden="true"]')).toBeNull();
 		// Each other case: its box, its marker in a column of its own, its name.
 		const boxes = within(group).getAllByRole('checkbox');
 		expect(boxes.map((b) => (b as HTMLInputElement).checked)).toEqual([true, true, true]);
@@ -2298,7 +2303,8 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 				system: { status: 'cancelled', by: 'goalSeek' },
 				covers: [
 					/^No best efficiency point is marked/,
-					/^Shutoff head \(–\): [\d.]+ m, extrapolated along the curve's start slope/,
+					// Nit 5: the dash in words, not "(–)".
+					/^Shutoff head \(the dash at zero flow\): [\d.]+ m, extrapolated along the curve's start slope/,
 					/^NPSHa along the system curve is drawn once the system curve is computed\.$/
 				]
 			},

@@ -29,8 +29,12 @@ test('marks the best efficiency point and shows a flow-controlled pump’s speed
 	await expect(chart).toHaveAccessibleName(
 		/speed range from 50 % to 100 % speed, with lines of constant efficiency/
 	);
-	await expect(figure.getByText(/^Best efficiency point \(\+\): 70 % at/)).toBeVisible();
-	await expect(figure.getByText(/^Shutoff head \(–\): [\d.]+ m\.$/)).toBeVisible();
+	// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): BEP and the dash in words,
+	// not "(+)" and "(–)".
+	await expect(figure.getByText(/^Best efficiency point \(BEP\): 70 % at/)).toBeVisible();
+	await expect(
+		figure.getByText(/^Shutoff head \(the dash at zero flow\): [\d.]+ m\.$/)
+	).toBeVisible();
 	const speedNote = figure.getByText(/^Speed range of the flow control/);
 	await expect(speedNote).toContainText('minimum (50 %) and maximum (100 %) speeds');
 	await expect(speedNote).toContainText('at 65, 60, 55 %');

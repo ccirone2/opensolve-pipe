@@ -63,9 +63,12 @@ const flagLine = createRawSnippet((row: () => Row) => ({
 			.join('')}</ul>`
 }));
 
-/** The caller's name: its own button, with a marker. */
+/**
+ * The caller's name: its own content in place of ResultsTable's button, words ResultsTable does
+ * not draw (no slot symbol since nit 5, owner, 2026-11-12; docs/proposals/pumps-nits.md item 5).
+ */
 const name = createRawSnippet((row: () => Row) => ({
-	render: () => `<span data-test-name>▲ ${row().name}</span>`
+	render: () => `<span data-test-name>${row().name}, the caller's</span>`
 }));
 
 const body = () => screen.getAllByRole('rowgroup')[1]!;
@@ -109,7 +112,7 @@ describe('ResultsTable: a flag line, a name and a region of the caller’s (pump
 		const onselect = vi.fn();
 		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump', name, onselect });
 		const header = within(rowOf('Pump PA')).getByRole('rowheader');
-		expect(header.querySelector('[data-test-name]')).toHaveTextContent('▲ Pump PA');
+		expect(header.querySelector('[data-test-name]')).toHaveTextContent("Pump PA, the caller's");
 		expect(within(header).queryByRole('button')).toBeNull();
 		expect(header).toHaveClass('sticky', 'left-0', 'sm:w-auto');
 		expect(header).not.toHaveClass('sm:min-w-[11rem]');

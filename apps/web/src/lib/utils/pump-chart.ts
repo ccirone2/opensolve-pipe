@@ -1247,14 +1247,19 @@ function checkNotes(d: PumpChartData, shown: readonly PanelKey[]): string[] {
 	return notes;
 }
 
-/** The curve facts as sentences (screen and image). */
+/**
+ * The curve facts as sentences (screen and image), each mark named in words, never by a character
+ * (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5): the best efficiency point by
+ * "BEP", its cross's label on the chart (pump-chart-config.ts factDatasets), and the shutoff head
+ * by its dash at zero flow, which has no label.
+ */
 function factNotes(d: PumpChartData, speedShown: boolean): string[] {
 	const fmt = (v: number) => formatNumber(v, 4);
 	const { bep, shutoff, rising, speedRange } = d.facts;
 	const notes: string[] = [];
 	if (bep)
 		notes.push(
-			`Best efficiency point (+): ${fmt(bep.efficiency.y)} % at ${fmt(bep.head.x)} ${d.flowUnit} and ${fmt(bep.head.y)} ${d.headUnit}${
+			`Best efficiency point (BEP): ${fmt(bep.efficiency.y)} % at ${fmt(bep.head.x)} ${d.flowUnit} and ${fmt(bep.head.y)} ${d.headUnit}${
 				bep.headExtrapolated ? ' (head extrapolated)' : ''
 			}, the efficiency curve's highest point inside its data, at this speed.`
 		);
@@ -1263,7 +1268,7 @@ function factNotes(d: PumpChartData, speedShown: boolean): string[] {
 			"No best efficiency point is marked: the efficiency data's highest point is at an end of the data, so the data do not show a maximum."
 		);
 	notes.push(
-		`Shutoff head (–): ${fmt(shutoff.point.y)} ${d.headUnit}${
+		`Shutoff head (the dash at zero flow): ${fmt(shutoff.point.y)} ${d.headUnit}${
 			shutoff.extrapolated
 				? ", extrapolated along the curve's start slope (the data start above zero flow)"
 				: ''

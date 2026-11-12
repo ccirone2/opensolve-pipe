@@ -43,10 +43,11 @@
 	S6a: the Pumps together card's group table, and Running combinations in S6b) draws its own
 	flag line (`flagLine`: each flag's pill and its text, visible and read once, in place of the
 	FlagBadges, whose words are a tooltip and hidden text) and its own row header's content
-	(`name`: the slot symbol, a trace button only where one fits, the name wrapping at 12 rem);
-	its box may be a named region and a Tab stop (`labelledby`) while it overflows, as the card's
-	boxes are (pumps-results-layout.md §9 S7), so the keyboard can scroll it. Every other table
-	draws as before.
+	(`name`: a trace button only where one fits, the name wrapping at 12 rem; no slot symbol since
+	nit 5, owner, 2026-11-12, docs/proposals/pumps-nits.md item 5); its box may be a named region
+	and a Tab stop (`labelledby`) while it overflows, as the card's boxes are
+	(pumps-results-layout.md §9 S7), so the keyboard can scroll it. Every other table draws as
+	before.
 
 	Row groups (`table.groups`; §9 S6b, the owner's answer 3: Running combinations, a group per
 	case): in the table's own order each group is a row group headed by its lines (`groupHeading`,
@@ -96,8 +97,8 @@
 		flagLine?: Snippet<[Row]>;
 		/**
 		 * A row header's content in place of the name's button (or words): the card's tables, whose
-		 * names carry their slot symbol and wrap at 12 rem (§5.3; ui-guide). The column then takes
-		 * its width from the name, not ResultsTable's 11 to 16 rem.
+		 * names wrap at 12 rem (§5.3; ui-guide) and are a trace button only where one fits. The
+		 * column then takes its width from the name, not ResultsTable's 11 to 16 rem.
 		 */
 		name?: Snippet<[Row]>;
 		/**

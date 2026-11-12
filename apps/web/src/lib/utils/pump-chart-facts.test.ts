@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { PumpResult } from '../api/types';
+import { designators } from '../testing/helpers';
 import { pumpResult } from '../testing/results';
 import { chartNotes, pumpChartData } from './pump-chart';
 import { pumpChartConfig } from './pump-chart-config';
@@ -108,8 +109,9 @@ describe('pump chart curve facts', () => {
 			{ x: 0, y: 30 },
 			{ x: 5, y: 28 }
 		]);
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): the dash named in words.
 		expect(chartNotes({ data, result, system: undefined }).facts).toContain(
-			"Shutoff head (–): 30 m, extrapolated along the curve's start slope (the data start above zero flow)."
+			"Shutoff head (the dash at zero flow): 30 m, extrapolated along the curve's start slope (the data start above zero flow)."
 		);
 	});
 
@@ -117,10 +119,14 @@ describe('pump chart curve facts', () => {
 		const result = factsPump();
 		const data = pumpChartData(result, SI_UNITS);
 		const notes = chartNotes({ data, result, system: undefined, speedShown: true }).facts;
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): the cross by its label on
+		// the chart ("BEP") and the dash in words, not "(+)" and "(–)"; no fact named by a mark.
+		expect(notes).toHaveLength(4);
+		for (const note of notes) expect(designators(note), note).toEqual([]);
 		expect(notes[0]).toBe(
-			"Best efficiency point (+): 70 % at 12 L/s and 18 m, the efficiency curve's highest point inside its data, at this speed."
+			"Best efficiency point (BEP): 70 % at 12 L/s and 18 m, the efficiency curve's highest point inside its data, at this speed."
 		);
-		expect(notes[1]).toBe('Shutoff head (–): 19.2 m.');
+		expect(notes[1]).toBe('Shutoff head (the dash at zero flow): 19.2 m.');
 		expect(notes[2]).toBe(
 			'The head rises with flow from 0 to 5 L/s (amber): a system curve can cross the pump curve more than once there.'
 		);

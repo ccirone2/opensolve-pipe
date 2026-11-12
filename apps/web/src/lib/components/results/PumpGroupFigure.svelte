@@ -53,7 +53,6 @@
 		OTHER_SYMBOL,
 		otherCurveRows,
 		placeCurveLabels,
-		STATION_SYMBOL,
 		systemDutyCheckState,
 		type GroupChartData,
 		type GroupMemberInput,
@@ -927,9 +926,11 @@
 				</div>
 				{#if stationShown?.duty && data.station}
 					<!-- The duty sentence split in two (§5.3 The data region), each check with its own
-						Details: the duty and the duty check, then the system duty check. -->
+						Details: the duty and the duty check, then the system duty check. Its words
+						first, no ● before them (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md
+						item 5): the group's point is "Group" on the chart. -->
 					<p class="text-sm" data-group-duty>
-						<span aria-hidden="true">{STATION_SYMBOL}</span> Group duty (station's flow):
+						Group duty (station's flow):
 						<span class="tabular-nums">{fmt(data.station.flow)} {data.flowUnit}</span> at a rise of
 						<span class="tabular-nums">{fmt(data.station.point.y)} {data.headUnit}</span>; {ARRANGEMENT_WORDS[
 							stationShown.station.arrangement

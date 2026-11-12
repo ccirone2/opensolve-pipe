@@ -9,10 +9,10 @@ import {
 	cellText,
 	chooseCase,
 	currentHeading,
-	openCases,
 	openScenarioManager,
 	resultsView,
 	showPane,
+	solveAll,
 	solveConverged
 } from './support';
 
@@ -374,7 +374,7 @@ test('the condenser example: a lineup made by presses, Undo, the keys, solved; t
 	await manager.getByRole('button', { name: 'Done' }).click();
 	await expect(manager).toBeHidden();
 	const answered = solveAnswer(page, 'S2');
-	await (await openCases(page)).getByRole('button', { name: 'Solve all' }).click();
+	await solveAll(page);
 	const answer = await answered;
 	expect(answer.success).toBe(true);
 	expect(answer.solvedState.converged).toBe(true);

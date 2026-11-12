@@ -800,7 +800,10 @@ interface FittingResult { index; type; quantity; k /* one fitting */; referenceD
 interface PumpResult { status: 'running' | 'off' | 'no_flow'; speed /* the speed it runs at: set, solved or limit */;
                        control: PumpControlResult | null /* null: fixed speed (§4.8) */; operatingFlow; operatingHead /* EGL rise */;
                        inCurveRange; hydraulicPower; efficiency | null; shaftPower | null;
-                       npshAvailable | null; npshRequired | null; npshMargin | null; suctionAbsolutePressure | null;
+                       npshAvailable | null; npshRequired | null; npshMargin | null;
+                       npshMarginRatio | null /* NPSHa / NPSHr (TSD §5.5); null: either null, NPSHr 0 or the quotient not finite;
+                                                 where given, below 1 exactly where npshMargin < 0; null is no sign of a safe margin */;
+                       suctionAbsolutePressure | null;
                        curve: CurvePoint[] /* at speed */;
                        efficiencyCurve: {flow, efficiency}[] | null /* η₀(Q/s) over the efficiency points × s */;
                        npshrCurve: {flow, npshr}[] | null /* s² NPSHr₀(Q/s) over the NPSHr points × s */;

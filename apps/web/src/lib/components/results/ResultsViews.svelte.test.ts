@@ -663,6 +663,43 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		);
 	});
 
+	it('hides Hydraulic power, NPSHa and NPSHr by default, counted in Fields’ name, each a box to check, every value still in the trace (docs/proposals/pumps-nits.md item 3)', async () => {
+		localStorage.removeItem('opensolve-pipe:results-fields:Results per pump');
+		const { panel } = await solveAndOpenPumps(pumpTransferExample(), pumpTransferSolved());
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		const shown = ['Status', 'Flow L/s', 'Head m', 'Speed %', 'Efficiency %', 'Shaft power kW'];
+		for (const name of [...shown, 'NPSH margin m']) {
+			expect(within(table).getByRole('columnheader', { name }), name).toBeInTheDocument();
+		}
+		for (const name of [/^Hydraulic power/, /^NPSHa/, /^NPSHr/]) {
+			expect(within(table).queryByRole('columnheader', { name }), String(name)).toBeNull();
+		}
+		expect(within(table).getAllByRole('columnheader')).toHaveLength(8);
+		// Fields names its count, seven of the table's ten shown, then the table.
+		const fields = panel.getByRole('button', { name: 'Fields (7 of 10), Results per pump' });
+		expect(fields.textContent!.replace(/\s+/g, ' ').trim()).toBe('Fields (7 of 10)');
+		await fireEvent.click(fields);
+		const menu = panel.getByRole('group', { name: 'Fields shown in Results per pump' });
+		for (const name of [/^Hydraulic power/, /^NPSHa/, /^NPSHr/]) {
+			expect(within(menu).getByRole('checkbox', { name }), String(name)).not.toBeChecked();
+		}
+		expect(
+			within(menu)
+				.getAllByRole('checkbox')
+				.filter((c) => (c as HTMLInputElement).checked)
+		).toHaveLength(7);
+		expect(within(menu).getByRole('button', { name: 'Show all' })).toBeInTheDocument();
+		expect(within(menu).queryByRole('button', { name: 'Default fields' })).toBeNull();
+		await fireEvent.keyDown(fields, { key: 'Escape' });
+		// The trace keeps every value: one step away.
+		await fireEvent.click(within(table).getByRole('button', { name: /^Transfer pump/ }));
+		const dialog = within(await screen.findByRole('dialog', { name: 'Transfer pump' }));
+		const values = dialog.getByRole('region', { name: 'Result values' });
+		for (const label of ['Hydraulic power (kW)', 'NPSHa (m)', 'NPSHr (m)', 'NPSH margin (m)']) {
+			expect(values, label).toHaveTextContent(label);
+		}
+	});
+
 	it("draws each pump's status as a pill holding its state word, tinted by the state, the qualifier after it as plain text and the cell's words the label's (docs/proposals/pumps-nits.md item 2)", async () => {
 		// Made-up results: the transfer pump holds a flow setpoint (CLAUDE.md D11), booster A is
 		// off and booster B gives no flow, the system head above its shutoff head.
@@ -861,6 +898,10 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		const { answers, panel } = await solveAndOpenPumps(project, solved);
 		const table = panel.getByRole('table', { name: 'Results per pump' });
 		expect(within(table).getByRole('columnheader', { name: 'Control' })).toBeInTheDocument();
+		// Eleven fields with Control, eight shown by default (docs/proposals/pumps-nits.md item 3).
+		expect(
+			panel.getByRole('button', { name: 'Fields (8 of 11), Results per pump' })
+		).toBeInTheDocument();
 		const row = rowFor(table, 'Transfer pump');
 		expect(cells(row)).toEqual(
 			expect.arrayContaining(['Running (holding flow setpoint)', 'Flow 20 L/s: held', '87.32'])

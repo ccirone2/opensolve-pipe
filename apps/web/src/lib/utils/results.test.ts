@@ -49,6 +49,7 @@ import {
 	connectionName,
 	elementName,
 	elementSummary,
+	equipmentTable,
 	displayedNumber,
 	highestPressureNode,
 	NAME_SORT_KEY,
@@ -58,6 +59,7 @@ import {
 	sortValue,
 	type Cell,
 	type Row,
+	type Table,
 	type TableSort,
 	type ElementRef,
 	fastestLink,
@@ -73,11 +75,13 @@ import {
 	outOfDateProject,
 	readsAsSolved,
 	nodeTable,
+	orificeTable,
 	pumpControlText,
 	PUMP_STATUS_TONES,
 	pumpStatusLabel,
 	pumpStatusParts,
 	pumpTable,
+	reliefTable,
 	rowsForElement,
 	segmentFlags,
 	segmentTable,
@@ -953,6 +957,98 @@ describe('speed-controlled pumps (CLAUDE.md D11)', () => {
 			['P1', 'Running (holding flow setpoint)', 'Flow 12 L/s: held', '87.32'],
 			['P2', 'Running', 'Fixed speed', '100']
 		]);
+	});
+});
+
+describe('Results per pump hides hydraulic power, NPSHa and NPSHr by default (docs/proposals/pumps-nits.md item 3)', () => {
+	const defaultHidden = (table: Table) =>
+		table.columns.filter((c) => c.hiddenByDefault).map((c) => c.key);
+
+	it('marks exactly those three columns, with a Control column or without; every cell still holds its value', () => {
+		const fixed = pumpTable(project, pumpTransferSolved(), SI_UNITS);
+		expect(defaultHidden(fixed)).toEqual(['hydraulicPower', 'npshAvailable', 'npshRequired']);
+		expect(fixed.columns.filter((c) => !c.hiddenByDefault).map((c) => c.key)).toEqual([
+			'status',
+			'flow',
+			'head',
+			'speed',
+			'efficiency',
+			'shaftPower',
+			'npshMargin'
+		]);
+		// A hint, `true` or absent: never written false.
+		for (const c of fixed.columns) expect([undefined, true]).toContain(c.hiddenByDefault);
+		// The trace view, Build's result strip and the export read every cell, the hint not.
+		expect(fixed.rows[0]!.cells).toMatchObject({
+			hydraulicPower: '4',
+			npshAvailable: '12',
+			npshRequired: '3',
+			npshMargin: '9'
+		});
+		const controlled = pumpTable(
+			project,
+			pumpTransferSolved({
+				pumpResults: {
+					P1: pumpResult({
+						speed: 0.873214,
+						control: { mode: 'flow', setpoint: 0.012, state: 'active', setpointAchieved: true }
+					})
+				}
+			}),
+			SI_UNITS
+		);
+		expect(controlled.columns.map((c) => c.key)).toContain('control');
+		expect(defaultHidden(controlled)).toEqual(['hydraulicPower', 'npshAvailable', 'npshRequired']);
+		// The trace's result values keep the three (rowsForElement reads the table's columns).
+		const [pumpGroup] = rowsForElement(project, pumpTransferSolved(), SI_UNITS, {
+			kind: 'component',
+			id: 'P1'
+		});
+		expect(pumpGroup!.table.columns.map((c) => c.key)).toEqual(
+			expect.arrayContaining(['hydraulicPower', 'npshAvailable', 'npshRequired'])
+		);
+	});
+
+	it('is set by no other table: none of the other builders’ columns carries it, and outside the tests only results.ts and ResultsTable name it (a guard)', () => {
+		const solved = pumpTransferSolved();
+		const gravity = gravityBranchExample();
+		const link = solved.linkResults.L1!;
+		const others: [string, Table][] = [
+			['nodes', nodeTable(project, solved, SI_UNITS)],
+			['links', linkTable(project, solved, SI_UNITS)],
+			['segments', segmentTable('L1', link, SI_UNITS)],
+			['fittings', fittingTable('L1', link, SI_UNITS)],
+			['valves', valveTable(project, solved, SI_UNITS)],
+			['relief valves', reliefTable(project, solved, SI_UNITS)],
+			['equipment', equipmentTable(project, solved, SI_UNITS)],
+			['orifices', orificeTable(project, solved, SI_UNITS)],
+			['branches', branchTable(gravity, solved, SI_UNITS)],
+			['boundaries', boundaryTable(project, solved, SI_UNITS)],
+			['assigned flows', assignedFlowTable(project, solved, SI_UNITS, project)]
+		];
+		for (const [name, table] of others) {
+			expect(table.columns.length, name).toBeGreaterThan(0);
+			expect(defaultHidden(table), name).toEqual([]);
+		}
+		// Every other table of the app (the card's, goal seek's, Compare's) is built elsewhere:
+		// none names the hint.
+		const sources = import.meta.glob<string>(
+			[
+				'../**/*.{ts,svelte}',
+				'!../**/*.test.ts',
+				'!../**/*.testing.ts',
+				'!../testing/**',
+				'!../api/**'
+			],
+			{ query: '?raw', import: 'default', eager: true }
+		);
+		expect(Object.keys(sources).length).toBeGreaterThan(100);
+		expect(
+			Object.entries(sources)
+				.filter(([, text]) => text.includes('hiddenByDefault'))
+				.map(([file]) => file)
+				.sort()
+		).toEqual(['../components/results/ResultsTable.svelte', './results.ts']);
 	});
 });
 

@@ -526,6 +526,12 @@ export interface Column {
 	numeric?: boolean;
 	/** Long text (a citation): wraps in a wider cell. */
 	wrap?: boolean;
+	/**
+	 * Left out of the table until the user shows it in its Fields menu (ResultsTable): a hint for
+	 * the screen's table only. The trace view, Build's result strip and the export read every
+	 * column (docs/proposals/pumps-nits.md item 3).
+	 */
+	hiddenByDefault?: true;
 }
 
 /** Text with a note shown on hover, e.g. "≈ 0" with the exact value the solver returned. */
@@ -657,6 +663,11 @@ export class Formatter {
 
 function text(key: string, label: string, wrap = false): Column {
 	return wrap ? { key, label, wrap } : { key, label };
+}
+
+/** A column the table leaves out until the user shows it (`Column.hiddenByDefault`). */
+function hiddenByDefault(column: Column): Column {
+	return { ...column, hiddenByDefault: true };
 }
 
 /** Component ids in project order, then ids of results whose component no longer exists. */
@@ -995,6 +1006,9 @@ export function pumpControlText(result: PumpResult, prefs: UnitPreferences): str
 /**
  * Pumps: operating point, power and NPSH. An off pump has no speed ("—"). A Control column is
  * shown only when a pump of the solve is speed-controlled (it keeps narrow tables narrow).
+ * Hydraulic power, NPSHa and NPSHr are hidden until the user shows them in Fields, so the table
+ * opens with one NPSH reading, the margin (the owner, 2026-11-12; docs/proposals/pumps-nits.md
+ * item 3); a cavitating pump's flag still states all three.
  */
 export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPreferences): Table {
 	const f = new Formatter(prefs);
@@ -1007,10 +1021,10 @@ export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPref
 		f.column('head', 'Head', 'head'),
 		f.column('speed', 'Speed', 'fraction'),
 		f.column('efficiency', 'Efficiency', 'fraction'),
-		f.column('hydraulicPower', 'Hydraulic power', 'power'),
+		hiddenByDefault(f.column('hydraulicPower', 'Hydraulic power', 'power')),
 		f.column('shaftPower', 'Shaft power', 'power'),
-		f.column('npshAvailable', 'NPSHa', 'head'),
-		f.column('npshRequired', 'NPSHr', 'head'),
+		hiddenByDefault(f.column('npshAvailable', 'NPSHa', 'head')),
+		hiddenByDefault(f.column('npshRequired', 'NPSHr', 'head')),
 		f.column('npshMargin', 'NPSH margin', 'head')
 	];
 	const rows = orderedIds(project, Object.keys(results)).map((id) => {

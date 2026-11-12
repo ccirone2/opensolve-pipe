@@ -5105,13 +5105,18 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 	expect(groupTitle).toMatch(/^The pumps in the group, /);
 
 	// Each table's Fields and, on a phone, its "Sort by" named apart: the visible words, then the
-	// table's name, visually hidden (A11Y-S6-3; ui-guide).
+	// table's name, visually hidden (A11Y-S6-3; ui-guide). Results per pump's count names its
+	// fields hidden by default: hydraulic power, NPSHa and NPSHr (pumps-nits.md item 3).
 	const captions = ['Results per pump', groupTitle, 'Running combinations'];
+	const counts: Record<string, string> = { 'Results per pump': ' (7 of 10)' };
 	await expect(tab.getByRole('button', { name: /^Fields/ })).toHaveCount(3);
 	for (const caption of captions) {
 		await expect
 			.soft(
-				tab.getByRole('button', { name: `Fields, ${caption}`, exact: true }),
+				tab.getByRole('button', {
+					name: `Fields${counts[caption] ?? ''}, ${caption}`,
+					exact: true
+				}),
 				`Fields of ${caption}`
 			)
 			.toHaveCount(1);
@@ -7465,5 +7470,150 @@ test('Nits item 2: each pump’s status a pill of its state word on its row’s 
 	// Three states, three tints.
 	expect([...tints.keys()].sort()).toEqual(['No flow', 'Off', 'Running']);
 	expect(new Set([...tints.values()].map((t) => t.split(' / ')[0])).size).toBe(3);
+	await page.setViewportSize(viewport);
+});
+
+/**
+ * Results per pump's size, its table and its box (pumps-nits.md item 3): the wrap's height (on a
+ * phone the list), the table's width, the box's, and its column headings' words.
+ */
+function readPumpTable(wrap: Element) {
+	const table = wrap.querySelector('table')!;
+	const box = table.parentElement!;
+	return {
+		height: Math.round(table.getBoundingClientRect().height),
+		width: Math.round(table.getBoundingClientRect().width),
+		box: { client: box.clientWidth, scroll: box.scrollWidth },
+		headings: [...table.querySelectorAll('thead th')].map((th) =>
+			(th.textContent ?? '').replace(/\s+/g, ' ').trim()
+		)
+	};
+}
+
+test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPSHr, Fields counting them; a box shows one, remembered after a reload; Default fields hides it again; the table narrower and a phone’s list shorter, at 1280, 390 and 320 px (pumps-nits.md item 3)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	const hiddenByDefault = /^(Hydraulic power|NPSHa|NPSHr)\b/;
+	const views = [
+		{ view: 'off', count: '7 of 10', all: 10, project: () => projectOf('off') },
+		{ view: 'controlled', count: '8 of 11', all: 11, project: () => projectOf('controlled') },
+		{
+			view: 'condenser',
+			count: '7 of 10',
+			all: 10,
+			project: () => exampleProject('condenser-water')!
+		}
+	];
+	for (const { view, count, all, project } of views) {
+		await page.setViewportSize(viewport);
+		await page.goto('/');
+		await open(page, project());
+		await solveConverged(page);
+		let tab = await pumpsTab(page);
+		let wrap = tab.locator('[data-pump-table]');
+		const table = wrap.getByRole('table', { name: 'Results per pump' });
+		await expect(table).toBeVisible();
+		const fieldsNamed = (n: string) =>
+			wrap.getByRole('button', { name: `Fields (${n}), Results per pump`, exact: true });
+		await expect(fieldsNamed(count), `Fields' name, ${view}`).toHaveCount(1);
+		for (const size of sizes) {
+			await page.setViewportSize(size);
+			await settle(page, 1000);
+			const where = `${view} at ${sizeOf(page)}`;
+			const shown = await wrap.evaluate(readPumpTable);
+			soft(
+				shown.headings.filter((h) => hiddenByDefault.test(h)),
+				`defaults, ${where}`
+			).toEqual([]);
+			soft(shown.headings, `defaults, ${where}`).toHaveLength(all - 3 + 1);
+			soft(
+				shown.headings.some((h) => h.startsWith('NPSH margin')),
+				`NPSH margin, ${where}`
+			).toBe(true);
+			// Show all, measured, then Default fields: back to the defaults.
+			const fields = wrap.getByRole('button', { name: /^Fields/ });
+			await fields.click();
+			const menu = page.getByRole('group', { name: 'Fields shown in Results per pump' });
+			await expect(menu).toBeVisible();
+			await menu.getByRole('button', { name: 'Show all' }).click();
+			await expect(menu.getByRole('button', { name: 'Show all' })).toHaveCount(0);
+			await expect(
+				wrap.getByRole('button', { name: 'Fields, Results per pump', exact: true })
+			).toHaveCount(1);
+			await page.keyboard.press('Escape');
+			await expect(menu).toBeHidden();
+			await settle(page, 500);
+			const every = await wrap.evaluate(readPumpTable);
+			console.log(
+				`${where}: Results per pump by default ${shown.height} px high, ${shown.width} px wide (box ${shown.box.client}, holding ${shown.box.scroll}); every field ${every.height} px high, ${every.width} px wide (holding ${every.box.scroll})`
+			);
+			soft(every.headings, `every field, ${where}`).toHaveLength(all + 1);
+			if (isMobile) {
+				// A phone's list: shorter by the three fields' lines; never sideways.
+				soft(shown.height, `the list's height by default, ${where}`).toBeLessThan(every.height);
+				soft(shown.box.scroll, `the list's box, ${where}`).toBe(shown.box.client);
+			} else {
+				soft(shown.width, `the table's width by default, ${where}`).toBeLessThan(every.width);
+			}
+			await fields.click();
+			await menu.getByRole('button', { name: 'Default fields' }).click();
+			await expect(menu.getByRole('button', { name: 'Default fields' })).toHaveCount(0);
+			// It went as it was pressed: the focus on the first box, in the menu.
+			await expect(menu.getByRole('checkbox').first()).toBeFocused();
+			await page.keyboard.press('Escape');
+			await expect(fieldsNamed(count)).toHaveCount(1);
+			await noSidewaysScroll(page, where);
+		}
+		if (view !== 'controlled') continue;
+		// NPSHa's box checked: its column shown and counted, the menu axe clean with both its
+		// buttons (Show all, Default fields); remembered after a reload; Default fields forgets it.
+		const fields = wrap.getByRole('button', { name: /^Fields/ });
+		await fields.click();
+		const menu = page.getByRole('group', { name: 'Fields shown in Results per pump' });
+		await menu.getByRole('checkbox', { name: /^NPSHa/ }).check();
+		await expect(table.getByRole('columnheader', { name: /^NPSHa/ })).toHaveCount(1);
+		await expect(menu.getByRole('button', { name: 'Default fields' })).toBeVisible();
+		await expect(menu.getByRole('button', { name: 'Show all' })).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(fieldsNamed('9 of 11')).toHaveCount(1);
+		expect(
+			await page.evaluate(() =>
+				localStorage.getItem('opensolve-pipe:results-fields:Results per pump')
+			)
+		).toBe('{"hidden":[],"shown":["npshAvailable"]}');
+		await axeClean(page, `${view} at ${sizeOf(page)}, NPSHa shown`);
+		await page.reload();
+		await solveConverged(page);
+		tab = await pumpsTab(page);
+		wrap = tab.locator('[data-pump-table]');
+		await expect(fieldsNamed('9 of 11')).toHaveCount(1);
+		await expect(
+			wrap
+				.getByRole('table', { name: 'Results per pump' })
+				.getByRole('columnheader', { name: /^NPSHa/ })
+		).toHaveCount(1);
+		await wrap.getByRole('button', { name: /^Fields/ }).click();
+		await page
+			.getByRole('group', { name: 'Fields shown in Results per pump' })
+			.getByRole('button', { name: 'Default fields' })
+			.click();
+		await page.keyboard.press('Escape');
+		await expect(fieldsNamed('8 of 11')).toHaveCount(1);
+		await expect(
+			wrap
+				.getByRole('table', { name: 'Results per pump' })
+				.getByRole('columnheader', { name: /^NPSHa/ })
+		).toHaveCount(0);
+		expect(
+			await page.evaluate(() =>
+				localStorage.getItem('opensolve-pipe:results-fields:Results per pump')
+			)
+		).toBeNull();
+	}
 	await page.setViewportSize(viewport);
 });

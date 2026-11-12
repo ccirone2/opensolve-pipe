@@ -6,17 +6,19 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { SolvedState } from '$lib/api/types';
+import type { Project, SolvedState } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
-import { flag, node, pumpTransferSolved, response } from '$lib/testing/results';
+import { flag, node, pumpResult, pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
+import { insertComponentInConnection } from '$lib/utils/edit';
 import { pumpTransferExample } from '$lib/utils/examples';
+import { createComponent } from '$lib/utils/factory';
 
 const results = () => within(screen.getByRole('region', { name: 'Results' }));
 
-async function solveWith(solved: SolvedState) {
+async function solveWith(solved: SolvedState, project: Project = pumpTransferExample()) {
 	const solve = vi.fn(() => Promise.resolve(response(solved)));
-	const ws = testWorkspace(pumpTransferExample(), { solver: { solve } });
+	const ws = testWorkspace(project, { solver: { solve } });
 	render(WorkspaceView, { workspace: ws });
 	await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
 	await results().findByRole('heading', { name: 'Converged' });
@@ -210,5 +212,44 @@ describe('results tables sort and filter', () => {
 		await fireEvent.click(pressure);
 		await fireEvent.click(pressure);
 		expect(rowNames().at(-1)).toBe('Suction tank');
+	});
+});
+
+describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits.md item 3)', () => {
+	const KEY = 'opensolve-pipe:results-fields:Results per pump';
+
+	it('“Pumps, smallest first” sorts Results per pump by NPSH margin and shows it, though a stored choice hid it; the choice then stored as the box checked', async () => {
+		// Made-up results: a booster after the transfer pump, its NPSH margin the smaller.
+		const base = pumpTransferExample();
+		const booster = createComponent('pump', base, { name: 'Booster pump' });
+		const project = insertComponentInConnection(base, 'L3', booster);
+		localStorage.setItem(KEY, '["npshMargin"]');
+		try {
+			await solveWith(
+				pumpTransferSolved({
+					pumpResults: {
+						P1: pumpResult(),
+						[booster.id]: pumpResult({ npshAvailable: 8, npshMargin: 5 })
+					}
+				}),
+				project
+			);
+			await fireEvent.click(results().getByRole('button', { name: 'Pumps, smallest first' }));
+			await tick();
+			const pumpsTab = results().getByRole('tab', { name: 'Pumps' });
+			expect(pumpsTab).toHaveAttribute('aria-selected', 'true');
+			const table = within(results().getByRole('table', { name: 'Results per pump' }));
+			expect(table.getByRole('columnheader', { name: /^NPSH margin/ })).toHaveAttribute(
+				'aria-sort',
+				'ascending'
+			);
+			expect(
+				table.getAllByRole('rowheader').map((h) => h.querySelector('span')?.textContent?.trim())
+			).toEqual(['Booster pump', 'Transfer pump']);
+			// Stored as if its box were checked: no departure from the defaults is left.
+			expect(localStorage.getItem(KEY)).toBeNull();
+		} finally {
+			localStorage.removeItem(KEY);
+		}
 	});
 });

@@ -31,8 +31,13 @@
 
 	Fields (owner, 2026-10-31; proposal build-density.md §15): a menu of the table's columns, each a
 	checkbox, chooses which are shown, in the table and in the phone's list; the element's name
-	always is. The choice is remembered in this browser per table (localStorage: a per-viewer
-	convenience, never project data, never in the link); "Show all" forgets it.
+	always is. A column may be hidden by default (`Column.hiddenByDefault`: Results per pump's
+	hydraulic power, NPSHa and NPSHr; owner, 2026-11-12, docs/proposals/pumps-nits.md item 3), and
+	the count in Fields' name counts it: "Fields (7 of 10)". What is remembered in this browser per
+	table (localStorage: a per-viewer convenience, never project data, never in the link) is the
+	user's departure from the defaults; "Show all" shows every column, and "Default fields",
+	offered on a table with defaults once the choice differs from them, forgets it. A sort asked for
+	from outside (`sortRequest`, the Summary's links) shows the column it sorts by.
 
 	A table in a card that reads no workspace (proposal pumps-results-layout.md §5.3 Station, §9
 	S6a: the Pumps together card's group table, and Running combinations in S6b) draws its own
@@ -52,7 +57,7 @@
 	form. A cell's content may be the caller's (`cellContent`: a mark before an invalid value).
 -->
 <script lang="ts">
-	import { tick, type Snippet } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
@@ -60,6 +65,7 @@
 		NAME_SORT_KEY,
 		sortableColumn,
 		sortRows,
+		type Column,
 		type Row,
 		type RowGroup,
 		type Table,
@@ -134,32 +140,87 @@
 	const id = $props.id();
 	let expanded = $state<string[]>([]);
 
-	/** The columns hidden in this browser for this table (by its caption), read and written safely. */
+	/**
+	 * The Fields choice in this browser for this table (by its caption, or `fieldsKey`), read and
+	 * written safely: the user's departures from the table's defaults (docs/proposals/pumps-nits.md
+	 * item 3). A JSON array is the columns the user hid, the format from before a column could be
+	 * hidden by default, so a choice stored then is read unchanged and the defaults apply to every
+	 * column it never named (no migration, D14); it is still written while no column hidden by
+	 * default is shown. `{"hidden": […], "shown": […]}` is written once one is. A choice equal to
+	 * the defaults is none: its key goes. A key of a column the table lacks now is kept (Control,
+	 * there only while a pump of the solve is speed-controlled), never counted or offered.
+	 */
+	interface FieldsChoice {
+		hidden: string[];
+		shown: string[];
+	}
 	const storageKey = $derived(`opensolve-pipe:results-fields:${fieldsKey ?? caption}`);
-	function readHidden(key: string): string[] {
+	const strings = (value: unknown): string[] =>
+		Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+	function readChoice(key: string): FieldsChoice {
 		try {
 			const value: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
-			return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+			if (Array.isArray(value)) return { hidden: strings(value), shown: [] };
+			if (value && typeof value === 'object') {
+				const { hidden, shown } = value as Record<string, unknown>;
+				return { hidden: strings(hidden), shown: strings(shown) };
+			}
 		} catch {
-			return [];
+			// Unreadable: the defaults.
 		}
+		return { hidden: [], shown: [] };
 	}
-	let hidden = $derived(readHidden(storageKey));
-	function setHidden(next: string[]) {
-		hidden = next;
+	let choice = $derived(readChoice(storageKey));
+	/**
+	 * Stored with only what departs from the defaults: a column hidden by default needs no entry to
+	 * be hidden, and only such a column one to be shown; a column the user hid stays hidden.
+	 */
+	function setChoice(next: FieldsChoice) {
+		const own = new Map(table.columns.map((c) => [c.key, c]));
+		const byDefault = (key: string) => !!own.get(key)?.hiddenByDefault;
+		const kept: FieldsChoice = {
+			hidden: next.hidden.filter((k) => !byDefault(k)),
+			shown: next.shown.filter((k) => !own.has(k) || (byDefault(k) && !next.hidden.includes(k)))
+		};
+		choice = kept;
 		try {
-			if (next.length) localStorage.setItem(storageKey, JSON.stringify(next));
+			if (kept.shown.length) localStorage.setItem(storageKey, JSON.stringify(kept));
+			else if (kept.hidden.length) localStorage.setItem(storageKey, JSON.stringify(kept.hidden));
 			else localStorage.removeItem(storageKey);
 		} catch {
 			// Storage refused (a private window): the choice holds for this page only.
 		}
 	}
+	/** A column's box checked or unchecked: its departure from its default made or dropped. */
+	function setShown(column: Column, show: boolean) {
+		const hiddenKeys = choice.hidden.filter((k) => k !== column.key);
+		const shownKeys = choice.shown.filter((k) => k !== column.key);
+		if (column.hiddenByDefault && show) shownKeys.push(column.key);
+		if (!column.hiddenByDefault && !show) hiddenKeys.push(column.key);
+		setChoice({ hidden: hiddenKeys, shown: shownKeys });
+	}
+	/** The table's own columns hidden: by the user, or by default unless the user showed them. */
+	const hidden = $derived(
+		table.columns
+			.filter(
+				(c) =>
+					choice.hidden.includes(c.key) || (!!c.hiddenByDefault && !choice.shown.includes(c.key))
+			)
+			.map((c) => c.key)
+	);
 	const visibleColumns = $derived(table.columns.filter((c) => !hidden.includes(c.key)));
+	/** The table's columns hidden by default, and whether what is hidden differs from them. */
+	const defaults = $derived(table.columns.filter((c) => c.hiddenByDefault).map((c) => c.key));
+	const departed = $derived(
+		hidden.length !== defaults.length || hidden.some((k) => !defaults.includes(k))
+	);
 	/**
 	 * Fields' count, and its name: its words, then its table's (an aria-label, since a browser puts
 	 * a space before a visually hidden suffix in a flex button), so two tables' Fields have names of
-	 * their own (the Pumps tab has three; S6 review A11Y-S6-3; ui-guide): "Fields (9 of 10), Results
-	 * per pump", one of that table's ten fields hidden (eleven with a speed-controlled pump).
+	 * their own (the Pumps tab has three; S6 review A11Y-S6-3; ui-guide): "Fields (7 of 10), Results
+	 * per pump", three of that table's ten fields hidden by default (eleven with a speed-controlled
+	 * pump). It counts the table's own columns hidden, so a remembered Control in a solve with no
+	 * speed-controlled pump is not one (docs/roadmap.md, "Fields (10 of 10)").
 	 */
 	const fieldsCount = $derived(
 		hidden.length ? ` (${visibleColumns.length} of ${table.columns.length})` : ''
@@ -188,10 +249,20 @@
 		fieldsOpen = false;
 		if (inside) fieldsButton?.focus();
 	}
-	/** Show all goes as it is pressed: the focus moves to the first field first, in the menu. */
-	function showAll() {
+	/**
+	 * Show all and Default fields each go as they are pressed: the focus moves to the first field
+	 * first, in the menu (ui-guide, Pickers). Show all stores the defaults as shown (on a table
+	 * without defaults, no choice: its key goes, as before); Default fields forgets the choice.
+	 */
+	const focusFirstField = () =>
 		fieldsPanel?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.focus();
-		setHidden([]);
+	function showAll() {
+		focusFirstField();
+		setChoice({ hidden: [], shown: [...defaults] });
+	}
+	function defaultFields() {
+		focusFirstField();
+		setChoice({ hidden: [], shown: [] });
 	}
 
 	function toggle(key: string) {
@@ -217,6 +288,13 @@
 		const request = sortRequest;
 		if (!request || request.id === appliedRequest) return;
 		appliedRequest = request.id;
+		// A column it names that is hidden is shown first, stored as if its box were checked, so the
+		// sort is not dropped as one on a hidden column (below): the Summary's "Pumps, smallest
+		// first" sorts by NPSH margin whatever Fields hid (docs/proposals/pumps-nits.md item 3).
+		untrack(() => {
+			const column = table.columns.find((c) => c.key === request.key);
+			if (column && hidden.includes(column.key)) setShown(column, true);
+		});
 		sort = { key: request.key, direction: request.direction };
 		flaggedOnly = false;
 	});
@@ -816,12 +894,7 @@
 							type="checkbox"
 							class="size-4 max-sm:size-5"
 							checked={!hidden.includes(column.key)}
-							onchange={(event) =>
-								setHidden(
-									event.currentTarget.checked
-										? hidden.filter((k) => k !== column.key)
-										: [...hidden, column.key]
-								)}
+							onchange={(event) => setShown(column, event.currentTarget.checked)}
 						/>
 						<span
 							>{column.label}{#if column.unit}<span class="text-slate-600"
@@ -835,6 +908,13 @@
 						type="button"
 						class="btn btn-quiet mt-1 w-full text-sm text-blue-800"
 						onclick={showAll}>Show all</button
+					>
+				{/if}
+				{#if defaults.length && departed}
+					<button
+						type="button"
+						class="btn btn-quiet mt-1 w-full text-sm text-blue-800"
+						onclick={defaultFields}>Default fields</button
 					>
 				{/if}
 			</div>

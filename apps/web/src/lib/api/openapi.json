@@ -6900,6 +6900,18 @@
             "description": "NPSHa - NPSHr, m",
             "title": "Npshmargin"
           },
+          "npshMarginRatio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NPSHa / NPSHr, dimensionless; None where NPSHa or NPSHr is None or NPSHr is 0 (or the quotient is not finite). Below 1 exactly where npshMargin is negative",
+            "title": "Npshmarginratio"
+          },
           "npshRequired": {
             "anyOf": [
               {
@@ -7039,6 +7051,7 @@
           "npshAvailable",
           "npshRequired",
           "npshMargin",
+          "npshMarginRatio",
           "suctionAbsolutePressure",
           "curve",
           "efficiencyCurve",

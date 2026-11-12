@@ -636,6 +636,7 @@
 										"isoEfficiencyLines": [],
 										"npshAvailable": 12.740420097153462,
 										"npshMargin": null,
+										"npshMarginRatio": null,
 										"npshRequired": null,
 										"npshrCurve": null,
 										"operatingFlow": 0.018984992410129995,
@@ -2186,7 +2187,7 @@
 											{
 												"items": [
 													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 												],
 												"references": [
@@ -3736,6 +3737,7 @@
 									"isoEfficiencyLines": [],
 									"npshAvailable": 12.869971737200743,
 									"npshMargin": null,
+									"npshMarginRatio": null,
 									"npshRequired": null,
 									"npshrCurve": null,
 									"operatingFlow": 0.015204366680221706,
@@ -5304,7 +5306,7 @@
 										{
 											"items": [
 												"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-												"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+												"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 												"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 											],
 											"references": [
@@ -12259,7 +12261,7 @@
 											{
 												"items": [
 													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 120 m (fluids.atmosphere.ATMOSPHERE_1976).",
-													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 												],
 												"references": [
@@ -19027,7 +19029,7 @@
 											{
 												"items": [
 													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 120 m (fluids.atmosphere.ATMOSPHERE_1976).",
-													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 												],
 												"references": [
@@ -25679,7 +25681,7 @@
 											{
 												"items": [
 													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 120 m (fluids.atmosphere.ATMOSPHERE_1976).",
-													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 												],
 												"references": [
@@ -28934,7 +28936,7 @@
 											{
 												"items": [
 													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 												],
 												"references": [
@@ -30517,6 +30519,7 @@
 										"isoEfficiencyLines": [],
 										"npshAvailable": 12.84029428803493,
 										"npshMargin": null,
+										"npshMarginRatio": null,
 										"npshRequired": null,
 										"npshrCurve": null,
 										"operatingFlow": 0.016144747855065724,
@@ -32296,7 +32299,7 @@
 											{
 												"items": [
 													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 												],
 												"references": [
@@ -34856,7 +34859,7 @@
 											{
 												"items": [
 													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 												],
 												"references": [
@@ -36963,7 +36966,7 @@
 											{
 												"items": [
 													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 												],
 												"references": [
@@ -41008,6 +41011,7 @@
 										"isoEfficiencyLines": [],
 										"npshAvailable": null,
 										"npshMargin": null,
+										"npshMarginRatio": null,
 										"npshRequired": 3.7088248951398124,
 										"npshrCurve": [
 											{
@@ -41366,6 +41370,7 @@
 										"isoEfficiencyLines": [],
 										"npshAvailable": null,
 										"npshMargin": null,
+										"npshMarginRatio": null,
 										"npshRequired": 1.3835034865934905,
 										"npshrCurve": [
 											{
@@ -43347,7 +43352,8 @@
 												"NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
 												"NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
 												"NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-												"NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+												"NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+												"NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
 											],
 											"inputs": [
 												{
@@ -43675,7 +43681,8 @@
 												"NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
 												"NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
 												"NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-												"NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+												"NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+												"NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
 											],
 											"inputs": [
 												{
@@ -44705,7 +44712,7 @@
 											{
 												"items": [
 													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 												],
 												"references": [
@@ -48520,6 +48527,7 @@
 										"isoEfficiencyLines": [],
 										"npshAvailable": null,
 										"npshMargin": null,
+										"npshMarginRatio": null,
 										"npshRequired": 4.150762326476766,
 										"npshrCurve": [
 											{
@@ -48878,6 +48886,7 @@
 										"isoEfficiencyLines": [],
 										"npshAvailable": null,
 										"npshMargin": null,
+										"npshMarginRatio": null,
 										"npshRequired": null,
 										"npshrCurve": [
 											{
@@ -50851,7 +50860,8 @@
 												"NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
 												"NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
 												"NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-												"NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+												"NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+												"NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
 											],
 											"inputs": [
 												{
@@ -51179,7 +51189,8 @@
 												"NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
 												"NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
 												"NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-												"NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+												"NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+												"NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
 											],
 											"inputs": [
 												{
@@ -52214,7 +52225,7 @@
 											{
 												"items": [
 													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
 													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
 												],
 												"references": [

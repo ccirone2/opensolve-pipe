@@ -1194,6 +1194,10 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
     )
     if data.curve.npshr_curve is not None:
         t.equation("NPSH margin = NPSHa − NPSHr (negative: cavitation)")
+        # docs/proposals/pumps-nits.md, item 4: PumpResult.npsh_margin_ratio.
+        t.equation(
+            "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
+        )
     t.correlation(
         "Monotone piecewise cubic interpolation (scipy.interpolate.PchipInterpolator)",
         f"{FRITSCH_CARLSON} {FRITSCH_BUTLAND}",
@@ -1268,6 +1272,7 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
         t.value("NPSH available NPSHa", result.npsh_available, M)
         t.value("NPSH required NPSHr", result.npsh_required, M)
         t.value("NPSH margin", result.npsh_margin, M)
+        t.value("NPSH margin ratio NPSHa/NPSHr", result.npsh_margin_ratio, NO_UNIT)
         t.value("Efficiency η", result.efficiency, NO_UNIT)
         t.value("Hydraulic power P_hyd", result.hydraulic_power, W)
         t.value("Shaft power P_shaft", result.shaft_power, W)
@@ -1328,6 +1333,15 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
             if result.suction_absolute_pressure is None:
                 reasons.append("the suction pressure level is undetermined (UNDETERMINED_PRESSURE)")
             t.note(f"NPSH available is not computed: {'; '.join(reasons)}.")
+        elif result.npsh_required is not None and result.npsh_margin_ratio is None:
+            # t.value leaves out a None, so say why the ratio is missing (pumps-nits.md, item 4).
+            why = (
+                "NPSHr is 0 at the operating flow, so NPSHa / NPSHr has no value"
+                if result.npsh_required == 0.0
+                else f"NPSHr ({result.npsh_required:.6g} m) is so small that NPSHa / NPSHr is "
+                "not a finite number"
+            )
+            t.note(f"NPSH margin ratio is not given: {why}; the margin NPSHa − NPSHr is given.")
     if result is None and ctx.converged and comp.status == "off":
         t.note("Off (status set by the user): closed, no flow.")
     if control is not None and comp.status == "off":

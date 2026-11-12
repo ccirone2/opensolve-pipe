@@ -224,6 +224,16 @@ def _vapor_pressure_detail(p_vap: float | None) -> float | str:
     return p_vap if p_vap is not None else "not given"
 
 
+def _npsh_margin_ratio(npsha: float | None, npshr: float | None) -> float | None:
+    """NPSHa / NPSHr (docs/proposals/pumps-nits.md, item 4): None where either is None, NPSHr is
+    0 (NPSHr ≥ 0, ``PumpCurve.npsh_required``) or the quotient is not finite (JSON has no inf).
+    With NPSHr > 0 it is below 1 exactly where the margin NPSHa − NPSHr is negative."""
+    if npsha is None or npshr is None or not npshr > 0.0:
+        return None
+    ratio = npsha / npshr
+    return ratio if math.isfinite(ratio) else None
+
+
 def _points[P](
     samples: list[tuple[float, float]] | None, point: Callable[[float, float], P]
 ) -> list[P] | None:
@@ -930,6 +940,7 @@ class _Mapper:
             else None
         )
         margin = npsha - npshr if npsha is not None and npshr is not None else None
+        ratio = _npsh_margin_ratio(npsha, npshr)
         if running and npshr is not None and p_vap is None and not floating:
             # GOALS §4.6: cavitation is flagged by default; without a vapor pressure the check
             # cannot run for this pump, which is itself an unreliable result.
@@ -975,6 +986,7 @@ class _Mapper:
             npsh_available=npsha,
             npsh_required=npshr,
             npsh_margin=margin,
+            npsh_margin_ratio=ratio,
             suction_absolute_pressure=None
             if floating
             else (

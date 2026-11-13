@@ -404,14 +404,15 @@
 
 	/**
 	 * A drawing of the chart on screen placed its labels: the notes count the curve labels left out
-	 * and name the points whose labels are (nit 5, rule 7), and the canvas keeps the placements for
-	 * measuring the layout (`data-curve-labels`, `data-point-labels`).
+	 * and name the points whose labels are (nit 5, rule 7), then a curve's tag left out (review
+	 * DOTS-LABELS-B1), and the canvas keeps the placements for measuring the layout
+	 * (`data-curve-labels`, `data-point-labels`).
 	 */
 	function labelsDrawn(element: HTMLCanvasElement, placed: CurveLabelsDrawn) {
 		const { points, ...curves } = placed;
 		element.dataset.curveLabels = JSON.stringify(curves);
 		element.dataset.pointLabels = JSON.stringify(points);
-		onlabels?.(placed.leftOut, points.leftOut);
+		onlabels?.(placed.leftOut, [...points.leftOut, ...placed.tagsLeftOut]);
 	}
 
 	/** Why no image can be made now ('' when it can). */
@@ -520,7 +521,7 @@
 				curveLabels,
 				onlabels: (placed) => {
 					imageLeftOut = placed.leftOut;
-					imagePoints = placed.points.leftOut;
+					imagePoints = [...placed.points.leftOut, ...placed.tagsLeftOut];
 				}
 			}),
 			title: groupImageTitle(memberNames, arrangement),
@@ -1311,24 +1312,24 @@
 
 <style>
 	/*
-	 * Forced colours (nit 5, rule 8; slice 5c): the legend's swatches keep their shapes in the
-	 * system's colours, each mark as the canvas's forced drawing would read: lines and edges in the
-	 * text colour, the Group's dot filled with it and edged with the background, a held pump's
-	 * diamond hollow.
+	 * Forced colours (nit 5, rule 8; slice 5c): the canvas is never forced, so each swatch keeps the
+	 * colours the canvas draws its mark in (a line's colour and dashes, a held pump's diamond in its
+	 * line's colour), and the system's colours touch only the Group's dot, filled with the text
+	 * colour and edged with the background, and another case's ring, edged with the text colour, so
+	 * both are seen on the system's background. Review DOTS-LABELS-B4: every line was stroked in the
+	 * text colour, so the pumps' lines, the group curve and the group system curve read alike in
+	 * the legend while the canvas drew them blue, aqua, ink and orange.
 	 */
 	@media (forced-colors: active) {
 		.chart-swatch {
 			forced-color-adjust: none;
 		}
-		.chart-swatch :is(line, circle, polygon) {
-			stroke: CanvasText;
-		}
 		.chart-swatch [data-mark='group'] {
 			fill: CanvasText;
 			stroke: Canvas;
 		}
-		.chart-swatch [data-mark='held'] {
-			fill: Canvas;
+		.chart-swatch [data-mark='ring'] {
+			stroke: CanvasText;
 		}
 	}
 </style>

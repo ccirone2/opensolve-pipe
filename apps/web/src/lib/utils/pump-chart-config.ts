@@ -11,6 +11,7 @@
 import type { Chart as ChartInstance, ChartConfiguration, LegendItem, Plugin } from 'chart.js';
 import { CHART_MARKS, memberMark, SURFACE } from './chart-marks';
 import {
+	leaderCrosses,
 	placePointLabels,
 	POINT_LABEL_HALO,
 	POINT_LABEL_LEADER,
@@ -266,7 +267,7 @@ interface PointLabelled {
 	notLabelled?: NotLabelledPoint[];
 }
 type PointItemSpec =
-	| { kind: 'group'; text: string }
+	| { kind: 'group'; text: string; short?: string }
 	| { kind: 'member'; id: string; name: string }
 	| { kind: 'ring'; numbers: CaseNumber[]; name?: string };
 
@@ -322,6 +323,11 @@ function pointLabelsOf(
 /** A mark's box (px): its centre ± its extent. */
 function markBox(x: number, y: number, r: number): PxBox {
 	return { left: x - r, right: x + r, top: y - r, bottom: y + r };
+}
+
+/** Boxes overlap (touching edges do not). */
+function boxesOverlap(a: PxBox, b: PxBox): boolean {
+	return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
 
 /** Dashed segments as one dataset, separated by gaps. */
@@ -833,6 +839,8 @@ export function pumpChartConfig(
 			// Nor is one drawn over a mark it does not name (rule 7; slice 5c integration: "BEP" fell on
 			// another case's ring): the rings, and every single-point mark but its own point's.
 			const ringMarks = placed.items.map(({ x, y, r }) => markBox(x, y, r));
+			// Nor across a ring label's leader (review DOTS-LABELS-A1), which would seem to run from it.
+			const leaders = placed.labels.flatMap((l) => (l.leader ? [l.leader] : []));
 			chart.data.datasets.forEach((dataset, i) => {
 				const { pointLabel, labelAt } = dataset as { pointLabel?: string; labelAt?: number };
 				const points = chart.getDatasetMeta(i).data;
@@ -855,7 +863,15 @@ export function pumpChartConfig(
 					(m) =>
 						box.x < m.right && m.left < box.x + box.w && box.y < m.bottom && m.top < box.y + box.h
 				);
-				if (overlaps || overMark) return;
+				const crossed = leaders.some((leader) =>
+					leaderCrosses(leader, {
+						left: box.x,
+						right: box.x + box.w,
+						top: box.y,
+						bottom: box.y + box.h
+					})
+				);
+				if (overlaps || overMark || crossed) return;
 				taken.push(box);
 				ctx.fillText(pointLabel, point.x + 6, point.y - 6);
 			});
@@ -1099,10 +1115,19 @@ export interface CurveLabelTools {
 export interface CurveLabelObstacle {
 	/**
 	 * A point's mark, a member's or the Group point's label, a ring's tag, a far label's leader
-	 * (nit 5, rule 7: the box it crosses), a curve's tag.
+	 * (nit 5, rule 7: the box it crosses). A curve's tag is placed after the curve labels (rule 7;
+	 * review DOTS-LABELS-B1), so it is none of these.
 	 */
-	kind: 'marker' | 'label' | 'ring' | 'leader' | 'curve';
+	kind: 'marker' | 'label' | 'ring' | 'leader';
 	text?: string;
+	box: PxBox;
+}
+
+/** A curve's tag as drawn ("Group system curve"): its left end and baseline, and its box. */
+export interface CurveTagDrawn {
+	text: string;
+	x: number;
+	y: number;
 	box: PxBox;
 }
 
@@ -1120,6 +1145,10 @@ export interface CurveLabelsDrawn {
 	y: { min: number; max: number } | null;
 	/** Where the points' labels went, placed before the curves' (nit 5, rule 7; slice 5c). */
 	points: PointLabelsDrawn;
+	/** The curves' tags drawn, placed after the curve labels (rule 7; review DOTS-LABELS-B1). */
+	tags: CurveTagDrawn[];
+	/** The tags left out for space, each named in the notes with its curve's end (rule 7). */
+	tagsLeftOut: NotLabelledPoint[];
 }
 
 export interface PumpGroupConfigOptions {
@@ -1370,7 +1399,8 @@ export function pumpGroupConfig(
 						clip: markerClip(CHART_MARKS.group.radius, 9, CHART_MARKS.group.border),
 						showLine: false,
 						caseLabel: d.station.tag,
-						pointItem: { kind: 'group' as const, text: d.station.tag },
+						// "Group" where the whole label has no place (rule 3; review DOTS-LABELS-B6).
+						pointItem: { kind: 'group' as const, text: d.station.tag, short: 'Group' },
 						notLabelled: [
 							{
 								name: 'Group',
@@ -1422,18 +1452,21 @@ export function pumpGroupConfig(
 	];
 	// Each point's label where placePointLabels puts it (owner, 2026-11-12, nit 5, rule 7; slice
 	// 5c): this case's first (the Group, then each member, a held one among them), then the other
-	// cases' rings; each clear of every mark but its own, of the other labels and of the group system
-	// curve's tag (drawn where its curve ends: it has no other place), inside the plot; members
-	// within 12 px share one label. A point whose label has no place is named in the notes with its
-	// values. Then D24's curve labels, clear of every mark, point label, leader and the tag. Was
-	// "right of the point, above and below in turn", which overprinted close points' labels ("Pump
-	// P1" over "Pump P3").
+	// cases' rings; each clear of every mark but its own and of the other labels, inside the plot;
+	// members within 12 px share one label; a pump left out so is tried again before the other
+	// pumps (review DOTS-LABELS-B7). A point whose label has no place is named in the notes
+	// with its values. Then D24's curve labels, clear of every mark, point label and leader; then
+	// the group system curve's tag, last (rule 7): where its curve ends, else beside that end, clear
+	// of them all, else left out and named in the notes with its end's values. Was "right of the
+	// point, above and below in turn", which overprinted close points' labels ("Pump P1" over "Pump
+	// P3"); and the tag first, where its curve ends, the points' labels clear of it, which took the
+	// lineups' pumps' one place on a phone (review DOTS-LABELS-B1).
 	const pointLabels: Plugin<'line'> = {
 		id: 'groupLabels',
 		afterDatasetsDraw(chart) {
 			const ctx = chart.ctx;
 			const size = forImage ? 14 : 12;
-			/** What the curve labels keep clear of (D24 §9.3): every mark, label, leader and tag here. */
+			/** What the curve labels keep clear of (D24 §9.3): every mark, label and leader here. */
 			const obstacles: CurveLabelObstacle[] = [];
 			/** A text's box at its baseline: the font's size above it, a quarter below (descenders). */
 			const textBox = (x: number, y: number, width: number): PxBox => ({
@@ -1447,25 +1480,6 @@ export function pumpGroupConfig(
 			ctx.font = `${size}px system-ui, sans-serif`;
 			const area = chart.chartArea;
 			const plot = { left: area.left, right: area.right, top: area.top, bottom: area.bottom };
-			// A curve's label at its last drawn point, above the line, inside the plot.
-			const tags: { text: string; color: string; x: number; y: number; box: PxBox }[] = [];
-			chart.data.datasets.forEach((dataset, i) => {
-				const tag = (dataset as { curveTag?: string }).curveTag;
-				if (!tag || !chart.isDatasetVisible(i)) return;
-				const drawn = chart
-					.getDatasetMeta(i)
-					.data.filter((el, k) => (dataset.data[k] as ChartDatum | undefined)?.y != null);
-				const last = drawn.filter(
-					(el) => el.x >= area.left && el.x <= area.right && el.y >= area.top && el.y <= area.bottom
-				);
-				const end = last[last.length - 1];
-				if (!end) return;
-				const width = ctx.measureText(tag).width;
-				const x = Math.max(area.left + 2, Math.min(end.x - width, area.right - width - 2));
-				const y = Math.max(area.top + 14, end.y - 8);
-				const color = (dataset as { labelColor?: string }).labelColor ?? INK;
-				tags.push({ text: tag, color, x, y, box: textBox(x, y, width) });
-			});
 			// The points in the placer's order: the Group, the members, the rings.
 			const kindOf = (i: number) =>
 				(chart.data.datasets[i] as unknown as PointLabelled).pointItem?.kind;
@@ -1473,13 +1487,7 @@ export function pumpGroupConfig(
 			const order = (['group', 'member', 'ring'] as const).flatMap((kind) =>
 				all.filter((i) => kindOf(i) === kind)
 			);
-			const { placed, indices } = pointLabelsOf(
-				chart,
-				order,
-				tags.map((t) => t.box),
-				plot,
-				size
-			);
+			const { placed, indices } = pointLabelsOf(chart, order, [], plot, size);
 			ctx.textAlign = 'left';
 			ctx.textBaseline = 'alphabetic';
 			// Each point's mark (its radius and half its border), then each label and its leader.
@@ -1512,11 +1520,6 @@ export function pumpGroupConfig(
 						}
 					});
 			}
-			for (const tag of tags) {
-				ctx.fillStyle = tag.color;
-				ctx.fillText(tag.text, tag.x, tag.y);
-				obstacles.push({ kind: 'curve', text: tag.text, box: tag.box });
-			}
 			const placement = curveLabelsOf(chart, obstacles);
 			ctx.textAlign = 'left';
 			ctx.textBaseline = 'alphabetic';
@@ -1525,6 +1528,65 @@ export function pumpGroupConfig(
 				// Another case's: its numbers in a box, then "3 running" (fillLabel).
 				fillLabel(ctx, label.text, label.x, label.y, size);
 			}
+			// A curve's tag, last (rule 7), near its last drawn point inside the plot: above the line
+			// and ending there (as before), else right of that point, else under it to its right or to
+			// its left; inside the plot, over no point label (as the points' labels kept off it before:
+			// it has no halo to keep apart) or leader, mark, curve label or tag before it. With none, it
+			// is left out and named in the notes with that point's values.
+			const tags: CurveTagDrawn[] = [];
+			const tagsLeftOut: NotLabelledPoint[] = [];
+			const marks = obstacles.filter((o) => o.kind === 'marker').map((o) => o.box);
+			const leaders = placed.labels.flatMap((l) => (l.leader ? [l.leader] : []));
+			chart.data.datasets.forEach((dataset, i) => {
+				const tag = (dataset as { curveTag?: string }).curveTag;
+				if (!tag || !chart.isDatasetVisible(i)) return;
+				let end: { x: number; y: number; datum: ChartPoint } | null = null;
+				chart.getDatasetMeta(i).data.forEach((el, k) => {
+					const datum = dataset.data[k] as ChartDatum | undefined;
+					if (datum?.y == null) return;
+					const inside =
+						el.x >= area.left && el.x <= area.right && el.y >= area.top && el.y <= area.bottom;
+					if (inside) end = { x: el.x, y: el.y, datum: { x: datum.x, y: datum.y } };
+				});
+				const at = end as { x: number; y: number; datum: ChartPoint } | null;
+				if (!at) return;
+				const width = ctx.measureText(tag).width;
+				const row = Math.max(area.top + 14, at.y - 8);
+				const below = at.y + size + 4;
+				const inX = (x: number) => Math.max(area.left + 2, Math.min(x, area.right - width - 2));
+				const taken = [
+					...placed.labels.map((l) => l.box),
+					...placement.labels.map((l) => l.box),
+					...tags.map((t) => t.box)
+				];
+				const clear = (box: PxBox) =>
+					box.left >= area.left &&
+					box.right <= area.right &&
+					box.top >= area.top &&
+					box.bottom <= area.bottom &&
+					![...taken, ...marks].some((b) => boxesOverlap(b, box)) &&
+					!leaders.some((l) => leaderCrosses(l, box));
+				const spot = [
+					{ x: inX(at.x - width), y: row },
+					{ x: at.x + 4, y: row },
+					{ x: at.x + 4, y: below },
+					{ x: inX(at.x - width - 4), y: below }
+				]
+					.map((p) => ({ ...p, box: textBox(p.x, p.y, width) }))
+					.find((p) => clear(p.box));
+				if (!spot) {
+					tagsLeftOut.push({
+						name: tag,
+						mark: 'end',
+						flow: `${fmt(at.datum.x)} ${d.flowUnit}`,
+						head: `${fmt(at.datum.y)} ${d.headUnit}`
+					});
+					return;
+				}
+				ctx.fillStyle = (dataset as { labelColor?: string }).labelColor ?? INK;
+				ctx.fillText(tag, spot.x, spot.y);
+				tags.push({ text: tag, x: spot.x, y: spot.y, box: spot.box });
+			});
 			ctx.restore();
 			const { left, right, top, bottom } = chart.chartArea;
 			const range = (id: string) => {
@@ -1536,6 +1598,8 @@ export function pumpGroupConfig(
 				labels: placement.labels,
 				leftOut: placement.leftOut,
 				obstacles,
+				tags,
+				tagsLeftOut,
 				points: placed,
 				x: range('x'),
 				y: range('y')
@@ -1675,12 +1739,16 @@ export function pumpGroupConfig(
 						generateLabels: (c) => {
 							const items = legendLabels(c).map((item) => {
 								const ds = c.data.datasets[item.datasetIndex ?? -1] as
-									{ showLine?: boolean; pointStyle?: unknown } | undefined;
+									{ showLine?: boolean; pointStyle?: unknown; borderDash?: number[] } | undefined;
+								const point = ds?.showLine === false && typeof ds.pointStyle === 'string';
 								return {
 									...item,
-									pointStyle: (ds?.showLine === false && typeof ds.pointStyle === 'string'
-										? ds.pointStyle
-										: 'line') as 'circle' | 'line'
+									pointStyle: (point ? ds.pointStyle : 'line') as 'circle' | 'line',
+									// A line's swatch dashed as its line (rule 2: a slot's pattern is its second
+									// cue): Chart.js takes an entry's style from its first point under
+									// usePointStyle, which has no dashes, so it drew every line solid (review
+									// DOTS-LABELS-B3).
+									...(point ? {} : { lineDash: [...(ds?.borderDash ?? [])] })
 								};
 							});
 							// Other cases' own group curves as one entry, a solid slate line (D24 §9.6).

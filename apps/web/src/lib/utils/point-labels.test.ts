@@ -185,7 +185,9 @@ function checkPlacement(
 		// rings' numbers ascending in the box, a lone ring's name after them where it has one.
 		if (label.kind === 'group') {
 			expect(own, at).toHaveLength(1);
-			expect(label.text, at).toBe((own[0] as Extract<PointLabelItem, { kind: 'group' }>).text);
+			// Its words, or its short form where it has one (review DOTS-LABELS-B6).
+			const group = own[0] as Extract<PointLabelItem, { kind: 'group' }>;
+			expect([group.text, ...(group.short ? [group.short] : [])], at).toContain(label.text);
 		} else if (label.kind === 'member') {
 			expect(memberTexts(items, label.items), at).toContain(label.text);
 		} else {
@@ -536,6 +538,81 @@ describe('placePointLabels, rule by rule (made-up points)', () => {
 		checkPlacement('joins a later label', items, obstacles, plot, placement);
 		expect(placement.labels.map((l) => [l.text, l.items])).toEqual([['[1, 2]', [0, 1]]]);
 		expect(placement.leftOut).toEqual([]);
+	});
+
+	// Review DOTS-LABELS-A1 (rule 7: "leaders are drawn only on a clear path"): a place was checked
+	// against the labels' boxes and its own leader against them, but never against the leaders
+	// already drawn, so a label placed later (a ring after a member, or a ring label placed again
+	// by the join) could lie across an earlier far label's leader, which then seemed to run from
+	// that label's box. Both scenes left a ring's box over a pump's leader at 7b36d82: "[1]" over
+	// Pump P2's by 4.9 px, "[2]" over Pump P1's by 3.5 px.
+	it('never puts a label placed later across an earlier far label’s leader', () => {
+		const wide: PxBox = { left: 40, right: 340, top: 10, bottom: 210 };
+		const group = (x: number, y: number): PointLabelItem => ({
+			kind: 'group',
+			x,
+			y,
+			r: GROUP_R,
+			text: 'Group'
+		});
+		const scenes: PointLabelItem[][] = [
+			[group(289, 137), member(328, 120, 'Pump P2'), ring(290, 117, [1])],
+			[group(337, 112), member(338, 86, 'Pump P1'), ring(300, 107, [1]), ring(299, 83, [2])]
+		];
+		for (const [k, items] of scenes.entries()) {
+			const placement = placePointLabels(items, [], wide, measure, SIZE);
+			// The pump's label is still far, joined by its leader: the scene is the one it was.
+			expect(
+				placement.labels.find((l) => l.kind === 'member')?.leader,
+				`scene ${k}`
+			).not.toBeNull();
+			checkPlacement(`scene ${k}`, items, [], wide, placement);
+		}
+	});
+
+	// Review DOTS-LABELS-B6 (rule 3: the group point is the word "Group"): the Group's label had one
+	// text, so where "Group (crossing)" had no place the station's dot lost its name although
+	// "Group" fits; members and rings shorten before they are left out. The one-off at 270 px: at
+	// 7b36d82 the Group and Pump PA were both left out.
+	it('shortens the Group’s label to “Group” where its whole label has no place', () => {
+		const { c, items, obstacles } = place('one-off-270', 'group');
+		expect(items[0]).toMatchObject({ kind: 'group', text: 'Group (crossing)' });
+		const shortened = items.map((it) => (it.kind === 'group' ? { ...it, short: 'Group' } : it));
+		const placement = placePointLabels(shortened, obstacles, c.plot, measure, SIZE);
+		checkPlacement('one-off-270 group, short "Group"', shortened, obstacles, c.plot, placement);
+		expect(labelOf(placement, 0)?.text).toBe('Group');
+		expect(placement.leftOut).toEqual([1]);
+		// Where the whole label fits, it is the label (454 px).
+		const wide = place('one-off-454', 'group');
+		const whole = wide.items.map((it) => (it.kind === 'group' ? { ...it, short: 'Group' } : it));
+		expect(
+			labelOf(placePointLabels(whole, wide.obstacles, wide.c.plot, measure, SIZE), 0)?.text
+		).toBe('Group (crossing)');
+	});
+
+	// Review DOTS-LABELS-B7 (rule 7; Q1: each pump "named beside it"): the placer is greedy, so a
+	// running pump's label took the only places of a held pump's label placed after it, although
+	// both fit. The one-off-dead-headed group chart at 1024×768 (its points rounded): Pump PA's
+	// label left of its dot covered both places Pump PB's diamond has at the plot's left edge, and
+	// Pump PB, held at zero flow, was left out at 7b36d82.
+	it('places a pump’s label left out in rule 7’s order where moving it before the other pumps places every label', () => {
+		const items: PointLabelItem[] = [
+			{ kind: 'group', x: 148.67, y: 131.47, r: GROUP_R, text: 'Group (crossing)' },
+			member(148.67, 120.03, 'Pump PA'),
+			{ ...member(51.72, 131.47, 'Pump PB'), r: 7 + 2 / 2 },
+			ring(81.4, 150.14, [1])
+		];
+		const deadHeaded: PxBox = { left: 51.72, right: 337.2, top: 14, bottom: 237.2 };
+		const placement = placePointLabels(items, [], deadHeaded, measure, SIZE);
+		checkPlacement('dead-headed 1024', items, [], deadHeaded, placement);
+		expect(placement.leftOut).toEqual([]);
+		expect(labelOf(placement, 2)?.text).toBe('Pump PB');
+		expect(labelOf(placement, 1)?.text).toBe('Pump PA');
+		// Rule 7's order stays the first choice: where it places every label, it is the placement.
+		const free = [items[0]!, member(148.67, 60, 'Pump PA'), member(250, 200, 'Pump PB')];
+		const first = placePointLabels(free, [], deadHeaded, measure, SIZE);
+		expect(first.leftOut).toEqual([]);
+		expect(first.labels.map((l) => l.items)).toEqual([[0], [1], [2]]);
 	});
 
 	it('leaves a label out where it has no place, by index, so the notes can name it', () => {

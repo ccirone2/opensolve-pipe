@@ -8556,11 +8556,15 @@ function segmentCrosses(s: { x1: number; y1: number; x2: number; y2: number }, b
  * 4 px from every other label (POINT_LABEL_GAP, so two 3 px halos never touch); over no mark but
  * its own and no point's centre; strictly nearer its own point than any other of its kind; a far
  * label's leader inside the plot, from its box to its own mark's edge, crossing no other mark or
- * label. Each point named by one label at most. The curve labels (the group chart's) over no point
- * label, leader or mark: point labels come first. The points without a label are those the notes
- * name, in the chart's order (the Group and members, then the rings: a ring of several cases is
- * named once per case), in one sentence on screen ("Not labelled on the chart: case 2, Pump PB
- * off, its ring at 40.75 L/s and 23.68 m."), and no such sentence when every point is labelled.
+ * label, and no label placed later across it (review DOTS-LABELS-A1: `j !== k`, either order).
+ * Each point named by one label at most. The curve labels (the group chart's) over no point
+ * label, leader or mark: point labels come first. The group system curve's tag last (rule 7;
+ * review DOTS-LABELS-B1): inside the plot, over no point label, leader, mark or curve label, and
+ * no tag among the boxes the points' labels kept clear of. The points without a label are those
+ * the notes name, in the chart's order (the Group and members, then the rings: a ring of several
+ * cases is named once per case), then a tag left out, by its curve's end, in one sentence on
+ * screen ("Not labelled on the chart: case 2, Pump PB off, its ring at 40.75 L/s and 23.68 m."),
+ * and no such sentence when every point and tag is labelled.
  */
 function pointLabelFindings(m: PlacedRead | null): string[] {
 	if (!m) return ['the chart is not drawn'];
@@ -8664,6 +8668,25 @@ function pointLabelFindings(m: PlacedRead | null): string[] {
 				found.push(`${what} is over the mark of point ${i} (${it.kind})`);
 		});
 	}
+	// The curves' tags, placed last (rule 7): over nothing placed before them, inside the plot.
+	for (const tag of m.curves?.tags ?? []) {
+		const what = `the tag "${tag.text}" at ${boxText(tag.box)}`;
+		if (!within(tag.box)) found.push(`${what} leaves the plot ${boxText(plot)}`);
+		for (const label of labels) {
+			if (boxesOverlap(tag.box, label.box)) found.push(`${what} is over "${label.text}"`);
+			if (label.leader && segmentCrosses(label.leader, tag.box))
+				found.push(`${what} is crossed by the leader of "${label.text}"`);
+		}
+		items.forEach((it, i) => {
+			if (boxesOverlap(tag.box, mark(i)))
+				found.push(`${what} is over the mark of point ${i} (${it.kind})`);
+		});
+		for (const curve of m.curves?.labels ?? [])
+			if (boxesOverlap(tag.box, curve.box)) found.push(`${what} is over "${curve.text}"`);
+		for (const o of obstacles)
+			if (boxesOverlap(tag.box, o))
+				found.push(`${what} was in the points' labels' way at ${boxText(o)}`);
+	}
 	// The points left out (rule 7: never dropped silently): those the notes name, in order.
 	const without = items.map((it, i) => ({ ...it, i })).filter((it) => !named.has(it.i));
 	const points = without.filter((it) => it.kind !== 'ring').length;
@@ -8683,9 +8706,12 @@ function pointLabelFindings(m: PlacedRead | null): string[] {
 		);
 	if (!items.some((it) => it.kind !== 'ring') && placed.leftOut.length !== rings)
 		found.push(`${rings} rings without a label, ${placed.leftOut.length} named in the notes`);
-	const sentence = placed.leftOut.length
+	const notLabelled = [...placed.leftOut, ...(m.curves?.tagsLeftOut ?? [])];
+	if ((m.curves?.tagsLeftOut ?? []).some((t) => t.mark !== 'end'))
+		found.push(`a tag left out is not named by its curve's end`);
+	const sentence = notLabelled.length
 		? [
-				`Not labelled on the chart: ${placed.leftOut.map((p) => `${p.name}, its ${p.mark} at ${p.flow} and ${p.head}`).join('; ')}.`
+				`Not labelled on the chart: ${notLabelled.map((p) => `${p.name}, its ${p.mark} at ${p.flow} and ${p.head}`).join('; ')}.`
 			]
 		: [];
 	const notes = m.notes.map((n) => n.text);
@@ -8736,7 +8762,7 @@ for (const [view, setUp] of [
 	['lineups', lineups],
 	['the condenser', condenser]
 ] as const) {
-	test(`Nit 5, slice 5c: both charts' point labels as placed, read from data-point-labels at 1280×800, 390×844 and 320×640, ${view}: inside the plot, apart, off every mark but their own, those left out named in the notes; slots 1 and 2 apart in greyscale by their pattern; nothing sideways; axe clean (pumps-nits.md item 5, rules 2 and 7)`, async ({
+	test(`Nit 5, slice 5c: both charts' point labels as placed, read from data-point-labels at 1280×800, 390×844, 360×740 and 320×640, ${view}: inside the plot, apart, off every mark but their own, the group system curve's tag last, those left out named in the notes; slots 1 and 2 apart in greyscale by their pattern; nothing sideways; axe clean (pumps-nits.md item 5, rules 2 and 7)`, async ({
 		page,
 		isMobile
 	}) => {
@@ -8761,7 +8787,11 @@ for (const [view, setUp] of [
 			.getByRole('listitem')
 			.filter({ hasText: /speed \((own|each one's) flow\)$/ });
 		const viewport = page.viewportSize()!;
-		const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+		// 360×740 (review DOTS-LABELS-B1): a common phone's width, where the lineups' pumps lost
+		// their name to the group system curve's tag at 7b36d82, as at 320.
+		const sizes = isMobile
+			? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
+			: [viewport];
 		for (const size of sizes) {
 			await page.setViewportSize(size);
 			await settle(page, 1500);
@@ -8796,6 +8826,18 @@ for (const [view, setUp] of [
 				[...new Set(m.group?.points?.items.map((it) => it.kind))].sort(),
 				`the group chart's points, ${where}`
 			).toEqual(['group', 'member', 'ring']);
+			const groupLeftOut = m.group?.points?.leftOut.map((p) => p.name) ?? [];
+			// Review DOTS-LABELS-B1 (rule 7: the tag comes last): the lineups' four pumps share one
+			// label at every size; at 7b36d82 the tag took its one place at 360 and 320 px.
+			if (view === 'lineups')
+				soft(
+					groupLeftOut.filter((name) => name.startsWith('Pump')),
+					`the lineups' pumps named on the group chart, ${where}`
+				).toEqual([]);
+			// Review DOTS-LABELS-B6 (rule 3): the Group named on the chart at every size, "Group"
+			// where "Group (crossing)" has no place; at 7b36d82 it was left out at 320 px.
+			if (view === 'the one-off')
+				soft(groupLeftOut, `the Group named on the group chart, ${where}`).not.toContain('Group');
 
 			// Rule 2: slots 1 and 2, blue against aqua (1.30:1), differ by more than hue: in greyscale
 			// their legend swatches differ by pattern. Only the one-off draws a second member line
@@ -8851,3 +8893,160 @@ for (const [view, setUp] of [
 		await page.setViewportSize(viewport);
 	});
 }
+
+// Review DOTS-LABELS-B7 (rule 7; Q1: each pump "named beside it"): the placer is greedy, so in
+// the one-off-dead-headed fixture Pump PA's label, placed first, took both places Pump PB's
+// diamond has at the plot's left edge, and Pump PB, held at zero flow, was left out at 1024×768,
+// 1152×864, 390×844 and 360×740 although both labels fit there: the placer tries once more with a
+// pump left out first among the pumps.
+test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the held one too, where both labels fit, at 1024×768 and 1280×800, 390×844 and 360×740 (pumps-nits.md item 5, rule 7)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	const counter = solveCounter(page);
+	await open(page, projectOf('one-off-dead-headed'));
+	await solveAll(page, counter, 2);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const duties = card.getByRole('checkbox', { name: "Also show the other cases' station duties" });
+	if (!(await duties.isChecked())) await duties.check();
+	await settle(page, 2500);
+	const sizes = isMobile
+		? [
+				{ width: 390, height: 844 },
+				{ width: 360, height: 740 }
+			]
+		: [
+				{ width: 1024, height: 768 },
+				{ width: 1280, height: 800 }
+			];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1500);
+		const where = `the dead-headed group chart at ${sizeOf(page)}`;
+		await expect
+			.poll(
+				async () => {
+					const read = (await page.evaluate(readPointLabels)).group;
+					return !!read?.points && read.points.plot.right <= read.canvas.width + 0.5;
+				},
+				{ timeout: 30_000 }
+			)
+			.toBe(true);
+		const read = (await page.evaluate(readPointLabels)).group;
+		const placed = read?.points;
+		console.log(
+			`${where}: labelled ${JSON.stringify(placed?.labels.map((l) => l.text))}; left out ${JSON.stringify(placed?.leftOut.map((p) => p.name))}`
+		);
+		soft(pointLabelFindings(read), `the point labels, ${where}`).toEqual([]);
+		soft(
+			placed?.labels.filter((l) => l.kind === 'member').map((l) => l.text),
+			`both pumps named, ${where}`
+		).toEqual(expect.arrayContaining(['Pump PA', 'Pump PB']));
+		soft(
+			placed?.leftOut.map((p) => p.name),
+			`no pump left out, ${where}`
+		).toEqual([]);
+	}
+});
+
+/**
+ * The lineups fixture with its four pumps at 100, 95, 90 and 85 % speed and no scenarios, solved:
+ * four member lines on the group chart, slots 1 to 4 (review DOTS-LABELS-B4, B5).
+ */
+async function fourSpeeds(page: Page) {
+	const project = projectOf('lineups');
+	const speeds: Record<string, number> = { P1: 1, P2: 0.95, P3: 0.9, P4: 0.85 };
+	for (const c of project.components)
+		if (c.type === 'pump') (c as { speed?: number }).speed = speeds[c.id]!;
+	project.scenarios = [];
+	await open(page, project);
+	await solveConverged(page);
+}
+
+// Review DOTS-LABELS-B5 (rule 2: slots differ by more than hue; WCAG 1.4.1): a swatch shows its
+// pattern's first 24 px, and slot 3 ([12, 3, 3, 3]) and slot 4 ([12, 3, 3, 3, 3, 3]) first
+// differed at 24 px, so in greyscale "Pump P3, 90 % speed" and "Pump P4, 85 % speed" read alike.
+// Review DOTS-LABELS-B4: forced colours painted every legend line in the text colour though the
+// canvas, never forced, keeps its lines' colours, so the pumps' lines, the group curve and the
+// group system curve read alike in the legend; the lines keep their colours now, as drawn.
+test('Reviews DOTS-LABELS-B4 and B5: four member lines, every two swatches apart by their pattern in greyscale; under forced colours each legend line keeps the colour the canvas draws it in (pumps-nits.md item 5, rules 2 and 8)', async ({
+	page
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	await fourSpeeds(page);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	await settle(page, 2500);
+	const where = `four speeds at ${sizeOf(page)}`;
+	const legend = card.getByRole('list', { name: 'Legend' });
+	const memberLines = legend
+		.getByRole('listitem')
+		.filter({ hasText: /speed \((own|each one's) flow\)$/ });
+	await expect(memberLines).toHaveCount(4);
+	const patterns: { text: string; inked: boolean[] }[] = [];
+	for (let i = 0; i < 4; i++) {
+		const svg = memberLines.nth(i).locator('svg');
+		await svg.scrollIntoViewIfNeeded();
+		patterns.push({
+			text: (await memberLines.nth(i).innerText()).trim(),
+			inked: (await swatchPattern(page, svg)).inked
+		});
+	}
+	const draw = (p: { inked: boolean[] }) => p.inked.map((i) => (i ? '█' : '·')).join('');
+	for (const p of patterns) console.log(`${where}: ${draw(p)} ${p.text}`);
+	soft(
+		patterns.map((p) => p.text),
+		`the member lines, ${where}`
+	).toEqual([
+		'Pump P1, 100 % speed (own flow)',
+		'Pump P2, 95 % speed (own flow)',
+		'Pump P3, 90 % speed (own flow)',
+		'Pump P4, 85 % speed (own flow)'
+	]);
+	for (let a = 0; a < patterns.length; a++)
+		for (let b = a + 1; b < patterns.length; b++) {
+			const [one, two] = [patterns[a]!, patterns[b]!];
+			soft(two.inked.length, `${two.text}'s swatch read as wide as ${one.text}'s`).toBe(
+				one.inked.length
+			);
+			const apart = one.inked.filter((inked, x) => inked !== two.inked[x]).length;
+			soft(
+				apart,
+				`slots ${a + 1} and ${b + 1} apart by pattern in greyscale, ${where}`
+			).toBeGreaterThanOrEqual(3);
+		}
+	// Forced colours: each legend line as the canvas draws it, its own colour, not the text colour.
+	await page.emulateMedia({ forcedColors: 'active' });
+	expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
+	const lines = await legend.evaluate((ul) => {
+		const rgb = (hex: string) => {
+			const n = parseInt(hex.slice(1), 16);
+			return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+		};
+		return [...ul.querySelectorAll('li')].flatMap((li) => {
+			const line = li.querySelector('svg line');
+			if (!line) return [];
+			return [
+				{
+					text: (li.textContent ?? '').replace(/\s+/g, ' ').trim(),
+					authored: rgb(line.getAttribute('stroke')!),
+					stroke: getComputedStyle(line).stroke
+				}
+			];
+		});
+	});
+	await page.emulateMedia({ forcedColors: 'none' });
+	for (const line of lines)
+		soft(line.stroke, `"${line.text}" under forced colours, ${where}`).toBe(line.authored);
+	const strokeOf = (start: string) => lines.find((l) => l.text.startsWith(start))?.stroke;
+	const three = [strokeOf('Pump P1, '), strokeOf('Group curve'), strokeOf('Group system curve')];
+	soft(
+		three.every(Boolean),
+		`Pump P1's, the group curve's and the group system curve's lines, ${where}`
+	).toBe(true);
+	soft(new Set(three).size, `their colours apart under forced colours, ${where}`).toBe(3);
+});

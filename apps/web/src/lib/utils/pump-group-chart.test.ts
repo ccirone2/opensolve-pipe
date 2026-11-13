@@ -154,6 +154,57 @@ describe('the chart data', () => {
 		}
 	});
 
+	// Review DOTS-LABELS-A2: two members' runs beyond their data were drawn alike, slots 4 and 6
+	// both aqua dotted [1, 5] at 2 px (on da7aa98 the six were distinct, blue and aqua in turn
+	// over [6, 4], [2, 3], [1, 5]): where the two runs met, nothing told them apart.
+	it('gives each slot’s line beyond its data a look of its own: colour and dashes', () => {
+		const beyond = GROUP_SLOTS.map((s) => `${s.color} ${JSON.stringify(s.beyondDash)}`);
+		expect(new Set(beyond).size).toBe(6);
+	});
+
+	// Review DOTS-LABELS-B5 (rule 2: slots differ by more than hue; WCAG 1.4.1): what a swatch shows
+	// is the first stretch of its slot's pattern, so patterns that differ only further along look
+	// alike there. Slot 3 [12, 3, 3, 3] and slot 4 [12, 3, 3, 3, 3, 3] first differed at 24 px: the
+	// page's 24 px swatches were the same, blue against aqua (1.30:1) the only difference. Each
+	// pattern drawn as a swatch is drawn (a butt-capped line from its start, its dashes from 0),
+	// sampled at each column's centre: the page's legend line, 24 px (PumpGroupFigure.svelte), by
+	// the pixel; the image's, Chart.js 4.5.1's 'line' point style in its legend (usePointStyle), a
+	// line through the box's centre of the radius it gives a point, boxHeight · √2 / 2 either side,
+	// so boxHeight · √2 long (boxHeight 12 here: 16.97 px), by the half pixel (the image's 2×).
+	// Every two slots' swatches differ in 3 px of their length or more, the gap of slot 2's dash.
+	it('draws every two slots’ swatches apart by their pattern, on the page (24 px) and in the image', () => {
+		const ink = (dash: readonly number[], length: number, step: number) => {
+			const period = dash.reduce((a, b) => a + b, 0);
+			return Array.from({ length: Math.round(length / step) }, (_, k) => {
+				if (!period) return true;
+				let t = ((k + 0.5) * step) % period;
+				for (const [i, d] of dash.entries()) {
+					if (t < d) return i % 2 === 0;
+					t -= d;
+				}
+				return true;
+			});
+		};
+		const config = pumpGroupConfig(groupChartData(membersOf(named('ladder')), SI_UNITS, null), {
+			legendLabels: () => [],
+			format: (v: number) => formatNumber(v, 4),
+			forImage: true
+		});
+		const boxHeight = config.options!.plugins!.legend!.labels!.boxHeight!;
+		expect(boxHeight).toBe(12);
+		for (const [where, length, step] of [
+			['the page', 24, 1],
+			['the image', boxHeight * Math.SQRT2, 0.5]
+		] as const) {
+			const masks = GROUP_SLOTS.map((s) => ink(s.dash, length, step));
+			for (let a = 0; a < masks.length; a++)
+				for (let b = a + 1; b < masks.length; b++) {
+					const apart = masks[a]!.filter((on, k) => on !== masks[b]![k]).length * step;
+					expect(apart, `${where}: slots ${a + 1} and ${b + 1}`).toBeGreaterThanOrEqual(3);
+				}
+		}
+	});
+
 	it("draws members sharing a line in that line's colour, a held one too (nit 5, rule 2)", () => {
 		// Made-up from the fixture's ladder: P2 and P3 given P1's curve at P1's speed share P1's
 		// line (slot 1, blue); their points take its look, not their own slots' (aqua, blue dash-dot).

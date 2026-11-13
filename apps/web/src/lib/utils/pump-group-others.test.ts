@@ -33,7 +33,7 @@ import {
 } from '$lib/testing/curve-family';
 import { designators } from '$lib/testing/helpers';
 import fixture from './__fixtures__/pump-groups-input.json';
-import { placePointLabels, type PointLabelItem } from './point-labels';
+import { leaderCrosses, placePointLabels, type PointLabelItem } from './point-labels';
 import { caseTags, compareCaseTags, ratedCurveRange } from './pump-chart';
 import {
 	CHART_COLORS,
@@ -54,6 +54,7 @@ import {
 	DUTY_CLAIM_RULE,
 	dutyFlow,
 	GROUP_OTHER,
+	GROUP_SLOTS,
 	groupChartData,
 	groupLegend,
 	groupNoteLines,
@@ -2058,6 +2059,106 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		expect(cfgWith.options!.plugins!.tooltip).toEqual({ enabled: false });
 	});
 
+	// Review DOTS-LABELS-B3 (rule 2: a slot's pattern is its second cue): with usePointStyle,
+	// Chart.js 4.5.1's own generateLabels takes each entry's style from its first point (getStyle(0)),
+	// which has no dashes, so every line's swatch in the image's legend was drawn solid: slots 1, 3
+	// and 5 one blue bar, 2, 4 and 6 one aqua bar, and "a pump beyond its data (dashed)" solid. Once
+	// the members' points left the legend (slice 5c) nothing else in it told the pumps apart. Drawn
+	// here by Chart.js itself (BasicPlatform, the context recording each stroke's dashes).
+	it('draws each line’s swatch in the image’s legend with its line’s own dashes (Chart.js draws it)', () => {
+		const member = (slot: number): GroupMemberInput => ({
+			id: `P${slot + 1}`,
+			name: `Pump P${slot + 1}`,
+			result: { ...lineupView('').members[0]!.result, operatingFlow: 0.004 * (slot + 1) },
+			ratedRange: [0, 0.03],
+			curveId: `C${slot + 1}`,
+			slot,
+			flags: []
+		});
+		const imageLegend = (data: GroupChartData) => {
+			const strokes: { dash: number[]; color: unknown; points: number }[] = [];
+			let dash: number[] = [];
+			let points = 0;
+			const ctx: Record<string | symbol, unknown> = new Proxy(
+				{} as Record<string | symbol, unknown>,
+				{
+					get(target, prop) {
+						if (prop in target) return target[prop];
+						if (prop === 'measureText') return (text: string) => ({ width: text.length * 6 });
+						if (prop === 'setLineDash') return (d: number[]) => (dash = [...d]);
+						if (prop === 'getLineDash') return () => [...dash];
+						if (prop === 'beginPath') return () => (points = 0);
+						if (prop === 'moveTo' || prop === 'lineTo') return () => points++;
+						if (prop === 'stroke')
+							return () => strokes.push({ dash: [...dash], color: target.strokeStyle, points });
+						return () => undefined;
+					}
+				}
+			);
+			const canvas = { width: 900, height: 700, style: {}, getContext: () => ctx };
+			ctx.canvas = canvas;
+			const chart = new Chart(
+				canvas as never,
+				{
+					...config(data, {
+						forImage: true,
+						legendLabels: Chart.defaults.plugins.legend.labels.generateLabels
+					}),
+					platform: BasicPlatform
+				} as never
+			);
+			try {
+				const items = chart.legend!.legendItems!.map((item) => ({
+					text: item.text,
+					pointStyle: item.pointStyle,
+					color: item.strokeStyle,
+					lineDash: item.lineDash,
+					own: [
+						...((chart.data.datasets[item.datasetIndex ?? -1] as { borderDash?: number[] })
+							.borderDash ?? [])
+					]
+				}));
+				strokes.length = 0;
+				chart.legend!.draw(chart.chartArea);
+				// A 'line' swatch is one segment, moved to and drawn to: two points in its path.
+				return { items, swatches: strokes.filter((s) => s.points === 2) };
+			} finally {
+				chart.destroy();
+			}
+		};
+		// Six members on six lines, one per slot.
+		const six = imageLegend(
+			groupChartData(
+				GROUP_SLOTS.map((_, slot) => member(slot)),
+				lineupPrefs,
+				null
+			)
+		);
+		const lines = six.items.filter((i) => /^Pump P\d, /.test(i.text));
+		expect(lines).toHaveLength(6);
+		for (const line of lines) {
+			expect(line.pointStyle, line.text).toBe('line');
+			expect(line.lineDash, line.text).toEqual(line.own);
+		}
+		expect(lines.map((l) => l.own)).toEqual(GROUP_SLOTS.map((s) => s.dash));
+		// Six looks: colour and dashes, and the dashes alone.
+		expect(new Set(lines.map((l) => `${String(l.color)} ${JSON.stringify(l.lineDash)}`)).size).toBe(
+			6
+		);
+		expect(new Set(lines.map((l) => JSON.stringify(l.lineDash))).size).toBe(6);
+		// As drawn: each line's swatch stroked with its dashes, in the legend's order.
+		const drawnLines = six.items.filter((i) => i.pointStyle === 'line');
+		expect(six.swatches.map((s) => s.dash)).toEqual(drawnLines.map((l) => l.own));
+		// The lineups: the group curve beyond a pump's data dashed [6, 4], as its words say.
+		const lineup = imageLegend(lineupView('').data);
+		expect(lineup.items.find((i) => i.text === GROUP_BEYOND_LABEL)).toMatchObject({
+			lineDash: [6, 4]
+		});
+		expect(lineup.items.find((i) => i.text === OTHER_CURVES_LEGEND)).toMatchObject({
+			lineDash: []
+		});
+	});
+
 	it('sets the axes from the data: x min and max where other curves would widen it, y max while they are drawn; neither without them', () => {
 		const axes = (data: GroupChartData) => {
 			const scales = config(data).options!.scales as Record<string, Record<string, unknown>>;
@@ -2262,10 +2363,11 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		expect(told).toHaveLength(1);
 		const drawn = told[0]!;
 		// The obstacles: each point's mark, each point's label as placePointLabels placed it (the
-		// Group's and the members', each ring's tag) with any leader, and the group system curve's
-		// tag, as drawn. Nit 5, slice 5c (rule 7): the marks in the placer's order (the Group, the
-		// members, the rings), was the datasets' (the members first); the labels as placed, was
-		// "right of each point, above and below in turn", one per point.
+		// Group's and the members', each ring's tag) with any leader. Nit 5, slice 5c (rule 7): the
+		// marks in the placer's order (the Group, the members, the rings), was the datasets' (the
+		// members first); the labels as placed, was "right of each point, above and below in turn",
+		// one per point. Review DOTS-LABELS-B1 (rule 7: the group system curve's tag comes last):
+		// moved from "and the group system curve's tag, as drawn": it is placed after these labels.
 		const points = datasets(cfg).filter((d) => typeof d.caseLabel === 'string');
 		const placed = drawn.points;
 		expect(drawn.obstacles.filter((o) => o.kind === 'marker').map((o) => o.text)).toEqual([
@@ -2302,9 +2404,23 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 			'[3]'
 		]);
 		expect(placed.leftOut).toEqual([]);
-		expect(drawn.obstacles.filter((o) => o.kind === 'curve').map((o) => o.text)).toEqual([
-			GROUP_SYSTEM_TAG
-		]);
+		// The group system curve's tag, drawn last where it is clear of them all (below).
+		expect(drawn.tags.map((t) => t.text)).toEqual([GROUP_SYSTEM_TAG]);
+		expect(drawn.tagsLeftOut).toEqual([]);
+		const written = chart.written.find((w) => w.text === GROUP_SYSTEM_TAG)!;
+		expect(drawn.tags[0]).toEqual({
+			text: GROUP_SYSTEM_TAG,
+			x: written.x,
+			y: written.y,
+			box: {
+				left: written.x,
+				right: written.x + GROUP_SYSTEM_TAG.length * 6,
+				top: written.y - 12,
+				bottom: written.y + 3
+			}
+		});
+		for (const o of [...drawn.obstacles, ...drawn.labels])
+			expect(boxesMeet(drawn.tags[0]!.box, o.box), o.text).toBe(false);
 		for (const o of drawn.obstacles) {
 			if (o.kind === 'marker') {
 				const ds = points.find((d) => d.caseLabel === o.text)!;
@@ -2324,10 +2440,18 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 			}
 		}
 		// The points' labels from their own pixels, placed by the pure function with them: the
-		// Group, the members, the rings, clear of the group system curve's tag.
+		// Group (shortened to "Group" where its whole label has no place: review DOTS-LABELS-B6),
+		// the members, the rings. Review DOTS-LABELS-B1: moved from "clear of the group system
+		// curve's tag" (its box passed as an obstacle): nothing but their marks is in their way.
 		const at = (p: { x: number; y: number }) => ({ x: chart.px(p.x), y: chart.py(p.y) });
 		const items: PointLabelItem[] = [
-			{ kind: 'group', ...at(data.station!.point), r: 8, text: data.station!.tag },
+			{
+				kind: 'group',
+				...at(data.station!.point),
+				r: 8,
+				text: data.station!.tag,
+				short: 'Group'
+			},
 			...data.points.map((p): PointLabelItem => ({
 				kind: 'member',
 				...at(p.point),
@@ -2342,14 +2466,9 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 				numbers: ring.numbers
 			}))
 		];
+		expect(placed.obstacles).toEqual([]);
 		expect(placed.labels).toEqual(
-			placePointLabels(
-				items,
-				drawn.obstacles.filter((o) => o.kind === 'curve').map((o) => o.box),
-				drawn.plot,
-				(text) => text.length * 6,
-				12
-			).labels
+			placePointLabels(items, [], drawn.plot, (text) => text.length * 6, 12).labels
 		);
 		// The anchors from the curves' own pixels, placed by the pure function with them.
 		const plot = drawn.plot;
@@ -2397,6 +2516,57 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		}
 		expect(drawn.x).toEqual({ min: chart.x.min, max: chart.x.max });
 		expect(drawn.y).toEqual({ min: 0, max: 50 });
+	});
+
+	// Review DOTS-LABELS-B1 (rule 7: "this case's labels, then rings, then D24's curve labels, then
+	// the group system curve's tag"): the tag was placed first, where its curve ends, and the points'
+	// labels kept clear of it, so on a phone it took the one place of the pumps' label: the lineups'
+	// four blue dots unnamed at 360 and 320 px in the browser. Here the phone's plot 200 px wide, the
+	// base shown: at 7b36d82 the tag was the points' one obstacle and Pump P1 to P4 were left out.
+	it('places the group system curve’s tag last: the points’ labels first, then the curves’, then the tag where it is clear of them all', () => {
+		const { data } = lineupView('');
+		const told: CurveLabelsDrawn[] = [];
+		const cfg = config(data, {
+			curveLabels: tools,
+			compactLabels: true,
+			onlabels: (d: CurveLabelsDrawn) => told.push(d)
+		});
+		const chart = drawnChart(cfg, { plot: { left: 50, right: 250, top: 8, bottom: 180 } });
+		chart.draw();
+		const drawn = told[0]!;
+		const placed = drawn.points;
+		// The points' labels keep clear of the marks only: no tag is in their way.
+		expect(placed.obstacles).toEqual([]);
+		expect(placed.leftOut.filter((p) => p.name.startsWith('Pump'))).toEqual([]);
+		const pumps = placed.labels.find((l) => l.kind === 'member');
+		expect(pumps?.items).toHaveLength(4);
+		// Nor in the curve labels' way: they are placed before it.
+		expect(drawn.obstacles.map((o) => o.kind)).not.toContain('curve');
+		// The tag, drawn where told, over no point label, leader, mark or curve label, inside the
+		// plot; or left out and named in the notes with its curve's end.
+		const named = drawn.tags.length + drawn.tagsLeftOut.length;
+		expect(named).toBe(1);
+		for (const tag of drawn.tags) {
+			expect(tag.text).toBe(GROUP_SYSTEM_TAG);
+			const written = chart.written.find((w) => w.text === tag.text)!;
+			expect(tag.box).toEqual({
+				left: written.x,
+				right: written.x + tag.text.length * 6,
+				top: written.y - 12,
+				bottom: written.y + 3
+			});
+			expect(tag.box.left).toBeGreaterThanOrEqual(drawn.plot.left);
+			expect(tag.box.right).toBeLessThanOrEqual(drawn.plot.right);
+			expect(tag.box.top).toBeGreaterThanOrEqual(drawn.plot.top);
+			expect(tag.box.bottom).toBeLessThanOrEqual(drawn.plot.bottom);
+			for (const label of placed.labels) {
+				expect(boxesMeet(tag.box, label.box), label.text).toBe(false);
+				if (label.leader) expect(leaderCrosses(label.leader, tag.box), label.text).toBe(false);
+			}
+			for (const o of drawn.obstacles) expect(boxesMeet(tag.box, o.box), o.text).toBe(false);
+			for (const label of drawn.labels)
+				expect(boxesMeet(tag.box, label.box), label.text).toBe(false);
+		}
 	});
 
 	it('keeps each label off every ring’s tag, marker and point’s label where they are in the way, or leaves it out', () => {
@@ -2495,22 +2665,28 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 				expect(met.every((kind) => kind === 'marker' || kind === 'ring')).toBe(true);
 			}
 		// "1 of 4 running", desktop: the base's "[Base] 4 running" two rows up, past ring Base's mark
-		// and tag; "[1, 4, 5, 6] 3 running" left out, the tag of those rings in the way at its first
-		// row, a ring's mark and tag at its second and third.
+		// and tag; "[1, 4, 5, 6] 3 running" at its first row. Review DOTS-LABELS-B1 (rule 7: the group
+		// system curve's tag comes last): moved from "left out, the tag of those rings in the way at
+		// its first row, a ring's mark and tag at its second and third" (its 4 curves counted): the
+		// rings' tag was put clear of the group system curve's tag, placed first; it takes its own
+		// first place now, clear of this label's first row, and the group system curve's tag, placed
+		// last, has no place left near its curve's end: it is left out and named in the notes with
+		// that end's values.
 		expect(s3Desktop.placed.labels.map((l) => [l.text, l.row])).toEqual([
 			['1 running (this case)', 0],
 			['[2] 2 running', 0],
-			['[Base] 4 running', 2]
+			['[Base] 4 running', 2],
+			['[1, 4, 5, 6] 3 running', 0]
 		]);
 		expect(rowsOf(s3Desktop, ['Base'], 4, false).slice(0, 2)).toEqual([
 			['marker', 'ring'],
 			['marker', 'ring']
 		]);
-		expect(s3Desktop.placed.leftOut).toBe(4);
-		expect(rowsOf(s3Desktop, [1, 4, 5, 6], 3, false)).toEqual([
-			['ring'],
-			['marker', 'ring'],
-			['marker', 'ring']
+		expect(s3Desktop.placed.leftOut).toBe(0);
+		expect(rowsOf(s3Desktop, [1, 4, 5, 6], 3, false)[0]).toEqual([]);
+		expect(s3Desktop.placed.tags).toEqual([]);
+		expect(s3Desktop.placed.tagsLeftOut).toEqual([
+			{ name: GROUP_SYSTEM_TAG, mark: 'end', flow: '67.07 L/s', head: '31.55 m' }
 		]);
 		expect(
 			s3Desktop.placed.obstacles

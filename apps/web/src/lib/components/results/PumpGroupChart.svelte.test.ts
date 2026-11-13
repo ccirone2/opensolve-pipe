@@ -4525,11 +4525,22 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		expect([...new Set(labels.map((w) => w.font))]).toEqual(['14px system-ui, sans-serif']);
 		expect(designators(labels.map((w) => w.text).join(' '))).toEqual([]);
 		// The image's notes count its own drawing's: one, where the screen's narrow drawing counted
-		// placed.leftOut.
+		// placed.leftOut. Review DOTS-LABELS-B1 (rule 7: the group system curve's tag comes last):
+		// the screen's narrow drawing has no place left for the tag by its curve's end, so its notes
+		// name it with that end's values; the image's own drawing writes it, so its notes do not.
 		expect(placed.leftOut).not.toBe(1);
+		const tagLine =
+			'Not labelled on the chart: Group system curve, its end at 67.07 L/s and 31.55 m.';
+		expect(placed.tagsLeftOut).toEqual([
+			{ name: 'Group system curve', mark: 'end', flow: '67.07 L/s', head: '31.55 m' }
+		]);
+		expect(request.lines).toContain(tagLine);
+		expect(imageChart.written.map((w) => w.text)).toContain('Group system curve');
 		const drawnLines = request.drawnLines!();
 		expect(drawnLines).toEqual(
-			request.lines.map((l) => (l === sentence(placed.leftOut) ? sentence(1) : l))
+			request.lines
+				.filter((l) => l !== tagLine)
+				.map((l) => (l === sentence(placed.leftOut) ? sentence(1) : l))
 		);
 		// The image's datasets carry the family with its full labels.
 		const sets = request.config.data.datasets as unknown as Record<string, unknown>[];

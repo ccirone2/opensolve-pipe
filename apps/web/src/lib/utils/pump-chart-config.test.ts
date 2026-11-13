@@ -803,6 +803,40 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		expect(draw({ x: 215, y: 171 }, { x: 232, y: 190 })).toEqual([{ text: 'BEP', x: 206, y: 194 }]);
 	});
 
+	// Review DOTS-LABELS-A1 (rule 7: a leader on a clear path): the short labels kept clear of the
+	// rings' labels' boxes, not of their leaders, so "BEP" could be written across a ring label's
+	// leader, which then seemed to run from "BEP". Case 2's ring under the BEP cross, its near
+	// places blocked (the plot's right edge and foot, the cross), its "[2]" placed above it, far,
+	// its leader running up through where "BEP" goes: at 7b36d82 "BEP" was written across it.
+	it('leaves a short label out where a ring label’s leader would run through it', () => {
+		const result = pumpResult({
+			bestEfficiencyPoint: { flow: 0.012, efficiency: 0.7, head: 18, headExtrapolated: false }
+		});
+		const data = pumpChartData(result, SI_UNITS, [0, 0.03]);
+		const told: PointLabelsDrawn[] = [];
+		const config = pumpChartConfig(data, others(), {
+			speedText: '100 %',
+			legendLabels,
+			format,
+			compactLabels: true,
+			onlabels: (placed) => told.push(placed)
+		});
+		const sets = config.data.datasets as unknown as Dataset[];
+		const bep = sets.findIndex((d) => d.pointLabel === 'BEP');
+		const { written } = drawCaseLabels(
+			config,
+			{ left: 0, right: 230, top: 0, bottom: 218 },
+			(tag) => (tag === '2' ? { x: 215, y: 205 } : { x: 60, y: 60 }),
+			(i) => (i === bep ? { x: 200, y: 200 } : { x: 5000, y: 5000 })
+		);
+		// "[2]" far above its ring: its leader from its box down to the ring, at x 215, 180 to 194.
+		const ring = told[0]!.labels.find((l) => l.text === '[2]')!;
+		expect(ring.leader).toEqual({ x1: 215, y1: 180, x2: 215, y2: 194 });
+		// "BEP" would go 6 px right of its cross and 6 px above it: 206 to 224 across, 183 to 194
+		// down, the leader through it. Left out; the legend and the notes name the point.
+		expect(written.filter((w) => w.text === 'BEP')).toEqual([]);
+	});
+
 	it('lists each ring in the legend where its dataset is, though it is drawn on top', () => {
 		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], systemCurveResponse());
 		const plain = pumpChartConfig(data, others(), { speedText: '100 %', legendLabels, format });
@@ -987,6 +1021,20 @@ describe('the group chart’s members as dots in their line’s colour (nit 5, s
 			borderColor: GROUP_BLUE,
 			backgroundColor: surface
 		});
+	});
+
+	// Review DOTS-LABELS-B6 (rule 3): the Group's label has a shorter form, "Group", for the placer
+	// to take where "Group (crossing)" has no place (point-labels.test.ts holds the placer to it).
+	it('gives the Group point “Group” as its label’s shorter form, its whole label first', () => {
+		const lineups = pumpGroupConfig(lineupView('').data, options);
+		expect(groupDot(lineups).pointItem).toEqual({
+			kind: 'group',
+			text: 'Group (crossing)',
+			short: 'Group'
+		});
+		const members = [member('PA', 0, 'C1'), member('PB', 1, 'C2', { operatingFlow: 0.01 })];
+		const plain = pumpGroupConfig(groupChartData(members, SI_UNITS, station), options);
+		expect(groupDot(plain).pointItem).toEqual({ kind: 'group', text: 'Group', short: 'Group' });
 	});
 
 	it('leaves the members’ points out of the image’s legend: the labels on the chart name them', () => {

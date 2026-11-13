@@ -110,17 +110,21 @@ export const GROUP_SYSTEM_LABEL =
 /**
  * The six slots: blue and aqua in turn, each with a line pattern of its own (nit 5, rule 2; slice
  * 5c), so slots 1 and 2, blue against aqua at only 1.30:1, differ by more than hue: solid, long
- * dash, dash-dot, dash-dot-dot, short dash, long-short dash. Beyond its data a slot's line is
- * finer: blue's three patterns as before slice 5c, aqua's dotted, so no aqua line inside its data
- * reads as one beyond it.
+ * dash, dash-dot, dash-dot-dot, short dash, long-short dash. A legend's swatch shows a pattern's
+ * first stretch only, so every two patterns differ within it, by 3 px or more: the page's 24 px
+ * line and the image's 17 px one (review DOTS-LABELS-B5: slot 4 was [12, 3, 3, 3, 3, 3], slot 3's
+ * dash-dot for its first 24 px; slot 6 [16, 3, 4, 3], solid for the image's 17). Beyond its data a
+ * slot's line is finer, each slot's colour and dashes its own (review DOTS-LABELS-A2: slots 4 and
+ * 6 were both aqua [1, 5]): blue's three patterns as before slice 5c, aqua's dotted, so no aqua
+ * line inside its data reads as one beyond it.
  */
 export const GROUP_SLOTS: readonly GroupSlot[] = [
 	{ color: GROUP_BLUE, dash: [], beyondDash: [6, 4] },
 	{ color: GROUP_AQUA, dash: [8, 3], beyondDash: [2, 3] },
 	{ color: GROUP_BLUE, dash: [12, 3, 3, 3], beyondDash: [2, 3] },
-	{ color: GROUP_AQUA, dash: [12, 3, 3, 3, 3, 3], beyondDash: [1, 5] },
+	{ color: GROUP_AQUA, dash: [7, 2, 2, 2, 2, 2], beyondDash: [1, 5] },
 	{ color: GROUP_BLUE, dash: [4, 2], beyondDash: [1, 5] },
-	{ color: GROUP_AQUA, dash: [16, 3, 4, 3], beyondDash: [1, 5] }
+	{ color: GROUP_AQUA, dash: [9, 3, 2, 3], beyondDash: [1, 2, 1, 6] }
 ];
 
 /**

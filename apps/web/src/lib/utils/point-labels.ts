@@ -10,8 +10,9 @@
  * cannot place is returned by its item's index, so the notes name it with its values
  * (notLabelledNote), never only count it.
  *
- * Point labels come before curve labels (rule 7): the charts place these first and pass their
- * boxes to placeCurveLabels as obstacles (D24's curve labels, then the group system curve's tag).
+ * Point labels come before curve labels (rule 7): the charts place these first and keep the curve
+ * labels clear of their boxes and leaders, D24's curve labels (placeCurveLabels' obstacles) and
+ * then the group system curve's tag, placed last (pump-chart-config.ts; review DOTS-LABELS-B1).
  * The labels are drawn with a halo of the surface colour, POINT_LABEL_HALO px wide, so a label
  * reads over a curve; the gap between labels keeps two halos apart.
  *
@@ -25,13 +26,14 @@ import type { PxBox } from './pump-group-chart';
 /**
  * A point to label, in the chart's pixels: its centre and `r`, its mark's extent from the centre
  * (its radius and half its border), so its mark's box is the centre ± r.
- * - `group`: the station's duty, the ink dot; `text` its label ("Group", "Group (crossing)").
+ * - `group`: the station's duty, the ink dot; `text` its label ("Group", "Group (crossing)"),
+ *   `short` the label it takes where `text` has no place ("Group": review DOTS-LABELS-B6).
  * - `member`: a pump's point (a dot, or the diamond while held at zero flow), named as typed.
  * - `ring`: another case's ring; `numbers` its cases' numbers (drawn in a box, fillLabel) and
  *   `name`, where the chart names it beside the box (desktop and the image), its cases' words.
  */
 export type PointLabelItem =
-	| { kind: 'group'; x: number; y: number; r: number; text: string }
+	| { kind: 'group'; x: number; y: number; r: number; text: string; short?: string }
 	| { kind: 'member'; x: number; y: number; r: number; id: string; name: string }
 	| { kind: 'ring'; x: number; y: number; r: number; numbers: CaseNumber[]; name?: string };
 
@@ -119,8 +121,11 @@ const gapBetween = (a: PxBox, b: PxBox) =>
 const distance = (box: PxBox, x: number, y: number) =>
 	Math.hypot(Math.max(box.left - x, 0, x - box.right), Math.max(box.top - y, 0, y - box.bottom));
 
-/** A segment passes through a box's inside (Liang–Barsky; running along an edge does not). */
-function crosses(line: PointLabelLeader, b: PxBox): boolean {
+/**
+ * A segment passes through a box's inside (Liang–Barsky; running along an edge does not): a
+ * leader across a label or a mark. The pump chart's short labels ask it of the rings' leaders.
+ */
+export function leaderCrosses(line: PointLabelLeader, b: PxBox): boolean {
 	const e = 1e-9;
 	const box = { left: b.left + e, right: b.right - e, top: b.top + e, bottom: b.bottom - e };
 	const dx = line.x2 - line.x1;
@@ -182,6 +187,14 @@ const ringTag = (numbers: readonly CaseNumber[]) =>
  *   POINT_LABEL_JOIN px of one of its rings, which is placed again with the numbers of both
  *   ("[1, 5]"); where the joined label has no place either, the ring is left out and the label
  *   stays as it was.
+ * - The Group tries its `text`, then its `short` where it has one ("Group (crossing)", then
+ *   "Group": review DOTS-LABELS-B6), as members and rings try shorter labels.
+ * - A place is also clear of every leader drawn before it (review DOTS-LABELS-A1).
+ * - The items are placed in the order given. Where that leaves a pump's label out, they are placed
+ *   once more with the pumps left out moved before the other pumps (just after the Group), and
+ *   that placement is taken where it leaves strictly fewer items out in all, rings included; else
+ *   the given order's stands (review DOTS-LABELS-B7: greedy, Pump PA's label took the only places
+ *   of the held Pump PB's, at the plot's left edge, although both fit).
  * - Any item still without a label is left out, by index, for the notes to name with its values.
  */
 export function placePointLabels(
@@ -191,8 +204,6 @@ export function placePointLabels(
 	measure: (text: string) => number,
 	size: number
 ): PointLabelPlacement {
-	const labels: PlacedPointLabel[] = [];
-	const leftOut: number[] = [];
 	const height = size * 1.25;
 	const marks = items.map(markBox);
 
@@ -221,9 +232,11 @@ export function placePointLabels(
 
 	/**
 	 * The first place for `text` naming the items `own` (of one kind), near before far, round each
-	 * of its points in turn; `replacing`, a label it would replace, is not in its way. Null: none.
+	 * of its points in turn, clear of the `labels` placed; `replacing`, a label it would replace, is
+	 * not in its way. Null: none.
 	 */
 	const placeText = (
+		labels: readonly PlacedPointLabel[],
 		own: readonly number[],
 		kind: PointLabelItem['kind'],
 		text: string,
@@ -246,6 +259,9 @@ export function placePointLabels(
 						continue;
 					if (foreign.some((m) => overlaps(m, box))) continue;
 					if (others.some((l) => gapBetween(l.box, box) < POINT_LABEL_GAP)) continue;
+					// Nor across a leader drawn before it (review DOTS-LABELS-A1): the leader would seem to
+					// run from this label's box.
+					if (others.some((l) => l.leader && leaderCrosses(l.leader, box))) continue;
 					if (items.some((p) => distance(box, p.x, p.y) <= 0)) continue;
 					const mine = Math.min(...own.map((i) => distance(box, items[i]!.x, items[i]!.y)));
 					if (rivals.some((p) => distance(box, p.x, p.y) <= mine)) continue;
@@ -262,8 +278,8 @@ export function placePointLabels(
 							y2: it.y + ((y1 - it.y) * it.r) / length
 						};
 						const line = leader;
-						if (foreign.some((m) => crosses(line, m))) continue;
-						if (others.some((l) => crosses(line, l.box))) continue;
+						if (foreign.some((m) => leaderCrosses(line, m))) continue;
+						if (others.some((l) => leaderCrosses(line, l.box))) continue;
 					}
 					return {
 						text,
@@ -280,10 +296,15 @@ export function placePointLabels(
 		return null;
 	};
 
-	/** The first of `texts` that has a place, or null. */
-	const placeFirst = (own: readonly number[], kind: PointLabelItem['kind'], texts: string[]) => {
+	/** The first of `texts` that has a place among `labels`, or null. */
+	const placeFirst = (
+		labels: readonly PlacedPointLabel[],
+		own: readonly number[],
+		kind: PointLabelItem['kind'],
+		texts: string[]
+	) => {
 		for (const text of texts) {
-			const placed = placeText(own, kind, text);
+			const placed = placeText(labels, own, kind, text);
 			if (placed) return placed;
 		}
 		return null;
@@ -301,61 +322,91 @@ export function placePointLabels(
 	const clusters = [...clustersOf('member'), ...clustersOf('ring')];
 	const numbersOf = (own: readonly number[]) =>
 		own.flatMap((k) => (items[k] as Extract<PointLabelItem, { kind: 'ring' }>).numbers);
-	/** Rings without a place of their own, in order: they join a ring label after every ring tried. */
-	const unplaced: number[][] = [];
-	const done = new Set<number>();
-	items.forEach((it, i) => {
-		if (done.has(i)) return;
-		const own = it.kind === 'group' ? [i] : clusters.find((c) => c.includes(i))!;
-		for (const k of own) done.add(k);
-		let texts: string[];
-		if (it.kind === 'group') texts = [it.text];
-		else if (it.kind === 'member') {
-			const names = own.map((k) => (items[k] as Extract<PointLabelItem, { kind: 'member' }>).name);
-			texts = [names.join(', ')];
-			if (own.length > 1) {
-				if (own.length === memberCount) texts.push('All pumps');
-				texts.push(`${own.length} pumps`);
+
+	/** The labels placed taking the items in `sequence` (their indices), and those left out. */
+	const pass = (sequence: readonly number[]): PointLabelPlacement => {
+		const labels: PlacedPointLabel[] = [];
+		const leftOut: number[] = [];
+		/** Rings without a place of their own, in order: they join a ring label after every ring. */
+		const unplaced: number[][] = [];
+		const done = new Set<number>();
+		for (const i of sequence) {
+			const it = items[i]!;
+			if (done.has(i)) continue;
+			const own = it.kind === 'group' ? [i] : clusters.find((c) => c.includes(i))!;
+			for (const k of own) done.add(k);
+			let texts: string[];
+			if (it.kind === 'group')
+				texts = it.short && it.short !== it.text ? [it.text, it.short] : [it.text];
+			else if (it.kind === 'member') {
+				const names = own.map(
+					(k) => (items[k] as Extract<PointLabelItem, { kind: 'member' }>).name
+				);
+				texts = [names.join(', ')];
+				if (own.length > 1) {
+					if (own.length === memberCount) texts.push('All pumps');
+					texts.push(`${own.length} pumps`);
+				}
+			} else {
+				const tag = ringTag(numbersOf(own));
+				texts = own.length === 1 && it.name ? [`${tag} ${it.name}`, tag] : [tag];
 			}
-		} else {
-			const tag = ringTag(numbersOf(own));
-			texts = own.length === 1 && it.name ? [`${tag} ${it.name}`, tag] : [tag];
+			const placed = placeFirst(labels, own, it.kind, texts);
+			if (placed) labels.push(placed);
+			else if (it.kind === 'ring') unplaced.push(own);
+			else leftOut.push(...own);
 		}
-		const placed = placeFirst(own, it.kind, texts);
-		if (placed) labels.push(placed);
-		else if (it.kind === 'ring') unplaced.push(own);
-		else leftOut.push(...own);
-	});
-	// A ring with no place of its own: its numbers join the nearest ring label, within reach of one
-	// of its rings, and that label is placed again; else it is left out.
-	for (const own of unplaced) {
-		const reach = (l: PlacedPointLabel) =>
-			Math.min(
-				...l.items.flatMap((k) =>
-					own.map((i) => Math.hypot(items[k]!.x - items[i]!.x, items[k]!.y - items[i]!.y))
-				)
-			);
-		const nearest = labels
-			.filter((l) => l.kind === 'ring')
-			.map((label) => ({ label, d: reach(label) }))
-			.filter((n) => n.d <= POINT_LABEL_JOIN)
-			.sort((a, b) => a.d - b.d)[0];
-		const both = nearest ? [...nearest.label.items, ...own].sort((a, b) => a - b) : [];
-		const joined = nearest
-			? placeText(both, 'ring', ringTag(numbersOf(both)), nearest.label)
-			: null;
-		if (joined) labels[labels.indexOf(nearest!.label)] = joined;
-		else leftOut.push(...own);
-	}
-	return { labels, leftOut: leftOut.sort((a, b) => a - b) };
+		// A ring with no place of its own: its numbers join the nearest ring label, within reach of
+		// one of its rings, and that label is placed again; else it is left out.
+		for (const own of unplaced) {
+			const reach = (l: PlacedPointLabel) =>
+				Math.min(
+					...l.items.flatMap((k) =>
+						own.map((i) => Math.hypot(items[k]!.x - items[i]!.x, items[k]!.y - items[i]!.y))
+					)
+				);
+			const nearest = labels
+				.filter((l) => l.kind === 'ring')
+				.map((label) => ({ label, d: reach(label) }))
+				.filter((n) => n.d <= POINT_LABEL_JOIN)
+				.sort((a, b) => a.d - b.d)[0];
+			const both = nearest ? [...nearest.label.items, ...own].sort((a, b) => a - b) : [];
+			const joined = nearest
+				? placeText(labels, both, 'ring', ringTag(numbersOf(both)), nearest.label)
+				: null;
+			if (joined) labels[labels.indexOf(nearest!.label)] = joined;
+			else leftOut.push(...own);
+		}
+		return { labels, leftOut: leftOut.sort((a, b) => a - b) };
+	};
+
+	const given = items.map((_, i) => i);
+	const first = pass(given);
+	// A pump's label left out: once more, the members' places in the order filled again with those
+	// left out first, the other items keeping theirs (review DOTS-LABELS-B7); taken only where
+	// strictly fewer items are left out in all.
+	const late = first.leftOut.filter((i) => items[i]!.kind === 'member');
+	const members = given.filter((i) => items[i]!.kind === 'member');
+	const refilled = [...late, ...members.filter((i) => !late.includes(i))];
+	let k = 0;
+	const sequence = given.map((i) => (items[i]!.kind === 'member' ? refilled[k++]! : i));
+	if (sequence.every((i, at) => i === given[at])) return first;
+	const second = pass(sequence);
+	return second.leftOut.length < first.leftOut.length ? second : first;
 }
 
 /** A point whose label is left out, as the notes name it (rule 7: never only counted). */
 export interface NotLabelledPoint {
-	/** Who it is: "Group", "Pump PA", "Pump PB, held at zero flow", "case 2, Pump PB off". */
+	/**
+	 * Who it is: "Group", "Pump PA", "Pump PB, held at zero flow", "case 2, Pump PB off", or a
+	 * curve's tag, "Group system curve".
+	 */
 	name: string;
-	/** Its mark: a point (the Group's, a pump's) or another case's ring. */
-	mark: 'point' | 'ring';
+	/**
+	 * Its mark: a point (the Group's, a pump's), another case's ring, or a curve's end, where its
+	 * tag goes (review DOTS-LABELS-B1: "Group system curve, its end at 85.21 L/s and 50 m").
+	 */
+	mark: 'point' | 'ring' | 'end';
 	/** Where it is, in display units with their unit: "40.75 L/s", "23.68 m". */
 	flow: string;
 	head: string;

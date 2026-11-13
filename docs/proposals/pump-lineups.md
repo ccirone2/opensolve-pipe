@@ -810,7 +810,7 @@ Under Each pump off the items are the same kinds. 4d's idle sentence and its "ha
 
 ### 7.9 Chart order
 
-§4.6's order and 4d's cap of 6. "Cases on this chart" lists cases in that order and keeps 4d's words. Each number running fits: N − 1 ≤ 5.
+§4.6's order and 4d's cap of 6. "Cases on this chart" lists cases in that order and keeps 4d's words. Each number running fits: N − 1 ≤ 5. *(Since `pumps-nits.md` item 5, slice 5b (the owner's answer of 2026-11-12, "By list place"): §4.6's order only chooses which cases the group chart draws, which go past its cap of six and the order of their requests. "Cases on this chart" lists the cases in number order, "Base" then 1 to n by its scenario's place in the Scenarios list (`caseTags`), each with its number in a box (`CaseTag`), ticked or not, never renumbered by an untick.)*
 
 ### 7.10 Running combinations: the lineup line
 
@@ -825,7 +825,7 @@ Under Each pump off the items are the same kinds. 4d's idle sentence and its "ha
 
 **The words.** The line never says "running": in a name, running means switched on (the owner's form), and the line answers which pumps carry flow, from the solve. A pump on behind a closed valve reads "Running" in the State column at 0 flow (`pumpStatusLabel`, `results.ts:851`) and "on, carrying no flow" here; the State column's word is outside this proposal (§12). The About sentence names the line (§7.7).
 
-**Order.** Groups keep 4d's order: the shown case first, then case order. The add appends in descending count, so the family reads top down. Since `pumps-results-layout.md` S5 the groups follow the chart's order after the shown case, `lineupChartPriority`'s, ticked or not, the cases without values last in case order (its §6.4 item 5, §15 item 147). Since its S6 they do while the table is unsorted: a sort makes one flat table with a Case column, without this line, and clearing the sort brings the groups back (its §15 items 167 to 169).
+**Order.** Groups keep 4d's order: the shown case first, then case order. The add appends in descending count, so the family reads top down. Since `pumps-results-layout.md` S5 the groups follow the chart's order after the shown case, `lineupChartPriority`'s, ticked or not, the cases without values last in case order (its §6.4 item 5, §15 item 147). Since its S6 they do while the table is unsorted: a sort makes one flat table with a Case column, without this line, and clearing the sort brings the groups back (its §15 items 167 to 169). *(Since `pumps-nits.md` item 5, slice 5b (the owner's answer of 2026-11-12, "By list place"): the case shown first, then every other case by its number, "Base" then 1 to n by the Scenarios list, with values or not (`combinationsOrder`); neither `lineupChartPriority` nor an untick moves a case, and each heading begins with its case's box. That order holds while the table is unsorted, as S6's did.)*
 
 ### 7.11 Layout
 
@@ -1284,7 +1284,7 @@ This parallels 4b's "Group (crossing)" for the shown case. Measured, the drawn l
 
 > `Other cases' group curves are cut at the chart's right edge, the largest flow of this case's own lines and the rings; the group system curve is cut at the top, above every pump's head; the data tables list all their points.` Each clause appears only when that cut was made.
 
-**The per-ring list** (4d's "Other cases on the chart (slate rings, numbered): …"). Each entry with a state gains `; group curve: {words}`. In the table the words start with a capital.
+**The per-ring list** (4d's "Other cases on the chart (slate rings, numbered): …"; since `pumps-nits.md` slice 5b "Other cases on the chart (slate rings, each tagged with its case number): …", each entry "Case {n}: {name}, …", the base case by its name, in number order). Each entry with a state gains `; group curve: {words}`. In the table the words start with a capital.
 
 | State | Words |
 |---|---|
@@ -1304,15 +1304,16 @@ For a stale case, `({k} running)` reads `(as last solved: {k} running)`.
 - from 640 px and in the image: `{numbers} · {name}: group curve, {k} running`, for example "1 · 3 of 4 running (Pump P4 off): group curve, 3 running";
 - below 640 px: `{numbers} · {k} running: group curve`, since a Chart.js tooltip does not wrap and names reach 93 characters;
 - for a stale case, `{k} running` reads `as last solved: {k} running`, and the name keeps 4d's "(out of date)".
+- *Since `pumps-nits.md` slice 5b: `Case {n}: {name}, group curve, {k} running`, below 640 px `Case {n}: {k} running, group curve`; the base case `Base case, group curve, {k} running` and `Base case: {k} running, group curve`.*
 
 **The accessible name** (`groupSummary`):
 - each other case's part gains the same `; group curve: …` words;
-- then `; other cases' group curves drawn: {1 (3 running), 2 (2 running) and 3 (1 running)}`.
+- then `; other cases' group curves drawn: {1 (3 running), 2 (2 running) and 3 (1 running)}` (since `pumps-nits.md` slice 5b `Base case (4 running), case 1 (3 running) and case 2 (2 running)`, in number order).
 
 **Tables** (under "Show data table"):
 - **"Other cases' station duties"** gains a column `Its group curve`, with the capitalised words. Its row header keeps "(out of date)".
 - **A new table after it,** captioned `Other cases' group curves (station's flow at each rise)`:
-  - one row group per drawn case, its header `{numbers} · {name}: {k} running` (scope rowgroup; `as last solved: {k} running` for a stale case);
+  - one row group per drawn case, its header `{numbers} · {name}: {k} running` (scope rowgroup; `as last solved: {k} running` for a stale case; since `pumps-nits.md` slice 5b its case's box (`CaseTag`), then `{name}: {k} running`, heard "Case {n}: …", the base case's box hidden beside "Base case", the groups in number order);
   - columns `Rise ({unit})` | `Flow ({unit})` | `Note`;
   - the duty's rise noted `Its duty's rise (its duty check).`, and a point without flow by its message, as `groupSampleRows` gives;
   - every point listed, those cut from the chart included;
@@ -1325,18 +1326,18 @@ For a stale case, `({k} running)` reads `(as last solved: {k} running)`.
 ### 9.7 Every new UI string, L3
 
 **On the curves:**
-- labels `{numbers} · {k} running`, `{k} running`, `{k} running (this case)`, merged `{1, 4, 5, 6} · {k} running` (numbers ascending)
+- labels `{numbers} · {k} running`, `{k} running`, `{k} running (this case)`, merged `{1, 4, 5, 6} · {k} running` (numbers ascending; since `pumps-nits.md` slice 5b `[{tags}] {k} running`, merged `[1, 4, 5, 6] {k} running`, the numbers in a box, §9.3)
 
 **Legend and tooltips:**
 - legend `Other cases' group curves (slate; dashed beyond a pump's data)`
-- dataset label `{numbers} · {name}: group curve, {k} running`, below 640 px `{numbers} · {k} running: group curve`; stale `as last solved: {k} running`
+- dataset label `{numbers} · {name}: group curve, {k} running`, below 640 px `{numbers} · {k} running: group curve`; stale `as last solved: {k} running` (since slice 5b `Case {n}: {name}, group curve, {k} running` and `Case {n}: {k} running, group curve`, §9.6)
 
 **Notes:** the frame sentence and the clip note (§9.6), the state words of §9.6 with `as last solved:`, and `Labels of {n} {curve|curves} are left out for space; the data table lists every curve.`
 
 **Tables:**
 - column `Its group curve`
 - caption `Other cases' group curves (station's flow at each rise)`
-- row-group header `{numbers} · {name}: {k} running`
+- row-group header `{numbers} · {name}: {k} running` (since slice 5b the case's box, then `{name}: {k} running`, §9.6)
 - note `Its duty's rise (its duty check).`
 
 **Accessible name:** `; other cases' group curves drawn: {…}`

@@ -399,7 +399,7 @@ The section states:
 - Members take the dataviz palette's slots 1 and 3 (blue `#2a78d6`, aqua `#1baf7a`) in ticking order. Together with orange, these are the three slots validated all-pairs.
 - A third or later member reuses those hues with its own dash pattern and marker. A colour follows its pump while it stays ticked.
 - Aqua is 2.82:1 on white, below the proposal's 3:1 (pump-chart.md §7). Either a darker validated step is used, re-checked with the palette's validator, or the relief rule applies: direct labels and the table.
-- Identity never rests on colour alone: colour, dash, marker, direct label, legend and table row all carry it (WCAG 1.4.1, 1.4.11). The markers have text stand-ins, as `MARKER_SYMBOLS` does.
+- Identity never rests on colour alone: colour, dash, marker, direct label, legend and table row all carry it (WCAG 1.4.1, 1.4.11). The markers have text stand-ins, as `MARKER_SYMBOLS` did for the pump chart's other cases until `pumps-nits.md` item 5, slice 5b (2026-11-12), which numbers the cases instead; the members' marks and their stand-ins are slice 5c's.
 
 ### 6.4 Notes (the `chartNotes` pattern; one function for the screen and the image footer)
 

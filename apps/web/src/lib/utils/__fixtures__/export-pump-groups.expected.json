@@ -10180,7 +10180,7 @@
 			"sheet": "Methods",
 			"ref": "E89",
 			"type": "s",
-			"value": "- NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative."
+			"value": "- NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0."
 		},
 		{ "sheet": "Methods", "ref": "B90", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C90", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -11401,7 +11401,7 @@
 			"sheet": "Methods",
 			"ref": "E240",
 			"type": "s",
-			"value": "- NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative."
+			"value": "- NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0."
 		},
 		{ "sheet": "Methods", "ref": "A241", "type": "s", "value": "S1" },
 		{ "sheet": "Methods", "ref": "B241", "type": "s", "value": "PB off" },

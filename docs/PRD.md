@@ -336,6 +336,7 @@ For each pump:
 - Efficiency and power consumption (when an efficiency curve is provided)
 - NPSH available
 - NPSH margin (when NPSH required is provided)
+- NPSH margin ratio, NPSHa ÷ NPSHr (when NPSH required is provided and above 0; where given, below 1 exactly where the margin is negative; a pump with no ratio, such as one with an NPSH required of 0, can still cavitate, and its margin shows it)
 - Speed: the set speed ratio, or a speed-controlled pump's solved speed or the limit speed it runs at (D11)
 - Speed control (when VFD-controlled): mode, setpoint, state (holding the setpoint, at maximum speed, at minimum speed, no flow, off) and whether the setpoint is achieved
 - Later: viscosity-corrected performance
@@ -379,7 +380,7 @@ For each assigned-flow node:
 - Pump curve overlay
 - Operating point (flow, head)
 - NPSH available at pump suction
-- NPSH margin (if NPSH required provided)
+- NPSH margin and the NPSH margin ratio, NPSHa ÷ NPSHr (if NPSH required provided; no ratio where it is 0)
 - Pumps together (CLAUDE.md D21; `docs/proposals/pump-groups.md`): for pumps that run together, in parallel or in series, the station that holds them (between the two places it meets the rest of the network), each pump's own curve and solved point on one chart, how the flow divides (each pump's share, and in parallel what each loses on its way between the headers; in series what the piping between the pumps loses), and the group curve: the station's flow at each rise between its inlet and outlet, solved with every pump on its own curve, so it shows where a weaker pump stops delivering. The group is chosen on the page (suggested from the network), never stored. The catalogue composite curve (flows added at equal head) is not drawn: it does not meet the system at the duty. The group's own system curve (slice 4b): the rise the rest of the network needs between the station's inlet and outlet at each flow through it, the same for any split between the pumps, crossing the group curve at the duty; a slider reads every pump's flow along the group curve. The export writes each group computed (§3.2.3). Pump lineups (slice 4d's one pump off, since CLAUDE.md D24 slice L1; `docs/proposals/pump-lineups.md`): for pumps in parallel, one step makes the cases of the base case either by number running (one case for each number of the pumps running, from all but one down to one, the pumps that stop first chosen by an editable stop order; the default) or with each pump off (one case per pump carrying flow), each named for its pumps ("2 of 4 running (Pump P3, Pump P4 off)"); each case's station duty is drawn on the group chart, said to lie on the group system curve shown only when that case leaves the rest of the network as it is; since slice L3, each case's own group curve is drawn with the case shown's (the classic curve family) where its station differs from the shown one's only in which pumps are switched on, labelled with the number of pumps switched on, its duty called the crossing with the group system curve only when three checks agree, the chart's axes then kept near the pumps and every point listed in a table; and every case's pump points (state, flow, head, shaft power, NPSH margin, curve data, flags) are listed together, with a line saying which pumps carry flow, and the extremes over them.
 
 #### 3.2.3 Export Formats

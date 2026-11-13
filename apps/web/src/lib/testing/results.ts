@@ -92,6 +92,7 @@ export function pumpResult(values: Partial<PumpResult> = {}): PumpResult {
 		npshAvailable: 12,
 		npshRequired: 3,
 		npshMargin: 9,
+		npshMarginRatio: 4,
 		suctionAbsolutePressure: 120000,
 		curve: [
 			{ flow: 0, head: 30 },

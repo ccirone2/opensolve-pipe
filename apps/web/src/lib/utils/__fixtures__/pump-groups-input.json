@@ -2437,6 +2437,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 4.101792654437873,
               "npshrCurve": [
                 {
@@ -2795,6 +2796,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 1.7146847901617355,
               "npshrCurve": [
                 {
@@ -3032,7 +3034,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -3360,7 +3363,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -3766,7 +3770,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -6975,6 +6979,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 4.133293266236099,
               "npshrCurve": [
                 {
@@ -7333,6 +7338,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 1.614667539715898,
               "npshrCurve": [
                 {
@@ -7570,7 +7576,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -7898,7 +7905,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -8304,7 +8312,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -12683,6 +12691,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": null,
               "npshrCurve": null,
               "operatingFlow": 0.05265603183549712,
@@ -12876,6 +12885,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 3.0502473365715352,
               "npshrCurve": [
                 {
@@ -13234,6 +13244,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 1.4955794488963,
               "npshrCurve": [
                 {
@@ -13730,7 +13741,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -14058,7 +14070,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -14464,7 +14477,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -16618,6 +16631,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 2.6849423936278907,
               "npshrCurve": [
                 {
@@ -16976,6 +16990,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": null,
               "npshrCurve": null,
               "operatingFlow": 0.024823562366810072,
@@ -17048,7 +17063,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -17701,7 +17717,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -20901,6 +20917,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 4.566819164120993,
               "npshrCurve": [
                 {
@@ -21259,6 +21276,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": null,
               "npshrCurve": [
                 {
@@ -21496,7 +21514,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -21825,7 +21844,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -22226,7 +22246,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -24693,6 +24713,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 4.566819164120993,
               "npshrCurve": [
                 {
@@ -25051,6 +25072,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": null,
               "npshrCurve": [
                 {
@@ -25288,7 +25310,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -25617,7 +25640,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -26017,7 +26041,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -28135,6 +28159,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 2.6156818181818187,
               "npshrCurve": [
                 {
@@ -28498,6 +28523,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": null,
               "npshrCurve": null,
               "operatingFlow": 0.024,
@@ -28912,7 +28938,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -29685,7 +29712,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -31096,6 +31123,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 4.120775844034754,
               "npshrCurve": [
                 {
@@ -31454,6 +31482,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 1.8248957891326063,
               "npshrCurve": [
                 {
@@ -31691,7 +31720,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -32019,7 +32049,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -32425,7 +32456,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -33638,6 +33669,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 5.240609838013626,
               "npshrCurve": [
                 {
@@ -33996,6 +34028,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 6.155067623748377,
               "npshrCurve": [
                 {
@@ -34233,7 +34266,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -34563,7 +34597,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -34971,7 +35006,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -36680,6 +36715,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 5.256046833063249,
               "npshrCurve": [
                 {
@@ -37038,6 +37074,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 10.123812717899995,
               "npshrCurve": [
                 {
@@ -37396,6 +37433,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 7.7875656192756235,
               "npshrCurve": [
                 {
@@ -37633,7 +37671,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -37963,7 +38002,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -38293,7 +38333,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -38701,7 +38742,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -40004,6 +40045,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 7.813053464952445,
               "npshrCurve": [
                 {
@@ -40362,6 +40404,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 7.813053464952445,
               "npshrCurve": [
                 {
@@ -40599,7 +40642,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -40929,7 +40973,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -41337,7 +41382,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -42590,6 +42635,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": null,
               "npshrCurve": null,
               "operatingFlow": 6.739017722601928e-05,
@@ -42783,6 +42829,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": null,
               "npshrCurve": null,
               "operatingFlow": 0.0,
@@ -43384,7 +43431,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -45991,6 +46038,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 3.7088248951398124,
               "npshrCurve": [
                 {
@@ -46349,6 +46397,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 1.3835034865934905,
               "npshrCurve": [
                 {
@@ -46586,7 +46635,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -46914,7 +46964,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -47320,7 +47371,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -49374,6 +49425,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 1.9607611210246574,
               "npshrCurve": [
                 {
@@ -49732,6 +49784,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 2.1580907253303465,
               "npshrCurve": [
                 {
@@ -49969,7 +50022,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -50297,7 +50351,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -50703,7 +50758,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -55579,6 +55634,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 12.565608667152823,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -56272,6 +56328,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 10.744584219553252,
                   "npshMargin": 8.360150844927057,
+                  "npshMarginRatio": 4.50613732129868,
                   "npshRequired": 2.3844333746261945,
                   "npshrCurve": [
                     {
@@ -56677,7 +56734,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -57081,7 +57139,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -57416,6 +57475,11 @@
                         "value": 8.360150844927057
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 4.50613732129868
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7397765156020164
@@ -57589,7 +57653,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -60664,6 +60728,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 11.372285437045575,
                   "npshMargin": 6.805540747359903,
+                  "npshMarginRatio": 2.490238936004178,
                   "npshRequired": 4.566744689685671,
                   "npshrCurve": [
                     {
@@ -61357,6 +61422,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 12.504112749589675,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -61762,7 +61828,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -62097,6 +62164,11 @@
                         "value": 6.805540747359903
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.490238936004178
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7
@@ -62187,7 +62259,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -62676,7 +62749,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -65740,6 +65813,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 11.648055507002809,
                   "npshMargin": 7.893745392000761,
+                  "npshMarginRatio": 3.1025821389814663,
                   "npshRequired": 3.754310115002048,
                   "npshrCurve": [
                     {
@@ -66433,6 +66507,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 12.060791121150185,
                   "npshMargin": 10.63956171278588,
+                  "npshMarginRatio": 8.48616771519735,
                   "npshRequired": 1.4212294083643036,
                   "npshrCurve": [
                     {
@@ -66838,7 +66913,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -67173,6 +67249,11 @@
                         "value": 7.893745392000761
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 3.1025821389814663
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7325802488124167
@@ -67261,7 +67342,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -67596,6 +67678,11 @@
                         "value": 10.63956171278588
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 8.48616771519735
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.596210968978697
@@ -67769,7 +67856,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -70788,6 +70875,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 12.611859502683178,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -71481,6 +71569,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 12.611859502683178,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -71886,7 +71975,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -72290,7 +72380,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -72780,7 +72871,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -74480,6 +74571,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 11.463569352908802,
               "npshMargin": 7.361843154411559,
+              "npshMarginRatio": 2.7948158404889942,
               "npshRequired": 4.101726198497244,
               "npshrCurve": [
                 {
@@ -75173,6 +75265,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 11.566299373162707,
               "npshMargin": 9.851673681587242,
+              "npshMarginRatio": 6.745670165792944,
               "npshRequired": 1.7146256915754647,
               "npshrCurve": [
                 {
@@ -75578,7 +75671,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -75913,6 +76007,11 @@
                     "value": 7.361843154411559
                   },
                   {
+                    "name": "NPSH margin ratio NPSHa/NPSHr",
+                    "unit": "",
+                    "value": 2.7948158404889942
+                  },
+                  {
                     "name": "Efficiency η",
                     "unit": "",
                     "value": 0.719723161616929
@@ -76001,7 +76100,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -76336,6 +76436,11 @@
                     "value": 9.851673681587242
                   },
                   {
+                    "name": "NPSH margin ratio NPSHa/NPSHr",
+                    "unit": "",
+                    "value": 6.745670165792944
+                  },
+                  {
                     "name": "Efficiency η",
                     "unit": "",
                     "value": 0.6882374095006989
@@ -76499,7 +76604,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -81067,6 +81172,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": null,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -81425,6 +81531,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": null,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": 1.0588791004028415,
                   "npshrCurve": [
                     {
@@ -81662,7 +81769,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -81985,7 +82093,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -82401,7 +82510,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -83872,6 +83981,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": 4.566819164120993,
               "npshrCurve": [
                 {
@@ -84230,6 +84340,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": null,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": null,
               "npshrCurve": [
                 {
@@ -84467,7 +84578,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -84796,7 +84908,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -85197,7 +85310,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -92179,6 +92292,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.635831137402903,
                   "npshMargin": 2.8352055524475808,
+                  "npshMarginRatio": 2.012347229732535,
                   "npshRequired": 2.800625584955322,
                   "npshrCurve": [
                     {
@@ -92872,6 +92986,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.806234959948194,
                   "npshMargin": 3.057958952718352,
+                  "npshMarginRatio": 2.112682621641288,
                   "npshRequired": 2.7482760072298418,
                   "npshrCurve": [
                     {
@@ -93565,6 +93680,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.88216600661454,
                   "npshMargin": 3.1293038173191254,
+                  "npshMarginRatio": 2.136745540509625,
                   "npshRequired": 2.7528621892954144,
                   "npshrCurve": [
                     {
@@ -94258,6 +94374,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.680882601160482,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -94663,7 +94780,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -94998,6 +95116,11 @@
                         "value": 2.8352055524475808
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.012347229732535
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.728232639448092
@@ -95086,7 +95209,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -95421,6 +95545,11 @@
                         "value": 3.057958952718352
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.112682621641288
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7248324999846292
@@ -95509,7 +95638,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -95844,6 +95974,11 @@
                         "value": 3.1293038173191254
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.136745540509625
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7251499906932883
@@ -95932,7 +96067,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -96421,7 +96557,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -101010,6 +101146,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.460067172207004,
                   "npshMargin": 2.04119297811883,
+                  "npshMarginRatio": 1.5970365863851927,
                   "npshRequired": 3.4188741940881737,
                   "npshrCurve": [
                     {
@@ -101703,6 +101840,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.614139139973967,
                   "npshMargin": 2.2465841350943365,
+                  "npshMarginRatio": 1.667126188537086,
                   "npshRequired": 3.3675550048796308,
                   "npshrCurve": [
                     {
@@ -102396,6 +102534,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.813980545081655,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -103089,6 +103228,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.813980545081655,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -103494,7 +103634,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -103829,6 +103970,11 @@
                         "value": 2.04119297811883
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 1.5970365863851927
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7388945520478244
@@ -103917,7 +104063,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -104252,6 +104399,11 @@
                         "value": 2.2465841350943365
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 1.667126188537086
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7393590820520761
@@ -104340,7 +104492,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -104744,7 +104897,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -105234,7 +105388,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -109819,6 +109973,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.244444170962731,
                   "npshMargin": 1.065278258343068,
+                  "npshMarginRatio": 1.254902121766999,
                   "npshRequired": 4.179165912619663,
                   "npshrCurve": [
                     {
@@ -110512,6 +110667,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.989714091652392,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -111205,6 +111361,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.989714091652392,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -111898,6 +112055,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.989714091652392,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -112303,7 +112461,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -112638,6 +112797,11 @@
                         "value": 1.065278258343068
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 1.254902121766999
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7160145831768048
@@ -112726,7 +112890,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -113130,7 +113295,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -113534,7 +113700,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -114025,7 +114192,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -118644,6 +118811,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.436253019881072,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -119337,6 +119505,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.628973842798615,
                   "npshMargin": 2.885952250179046,
+                  "npshMarginRatio": 2.052107011459206,
                   "npshRequired": 2.743021592619569,
                   "npshrCurve": [
                     {
@@ -120030,6 +120199,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.765610713289971,
                   "npshMargin": 3.0268242004478085,
+                  "npshMarginRatio": 2.1051698211069167,
                   "npshRequired": 2.7387865128421622,
                   "npshrCurve": [
                     {
@@ -120723,6 +120893,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.341947441488806,
                   "npshMargin": 3.4592549461736137,
+                  "npshMarginRatio": 2.2000083088277442,
                   "npshRequired": 2.882692495315192,
                   "npshrCurve": [
                     {
@@ -121128,7 +121299,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -121532,7 +121704,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -121867,6 +122040,11 @@
                         "value": 2.885952250179046
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.052107011459206
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7244639896657505
@@ -121955,7 +122133,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -122290,6 +122469,11 @@
                         "value": 3.0268242004478085
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.1051698211069167
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7241632426503964
@@ -122378,7 +122562,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -122713,6 +122898,11 @@
                         "value": 3.4592549461736137
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.2000083088277442
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7326261031307768
@@ -122886,7 +123076,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -127477,6 +127667,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.643350473373478,
                   "npshMargin": 2.868149496895923,
+                  "npshMarginRatio": 2.033492536650929,
                   "npshRequired": 2.775200976477555,
                   "npshrCurve": [
                     {
@@ -128170,6 +128361,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.573051086951046,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -128863,6 +129055,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.800128234339749,
                   "npshMargin": 3.080422361176389,
+                  "npshMarginRatio": 2.132630697889941,
                   "npshRequired": 2.7197058731633605,
                   "npshrCurve": [
                     {
@@ -129556,6 +129749,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.366647786172686,
                   "npshMargin": 3.506331782778359,
+                  "npshMarginRatio": 2.2258546882992674,
                   "npshRequired": 2.8603160033943267,
                   "npshrCurve": [
                     {
@@ -129961,7 +130155,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -130296,6 +130491,11 @@
                         "value": 2.868149496895923
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.033492536650929
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7266419614266504
@@ -130384,7 +130584,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -130788,7 +130989,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -131123,6 +131325,11 @@
                         "value": 3.080422361176389
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.132630697889941
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7227663781332706
@@ -131211,7 +131418,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -131546,6 +131754,11 @@
                         "value": 3.506331782778359
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.2258546882992674
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.731537056432654
@@ -131719,7 +131932,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -136310,6 +136523,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.643740203032036,
                   "npshMargin": 2.8698519214527303,
+                  "npshMarginRatio": 2.0345953514100388,
                   "npshRequired": 2.7738882815793056,
                   "npshrCurve": [
                     {
@@ -137003,6 +137217,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.813956190971616,
                   "npshMargin": 3.0918929383646803,
+                  "npshMarginRatio": 2.135863736966272,
                   "npshRequired": 2.722063252606936,
                   "npshrCurve": [
                     {
@@ -137696,6 +137911,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.6529065158655305,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -138389,6 +138605,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.377331908735251,
                   "npshMargin": 3.515478479937787,
+                  "npshMarginRatio": 2.2283922176318347,
                   "npshRequired": 2.861853428797464,
                   "npshrCurve": [
                     {
@@ -138794,7 +139011,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -139129,6 +139347,11 @@
                         "value": 2.8698519214527303
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.0345953514100388
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7265567588636717
@@ -139217,7 +139440,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -139552,6 +139776,11 @@
                         "value": 3.0918929383646803
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.135863736966272
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.72294271312211
@@ -139640,7 +139869,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -140044,7 +140274,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -140379,6 +140610,11 @@
                         "value": 3.515478479937787
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.2283922176318347
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7316144431678194
@@ -140552,7 +140788,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -145156,6 +145392,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.364322098296029,
                   "npshMargin": 5.044722883814657,
+                  "npshMarginRatio": 4.822920496203335,
                   "npshRequired": 1.3195992144813717,
                   "npshrCurve": [
                     {
@@ -145849,6 +146086,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.704516001888578,
                   "npshMargin": 3.0588967335226434,
+                  "npshMarginRatio": 2.1562119954667436,
                   "npshRequired": 2.6456192683659348,
                   "npshrCurve": [
                     {
@@ -146542,6 +146780,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 5.829242657220103,
                   "npshMargin": 3.1874983982161034,
+                  "npshMarginRatio": 2.206588558809953,
                   "npshRequired": 2.6417442590039997,
                   "npshrCurve": [
                     {
@@ -147235,6 +147474,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.355209496272222,
                   "npshMargin": 3.585508039294991,
+                  "npshMarginRatio": 2.2945467571108216,
                   "npshRequired": 2.7697014569772307,
                   "npshrCurve": [
                     {
@@ -147640,7 +147880,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -147975,6 +148216,11 @@
                         "value": 5.044722883814657
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 4.822920496203335
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.5
@@ -148065,7 +148311,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -148400,6 +148647,11 @@
                         "value": 3.0588967335226434
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.1562119954667436
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.716742537338814
@@ -148488,7 +148740,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -148823,6 +149076,11 @@
                         "value": 3.1874983982161034
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.206588558809953
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7164050366542103
@@ -148911,7 +149169,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -149246,6 +149505,11 @@
                         "value": 3.585508039294991
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.2945467571108216
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.7262829617575448
@@ -149419,7 +149683,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -154010,6 +154274,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.02450278214119,
                   "npshMargin": 3.7695454088771334,
+                  "npshMarginRatio": 2.671670362185475,
                   "npshRequired": 2.2549573732640567,
                   "npshrCurve": [
                     {
@@ -154703,6 +154968,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.155326694533104,
                   "npshMargin": 3.9477640195068773,
+                  "npshMarginRatio": 2.788290798792372,
                   "npshRequired": 2.207562675026227,
                   "npshrCurve": [
                     {
@@ -155396,6 +155662,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.227692678759806,
                   "npshMargin": 4.022691514658689,
+                  "npshMarginRatio": 2.824348930127919,
                   "npshRequired": 2.205001164101117,
                   "npshrCurve": [
                     {
@@ -156089,6 +156356,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 6.530946654142717,
                   "npshMargin": 4.24233895870452,
+                  "npshMarginRatio": 2.8536767866159973,
                   "npshRequired": 2.288607695438197,
                   "npshrCurve": [
                     {
@@ -156494,7 +156762,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -156829,6 +157098,11 @@
                         "value": 3.7695454088771334
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.671670362185475
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.6726567625275748
@@ -156917,7 +157191,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -157252,6 +157527,11 @@
                         "value": 3.9477640195068773
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.788290798792372
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.6645001669716886
@@ -157340,7 +157620,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -157675,6 +157956,11 @@
                         "value": 4.022691514658689
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.824348930127919
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.6640181793782761
@@ -157763,7 +158049,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -158098,6 +158385,11 @@
                         "value": 4.24233895870452
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.8536767866159973
+                      },
+                      {
                         "name": "Efficiency η",
                         "unit": "",
                         "value": 0.6776107090566725
@@ -158271,7 +158563,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -160693,6 +160985,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 5.750153031080679,
               "npshMargin": 3.3273365303353,
+              "npshMarginRatio": 2.3733341048782046,
               "npshRequired": 2.4228165007453795,
               "npshrCurve": [
                 {
@@ -161386,6 +161679,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 5.914016882902685,
               "npshMargin": 3.549619526618204,
+              "npshMarginRatio": 2.5012787580663822,
               "npshRequired": 2.3643973562844813,
               "npshrCurve": [
                 {
@@ -162079,6 +162373,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 6.005071224688178,
               "npshMargin": 3.6438599285982325,
+              "npshMarginRatio": 2.5432163714582816,
               "npshRequired": 2.361211296089946,
               "npshrCurve": [
                 {
@@ -162772,6 +163067,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 6.387069971731014,
               "npshMargin": 3.9242701072403596,
+              "npshMarginRatio": 2.5934181919617574,
               "npshRequired": 2.4627998644906546,
               "npshrCurve": [
                 {
@@ -163177,7 +163473,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -163512,6 +163809,11 @@
                     "value": 3.3273365303353
                   },
                   {
+                    "name": "NPSH margin ratio NPSHa/NPSHr",
+                    "unit": "",
+                    "value": 2.3733341048782046
+                  },
+                  {
                     "name": "Efficiency η",
                     "unit": "",
                     "value": 0.6940950959396323
@@ -163600,7 +163902,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -163935,6 +164238,11 @@
                     "value": 3.549619526618204
                   },
                   {
+                    "name": "NPSH margin ratio NPSHa/NPSHr",
+                    "unit": "",
+                    "value": 2.5012787580663822
+                  },
+                  {
                     "name": "Efficiency η",
                     "unit": "",
                     "value": 0.6871734330301857
@@ -164023,7 +164331,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -164358,6 +164667,11 @@
                     "value": 3.6438599285982325
                   },
                   {
+                    "name": "NPSH margin ratio NPSHa/NPSHr",
+                    "unit": "",
+                    "value": 2.5432163714582816
+                  },
+                  {
                     "name": "Efficiency η",
                     "unit": "",
                     "value": 0.6867857232935296
@@ -164446,7 +164760,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -164781,6 +165096,11 @@
                     "value": 3.9242701072403596
                   },
                   {
+                    "name": "NPSH margin ratio NPSHa/NPSHr",
+                    "unit": "",
+                    "value": 2.5934181919617574
+                  },
+                  {
                     "name": "Efficiency η",
                     "unit": "",
                     "value": 0.6986154979016067
@@ -164944,7 +165264,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -169521,6 +169841,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 9.327038598371354,
                   "npshMargin": 5.228666833779026,
+                  "npshMarginRatio": 2.2757912493326797,
                   "npshRequired": 4.098371764592328,
                   "npshrCurve": [
                     {
@@ -169758,7 +170079,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -170045,6 +170367,11 @@
                         "value": 5.228666833779026
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.2757912493326797
+                      },
+                      {
                         "name": "Hydraulic power P_hyd",
                         "unit": "W",
                         "value": 10808.693414980999
@@ -170105,7 +170432,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -170442,7 +170770,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -171862,6 +172190,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 9.327038598371354,
               "npshMargin": 5.228666833779026,
+              "npshMarginRatio": 2.2757912493326797,
               "npshRequired": 4.098371764592328,
               "npshrCurve": [
                 {
@@ -172220,6 +172549,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 10.219449050527265,
               "npshMargin": 8.744449050527265,
+              "npshMarginRatio": 6.928440034255773,
               "npshRequired": 1.475,
               "npshrCurve": [
                 {
@@ -172457,7 +172787,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -172744,6 +173075,11 @@
                     "value": 5.228666833779026
                   },
                   {
+                    "name": "NPSH margin ratio NPSHa/NPSHr",
+                    "unit": "",
+                    "value": 2.2757912493326797
+                  },
+                  {
                     "name": "Hydraulic power P_hyd",
                     "unit": "W",
                     "value": 10808.693414980999
@@ -172804,7 +173140,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -173091,6 +173428,11 @@
                     "value": 8.744449050527265
                   },
                   {
+                    "name": "NPSH margin ratio NPSHa/NPSHr",
+                    "unit": "",
+                    "value": 6.928440034255773
+                  },
+                  {
                     "name": "Hydraulic power P_hyd",
                     "unit": "W",
                     "value": 0.0
@@ -173230,7 +173572,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [
@@ -179453,6 +179795,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 8.25128329880826,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": null,
                   "operatingFlow": 0.052655458511398794,
@@ -179646,6 +179989,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 10.42272953139245,
                   "npshMargin": 7.372528267177828,
+                  "npshMarginRatio": 3.4170628848900355,
                   "npshRequired": 3.050201264214622,
                   "npshrCurve": [
                     {
@@ -180004,6 +180348,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 11.713836867492526,
                   "npshMargin": 10.218310177310912,
+                  "npshMarginRatio": 7.832582958496057,
                   "npshRequired": 1.4955266901816144,
                   "npshrCurve": [
                     {
@@ -180362,6 +180707,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 10.138703436899883,
                   "npshMargin": 5.811446654658448,
+                  "npshMarginRatio": 2.342986318377952,
                   "npshRequired": 4.327256782241435,
                   "npshrCurve": [
                     {
@@ -180720,6 +181066,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 10.050646051780225,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -181078,6 +181425,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 7.984770060356376,
                   "npshMargin": 4.191264994366172,
+                  "npshMarginRatio": 2.104852879186058,
                   "npshRequired": 3.7935050659902037,
                   "npshrCurve": [
                     {
@@ -181315,7 +181663,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -181653,7 +182002,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -181940,6 +182290,11 @@
                         "value": 4.191264994366172
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.104852879186058
+                      },
+                      {
                         "name": "Hydraulic power P_hyd",
                         "unit": "W",
                         "value": 10848.158243342114
@@ -182090,7 +182445,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -185857,6 +186212,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 8.234776201162466,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": null,
                   "operatingFlow": 0.0547750138280439,
@@ -186050,6 +186406,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 10.632367753222834,
                   "npshMargin": 7.3619721971520375,
+                  "npshMarginRatio": 3.2510953402826446,
                   "npshRequired": 3.2703955560707962,
                   "npshrCurve": [
                     {
@@ -186408,6 +186765,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 11.984603802293703,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -186766,6 +187124,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 10.138703436899883,
                   "npshMargin": 5.811446654658448,
+                  "npshMarginRatio": 2.342986318377952,
                   "npshRequired": 4.327256782241435,
                   "npshrCurve": [
                     {
@@ -187124,6 +187483,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 8.116996554970601,
                   "npshMargin": 4.594621729471434,
+                  "npshMarginRatio": 2.3044102223903202,
                   "npshRequired": 3.5223748254991674,
                   "npshrCurve": [
                     {
@@ -187482,6 +187842,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 4.916284558040287,
                   "npshMargin": 1.8248004672024591,
+                  "npshMarginRatio": 1.5902668147672456,
                   "npshRequired": 3.091484090837828,
                   "npshrCurve": [
                     {
@@ -187719,7 +188080,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -188006,6 +188368,11 @@
                         "value": 4.594621729471434
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.3044102223903202
+                      },
+                      {
                         "name": "Hydraulic power P_hyd",
                         "unit": "W",
                         "value": 10740.642997059553
@@ -188066,7 +188433,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -188353,6 +188721,11 @@
                         "value": 1.8248004672024591
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 1.5902668147672456
+                      },
+                      {
                         "name": "Hydraulic power P_hyd",
                         "unit": "W",
                         "value": 10264.213814745499
@@ -188503,7 +188876,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -192296,6 +192669,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 8.49702093365471,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": null,
                   "operatingFlow": 0.05450439105831451,
@@ -192489,6 +192863,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 12.130660117782822,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -192847,6 +193222,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 12.0154136036094,
                   "npshMargin": 10.299500110833371,
+                  "npshMarginRatio": 7.002342282518392,
                   "npshRequired": 1.715913492776028,
                   "npshrCurve": [
                     {
@@ -193205,6 +193581,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 10.138703436899883,
                   "npshMargin": 5.811446654658448,
+                  "npshMarginRatio": 2.342986318377952,
                   "npshRequired": 4.327256782241435,
                   "npshrCurve": [
                     {
@@ -193563,6 +193940,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 9.327038598371354,
                   "npshMargin": 5.228666833779028,
+                  "npshMarginRatio": 2.2757912493326806,
                   "npshRequired": 4.0983717645923265,
                   "npshrCurve": [
                     {
@@ -193921,6 +194299,7 @@
                   "isoEfficiencyLines": [],
                   "npshAvailable": 9.167151410810744,
                   "npshMargin": null,
+                  "npshMarginRatio": null,
                   "npshRequired": null,
                   "npshrCurve": [
                     {
@@ -194158,7 +194537,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -194445,6 +194825,11 @@
                         "value": 5.228666833779028
                       },
                       {
+                        "name": "NPSH margin ratio NPSHa/NPSHr",
+                        "unit": "",
+                        "value": 2.2757912493326806
+                      },
+                      {
                         "name": "Hydraulic power P_hyd",
                         "unit": "W",
                         "value": 10808.693414980999
@@ -194505,7 +194890,8 @@
                       "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                       "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                       "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                      "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                      "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                     ],
                     "inputs": [
                       {
@@ -194931,7 +195317,7 @@
                     {
                       "items": [
                         "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                        "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                         "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                       ],
                       "references": [
@@ -197320,6 +197706,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 8.251283298808255,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": null,
               "npshrCurve": null,
               "operatingFlow": 0.05265545851139883,
@@ -197513,6 +197900,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 10.42272953139245,
               "npshMargin": 7.372528267177829,
+              "npshMarginRatio": 3.4170628848900373,
               "npshRequired": 3.050201264214621,
               "npshrCurve": [
                 {
@@ -197871,6 +198259,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 11.713836867492526,
               "npshMargin": 10.218310177310912,
+              "npshMarginRatio": 7.832582958496059,
               "npshRequired": 1.4955266901816142,
               "npshrCurve": [
                 {
@@ -198229,6 +198618,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 10.138703436899883,
               "npshMargin": 5.811446654658448,
+              "npshMarginRatio": 2.342986318377952,
               "npshRequired": 4.327256782241435,
               "npshrCurve": [
                 {
@@ -198587,6 +198977,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 9.327038598371354,
               "npshMargin": 5.228666833779028,
+              "npshMarginRatio": 2.2757912493326806,
               "npshRequired": 4.0983717645923265,
               "npshrCurve": [
                 {
@@ -198945,6 +199336,7 @@
               "isoEfficiencyLines": [],
               "npshAvailable": 9.167151410810744,
               "npshMargin": null,
+              "npshMarginRatio": null,
               "npshRequired": null,
               "npshrCurve": [
                 {
@@ -199182,7 +199574,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -199469,6 +199862,11 @@
                     "value": 5.228666833779028
                   },
                   {
+                    "name": "NPSH margin ratio NPSHa/NPSHr",
+                    "unit": "",
+                    "value": 2.2757912493326806
+                  },
+                  {
                     "name": "Hydraulic power P_hyd",
                     "unit": "W",
                     "value": 10808.693414980999
@@ -199529,7 +199927,8 @@
                   "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; outside them the tangent line at the nearest end point",
                   "NPSHr(Q) = max(s² NPSHr₀(Q/s), 0)",
                   "NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)",
-                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)"
+                  "NPSH margin = NPSHa − NPSHr (negative: cavitation)",
+                  "NPSH margin ratio = NPSHa / NPSHr (below 1: cavitation; not given where NPSHr is 0)"
                 ],
                 "inputs": [
                   {
@@ -199944,7 +200343,7 @@
                 {
                   "items": [
                     "Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
                   ],
                   "references": [

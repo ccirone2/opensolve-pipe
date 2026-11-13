@@ -873,7 +873,8 @@ def methods_summary(
                     f"Atmospheric pressure: {p_atm_source}.",
                     "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), "
                     "the absolute static plus velocity head above the vapor pressure; margin = "
-                    "NPSHa − NPSHr, flagged as cavitation when negative.",
+                    "NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / "
+                    "NPSHr, not given where NPSHr is 0.",
                     "Every port's absolute static pressure is checked against the vapor "
                     "pressure (0 Pa absolute when none is known) and flagged where the liquid "
                     "would flash.",

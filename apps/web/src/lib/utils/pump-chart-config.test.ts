@@ -90,7 +90,9 @@ describe('pump chart configuration', () => {
 			pointStyle: 'circle',
 			showLine: false
 		});
-		expect(labelsOf(config)).toContain('Pump curve at 90 % speed (Winter, out of date)');
+		// Nit 5 (slice 5b, review CASE-NUMBERS-A2 and B3): its pump curve names it by its number too,
+		// as its ring does; was "Pump curve at 90 % speed (Winter, out of date)".
+		expect(labelsOf(config)).toContain('Pump curve at 90 % speed (case 3: Winter, out of date)');
 	});
 
 	// ▽, the triangle turned over, went with the other shapes (nit 5, slice 5b): the test that drew
@@ -471,6 +473,9 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		const sets = config.data.datasets as unknown as Dataset[];
 		const chart = {
 			ctx,
+			// A plot wide enough for every label whole (review CASE-NUMBERS-B1: the plugin reads its
+			// right edge; the test below draws one too narrow).
+			chartArea: { left: 0, right: 10000, top: 0, bottom: 1000 },
 			data: config.data,
 			isDatasetVisible: () => true,
 			getDatasetMeta: (i: number) => ({
@@ -496,6 +501,107 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 			expect.arrayContaining(['Base', '2', 'Base case', 'Winter'])
 		);
 		expect(written.some((w) => w.text.includes('['))).toBe(false);
+	});
+
+	// Review CASE-NUMBERS-B1 (rule 4: "the name follows the box where it fits"): a label that would
+	// run past the plot's right edge is its number alone, never a name cut at the canvas's edge. On
+	// e5e6558 the one-off's case 2 at 1280 px read "[2] Pump PB", the name of the pump that is off in
+	// it, and the lineups image cut "[6] 2 of 4 running (Pump P3, Pump P4 of".
+	it('draws a ring’s name after its number only where the whole label fits in the plot, else its number alone', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
+		const input = (key: string, name: string) => ({
+			key,
+			name,
+			result: pumpResult({ operatingFlow: 0.012, operatingHead: 25 }),
+			stale: false,
+			system: null
+		});
+		const cases = otherCasesData(
+			[input('S1', 'Pump PA off'), input('S2', 'Pump PB off'), input('S3', 'Both pumps off')],
+			SI_UNITS,
+			[0, 0.03],
+			1,
+			null,
+			{ S1: 1, S2: 2, S3: 3 }
+		);
+		const plot = { left: 40, right: 500, top: 0, bottom: 300 };
+		/** Each ring's centre (px): case 1 well inside, case 2 near the edge, case 3 at it. */
+		const ringX: Record<string, number> = { 1: 100, 2: 420, 3: 485 };
+		const draw = (options: { forImage?: boolean; compactLabels?: boolean }) => {
+			const config = pumpChartConfig(data, cases, {
+				speedText: '100 %',
+				legendLabels,
+				format,
+				...options
+			});
+			const sets = config.data.datasets as unknown as Dataset[];
+			const written: { text: string; x: number; align: string }[] = [];
+			const boxes: { x: number; w: number }[] = [];
+			const ctx = {
+				font: '',
+				fillStyle: '',
+				strokeStyle: '',
+				lineWidth: 1,
+				textAlign: 'start',
+				textBaseline: 'alphabetic',
+				save() {},
+				restore() {},
+				measureText: (text: string) => ({ width: text.length * 6 }),
+				beginPath() {},
+				roundRect: (x: number, _y: number, w: number) => boxes.push({ x: x - 0.5, w: w + 1 }),
+				fill() {},
+				stroke() {},
+				fillText(text: string, x: number) {
+					written.push({ text, x, align: this.textAlign });
+				}
+			};
+			const chart = {
+				ctx,
+				chartArea: plot,
+				data: config.data,
+				isDatasetVisible: () => true,
+				getDatasetMeta: (i: number) => {
+					const tag = /^\[(\d+)\]/.exec(sets[i]!.caseLabel ?? '')?.[1];
+					return {
+						data: (sets[i]!.data as unknown[]).map(() => ({ x: ringX[tag!] ?? 60, y: 150 }))
+					};
+				}
+			};
+			const plugin = config.plugins!.find((p) => p.id === 'caseLabels')!;
+			plugin.afterDatasetsDraw!(chart as never, {} as never, {} as never, undefined as never);
+			return { written, boxes };
+		};
+		for (const forImage of [false, true]) {
+			const { written, boxes } = draw({ forImage });
+			// No name is cut: the names left out are not written at all, and nothing passes the edge.
+			const words = written.filter((w) => w.align !== 'center');
+			for (const w of words)
+				expect(w.x + w.text.length * 6, w.text).toBeLessThanOrEqual(plot.right);
+			expect(words.map((w) => w.text)).toEqual(['Pump PA off']);
+			// Case 1 fits whole, right of its ring: "[1] Pump PA off" is 90 px, 110 to 200.
+			expect(boxes[0]).toEqual({ x: 110, w: 18 });
+			expect(written).toContainEqual({ text: 'Pump PA off', x: 110 + 24, align: 'start' });
+			// Case 2's whole label would end at 430 + 90 = 520, past 500: its number alone, right of it.
+			expect(boxes[1]).toEqual({ x: 430, w: 18 });
+			// Case 3's number alone would end at 495 + 18 = 513: left of its ring, 457 to 475.
+			expect(boxes[2]).toEqual({ x: 485 - 10 - 18, w: 18 });
+			expect(boxes).toHaveLength(3);
+			for (const b of boxes) expect(b.x + b.w).toBeLessThanOrEqual(plot.right);
+			// Each box holds its number.
+			expect(written.filter((w) => w.align === 'center').map((w) => w.text)).toEqual([
+				'1',
+				'2',
+				'3'
+			]);
+		}
+		// A phone's screen: each number alone, the one at the edge left of its ring.
+		const phone = draw({ compactLabels: true });
+		expect(phone.boxes).toEqual([
+			{ x: 110, w: 18 },
+			{ x: 430, w: 18 },
+			{ x: 457, w: 18 }
+		]);
+		expect(phone.written.filter((w) => w.align !== 'center')).toEqual([]);
 	});
 
 	it('lists each ring in the legend where its dataset is, though it is drawn on top', () => {

@@ -709,6 +709,34 @@ describe('case numbers: caseTags and caseTagWords (nit 5, slice 5b)', () => {
 		);
 	});
 
+	// Review CASE-NUMBERS-A2 and B3 (rule 4: a case is its number in every list and image): the
+	// pump curve another case draws at another speed names each case at that speed with its number,
+	// as its ring ("Case 2: Winter") and its system curve ("System curve, case 2") do, so the
+	// legend, the tooltips and the image's legend name one case one way. It named them by name
+	// alone, "Pump curve at 90 % speed (Winter; Summer)", beside "System curve, case 2".
+	it('names each case of a pump curve at another speed with its number, the base case by its name', () => {
+		const at = (key: string, name: string, speed: number, stale = false) => ({
+			key,
+			name,
+			result: pumpResult({ speed }),
+			stale,
+			system: null
+		});
+		const tags = { '': 'Base', S1: 1, S2: 2, S3: 3 } as const;
+		const input = [
+			at('S2', 'Winter', 0.9),
+			at('S3', 'Summer', 0.9, true),
+			at('', 'Base case', 0.8),
+			at('S1', 'Higher tank', 0.8)
+		];
+		expect(otherCasesData(input, SI_UNITS, null, 1, null, tags).map((o) => o.curveLabel)).toEqual([
+			'Pump curve at 90 % speed (case 2: Winter; case 3: Summer, out of date)',
+			'Pump curve at 90 % speed (case 2: Winter; case 3: Summer, out of date)',
+			'Pump curve at 80 % speed (Base case; case 1: Higher tank)',
+			'Pump curve at 80 % speed (Base case; case 1: Higher tank)'
+		]);
+	});
+
 	it('names the cases off in this case with their numbers, the screen’s line and the image’s', () => {
 		expect(
 			offCasesNote([

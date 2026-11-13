@@ -356,7 +356,8 @@ describe('one pump off on the Pumps together card', () => {
 			within(card()).queryByRole('button', { name: "Cancel the other cases' station duties" })
 		).toBeNull();
 		const waits = "waits for Solve all to end, then for this case's curves";
-		expect(card().textContent).toContain(`Not on the chart: Pump PA off (${waits}).`);
+		// Nit 5 (review CASE-NUMBERS-A2): by its number, was "Not on the chart: Pump PA off (…)".
+		expect(card().textContent).toContain(`Not on the chart: case 1: Pump PA off (${waits}).`);
 		const table = within(card()).getByRole('table', { name: 'Running combinations' });
 		// Its heading named with its case's number first (nit 5, slice 5b).
 		expect(
@@ -407,7 +408,10 @@ describe('one pump off on the Pumps together card', () => {
 		expect(
 			within(card()).queryByRole('button', { name: "Cancel the other cases' station duties" })
 		).toBeNull();
-		expect(card().textContent).toContain('Not on the chart: Copy A (waits for Solve all to end).');
+		// Nit 5 (review CASE-NUMBERS-A2): S5, fifth in the Scenarios list, by its number 5.
+		expect(card().textContent).toContain(
+			'Not on the chart: case 5: Copy A (waits for Solve all to end).'
+		);
 		expect(card().textContent).not.toContain('being computed');
 		release.S6.resolve();
 		await again;

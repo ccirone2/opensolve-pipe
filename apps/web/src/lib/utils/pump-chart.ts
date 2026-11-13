@@ -977,7 +977,10 @@ export interface OtherCaseData {
 	 * speed (the first case at that speed), with `curveLabel` naming every case at it.
 	 */
 	curve: ChartPoint[] | null;
-	/** "Pump curve at 100 % speed (Base case, Higher tank)". */
+	/**
+	 * "Pump curve at 100 % speed (Base case; case 1: Higher tank)": each case at that speed with its
+	 * number (caseNamed), the base case by its name (nit 5, rule 4; review CASE-NUMBERS-A2, B3).
+	 */
 	curveLabel: string;
 	/** Its system curve, when computed (a null head is a gap). */
 	system: { x: number; y: number | null }[] | null;
@@ -1025,8 +1028,9 @@ export function otherCasesData(
 			operating: data.operating,
 			held: data.held,
 			curve: drawn ? [...data.curve, ...data.extrapolated.flat()].sort((a, b) => a.x - b.x) : null,
+			// Each case at that speed by its number, as its ring and its system curve name it (rule 4).
 			curveLabel: `Pump curve at ${formatNumber(other.result.speed * 100, 4)} % speed (${atSpeed
-				.map((o) => (o.stale ? `${o.name}, out of date` : o.name))
+				.map((o) => caseNamed(caseTagOf(tags, o.key), o.stale ? `${o.name}, out of date` : o.name))
 				.join('; ')})`,
 			system: data.system,
 			row: {

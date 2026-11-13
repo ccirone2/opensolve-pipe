@@ -2148,6 +2148,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			key: `S${i + 1}`,
 			caseId: `S${i + 1}`,
 			name: `Case ${i + 1}`,
+			// Its number, as sevenTags gives it (review CASE-NUMBERS-A2: every case carries it).
+			tag: i + 1,
 			...(i < 6
 				? { number: i + 1 }
 				: {
@@ -2564,8 +2566,9 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(follows(how, ringList)).toBe(true);
 		const items = within(ringList).getAllByRole('listitem');
 		expect(items).toHaveLength(3);
+		// Nit 5 (review CASE-NUMBERS-A2): by its number, was "Not on the chart: Both pumps off (…)".
 		const notOn = within(section).getByText(
-			'Not on the chart: Both pumps off (unticked under Cases on this chart).'
+			'Not on the chart: case 4: Both pumps off (unticked under Cases on this chart).'
 		);
 		expect(follows(ringList, notOn)).toBe(true);
 		expect(outOfSight(notOn)).toBe(false);
@@ -2612,7 +2615,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		await view.rerender(base({ otherCases: none, othersOn: true, onothers: () => {} }));
 		expect(section.querySelector('[data-group-rings-how]')).toBeNull();
 		expect(section.querySelector('[data-group-rings]')).toBeNull();
-		expect(within(section).getByText(/^Not on the chart: Pump PA off/)).toBeVisible();
+		// Nit 5 (review CASE-NUMBERS-A2): by its number, was /^Not on the chart: Pump PA off/.
+		expect(within(section).getByText(/^Not on the chart: case 1: Pump PA off/)).toBeVisible();
 
 		// No station shown (the group curve not ready, the group system curve without a duty): no
 		// ring, so neither the disclosure nor the rule (§5.3: the rule never comes without the frame).
@@ -2655,7 +2659,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(inside).toContain(
 			lines.find((l) => l.startsWith('A ring is called a point of the group system curve'))
 		);
-		const notOn = 'Not on the chart: Both pumps off (unticked under Cases on this chart).';
+		// Nit 5 (review CASE-NUMBERS-A2): by its number, was "Not on the chart: Both pumps off (…)".
+		const notOn = 'Not on the chart: case 4: Both pumps off (unticked under Cases on this chart).';
 		expect(lines).toContain(notOn);
 		expect(inside).not.toContain(notOn);
 		expect(lines.some((l) => l.startsWith(`${RING_LEAD} `))).toBe(true);

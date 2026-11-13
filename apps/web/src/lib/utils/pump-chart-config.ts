@@ -108,7 +108,9 @@ function legendStyle(dataset: {
  * A label's case tag (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5, rule 4): a
  * label starting "[…]" ("[2] Winter", "[1, 4] 3 running", "[Base] Base case") shows the case
  * numbers inside the brackets in a small box, then the words after it; a label without one is its
- * words alone.
+ * words alone. Only for a label whose leading tag the code builds from case numbers (a ring's, an
+ * other case's, a curve label's): a user's text alone, such as a pump's name "[2] Standby", is
+ * never read for one (review CASE-NUMBERS-A1, B2).
  */
 export function labelTag(text: string): { tag: string | null; words: string } {
 	const tagged = /^\[([^\]]+)\](?: (.*))?$/s.exec(text);
@@ -122,6 +124,7 @@ export function labelTag(text: string): { tag: string | null; words: string } {
  * size above the baseline to a quarter of it below (a text's box: descenders), with a 1 px slate
  * edge (the lists' CaseTag box, drawn), the numbers bold and centred in the legend's ink; then the
  * words after it in the fill colour set. The font, fill and alignment are set back as they were.
+ * Called only with labels the code tags (labelTag); a pump's name goes to fillText as typed.
  *
  * The box is not filled: today's label code puts a label where it falls, so a white box hid the
  * mark under it (the group duty's dot, the case shown's operating point); unfilled, a mark shows
@@ -599,13 +602,21 @@ export function pumpChartConfig(
 			const caseSize = forImage ? 14 : 12;
 			ctx.font = `${caseSize}px system-ui, sans-serif`;
 			// Above and below in turn, so the labels of close points do not overlap: right of the
-			// ring (r 10), its number in a box, as the group chart labels its rings.
+			// ring (r 10), its number in a box, as the group chart labels its rings. Its name follows
+			// the box only where the whole label fits inside the plot (rule 4), else the box is alone
+			// (the legend, "Cases on the chart" and the image's footer name it), left of the ring where
+			// even the box would pass the edge: a name is never cut at the canvas's edge (review
+			// CASE-NUMBERS-B1; on e5e6558 "[2] Pump PB off" read "[2] Pump PB" at 1280 px).
 			let n = 0;
 			chart.data.datasets.forEach((dataset, i) => {
 				const label = (dataset as { caseLabel?: string }).caseLabel;
 				const point = chart.getDatasetMeta(i).data[0];
 				if (!label || !point || !chart.isDatasetVisible(i)) return;
-				fillLabel(ctx, label, point.x + 10, n++ % 2 === 0 ? point.y - 10 : point.y + 20, caseSize);
+				const right = chart.chartArea.right;
+				const fits = (text: string) => point.x + 10 + ctx.measureText(text).width <= right;
+				const text = fits(label) ? label : `[${labelTag(label).tag}]`;
+				const x = fits(text) ? point.x + 10 : point.x - 10 - ctx.measureText(text).width;
+				fillLabel(ctx, text, x, n++ % 2 === 0 ? point.y - 10 : point.y + 20, caseSize);
 			});
 			// Short labels at one point of a line or marker ("BEP", "70 %"), in dataset order; a
 			// label that would overlap one already drawn is left out (the legend and notes name it).
@@ -1181,8 +1192,12 @@ export function pumpGroupConfig(
 				const x =
 					point.x + 10 + width > chart.chartArea.right ? point.x - 10 - width : point.x + 10;
 				const y = n++ % 2 === 0 ? point.y - 10 : point.y + 20;
-				// A ring's tag: its numbers in a box, then its names where they are shown (fillLabel).
-				fillLabel(ctx, label, x, y, size);
+				// A ring's tag, which the code builds from its case numbers: its numbers in a box, then
+				// its names where they are shown (fillLabel). Every other label (a pump's name, the
+				// user's text, and "Group") is written as it is: a name that starts "[2] " is a name,
+				// never case 2's box (nit 5, rules 2 and 4; review CASE-NUMBERS-A1, B2).
+				if ((dataset as { otherCase?: boolean }).otherCase) fillLabel(ctx, label, x, y, size);
+				else ctx.fillText(label, x, y);
 				// The point's marker (its radius and half its border), then its label or a ring's tag.
 				const { pointRadius, borderWidth } = dataset as {
 					pointRadius?: number;

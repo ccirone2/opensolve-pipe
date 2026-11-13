@@ -304,6 +304,11 @@ export interface OtherGroupCase {
 	 * drawn, so an untick or a tick moves no other ring's); null when not drawn.
 	 */
 	number: CaseNumber | null;
+	/**
+	 * Its case's number (caseTags), drawn or not: the notes name a case not on the chart by it, as
+	 * "Cases on this chart" boxes it (nit 5, rule 4; review CASE-NUMBERS-A2).
+	 */
+	tag: CaseNumber;
 	state:
 		| 'unticked'
 		| 'off'
@@ -459,6 +464,7 @@ export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 			stale: v.stale,
 			onChart: input.shownKeys.has(v.key),
 			number: null,
+			tag: caseTagOf(input.tags, v.key),
 			duty: null,
 			claim: null,
 			retry: false,

@@ -355,8 +355,12 @@ describe('the rings by case number (nit 5, slice 5b)', () => {
 		expect(parts.rings!.items.map((item) => item.text)).toEqual(entries);
 		const lines = otherNoteLines(parts);
 		expect(lines).toContain(`${LEAD} ${entries.join('; ')}.`);
-		// The unticked case: named in words, as before.
-		expect(lines).toContain('Not on the chart: Pump PA off (unticked under Cases on this chart).');
+		// The unticked case: named with its number, as the pump chart's off line names a case (nit 5,
+		// rule 4; review CASE-NUMBERS-A2). Was "Not on the chart: Pump PA off (…)", by name alone,
+		// beside "Cases on this chart", which boxes it 1.
+		expect(lines).toContain(
+			'Not on the chart: case 1: Pump PA off (unticked under Cases on this chart).'
+		);
 		for (const line of lines) expect(designators(line), line).toEqual([]);
 		// Nor in the whole of the group image's footer.
 		const notes = groupNotes({
@@ -432,7 +436,8 @@ describe('the notes', () => {
 			frame('Tee T1 (run inlet)', 'Tee T2 (run outlet)', PARALLEL),
 			DUTY_CLAIM_RULE,
 			`Other cases on the chart (slate rings, each tagged with its case number): Case 1: Pump PA off, ${f4(duty('S1').flow * 1000)} L/s at a rise of ${f4(duty('S1').head)} m: Yes: the same rest of the network; Case 2: Pump PB off, ${f4(duty('S2').flow * 1000)} L/s at a rise of ${f4(duty('S2').head)} m: Yes: the same rest of the network; Case 3: Delivery tank 5 m higher, ${f4(duty('S3').flow * 1000)} L/s at a rise of ${f4(duty('S3').head)} m: No: the rest of the network differs from this case's; its own group system curve is not drawn.`,
-			'Not on the chart: Both pumps off (unticked under Cases on this chart).'
+			// Nit 5 (review CASE-NUMBERS-A2): the case not on the chart by its number too, was by name.
+			'Not on the chart: case 4: Both pumps off (unticked under Cases on this chart).'
 		]);
 		// The image's footer: after the system duty notes, before the members'.
 		const lines = groupNoteLines(notes);
@@ -797,6 +802,32 @@ describe('the chart configuration', () => {
 		expect(written.some(([text]) => text.includes('['))).toBe(false);
 		expect(written).toContainEqual(['Group (crossing)', CHART_COLORS.ink]);
 		expect(written).toContainEqual(['Pump PA', CHART_COLORS.ink]);
+	});
+
+	// Review CASE-NUMBERS-A1 and B2 (nit 5, rule 2 "a pump is its name", rule 4 "the box is a
+	// case's number"): a pump's name is the user's text (models/base.py Name, 1 to 100 characters),
+	// so one that starts "[2] " is a name, never case 2's tag. Only a ring's tag, which the code
+	// builds from its case numbers, is drawn as a box; on 7a2ce76 to e5e6558 fillLabel parsed every
+	// point label, and "[2] Standby" became case 2's box then "Standby", beside ring 2's own box.
+	it('writes a pump’s name as typed, brackets and all, on the screen and in the image: only a ring’s tag is a box', () => {
+		const names = ['[2] Standby', '[P1]'];
+		const renamed = members.map((m, i) => ({ ...m, name: names[i]! }));
+		for (const forImage of [false, true]) {
+			const data = groupChartData(renamed, prefs, group, system, others(['S2']));
+			const chart = drawnChart(config(data, { forImage }));
+			chart.draw();
+			for (const name of names) {
+				expect(
+					chart.written.filter((w) => w.text === name).map((w) => w.color),
+					`${name}, ${forImage ? 'image' : 'screen'}`
+				).toEqual([CHART_COLORS.ink]);
+			}
+			// Neither name's brackets became a box: the one box is ring 2's, "[2] Pump PB off".
+			expect(chart.boxes).toHaveLength(1);
+			expect(chart.label('[2] Pump PB off')).toMatchObject({ color: CHART_COLORS.slate });
+			expect(chart.written.filter((w) => w.text === '2')).toHaveLength(1);
+			expect(chart.written.some((w) => w.text === 'Standby' || w.text === 'P1')).toBe(false);
+		}
 	});
 
 	it('changes nothing else: without rings the configuration is the one with them less their datasets', () => {
@@ -1465,7 +1496,8 @@ describe('the curve family: the legend, the notes, the accessible name and the t
 				entry(5, 'S5', ON, CROSSING('3 running')),
 				entry(6, 'S6', ON, CROSSING('3 running'))
 			].join('; ')}.`,
-			`Not on the chart: ${NAMES.S7} (unticked under Cases on this chart); ${NAMES.S8} (unticked under Cases on this chart).`
+			// Nit 5 (review CASE-NUMBERS-A2): each case not on the chart by its number, was by name.
+			`Not on the chart: case 7: ${NAMES.S7} (unticked under Cases on this chart); case 8: ${NAMES.S8} (unticked under Cases on this chart).`
 		]);
 		// "1 of 4 running" shown: the other curves cut at the right edge; its system curve whole.
 		const low = notesFor(lineupView('S3')).others;
@@ -2554,7 +2586,8 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 			entry(5, 'S5', ON, CROSSING('3 running')),
 			entry(6, 'S6', ON, CROSSING('3 running'))
 		];
-		const notOn = `Not on the chart: ${NAMES.S7} (unticked under Cases on this chart); ${NAMES.S8} (unticked under Cases on this chart).`;
+		// Nit 5 (review CASE-NUMBERS-A2): each case not on the chart by its number, was by name.
+		const notOn = `Not on the chart: case 7: ${NAMES.S7} (unticked under Cases on this chart); case 8: ${NAMES.S8} (unticked under Cases on this chart).`;
 		const clip =
 			"The group system curve is cut at the top, above every pump's head; the data tables list all their points.";
 		expect(otherNoteLines(parts)).toEqual([
@@ -2668,8 +2701,9 @@ describe('the ring notes as parts (pumps-results-layout.md §5.3, S3)', () => {
 			`Case 2: Pump PB off, ${f4(duty('S2').flow * 1000)} L/s at a rise of ${f4(duty('S2').head)} m: Yes: the same rest of the network`,
 			`Case 3: Delivery tank 5 m higher, ${f4(duty('S3').flow * 1000)} L/s at a rise of ${f4(duty('S3').head)} m: No: the rest of the network differs from this case's; its own group system curve is not drawn`
 		]);
+		// Nit 5 (review CASE-NUMBERS-A2): by its number too, was "Not on the chart: Both pumps off …".
 		expect(parts.notOn).toBe(
-			'Not on the chart: Both pumps off (unticked under Cases on this chart).'
+			'Not on the chart: case 4: Both pumps off (unticked under Cases on this chart).'
 		);
 		// Without a group system curve: no rule.
 		expect(partsOf(notesOf(others(['S1']), false), oneOff.project).claim).toBeNull();

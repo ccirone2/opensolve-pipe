@@ -1508,8 +1508,9 @@ export function otherNoteParts(
 		// combinations' station line and the "Other cases' station duties" cell, where they read right.
 		const why = (o: OtherGroupCase) =>
 			o.state === 'unticked' ? 'unticked under Cases on this chart' : o.words;
+		// Each case by its number, as the pump chart's off line names one (nit 5, rule 4).
 		parts.notOn = `Not on the chart: ${without
-			.map((o) => `${o.name}${o.stale ? ' (out of date)' : ''} (${why(o)})`)
+			.map((o) => `${caseNamed(o.tag, `${o.name}${o.stale ? ' (out of date)' : ''}`)} (${why(o)})`)
 			.join('; ')}.`;
 	}
 	parts.leftOut = labelsLeftOutNote(curve.labelsLeftOut);

@@ -14,7 +14,7 @@ Read a proposal when you need to know *why* a feature is shaped as it is, or whe
 | [`export.md`](export.md) | built | D17 | Workbook and CSV contents, the SpreadsheetML and ZIP writers, licensing; §12 as built |
 | [`ui-ux-refinement.md`](ui-ux-refinement.md) | Tier 1 and items 6, 8–10 built | — | Measured friction in the web app and the remaining opportunities |
 | [`landing-page.md`](landing-page.md) | built (web only) | — | The owner's answers on the landing page's goals, its sections and sources, recent projects on this device, the hand-taken screenshots; §5 as built |
-| [`build-density.md`](build-density.md) | built (web only) | — | The Build forms measured; the field registry, density tokens and the budgets CI enforces; six disciplines' and the red team's findings in `build-density/`; §11 as built |
+| [`build-density.md`](build-density.md) | built (web only) | — | The Build forms measured; the field registry, density tokens and the budgets CI enforces; six disciplines' and the red team's findings in `build-density/`; §11 as built; §13–§19 the owner's later requests and how each was built, §19 one Solve and one Solve all (2026-11-12) |
 | [`equipment-pressure-drop.md`](equipment-pressure-drop.md) | built | D18 | The rated-point and Cv/Kv law, the density scaling, §9 Later, §10 owner's answers, §12 as built |
 | [`pump-chart.md`](pump-chart.md) | slices 1–3 and 4a–4d built | D19, D21 | What an engineer reads from a pump chart; the slice plan; §9–§10 as built |
 | [`design-checks.md`](design-checks.md) | built | D19 | The check framework, presets and their citations; §7 as built |

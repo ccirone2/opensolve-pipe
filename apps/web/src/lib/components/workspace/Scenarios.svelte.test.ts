@@ -14,7 +14,7 @@ import { enteredFor } from '$lib/testing/helpers';
 import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { pumpTransferExample } from '$lib/utils/examples';
-import { createComponent } from '$lib/utils/factory';
+import { createComponent, createEmptyProject } from '$lib/utils/factory';
 import { OVERRIDE_FIELDS } from '$lib/utils/model-rules';
 import { withScenarios } from '$lib/utils/scenarios';
 import WorkspaceView from './Workspace.svelte';
@@ -60,7 +60,10 @@ describe('the scenario manager', () => {
 		expect(document.activeElement).toBe(name);
 		expect(ws.store.activeCase).toBe('S1');
 		expect(ws.store.undoLabel).toBe('add scenario');
-		expect(screen.getByRole('button', { name: 'Scenarios (1)' })).toBeInTheDocument();
+		// Never solved, so both cases are to solve (build-density.md §19: the name says so).
+		expect(
+			screen.getByRole('button', { name: 'Scenarios (1), 2 cases to solve' })
+		).toBeInTheDocument();
 		await enter(name, 'Winter');
 		expect(ws.scenarios[0]!.name).toBe('Winter');
 		expect(ws.store.undoLabel).toBe('rename scenario Scenario 1');
@@ -455,5 +458,139 @@ describe('results of a scenario', () => {
 		await fireEvent.click(within(table).getByRole('button', { name: 'Winter' }));
 		expect(ws.store.activeCase).toBe('S1');
 		expect(ws.comparing).toBe(false);
+	});
+});
+
+describe('the Scenarios button counts the cases to solve (build-density.md §19)', () => {
+	/** A solver whose answers wait until `release()` answers the oldest request. */
+	function heldSolver() {
+		const answers: (() => void)[] = [];
+		const solve = vi.fn(
+			() =>
+				new Promise<SolveResponse>((resolve) =>
+					answers.push(() => resolve(response(pumpTransferSolved())))
+				)
+		);
+		return { solver: { solve }, solve, release: () => answers.shift()?.() };
+	}
+	const scenarios = () => screen.getByRole('button', { name: /^Scenarios/ });
+	/** The badge: the button's one part hidden from screen readers (its name says the counts). */
+	const badge = () => scenarios().querySelector<HTMLElement>(':scope > span[aria-hidden="true"]')!;
+	/** The play icon the header's Solve draws while idle (read before a run: it spins then). */
+	const playIcon = () =>
+		document.querySelector('[data-solve-button]')!.querySelector('svg')!.innerHTML;
+	/** The header's ▶, read once each test renders (nothing runs yet). */
+	let play = '';
+	const TEAL = ['bg-teal-700', 'text-white', 'lg:static', 'lg:bg-teal-100', 'lg:text-teal-900'];
+	const AMBER = [
+		'bg-amber-400',
+		'text-amber-950',
+		'lg:static',
+		'lg:bg-amber-100',
+		'lg:text-amber-900'
+	];
+	const KEYS = '(Solve all: Ctrl+Shift+Enter or ⌘+Shift+Enter)';
+
+	function teal(count: string) {
+		expect(badge()).toHaveClass(...TEAL);
+		expect(badge()).not.toHaveClass('bg-amber-400');
+		expect(badge().querySelector('svg')).toBeNull();
+		expect(badge().textContent!.trim()).toBe(count);
+	}
+	function amber(count: string) {
+		expect(badge()).toHaveAttribute('aria-hidden', 'true');
+		expect(badge()).toHaveClass(...AMBER);
+		expect(badge()).not.toHaveClass('bg-teal-700');
+		const svg = badge().querySelector('svg');
+		expect(svg).not.toBeNull();
+		expect(svg!.innerHTML).toBe(play);
+		expect(badge().textContent!.trim()).toBe(count);
+	}
+
+	it('turns amber with ▶ and the count while cases are to solve, its name and title say so; teal once all are current', async () => {
+		const ws = setup(project(), { solver: { solve: async () => response(pumpTransferSolved()) } });
+		play = playIcon();
+		expect(scenarios()).toHaveAccessibleName('Scenarios (1), 2 cases to solve');
+		expect(scenarios()).toHaveAttribute(
+			'title',
+			`Case shown: Base case · 2 cases to solve ${KEYS}`
+		);
+		amber('2');
+		await ws.solve();
+		await tick();
+		expect(scenarios()).toHaveAccessibleName('Scenarios (1), 1 case to solve');
+		expect(scenarios()).toHaveAttribute('title', `Case shown: Base case · 1 case to solve ${KEYS}`);
+		amber('1');
+		await ws.solveAll();
+		await tick();
+		expect(scenarios()).toHaveAccessibleName('Scenarios (1)');
+		expect(scenarios()).toHaveAttribute('title', 'Case shown: Base case');
+		teal('1');
+	});
+
+	it('stays teal on an empty network with scenarios, and turns amber once it has a component', async () => {
+		const ws = setup(
+			withScenarios(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }), [
+				{ id: 'S1', name: 'Winter', overrides: [] }
+			])
+		);
+		play = playIcon();
+		expect(scenarios()).toHaveAccessibleName('Scenarios (1)');
+		expect(scenarios()).toHaveAttribute('title', 'Case shown: Base case');
+		teal('1');
+		ws.addStandalone('reservoir');
+		await tick();
+		expect(scenarios()).toHaveAccessibleName('Scenarios (1), 2 cases to solve');
+		amber('2');
+	});
+
+	it('counts down as Solve all answers each case, then shows the teal scenario count', async () => {
+		const held = heldSolver();
+		const ws = setup(project(), { solver: held.solver });
+		play = playIcon();
+		const run = ws.solveAll();
+		await tick();
+		expect(scenarios()).toHaveAccessibleName('Scenarios (1), 2 cases to solve');
+		amber('2');
+		held.release();
+		await vi.waitFor(() => expect(held.solve).toHaveBeenCalledTimes(2));
+		await tick();
+		expect(scenarios()).toHaveAccessibleName('Scenarios (1), 1 case to solve');
+		amber('1');
+		held.release();
+		await run;
+		await tick();
+		expect(scenarios()).toHaveAccessibleName('Scenarios (1)');
+		teal('1');
+	});
+
+	it('draws its spinner at 20 px while Solve all runs (Icon’s size-5 kept beside the spin)', async () => {
+		const held = heldSolver();
+		const ws = setup(project(), { solver: held.solver });
+		const icon = () => scenarios().querySelector(':scope > svg')!;
+		expect(icon()).toHaveClass('size-5');
+		const run = ws.solveAll();
+		await tick();
+		// A class that replaced size-5 drew it at any size (about 42 px on a phone, 6 px on desktop).
+		expect(icon()).toHaveClass('size-5', 'motion-safe:animate-spin');
+		held.release();
+		await vi.waitFor(() => expect(held.solve).toHaveBeenCalledTimes(2));
+		held.release();
+		await run;
+		await tick();
+		expect(icon()).toHaveClass('size-5');
+		expect(icon()).not.toHaveClass('motion-safe:animate-spin');
+	});
+
+	it('shows its word and the inline badge from 1024 px; below, an icon with the corner badge', () => {
+		setup(project());
+		const button = scenarios();
+		const word = [...button.querySelectorAll('span')].find((s) => s.textContent === 'Scenarios')!;
+		expect(word).toHaveClass('hidden', 'lg:inline');
+		expect(word).not.toHaveClass('md:inline');
+		expect(button).toHaveClass('btn-icon', 'lg:w-auto', 'lg:px-3');
+		expect(button).not.toHaveClass('md:w-auto');
+		expect(badge()).toHaveClass('absolute', 'lg:static');
+		expect(badge()).not.toHaveClass('md:static');
 	});
 });

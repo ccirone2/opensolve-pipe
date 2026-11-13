@@ -19,14 +19,19 @@
 	switch between its results and Compare cases, and a card at the top says which case produced
 	the results and lists the changes the server applied. Rows of elements the scenario changed say
 	so, in every table; a scenario's invalid value is shown with the change that set it, and Reset
-	to base. The case bar announces Solve all's progress; the status line here is the case shown's,
-	and a case switch replaces it (the switch is announced once, by the workspace). Switching tab
-	from a control that goes (a column header of Compare cases, the card's Compare cases) gives the
-	focus to the tab shown.
+	to base. The Scenarios menu's line, or the header's twin while it is closed, announces Solve
+	all's progress; the status line here is the case shown's, and a case switch replaces it (the
+	switch is announced once, by the workspace). Switching tab from a control that goes (a column
+	header of Compare cases, the card's Compare cases) gives the focus to the tab shown.
 
 	Goal seek (proposal goal-seek.md §6.2): the Goal seek button at the right of the header opens
-	its dialog, without a solve; its icon spins while one runs. While a goal seek runs, every Solve
-	control here is unavailable with the reason (one request at a time, store.calculating).
+	its dialog, without a solve; its icon spins while one runs.
+
+	One control per action, at the top (build-density.md §19): the pane has no Solve, Solve now or
+	Solve all of its own. Where it offered one, its words name the control, with the header's own
+	icon and, on a fine pointer, its shortcut (ControlName, KeysHint): the case shown not solved
+	(E1: Solve, and Solve all in the Scenarios menu while two cases or more are to solve; nothing
+	more while a calculation runs), never solved (E2), and a link opened without results (E3).
 
 	Export (proposal export.md §5.2): the Export button, left of Goal seek, is shown when there is
 	something to export (the case shown has results on screen, or on Compare cases any case has a
@@ -39,7 +44,9 @@
 	import { tick, untrack, type Component as SvelteComponent } from 'svelte';
 	import type { Component, ControlValve } from '$lib/api/types';
 	import SiteFooter from '$lib/components/SiteFooter.svelte';
+	import ControlName from '$lib/components/ui/ControlName.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
+	import KeysHint from '$lib/components/ui/KeysHint.svelte';
 	import ScrollRow from '$lib/components/ui/ScrollRow.svelte';
 	import { caseNameIn, useWorkspace } from '$lib/state/workspace.svelte';
 	import { freePorts, isBoundary } from '$lib/utils/graph';
@@ -423,7 +430,8 @@
 
 	/**
 	 * The live status line: short, so a solve's outcome is announced without the lists. It is the
-	 * case shown's (Solve all's progress is the case bar's to announce).
+	 * case shown's (Solve all's progress is the Scenarios menu's line's to announce, or the header's
+	 * twin's while the menu is closed).
 	 */
 	const status = $derived.by(() => {
 		if (results.solving) return 'Solving…';
@@ -528,9 +536,11 @@
 		(ws.project.metadata.description ?? '').trim().split('\n', 1)[0] ?? ''
 	);
 
-	/** A request in flight (a solve of any case, Solve all, a goal seek): one at a time. */
-	const busyReason = $derived(calculatingReason(ws.store.calculating, 'solve'));
-	const busy = $derived(!!busyReason);
+	/**
+	 * The cases Solve all would solve (E1's words name it while two or more are to solve): the case
+	 * shown counts while it is not solved, a cancelled one too (build-density.md §19).
+	 */
+	const toSolve = $derived(ws.store.casesToSolve().length);
 	const goalSeeking = $derived(ws.store.calculating === 'goalSeek');
 
 	/**
@@ -861,34 +871,22 @@
 				<FlagsSummary flags={solved.flags} onskip={focusViews} />
 			{:else if !results.error && !results.solving}
 				{#if hasScenarios && ws.project.components.length}
-					<div class="flex flex-wrap items-center gap-2">
-						<p class="min-w-0 flex-1 basis-48 break-words text-slate-700">
+					<!-- E1: the words name the header's Solve and the Scenarios menu's Solve all, and say
+						nothing more while a calculation runs (build-density.md §19). -->
+					<div class="space-y-1">
+						<p class="break-words text-slate-700">
 							{caseName} has not been solved yet{results.cancelled
 								? ' (its solve was cancelled)'
 								: ''}.
 						</p>
-						<!-- The case is named before; a name of up to 100 characters would not fit a phone. -->
-						<button
-							type="button"
-							class="btn btn-primary"
-							aria-disabled={busy}
-							aria-describedby={busy ? `${id}-busy` : undefined}
-							title={busyReason || undefined}
-							onclick={() => !busy && void ws.solve()}
-						>
-							<Icon name="play" class="size-4" /> Solve <span class="sr-only">{caseName}</span>
-						</button>
-						<button
-							type="button"
-							class="btn"
-							aria-disabled={busy}
-							aria-describedby={busy ? `${id}-busy` : undefined}
-							title={busyReason || undefined}
-							onclick={() => !busy && void ws.solveAll()}
-						>
-							Solve all
-						</button>
-						{#if busy}<span id="{id}-busy" class="sr-only">{busyReason}</span>{/if}
+						{#if ws.store.calculating === null}
+							<p class="text-sm text-slate-700">
+								Press <ControlName control="solve" />, at the top<KeysHint keys="solve" />, to solve
+								it. {#if toSolve >= 2}Solve all, in the <ControlName control="scenarios" /> menu<KeysHint
+										keys="solveAll"
+									/>, solves the {toSolve} cases whose results are missing or out of date.{/if}
+							</p>
+						{/if}
 					</div>
 				{:else if !ws.project.components.length}
 					<p class="text-slate-700">
@@ -896,27 +894,17 @@
 						pressures and pump operating points.
 					</p>
 				{:else if ws.store.loadedMethodVersion}
-					<div class="space-y-2">
-						<p class="text-slate-700">
-							This project was opened without results: a link holds the project's inputs, not its
-							results. Press Solve to calculate the flows, pressures and pump operating points (the
-							project is sent to the calculation server, which does not keep it).
-						</p>
-						<button
-							type="button"
-							class="btn btn-primary"
-							aria-disabled={busy}
-							aria-describedby={busy ? `${id}-busy-now` : undefined}
-							title={busyReason || undefined}
-							onclick={() => !busy && void ws.solve()}
-						>
-							<Icon name="play" class="size-4" /> Solve now
-						</button>
-						{#if busy}<span id="{id}-busy-now" class="sr-only">{busyReason}</span>{/if}
-					</div>
+					<!-- E3: no Solve now; the words say where Solve is (build-density.md §19). -->
+					<p class="text-slate-700">
+						This project was opened without results: a link holds the project's inputs, not its
+						results. Press <ControlName control="solve" />, at the top<KeysHint keys="solve" />, to
+						calculate the flows, pressures and pump operating points (the project is sent to the
+						calculation server, which does not keep it).
+					</p>
 				{:else}
 					<p class="text-slate-700">
-						Press Solve to calculate the flows, pressures and pump operating points of the network.
+						Press <ControlName control="solve" />, at the top<KeysHint keys="solve" />, to calculate
+						the flows, pressures and pump operating points of the network.
 					</p>
 				{/if}
 			{/if}

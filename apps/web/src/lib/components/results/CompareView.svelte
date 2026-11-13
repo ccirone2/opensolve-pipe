@@ -10,10 +10,17 @@
 	read on it as it is now, the row's name: a note says when a case was solved before a reversal
 	(the other sign) or before its ends or its pipes changed (no value). A row's header opens a
 	trace only when the case shown has results (the trace is that case's). Solve all's progress is
-	announced by the case bar alone.
+	announced by the Scenarios menu's line, or the header's twin while it is closed, alone.
+
+	One control per action, at the top (build-density.md §19): Compare has no Solve all of its own.
+	Its amber line names the Scenarios menu's, with the Scenarios button's own icon and, on a fine
+	pointer, its shortcut (ControlName, KeysHint); with no results yet, the line under it says only
+	that, since the amber line above says how.
 -->
 <script lang="ts">
+	import ControlName from '$lib/components/ui/ControlName.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
+	import KeysHint from '$lib/components/ui/KeysHint.svelte';
 	import CaseStatusChip from '$lib/components/workspace/CaseStatusChip.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import { CASE_STATUS_LABELS } from '$lib/utils/labels';
@@ -28,7 +35,6 @@
 		type CompareColumn
 	} from '$lib/utils/compare';
 	import type { ElementRef } from '$lib/utils/results';
-	import { calculatingReason } from '$lib/utils/goal-seek';
 	import type { CaseId } from '$lib/utils/scenarios';
 	import CompareRowsDialog from './CompareRowsDialog.svelte';
 
@@ -69,6 +75,12 @@
 	/** What Solve all solves now, and the cases it skips (an error of their own to fix first). */
 	const toSolve = $derived(store.casesToSolve());
 	const errors = $derived(store.casesWithErrors());
+	/** How many cases Solve all would solve, of how many (the amber line's start). */
+	const toSolveWords = $derived(
+		toSolve.length === 1
+			? `1 of ${cases.length} cases has results that are missing or out of date`
+			: `${toSolve.length} of ${cases.length} cases have results that are missing or out of date`
+	);
 	const anyResults = $derived(columns.some((c) => c.solved));
 	/** The case shown has results: a row's header opens that element's trace in them. */
 	const traces = $derived(!!store.results.response);
@@ -88,18 +100,10 @@
 			? `Solving ${run.index + 1} of ${run.cases.length}: ${ws.caseName(run.cases[run.index] ?? null)}…`
 			: ''
 	);
-	/** A request in flight (a solve, Solve all, a goal seek): one at a time. */
-	const busyReason = $derived(calculatingReason(store.calculating, 'solve'));
-	const canRun = $derived(!busyReason && toSolve.length > 0);
-
 	/** "Winter", "Winter and Peak", "Winter, Peak and Night". */
 	function names(list: readonly CaseId[]): string {
 		const all = list.map((c) => ws.caseName(c));
 		return all.length < 2 ? (all[0] ?? '') : `${all.slice(0, -1).join(', ')} and ${all.at(-1)}`;
-	}
-
-	function solveAll() {
-		if (canRun) void ws.solveAll();
 	}
 
 	function show(caseId: CaseId) {
@@ -128,31 +132,21 @@
 				the base case.
 			</p>
 		</div>
-		<div class="flex flex-wrap gap-2">
-			<button type="button" class="btn" onclick={() => (choosing = true)}>Choose results…</button>
-			<button
-				type="button"
-				class="btn"
-				aria-disabled={!canRun}
-				aria-describedby={busyReason ? `${id}-busy` : undefined}
-				title={busyReason || undefined}
-				onclick={solveAll}
-			>
-				<Icon name="play" class="size-4" /> Solve all
-			</button>
-			{#if busyReason}<span id="{id}-busy" class="sr-only">{busyReason}</span>{/if}
-		</div>
+		<button type="button" class="btn" onclick={() => (choosing = true)}>Choose results…</button>
 	</div>
-	<!-- Not a live region: the case bar announces the run's progress. -->
+	<!-- Not a live region: the Scenarios menu's line, or the header's twin while it is closed,
+		announces the run's progress. -->
 	<p class="text-sm text-slate-700 empty:hidden">{progress}</p>
 	{#if toSolve.length && !run}
 		<p
 			class="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900"
 		>
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" />
+			<!-- The Scenarios menu's Solve all, named (build-density.md §19). -->
 			<span
-				>{toSolve.length} of {cases.length} cases have results that are missing or out of date. Solve
-				all solves them, one after another.</span
+				>{toSolveWords}: Solve all, in the <ControlName control="scenarios" /> menu at the top<KeysHint
+					keys="solveAll"
+				/>, {toSolve.length === 1 ? 'solves it' : 'solves them one after another'}.</span
 			>
 		</p>
 	{/if}
@@ -175,19 +169,8 @@
 	{/if}
 
 	{#if !anyResults}
-		<div class="flex flex-wrap items-center gap-2 text-sm">
-			<p class="text-slate-700">No case has results yet.</p>
-			<button
-				type="button"
-				class="btn btn-primary"
-				aria-disabled={!canRun}
-				aria-describedby={busyReason ? `${id}-busy` : undefined}
-				title={busyReason || undefined}
-				onclick={solveAll}
-			>
-				<Icon name="play" class="size-4" /> Solve all
-			</button>
-		</div>
+		<!-- The amber line above says how (the Scenarios menu's Solve all). -->
+		<p class="text-sm text-slate-700">No case has results yet.</p>
 	{:else}
 		<div class="@container">
 			<!-- Wide: a table that scrolls sideways in its own box, its row headers sticking. -->

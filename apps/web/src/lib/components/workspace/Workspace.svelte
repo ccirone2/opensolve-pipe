@@ -6,10 +6,13 @@
 	split, and the choice is remembered in this browser (pane-split.ts). It tells the fields below which case is shown (field-mode.ts): in a
 	scenario only its values, names and display units can be edited. The goal-seek dialog opens
 	over them (from the Results pane's header or a trace). Outside text fields Ctrl/⌘+Z undoes and
-	Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redoes; Ctrl/⌘+Enter solves from anywhere but a dialog.
+	Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redoes; Ctrl/⌘+Enter solves from anywhere but a dialog, and once the
+	project has scenarios Ctrl/⌘+Shift+Enter runs Solve all, the Scenarios menu's (build-density.md
+	§19), or says why it cannot. Pressed in Build on a narrow screen, either shows Results and gives
+	the focus to the Results tab, so it does not fall to the page with the Build pane hidden.
 -->
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { provideFieldMode } from '$lib/components/ui/field-mode';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import PanelNavigator from '$lib/components/panel/PanelNavigator.svelte';
@@ -64,6 +67,25 @@
 		);
 	}
 
+	/**
+	 * Run a solve started from the keyboard. On narrow screens it shows Results (ws.solve,
+	 * ws.solveAll), which hides Build: a control there that had the focus is no longer shown, and
+	 * the focus would fall to the page. It goes to the Results tab, the tab now shown, instead (as a
+	 * control that goes gives it to the tab shown in ResultsPanel, and Cancel takes Library's in the
+	 * header; build-density.md §19). Where Build stays shown (wide screens) nothing moves.
+	 */
+	function keepingFocus(run: () => void) {
+		const from = document.activeElement;
+		run();
+		if (!(from instanceof HTMLElement) || !from.closest(`[id="${id}-build"]`)) return;
+		void tick().then(() => {
+			if (from.getClientRects().length) return;
+			const now = document.activeElement;
+			if (now !== from && now !== document.body && now !== null) return;
+			document.getElementById(`${id}-tab-results`)?.focus();
+		});
+	}
+
 	function keydown(event: KeyboardEvent) {
 		if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
 		const key = event.key.toLowerCase();
@@ -74,7 +96,22 @@
 			event.preventDefault();
 			// A held key repeats: one press, one solve.
 			if (event.repeat) return;
-			if (ws.store.calculating === null && ws.project.components.length) void ws.solve();
+			if (ws.store.calculating === null && ws.project.components.length) {
+				keepingFocus(() => void ws.solve());
+			}
+			return;
+		}
+		// Ctrl/⌘+Shift+Enter runs Solve all (build-density.md §19), also from a field, as Ctrl/⌘+Enter
+		// solves; once the project has scenarios (Solve all is the Scenarios menu's) and not inside a
+		// dialog. A press is never silent: one that cannot run says why, in the menu's words.
+		if (key === 'enter' && ws.scenarios.length) {
+			if (event.target instanceof Element && event.target.closest('dialog')) return;
+			event.preventDefault();
+			// A held key repeats: one press, one run (a repeat is ignored, not refused).
+			if (event.repeat) return;
+			const all = ws.solveAllState;
+			if (all.canRun) keepingFocus(() => void ws.solveAll());
+			else ws.notify('info', all.reason);
 			return;
 		}
 		if (editingText(event.target)) return;

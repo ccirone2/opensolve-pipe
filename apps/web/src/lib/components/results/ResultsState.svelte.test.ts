@@ -73,12 +73,14 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-describe('trace side panel (wide screens)', () => {
+describe('trace sheet (narrow screens)', () => {
+	// Below 1024 px the trace is a sheet over the header, which is inert behind it: the one place
+	// that keeps Solve again (build-density.md §19; from 1024 px the side panel has words only).
 	it('says its values are out of date after an edit, and solves again from there', async () => {
-		screenWidth(true);
+		screenWidth(false);
 		const { ws, solve } = await solveWith(pumpTransferSolved());
 		await openTrace('Links', /^Suction tank → Transfer pump/);
-		const panel = await screen.findByRole('region', { name: 'Suction tank → Transfer pump' });
+		const panel = await screen.findByRole('dialog', { name: 'Suction tank → Transfer pump' });
 		expect(within(panel).queryByText(/out of date/)).toBeNull();
 
 		ws.store.update((p) => {
@@ -90,7 +92,9 @@ describe('trace side panel (wide screens)', () => {
 		expect(solve).toHaveBeenCalledTimes(2);
 		await vi.waitFor(() => expect(within(panel).queryByText(/out of date/)).toBeNull());
 	});
+});
 
+describe('trace side panel (wide screens)', () => {
 	it('says a solve that did not converge is not a solution, with the network-wide flag', async () => {
 		screenWidth(true);
 		await solveWith(pumpTransferSolved({ converged: false, flags: [notConverged] }));
@@ -228,7 +232,11 @@ describe('results state', () => {
 		// The error comes first; nothing says the project changed after this solve.
 		expect(error.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		expect(results().queryByText(/the project changed after this solve/)).toBeNull();
-		expect(results().queryByRole('button', { name: 'Solve again' })).toBeNull();
+		// Failed and out of date: its words, whole: solving again cannot help until the project is
+		// fixed, so they name no Solve (build-density.md §19; it never offered Solve again).
+		expect(notice.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+			'The last solve failed (see above). The results below are from an earlier version of the project, before your last changes.'
+		);
 		expect(results().getByRole('status')).toHaveTextContent(/^Last solve: no results$/);
 		// The earlier results are not shown as if current.
 		expect(results().queryByRole('heading', { name: 'Converged' })).toBeNull();
@@ -249,6 +257,7 @@ describe('results state', () => {
 	});
 
 	it('after a cancelled solve: the earlier results stay, current or out of date as before', async () => {
+		screenWidth(false); // the trace a sheet, with Solve again
 		let calls = 0;
 		const solve = vi.fn(
 			() =>
@@ -289,10 +298,15 @@ describe('results state', () => {
 		expect(
 			results().getByText(/^Results are out of date: the project changed after this solve\./)
 		).toBeInTheDocument();
-		expect(results().getByRole('button', { name: 'Solve again' })).toHaveAttribute(
+		// Solve again, in the trace's sheet (the one place it stays, build-density.md §19), is
+		// available once the solve is cancelled.
+		await openTrace('Links', /^Suction tank → Transfer pump/);
+		const sheet = await screen.findByRole('dialog', { name: 'Suction tank → Transfer pump' });
+		expect(within(sheet).getByRole('button', { name: 'Solve again' })).toHaveAttribute(
 			'aria-disabled',
 			'false'
 		);
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
 		expect(tab()).toHaveAccessibleName('Results (out of date)');
 		// Back to the solved project: current again.
 		ws.store.undo();
@@ -325,11 +339,15 @@ describe('results state', () => {
 			/^Solve cancelled\. Last finished solve: no results$/
 		);
 		expect(results().getByText(/could not be reached/)).toBeInTheDocument();
+		// The words, whole: they end by naming the header's Solve (build-density.md §19).
 		expect(
-			results().getByText(
-				'The last solve that finished failed. The results below are from the previous solve of this same project.'
-			)
-		).toBeInTheDocument();
+			results()
+				.getByText(/^The last solve that finished failed\./)
+				.textContent?.replace(/\s+/g, ' ')
+				.trim()
+		).toBe(
+			'The last solve that finished failed. The results below are from the previous solve of this same project. Press Solve, at the top (Ctrl+Enter or ⌘+Enter), to try again.'
+		);
 	});
 
 	it('marks the Results tab when results are out of date or physically invalid', async () => {
@@ -599,5 +617,87 @@ describe('method-version notice', () => {
 		);
 		await vi.waitFor(() => expect(status).toHaveTextContent('What changed:'));
 		expect(within(notice).getByText('Made-up change.')).toBeInTheDocument();
+	});
+});
+
+describe('the notice says where Solve is; the trace’s sheet keeps Solve again (build-density.md §19)', () => {
+	const KEYS = '(Ctrl+Enter or ⌘+Enter)';
+	const words = (text: string | null | undefined) => (text ?? '').replace(/\s+/g, ' ').trim();
+	/** The paragraph inside `root` (not inside `except`) whose words start with `start`. */
+	const sentence = (root: Element, start: string, except?: Element) =>
+		[...root.querySelectorAll('p')].find(
+			(p) => !except?.contains(p) && words(p.textContent).startsWith(start)
+		) ?? null;
+	const solveAgains = () => screen.queryAllByRole('button', { name: /^Solve again/, hidden: true });
+
+	it('from 1024 px, out of date and failed: the words and no Solve again, in the pane and the side-panel trace', async () => {
+		screenWidth(true);
+		let fail = false;
+		const solve = vi.fn(() =>
+			fail
+				? Promise.reject(new NetworkError('The calculation server could not be reached.', 0))
+				: Promise.resolve(response(pumpTransferSolved()))
+		);
+		const ws = testWorkspace(pumpTransferExample(), { solver: { solve } });
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await openTrace('Links', /^Suction tank → Transfer pump/);
+		const name = 'Suction tank → Transfer pump';
+		let panel = await screen.findByRole('region', { name });
+		const pane = screen.getByRole('region', { name: 'Results' });
+		// Out of date.
+		ws.store.update((p) => {
+			p.connections[0]!.piping.pipes[0]!.length = 500;
+		}, 'change length');
+		await within(panel).findByText(/Results are out of date/);
+		expect(words(sentence(pane, 'Results are out of date', panel)?.textContent)).toBe(
+			`Results are out of date: the project changed after this solve. Press Solve, at the top ${KEYS}, to update them.`
+		);
+		expect(words(sentence(panel, 'Results are out of date')?.textContent)).toBe(
+			`Results are out of date: the project changed after this solve. These values are from before the change. Press Solve, at the top ${KEYS}, to update them.`
+		);
+		expect(solveAgains()).toHaveLength(0);
+		// Failed, the earlier results of this same project kept.
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await vi.waitFor(() => expect(ws.store.results.stale).toBe(false));
+		fail = true;
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await vi.waitFor(() => expect(ws.store.results.error?.kind).toBe('network'));
+		ws.inspect({ kind: 'connection', id: 'L1' });
+		panel = await screen.findByRole('region', { name });
+		expect(words(sentence(pane, 'The last solve failed', panel)?.textContent)).toBe(
+			`The last solve failed. The results below are from the previous solve of this same project. Press Solve, at the top ${KEYS}, to try again.`
+		);
+		expect(words(sentence(panel, 'The last solve failed')?.textContent)).toBe(
+			`The last solve failed. These values are from the previous solve of this same project. Press Solve, at the top ${KEYS}, to try again.`
+		);
+		expect(solveAgains()).toHaveLength(0);
+	});
+
+	it('below 1024 px the trace’s sheet keeps Solve again, the only one in the page, and it solves', async () => {
+		screenWidth(false);
+		const { ws, solve } = await solveWith(pumpTransferSolved());
+		await openTrace('Links', /^Suction tank → Transfer pump/);
+		const dialog = await screen.findByRole('dialog', { name: 'Suction tank → Transfer pump' });
+		ws.store.update((p) => {
+			p.connections[0]!.piping.pipes[0]!.length = 500;
+		}, 'change length');
+		await within(dialog).findByText(/Results are out of date/);
+		// The pane behind the sheet: words only.
+		const pane = screen.getByRole('region', { name: 'Results' });
+		expect(words(sentence(pane, 'Results are out of date', dialog)?.textContent)).toBe(
+			`Results are out of date: the project changed after this solve. Press Solve, at the top ${KEYS}, to update them.`
+		);
+		// The sheet: the header is inert behind it and Ctrl+Enter is off, so it keeps today's.
+		expect(words(sentence(dialog, 'Results are out of date')?.textContent)).toBe(
+			'Results are out of date: the project changed after this solve. These values are from before the change. Solve again to update the results.'
+		);
+		const agains = solveAgains();
+		expect(agains).toHaveLength(1);
+		expect(dialog.contains(agains[0]!)).toBe(true);
+		await fireEvent.click(agains[0]!);
+		expect(solve).toHaveBeenCalledTimes(2);
+		await vi.waitFor(() => expect(ws.store.results.stale).toBe(false));
 	});
 });

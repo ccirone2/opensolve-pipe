@@ -9,9 +9,10 @@
  * those still waiting withdrawn when another case is shown, a failure or the user's cancel never
  * asked again without "Compute them again"); a case not asked yet while a run holds, which waits
  * for it with no progress line; the claims; the block in a scenario; the scenario limit; two
- * members of one name; and the block's Solve all, which keeps the focus through its run and words
- * its reasons as the Scenarios menu does. The solves and curves are the shared fixture's real API answers for
- * the `one-off` case and its scenarios, given by a fake solver by scenario id.
+ * members of one name; and Add, which keeps the focus through a run (the block has no Solve all:
+ * the Scenarios menu's is the one, build-density.md §19, and counts the cases added). The solves
+ * and curves are the shared fixture's real API answers for the `one-off` case and its scenarios,
+ * given by a fake solver by scenario id.
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -139,6 +140,16 @@ const chooseEach = () =>
 	fireEvent.click(within(block()).getByRole('radio', { name: 'Each pump off' }));
 const others = (calls: Call[]) => calls.filter((c) => c.scenarioId !== null);
 
+/**
+ * The Scenarios menu, opened from the header (build-density.md §19: its Solve all is the one).
+ */
+async function openMenu(): Promise<HTMLElement> {
+	const open = screen.queryByRole('group', { name: 'Case' });
+	if (open) return open;
+	await fireEvent.click(screen.getByRole('button', { name: /^Scenarios/ }));
+	return screen.getByRole('group', { name: 'Case' });
+}
+
 /** Solve the base, show the Pumps view and open the card; its two curves answered. */
 async function openCard(ws: ReturnType<typeof setup>['ws'], calls: Call[]) {
 	await ws.solve();
@@ -158,6 +169,8 @@ describe('one pump off on the Pumps together card', () => {
 		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
 		const add = within(block()).getByRole('button', { name: 'Add 2 cases' });
 		const depth = ws.store.undoDepth;
+		// Pressed as a keyboard user does: focused, then activated.
+		add.focus();
 		await fireEvent.click(add);
 		expect(ws.scenarios.map((s) => [s.id, s.name, s.overrides])).toEqual([
 			[
@@ -177,13 +190,13 @@ describe('one pump off on the Pumps together card', () => {
 		expect(ws.pumpGroupOthers).toBe(true);
 		expect(
 			screen.getByText(
-				'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all solves every case not yet solved; Undo removes them.'
+				'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 			)
 		).toBeVisible();
-		// The focus on the block's Solve all, which offers the two cases.
-		await waitFor(() =>
-			expect(within(block()).getByRole('button', { name: 'Solve all (2)' })).toHaveFocus()
-		);
+		// The focus stays on Add, the same node, now refused (build-density.md §19: the block has
+		// no Solve all to give it to; the Scenarios menu's offers the two cases).
+		await waitFor(() => expect(add).toHaveFocus());
+		expect(add).toHaveAccessibleName('Add cases');
 		// Undo removes both, and shows the base.
 		ws.undo();
 		expect(scenariosOf(ws.store.project)).toEqual([]);
@@ -211,7 +224,8 @@ describe('one pump off on the Pumps together card', () => {
 		await chooseEach();
 		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
 		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
-		await fireEvent.click(within(block()).getByRole('button', { name: 'Solve all (2)' }));
+		// Solve all, the Scenarios menu's (build-density.md §19).
+		await fireEvent.click(within(await openMenu()).getByRole('button', { name: 'Solve all (2)' }));
 		expect(ws.store.groupSystemCurve(response, ['PA', 'PB'])).toEqual({
 			status: 'cancelled',
 			by: 'solve'
@@ -245,15 +259,19 @@ describe('one pump off on the Pumps together card', () => {
 		]);
 	});
 
-	it('keeps the focus on its Solve all through the run and after, the button in place', async () => {
+	it('keeps the focus on Add through the run and after, the button in place', async () => {
 		const { ws, calls, solves } = setup(withoutScenarios());
 		await openCard(ws, calls);
 		await chooseEach();
-		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
-		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
-		const solveAll = within(block()).getByRole('button', { name: 'Solve all (2)' });
-		await waitFor(() => expect(solveAll).toHaveFocus());
-		await fireEvent.click(solveAll);
+		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases". Pressed as a keyboard
+		// user does: focused, then activated.
+		const add = within(block()).getByRole('button', { name: 'Add 2 cases' });
+		add.focus();
+		await fireEvent.click(add);
+		await waitFor(() => expect(add).toHaveFocus());
+		// The run started from Add with Ctrl+Shift+Enter, Solve all's shortcut (build-density.md
+		// §19: the block has no Solve all; the Scenarios menu's is the one).
+		await fireEvent.keyDown(add, { key: 'Enter', ctrlKey: true, shiftKey: true });
 		await waitFor(() => expect(solves).toEqual([null, 'S1', 'S2']));
 		await waitFor(() => expect(ws.store.calculating).toBeNull());
 		// And after the new cases' duties have answered and been drawn.
@@ -264,8 +282,8 @@ describe('one pump off on the Pumps together card', () => {
 			expect(within(legend).getByText('Case 2: Pump PB off (station duty)')).toBeVisible()
 		);
 		expect(others(calls).every((c) => c.settled)).toBe(true);
-		const after = within(block()).getByRole('button', { name: 'Solve all' });
-		expect(after).toBe(solveAll);
+		const after = within(block()).getByRole('button', { name: 'Add cases' });
+		expect(after).toBe(add);
 		expect(after).toHaveAttribute('aria-disabled', 'true');
 		expect(after).toHaveFocus();
 	});
@@ -1156,7 +1174,8 @@ describe('one pump off on the Pumps together card', () => {
 			'Booster pump (PA) off: already a scenario (S1)',
 			'Booster pump (PB) off: already a scenario (S2)'
 		]);
-		await fireEvent.click(within(block()).getByRole('button', { name: 'Solve all (2)' }));
+		// Solve all, the Scenarios menu's (build-density.md §19).
+		await fireEvent.click(within(await openMenu()).getByRole('button', { name: 'Solve all (2)' }));
 		await waitFor(() => expect(solves).toEqual([null, 'S1', 'S2']));
 		// The extremes a table (pumps-results-layout.md §5.3, §10 S5): the six pump and measure
 		// pairs the dl's terms named, pinned by the row headers (the twins still told apart by
@@ -1203,96 +1222,23 @@ describe('one pump off on the Pumps together card', () => {
 		expect(within(table).getAllByRole('rowheader', { name: 'Booster pump (PB)' })).toHaveLength(3);
 	});
 
-	it('words Solve all as the Scenarios menu does, in every state', async () => {
-		const failing = structuredClone(oneOff.project);
-		/** A solve waits for this while it is set. */
-		let held: ReturnType<typeof deferred<void>> | null = null;
-		const { ws, calls } = setup(failing, {
-			solve: async (_p, _o, request) => {
-				if (request?.scenarioId === 'S3') {
-					throw new ValidationError(
-						'Invalid input: 1 problem(s).',
-						['body.project.scenarios.2.overrides.0: made-up rule'],
-						400,
-						'VALIDATION_ERROR'
-					);
-				}
-				if (held) await held.promise;
-				const id = request?.scenarioId;
-				return structuredClone(((id && oneOff.scenarioCases[id]) || oneOff).solve);
-			}
-		});
-		await ws.store.solveAll();
-		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
-		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
-		await waitFor(() => expect(calls.filter((c) => c.scenarioId === null)).toHaveLength(2));
+	it('counts the cases added in the Scenarios menu’s Solve all, the one Solve all', async () => {
+		// build-density.md §19: the block's Solve all is gone. Its state table (each reason, lasting
+		// or passing: S4 review MUT-01, PumpsView's `passing`) moved to goal-seek.test.ts
+		// (solveAllState) and ScenarioCases.svelte.test.ts (the menu's line); here the menu's Solve
+		// all reads the count once 4d's cases are added.
+		const { ws, calls } = setup(withoutScenarios());
+		await openCard(ws, calls);
 		await chooseEach();
-		// Each read again: the block's button is drawn anew when the case shown changes, and the
-		// menu closes when a run ends (its focus goes to Solve).
-		const ours = () => within(block()).getByRole('button', { name: /^Solve all/ });
-		const menu = () => screen.queryByRole('group', { name: 'Case' });
-		const theirs = () => within(menu()!).getByRole('button', { name: 'Solve all' });
-		/**
-		 * The block's reason, drawn as the state asks (pumps-results-layout.md §5.3 item 5, §6.2): a
-		 * lasting one visible text, no title; a passing one (a solve or Solve all runs) visually
-		 * hidden and the button's title (S4 review MUT-01: PumpsView's `passing`).
-		 */
-		const reason = () => block().querySelector<HTMLElement>('[id$="-solve-all"]')!;
-		const same = async (words: string, form: 'lasting' | 'passing') => {
-			if (!menu()) await fireEvent.click(screen.getByRole('button', { name: /^Scenarios/ }));
-			await waitFor(() => expect(theirs()).toHaveAccessibleDescription(words));
-			expect(ours()).toHaveAccessibleDescription(words);
-			expect(ours()).toHaveAttribute('aria-disabled', 'true');
-			expect(reason()).toHaveTextContent(words);
-			if (form === 'lasting') {
-				expect(reason(), words).not.toHaveClass('sr-only');
-				expect(reason(), words).toHaveClass('hint');
-				expect(ours(), words).not.toHaveAttribute('title');
-			} else {
-				expect(reason(), words).toHaveClass('sr-only');
-				expect(ours(), words).toHaveAttribute('title', words);
-			}
-		};
-		await same(
-			'Every case is solved except Delivery tank 5 m higher, which has an error to fix first.',
-			'lasting'
-		);
-		// Fixed: every case current.
-		ws.store.update(
-			(p) =>
-				withScenarios(
-					p,
-					scenariosOf(p).filter((s) => s.id !== 'S3')
-				),
-			'delete scenario'
-		);
-		await same("Every case's results are current.", 'lasting');
-		// A solve of another case than the one shown, in flight: both name that case.
-		held = deferred<void>();
-		const release = held.resolve;
-		ws.setCase('S1');
-		const solving = ws.solve();
-		ws.setCase(null);
-		await same('A solve of Pump PA off is running; Cancel in the header stops it.', 'passing');
-		held = null;
-		release();
-		await solving;
-		await same("Every case's results are current.", 'lasting');
-		// A Solve all run, held on the one case it solves.
-		ws.store.update(
-			(p) => withScenarios(p, [...scenariosOf(p), { id: 'S5', name: 'Copy', overrides: [] }]),
-			'add scenario'
-		);
-		held = deferred<void>();
-		const end = held.resolve;
-		const run = ws.solveAll();
-		await same('Solve all is running; Cancel in the header stops it.', 'passing');
-		held = null;
-		end();
-		await run;
-		await same("Every case's results are current.", 'lasting');
-		// Six states, each awaited: the budget of the card's other long tests.
-	}, 20_000);
+		await fireEvent.click(within(block()).getByRole('button', { name: 'Add 2 cases' }));
+		expect(ws.scenarios.map((s) => s.name)).toEqual(['Pump PA off', 'Pump PB off']);
+		const solveAll = within(await openMenu()).getByRole('button', { name: /^Solve all/ });
+		expect(solveAll).toHaveAccessibleName('Solve all (2)');
+		expect(solveAll).not.toHaveAttribute('aria-disabled', 'true');
+		expect(
+			within(block()).queryAllByRole('button', { name: /^Solve all/, hidden: true })
+		).toHaveLength(0);
+	});
 });
 
 describe('"Cases on this chart" past its cap of six', () => {

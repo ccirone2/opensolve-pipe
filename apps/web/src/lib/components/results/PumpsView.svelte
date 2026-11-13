@@ -60,7 +60,7 @@
 	} from '$lib/state/project.svelte';
 	import { caseResponse } from '$lib/utils/compare';
 	import type { ChartImageSource } from '$lib/utils/export/chart-image';
-	import { calculatingReason, solveAllReason } from '$lib/utils/goal-seek';
+	import { calculatingReason } from '$lib/utils/goal-seek';
 	import { settingsSourceLabel } from '$lib/utils/design-checks';
 	import { componentById } from '$lib/utils/graph';
 	import {
@@ -796,32 +796,6 @@
 	}
 
 	/**
-	 * Solve all in the Add cases block: the Scenarios menu's reasons, from the one function
-	 * CaseMenu.svelte calls (a single solve named by its case).
-	 */
-	const toSolve = $derived(ws.store.casesToSolve());
-	const caseErrors = $derived(ws.store.casesWithErrors());
-	const solveAll = $derived.by(() => {
-		const count = toSolve.length;
-		const reason = solveAllReason({
-			empty: !ws.store.project.components.length,
-			calculating: ws.store.calculating,
-			solvingCase: ws.store.solvingCase,
-			toSolve: count,
-			errors: caseErrors,
-			caseName: (c) => ws.caseName(c)
-		});
-		return {
-			count,
-			canRun: !reason,
-			reason,
-			hint: `Solves each case whose results are missing or out of date, one after another: up to ${count} solve${count === 1 ? '' : 's'}.`,
-			// solveAllReason's reasons while a solve, Solve all or a goal seek runs pass; the others
-			// last, and the block shows them (pumps-results-layout.md §5.3 item 5).
-			passing: !!reason && ws.store.calculating !== null
-		};
-	});
-	/**
 	 * The Add cases block (D24 §7.4): what its preset would make now, from the base case's results
 	 * (Compare's rule), with the stop order derived from the one the user set (ws.pumpStopOrder,
 	 * used while it holds exactly the pumps on; never written here).
@@ -842,7 +816,9 @@
 	});
 	/**
 	 * Add the cases in one undo step, its label the preset's, its notice the plan's (said first in
-	 * the step's notice); then "Also show the other cases' station duties" is ticked (4d's).
+	 * the step's notice); then "Also show the other cases' station duties" is ticked (4d's). The
+	 * block has no Solve all: the notice names the Scenarios menu's, the one Solve all, and the
+	 * focus stays on Add (D24 §7.8's focus handoff superseded by build-density.md §19).
 	 */
 	function addLineups() {
 		const now = plan;
@@ -867,9 +843,6 @@
 	function resetStopOrder() {
 		ws.pumpStopOrder = [];
 	}
-	function solveAllCases() {
-		if (solveAll.canRun) void ws.solveAll();
-	}
 	/** "Pump lineups table…" (D24 slice L2, §8.1): the manager on Pump lineups, the card's pumps. */
 	function openTable() {
 		ws.openManager({ pumps: groupMembers });
@@ -878,13 +851,11 @@
 		plan
 			? {
 					plan,
-					solveAll,
 					onpreset: setPreset,
 					onmove: moveStop,
 					ondefaultorder: resetStopOrder,
 					onadd: addLineups,
 					othersOn: ws.pumpGroupOthers,
-					onsolveall: solveAllCases,
 					ontable: openTable
 				}
 			: null

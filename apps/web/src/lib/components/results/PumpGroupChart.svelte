@@ -27,16 +27,16 @@
 	Slice 4d (one pump off, proposal §8 and §17), with pump lineups (CLAUDE.md D24 slice L1,
 	proposal pump-lineups.md §7): under the group table, the Add cases block (PumpLineupsBlock: By
 	number running or Each pump off, 4d's cases) adds in one step cases of the base case with pumps
-	off (a parallel station only, while the base case is shown and current) with Solve all beside
-	it; "Also show the other cases' station duties" draws each other case's duty as a slate ring
-	tagged with its case's number (`tags`, pump-chart.ts caseTags: one number per case for the
-	whole Pumps tab, in a box, CaseTag, in every list, table and heading; nit 5, slice 5b) ("Cases
-	on this chart", in number order, at most six drawn, one lineup of each number running first), said
-	to lie on the group system curve shown only when that case leaves the rest of the network as
-	it is (D13 allowing); "Running combinations" lists every case's members with a line saying
-	which carry flow (D24 §7.10), a list on phones, with the extremes over the current cases (on
-	screen only). Presentation only: the caller (PumpsView) computes every value and makes every
-	request.
+	off (a parallel station only, while the base case is shown and current), its notice naming the
+	Scenarios menu's Solve all (build-density.md §19: the block has none of its own); "Also show
+	the other cases' station duties" draws each other case's duty as a slate ring tagged with its
+	case's number (`tags`, pump-chart.ts caseTags: one number per case for the whole Pumps tab, in
+	a box, CaseTag, in every list, table and heading; nit 5, slice 5b) ("Cases on this chart", in
+	number order, at most six drawn, one lineup of each number running first), said to lie on the
+	group system curve shown only when that case leaves the rest of the network as it is (D13
+	allowing); "Running combinations" lists every case's members with a line saying which carry
+	flow (D24 §7.10), a list on phones, with the extremes over the current cases (on screen only).
+	Presentation only: the caller (PumpsView) computes every value and makes every request.
 
 	Pump lineups slice L3 (CLAUDE.md D24, proposal pump-lineups.md §9): a ring's own group curve,
 	where drawn, is a slate line labelled with its members running (placed on the canvas clear of
@@ -156,8 +156,8 @@
 		/** What an image names and whether one can be made (as the pump chart's). */
 		image?: ChartImageSource;
 		/**
-		 * The Add cases block (CLAUDE.md D24 slice L1, PumpLineupsBlock): its plan, its Solve all and
-		 * the caller's changes (null: no block). Drawn while the card shows a station.
+		 * The Add cases block (CLAUDE.md D24 slice L1, PumpLineupsBlock): its plan and the caller's
+		 * changes (null: no block). Drawn while the card shows a station.
 		 */
 		lineups?: LineupsBlockProps | null;
 		/** The other cases with values, each in its state (slice 4d). */

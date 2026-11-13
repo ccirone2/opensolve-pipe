@@ -22323,6 +22323,7 @@
             "isoEfficiencyLines": [],
             "npshAvailable": 13.323505654429194,
             "npshMargin": 10.595238840561834,
+            "npshMarginRatio": 4.883505376639802,
             "npshRequired": 2.72826681386736,
             "npshrCurve": [
               {
@@ -23867,6 +23868,7 @@
             "isoEfficiencyLines": [],
             "npshAvailable": 15.111892006635621,
             "npshMargin": null,
+            "npshMarginRatio": null,
             "npshRequired": null,
             "npshrCurve": [
               {

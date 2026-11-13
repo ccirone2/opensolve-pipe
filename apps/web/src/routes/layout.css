@@ -24,6 +24,18 @@
 		-webkit-text-size-adjust: 100%;
 	}
 
+	/*
+	 * A short landscape screen (at most 20 rem tall, at least 35.5 rem wide): the header is one row
+	 * pinned to the top (build-density.md §19), so a control focused below it is scrolled clear of
+	 * it (WCAG 2.4.11). Its height is measured (WorkspaceHeader.svelte writes --header-h), never a
+	 * constant; 3 rem only until it is.
+	 */
+	@media (max-height: 20rem) and (min-width: 35.5rem) {
+		html {
+			scroll-padding-top: calc(var(--header-h, 3rem) + 0.5rem);
+		}
+	}
+
 	body {
 		@apply bg-white text-slate-900 antialiased;
 	}

@@ -274,9 +274,11 @@ export async function closeTrace(page: Page, name: string): Promise<void> {
 export const ALLOWED_ORIGINS = new Set([WEB_ORIGIN, API_ORIGIN]);
 
 /**
- * The Scenarios menu (proposal build-density.md §13): the header's Scenarios button opens it once
- * the project has scenarios; it holds the case shown (Case), Solve all and Manage scenarios….
- * These read it whether it is open or not (includeHidden); openCases opens it to act in it.
+ * The Scenarios menu (proposal build-density.md §13, §19): the header's Scenarios button opens it
+ * once the project has scenarios; it holds Solve all first (the page's one Solve all, with its
+ * count while it can run, its line and its progress), then the case shown (Case) and Manage
+ * scenarios…. These read it whether it is open or not (includeHidden); openCases opens it to act
+ * in it.
  */
 export const caseMenu = (page: Page) =>
 	page.getByRole('combobox', { name: 'Case', exact: true, includeHidden: true });
@@ -290,6 +292,20 @@ export async function openCases(page: Page): Promise<Locator> {
 	}
 	await expect(group).toBeVisible();
 	return group;
+}
+
+/**
+ * Solve all, the Scenarios menu's first button and the page's one Solve all (build-density.md
+ * §19): "Solve all (n)" while it can run, "Solve all" otherwise. Read whether the menu is open or
+ * not (includeHidden).
+ */
+export const solveAllButton = (page: Page) =>
+	caseGroup(page).getByRole('button', { name: /^Solve all( \(\d+\))?$/, includeHidden: true });
+
+/** Solve all, from the Scenarios menu (its one home): press it; `done` waits for the run's end. */
+export async function solveAll(page: Page, opts: { done?: boolean } = {}): Promise<void> {
+	await (await openCases(page)).getByRole('button', { name: /^Solve all/ }).click();
+	if (opts.done) await expect(caseGroup(page)).not.toContainText('Solving', { timeout: 180_000 });
 }
 
 /** Show a case: from the Scenarios menu, which closes with the choice. */

@@ -29,6 +29,7 @@ import {
 import { pumpTransferExample } from '$lib/utils/examples';
 import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
 import type { ChartImageRequest, ChartImageSource } from '$lib/utils/export/chart-image';
+import type { PumpChartConfig } from '$lib/utils/pump-chart-config';
 import { DISCLAIMER } from '$lib/components/links';
 import PumpChart from './PumpChart.svelte';
 
@@ -2936,5 +2937,139 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 		} finally {
 			observers.restore();
 		}
+	});
+});
+
+// Nit 5, rule 7 (owner, 2026-11-12; Q1 "Shapes go too"; docs/proposals/pumps-nits.md item 5,
+// slice 5c): the pump chart's other cases' rings are labelled by placePointLabels; a ring whose
+// label has no place is never dropped silently: the notes name it by its case with its values,
+// the canvas keeps the placement (`data-point-labels`), and the image names those its own drawing
+// left out.
+describe('a ring whose label has no place, named in the notes (nit 5, rule 7; slice 5c)', () => {
+	afterEach(() => localStorage.clear());
+	type Box = { left: number; right: number; top: number; bottom: number };
+	/**
+	 * The caseLabels plugin of `config` run on a stand-in chart: the rings' centres `at(i)` for the
+	 * i-th ring, every other point far outside the plot; text 6 px a character.
+	 */
+	const drawLabels = (
+		config: PumpChartConfig,
+		plot: Box,
+		at: (ring: number) => { x: number; y: number }
+	) => {
+		const sets = config.data.datasets as unknown as { otherCase?: boolean; data: unknown[] }[];
+		const rings = sets.flatMap((d, i) => (d.otherCase ? [i] : []));
+		const noop = () => {};
+		const ctx = {
+			font: '',
+			fillStyle: '',
+			strokeStyle: '',
+			lineWidth: 1,
+			lineJoin: 'miter',
+			textAlign: 'start',
+			textBaseline: 'alphabetic',
+			save: noop,
+			restore: noop,
+			setLineDash: noop,
+			beginPath: noop,
+			moveTo: noop,
+			lineTo: noop,
+			roundRect: noop,
+			fill: noop,
+			stroke: noop,
+			strokeText: noop,
+			fillText: noop,
+			measureText: (text: string) => ({ width: text.length * 6 })
+		};
+		const chart = {
+			ctx,
+			chartArea: plot,
+			data: config.data,
+			isDatasetVisible: () => true,
+			getDatasetMeta: (i: number) => ({
+				data: sets[i]!.data.map(() =>
+					rings.includes(i) ? at(rings.indexOf(i)) : { x: 5000, y: 5000 }
+				)
+			})
+		};
+		config.plugins!.find((p) => p.id === 'caseLabels')!.afterDatasetsDraw!(
+			chart as never,
+			{} as never,
+			{} as never,
+			undefined as never
+		);
+	};
+	const TINY = { left: 90, right: 110, top: 190, bottom: 210 };
+	const ROOMY = { left: 0, right: 1000, top: 0, bottom: 1000 };
+	const crowded = (ring: number) => ({ x: 95 + 10 * ring, y: 200 });
+	const apart = (ring: number) => ({ x: 100 + 300 * ring, y: 200 });
+	const other = (key: string, name: string, flow: number, head: number) =>
+		({
+			key,
+			name,
+			result: pumpResult({ operatingFlow: flow, operatingHead: head }),
+			stale: false,
+			system: null
+		}) satisfies OtherCaseInput;
+	const SENTENCE =
+		'Not labelled on the chart: case 1, Winter, its ring at 12 L/s and 25 m; case 2, Summer, its ring at 15 L/s and 22 m.';
+
+	it('names each ring left out, by its case with its values, keeps the placement, and the image names its own', async () => {
+		withCanvas();
+		render(PumpChart, {
+			result: pumpResult(),
+			name: 'Transfer pump',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03],
+			system: READY,
+			caseName: 'Base case',
+			tags: TAGS,
+			others: [other('S1', 'Winter', 0.012, 25), other('S2', 'Summer', 0.015, 22)],
+			image: {
+				projectName: 'Pump transfer between two tanks',
+				timestamp: '2026-10-25T12:32:05Z',
+				methodVersion: '1.6.0',
+				stale: false,
+				unavailable: '',
+				origin: 'https://opensolve-pipe.app',
+				notify: () => {}
+			}
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const config = charts[0]!.config as PumpChartConfig;
+		const canvas = document.querySelector('figure canvas') as HTMLCanvasElement;
+		const notes = document.querySelector('[data-pump-notes]') as HTMLElement;
+		// Drawn with room: both rings labelled, no note.
+		drawLabels(config, ROOMY, apart);
+		await tick();
+		expect(JSON.parse(canvas.dataset.pointLabels!)).toMatchObject({ leftOut: [] });
+		expect(within(notes).queryByText(/^Not labelled on the chart/)).toBeNull();
+		// Drawn crowded: neither ring's label has a place; the notes name both, never a count.
+		drawLabels(config, TINY, crowded);
+		const note = await within(notes).findByText(/^Not labelled on the chart: /);
+		expect(note).toBeVisible();
+		expect(note.textContent).toBe(SENTENCE);
+		expect(designators(note)).toEqual([]);
+		const placed = JSON.parse(canvas.dataset.pointLabels!) as {
+			plot: Box;
+			labels: unknown[];
+			leftOut: { name: string }[];
+		};
+		expect(placed.plot).toEqual(TINY);
+		expect(placed.labels).toEqual([]);
+		expect(placed.leftOut.map((p) => p.name)).toEqual(['case 1, Winter', 'case 2, Summer']);
+		// Room again: the note goes.
+		drawLabels(config, ROOMY, apart);
+		await tick();
+		expect(within(notes).queryByText(/^Not labelled on the chart/)).toBeNull();
+		// The image: its own drawing's rings, read once it is drawn (none before).
+		await fireEvent.click(
+			screen.getByRole('button', { name: /^Download image of the pump and system curves/ })
+		);
+		await vi.waitFor(() => expect(images.requests).toHaveLength(1));
+		const request = images.requests[0] as ChartImageRequest;
+		expect(request.notLabelled!()).toBeNull();
+		drawLabels(request.config, TINY, crowded);
+		expect(request.notLabelled!()).toBe(SENTENCE);
 	});
 });

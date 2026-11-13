@@ -42,6 +42,8 @@
 	import { DISCLAIMER } from '$lib/components/links';
 	import { STALE_CHUNK_MESSAGE } from '$lib/utils/export/load';
 	import type { Chart as ChartInstance } from 'chart.js';
+	import { notLabelledNote, type NotLabelledPoint } from '$lib/utils/point-labels';
+	import type { PointLabelsDrawn } from '$lib/utils/pump-chart-config';
 	import {
 		chartHeightRem,
 		chartNotes,
@@ -656,7 +658,8 @@
 						speedRange,
 						checks: checkLimits,
 						compactLabels: compact,
-						cursor: () => cursorNow
+						cursor: () => cursorNow,
+						onlabels: (placed) => ringsDrawn(element, d, drawnCases, placed)
 					})
 				);
 				drawnChart = chart;
@@ -674,6 +677,40 @@
 			chart?.destroy();
 		};
 	});
+
+	/**
+	 * The other cases' rings whose labels the chart on screen left out (nit 5, rule 7; slice 5c),
+	 * as its drawing of `data` with `cases` told them; the image names its own.
+	 */
+	let ringsLeftOut = $state.raw<{ data: unknown; cases: unknown; points: NotLabelledPoint[] }>({
+		data: null,
+		cases: null,
+		points: []
+	});
+	/**
+	 * A drawing on screen placed the rings' labels: the canvas keeps the placement for measuring
+	 * the layout (`data-point-labels`), the notes name the rings left out (kept when it changes: a
+	 * drawing per hover).
+	 */
+	function ringsDrawn(
+		element: HTMLCanvasElement,
+		drawnData: unknown,
+		drawnCases: unknown,
+		placed: PointLabelsDrawn
+	) {
+		element.dataset.pointLabels = JSON.stringify(placed);
+		const same =
+			ringsLeftOut.data === drawnData &&
+			ringsLeftOut.cases === drawnCases &&
+			JSON.stringify(ringsLeftOut.points) === JSON.stringify(placed.leftOut);
+		if (!same) ringsLeftOut = { data: drawnData, cases: drawnCases, points: placed.leftOut };
+	}
+	/** "Not labelled on the chart: case 2, Winter, its ring at …" for this drawing, or null. */
+	const notLabelled = $derived(
+		ringsLeftOut.data === data && ringsLeftOut.cases === otherData
+			? notLabelledNote(ringsLeftOut.points)
+			: null
+	);
 
 	/** The case shown's other cases' system curves, or this pump's, are being computed. */
 	const curvesLoading = $derived(loading || !!overlayProgress);
@@ -705,6 +742,8 @@
 		if (!image || !module || imageReason || makingImage) return;
 		makingImage = true;
 		const { Chart, downloadChartImage, IMAGE_REASONS_IN, pumpChartConfig } = module;
+		/** The image's own rings left unlabelled (nit 5, rule 7), told as it is drawn. */
+		let imagePoints: NotLabelledPoint[] = [];
 		await downloadChartImage(Chart, {
 			config: pumpChartConfig(data, otherData, {
 				speedText,
@@ -713,8 +752,10 @@
 				forImage: true,
 				panels: shown,
 				speedRange: speedShown,
-				checks: checksShown
+				checks: checksShown,
+				onlabels: (placed) => (imagePoints = placed.leftOut)
 			}),
+			notLabelled: () => notLabelledNote(imagePoints),
 			notes: chartNotes({
 				data,
 				result,
@@ -967,6 +1008,11 @@
 		{/each}
 		{#if valued.extrapolated}
 			<p class="text-xs text-slate-700">{valued.extrapolated}</p>
+		{/if}
+		{#if notLabelled}
+			<!-- Another case's ring whose label the chart left out, named with its values (nit 5,
+				rule 7: never only counted). -->
+			<p class="text-xs text-slate-700">{notLabelled}</p>
 		{/if}
 		{#if valued.method}
 			<!-- How the curve shown was computed, where it is shown (GOALS §4.2): the request

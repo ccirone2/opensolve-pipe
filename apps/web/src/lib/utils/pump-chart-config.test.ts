@@ -6,15 +6,23 @@
  */
 import { describe, expect, it } from 'vitest';
 import { pumpResult, systemCurveResponse } from '../testing/results';
-import { otherCasesData, pumpChartData } from './pump-chart';
+import { otherCasesData, pumpChartData, type OtherCaseData } from './pump-chart';
 import {
 	CHART_COLORS,
 	fillLabel,
 	labelTag,
 	pumpChartConfig,
+	type PointLabelsDrawn,
 	pumpGroupConfig
 } from './pump-chart-config';
-import { GROUP_SLOTS, groupChartData, type GroupMemberInput } from './pump-group-chart';
+import { lineupView } from '../testing/curve-family';
+import {
+	GROUP_AQUA,
+	GROUP_BLUE,
+	GROUP_SLOTS,
+	groupChartData,
+	type GroupMemberInput
+} from './pump-group-chart';
 import { formatNumber, SI_UNITS } from './units';
 
 describe('pump chart configuration', () => {
@@ -108,17 +116,32 @@ describe('the group chart’s member marks (owner, 2026-11-12, nit 5; docs/propo
 	 */
 	const STROKE_ONLY = new Set(['cross', 'crossRot', 'star', 'line', 'dash']);
 
-	it('strokes every stroke-only member mark in its slot’s colour, 3 px or more: none is drawn white, as slot 3’s star was', () => {
-		// A member in each of the six slots, running.
-		const members: GroupMemberInput[] = GROUP_SLOTS.map((_, slot) => ({
-			id: `P${slot + 1}`,
-			name: `Pump P${slot + 1}`,
-			result: pumpResult({ operatingFlow: 0.005 * (slot + 1) }),
-			ratedRange: [0, 0.03],
-			curveId: null,
-			slot,
-			flags: []
-		}));
+	// Nit 5, slice 5c (Q1 "Shapes go too"): moved from "strokes every stroke-only member mark in
+	// its slot's colour, 3 px or more" (5a's interim fix for slot 3's white star), now that each
+	// member's point is a dot: no member mark is stroke-only, and each one's ink, its fill (a dot)
+	// or its 2 px border (the held diamond), is its line's colour, never the surface's white.
+	it('draws no member mark stroke-only: each dot is filled, each held diamond stroked, in its line’s colour, never white', () => {
+		// A member in each of the six slots, running, and one more held at zero flow.
+		const members: GroupMemberInput[] = [
+			...GROUP_SLOTS.map((_, slot) => ({
+				id: `P${slot + 1}`,
+				name: `Pump P${slot + 1}`,
+				result: pumpResult({ operatingFlow: 0.005 * (slot + 1) }),
+				ratedRange: [0, 0.03] as [number, number],
+				curveId: null,
+				slot,
+				flags: []
+			})),
+			{
+				id: 'P7',
+				name: 'Pump P7',
+				result: pumpResult({ status: 'no_flow', operatingFlow: 0, operatingHead: 30 }),
+				ratedRange: [0, 0.03] as [number, number],
+				curveId: null,
+				slot: 0,
+				flags: []
+			}
+		];
 		const data = groupChartData(members, SI_UNITS, null);
 		const config = pumpGroupConfig(data, {
 			legendLabels: () => [],
@@ -129,19 +152,17 @@ describe('the group chart’s member marks (owner, 2026-11-12, nit 5; docs/propo
 		const marks = (config.data.datasets as Mark[]).filter(
 			(d) => d.showLine === false && d.memberIds?.length === 1
 		);
-		expect(marks.map((d) => d.memberIds![0])).toEqual(['P1', 'P2', 'P3', 'P4', 'P5', 'P6']);
-		const stroked = marks.filter((d) => STROKE_ONLY.has(d.pointStyle as string));
-		// The slots whose marker is stroke-only, as GROUP_SLOTS gives them (★, × and + today).
-		expect(stroked.map((d) => d.pointStyle)).toEqual(
-			GROUP_SLOTS.map((s) => s.marker).filter((m) => STROKE_ONLY.has(m))
-		);
-		expect(stroked.length).toBeGreaterThan(0);
-		for (const mark of stroked) {
-			const slot = GROUP_SLOTS[marks.indexOf(mark)]!;
-			expect(mark.borderColor, `${mark.label}'s ${String(mark.pointStyle)}`).toBe(slot.color);
-			expect(mark.borderWidth, `${mark.label}'s ${String(mark.pointStyle)}`).toBeGreaterThanOrEqual(
-				3
-			);
+		// In slot order: the held P7 shares slot 1 with P1.
+		expect(marks.map((d) => d.memberIds![0])).toEqual(['P1', 'P7', 'P2', 'P3', 'P4', 'P5', 'P6']);
+		expect(marks.filter((d) => STROKE_ONLY.has(d.pointStyle as string))).toEqual([]);
+		for (const mark of marks) {
+			const line = data.lines.find((l) => l.ids.includes(mark.memberIds![0]!))!;
+			const held = mark.memberIds![0] === 'P7';
+			expect(mark.pointStyle, mark.label).toBe(held ? 'rectRot' : 'circle');
+			// Its ink in its line's colour: a dot's fill, the held diamond's border.
+			expect(held ? mark.borderColor : mark.backgroundColor, mark.label).toBe(line.style.color);
+			expect(line.style.color, mark.label).not.toBe('#ffffff');
+			expect(mark.borderWidth, mark.label).toBe(2);
 		}
 	});
 });
@@ -149,7 +170,7 @@ describe('the group chart’s member marks (owner, 2026-11-12, nit 5; docs/propo
 // Case numbers (owner, 2026-11-12, nit 5; Q1 "Shapes go too"; docs/proposals/pumps-nits.md item
 // 5, slice 5b): the pump chart's other cases are slate rings, as the group chart's are, named by
 // their numbers in the legend and the tooltips; the shapes △ □ ✳ × ▽ go. The canvas's own labels
-// keep today's code (a boxed number where a shape was), so they are not tested here.
+// (placePointLabels since slice 5c) are tested under "the pump chart's other cases on the canvas".
 describe('the pump chart’s other cases as numbered slate rings (nit 5, slice 5b)', () => {
 	const legendLabels = () => [];
 	const format = (v: number) => formatNumber(v, 4);
@@ -449,65 +470,185 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		]);
 	});
 
-	it('draws each ring’s tag right of it with today’s label code, and the brackets never reach the canvas', () => {
-		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
-		const config = pumpChartConfig(data, others(), { speedText: '100 %', legendLabels, format });
-		const written: { text: string; x: number; y: number }[] = [];
-		const boxes: number[][] = [];
+	// Nit 5, rule 7 (slice 5c): a point's label, placed clear of every mark but its own, is drawn
+	// over a halo of the surface, so it reads over a curve under it: its box filled with the
+	// surface, its words stroked POINT_LABEL_HALO (3) px wide in it, round joined, before they are
+	// filled; the stroke set back. A curve's label (no halo) is the call list above, unchanged.
+	it('draws a point’s label over a halo of the surface: its box filled, its words stroked 3 px under them', () => {
+		const calls: unknown[][] = [];
+		const ctx = {
+			font: '12px system-ui, sans-serif',
+			fillStyle: '#475569',
+			strokeStyle: '#000000',
+			lineWidth: 1,
+			lineJoin: 'miter',
+			textAlign: 'left',
+			textBaseline: 'alphabetic',
+			measureText: (text: string) => ({ width: text.length * 6 }),
+			beginPath: () => calls.push(['beginPath']),
+			roundRect: (...a: number[]) => calls.push(['roundRect', ...a]),
+			fill() {
+				calls.push(['fill', this.fillStyle]);
+			},
+			stroke() {
+				calls.push(['stroke', this.strokeStyle, this.lineWidth]);
+			},
+			strokeText(text: string, x: number, y: number) {
+				calls.push(['strokeText', text, x, y, this.strokeStyle, this.lineWidth, this.lineJoin]);
+			},
+			fillText(text: string, x: number, y: number) {
+				calls.push(['fillText', text, x, y, this.font, this.fillStyle, this.textAlign]);
+			}
+		};
+		fillLabel(ctx as unknown as CanvasRenderingContext2D, '[2] Winter', 100, 50, 12, '#ffffff');
+		expect(calls).toEqual([
+			['beginPath'],
+			['roundRect', 100.5, 38.5, 17, 14, 3],
+			['fill', '#ffffff'],
+			['stroke', CHART_COLORS.slate, 1],
+			['fillText', '2', 109, 49, '600 10px system-ui, sans-serif', CHART_COLORS.legend, 'center'],
+			['strokeText', 'Winter', 124, 50, '#ffffff', 3, 'round'],
+			['fillText', 'Winter', 124, 50, '12px system-ui, sans-serif', '#475569', 'left']
+		]);
+		expect([ctx.fillStyle, ctx.strokeStyle, ctx.lineWidth, ctx.lineJoin]).toEqual([
+			'#475569',
+			'#000000',
+			1,
+			'miter'
+		]);
+		// A name, untagged: its halo, then its text.
+		calls.length = 0;
+		fillLabel(ctx as unknown as CanvasRenderingContext2D, 'Pump PA', 10, 20, 12, '#ffffff');
+		expect(calls).toEqual([
+			['strokeText', 'Pump PA', 10, 20, '#ffffff', 3, 'round'],
+			['fillText', 'Pump PA', 10, 20, '12px system-ui, sans-serif', '#475569', 'left']
+		]);
+	});
+
+	/**
+	 * The caseLabels plugin run on a stand-in chart: each ring's centre at `at(its case number)`,
+	 * every other dataset's points far right of the plot (no mark in the way unless `others` puts
+	 * one there); the boxes, texts and halos it draws, and what it tells `onlabels`.
+	 */
+	const drawCaseLabels = (
+		config: ReturnType<typeof pumpChartConfig>,
+		plot: { left: number; right: number; top: number; bottom: number },
+		at: (tag: string) => { x: number; y: number },
+		others: (i: number) => { x: number; y: number } = () => ({ x: 5000, y: 5000 })
+	) => {
+		const sets = config.data.datasets as unknown as Dataset[];
+		const written: { text: string; x: number; y: number; align: string }[] = [];
+		const halos: { text: string; x: number; y: number; color: string; width: number }[] = [];
+		const boxes: { x: number; y: number; w: number; fill: string | null }[] = [];
+		let fill: string | null = null;
 		const ctx = {
 			font: '',
 			fillStyle: '',
 			strokeStyle: '',
 			lineWidth: 1,
+			lineJoin: 'miter',
 			textAlign: 'start',
 			textBaseline: 'alphabetic',
 			save() {},
 			restore() {},
+			setLineDash() {},
 			measureText: (text: string) => ({ width: text.length * 6 }),
-			beginPath() {},
-			roundRect: (...a: number[]) => boxes.push(a),
-			fill() {},
+			beginPath() {
+				fill = null;
+			},
+			moveTo() {},
+			lineTo() {},
+			roundRect(x: number, y: number, w: number) {
+				boxes.push({ x: x - 0.5, y: y - 0.5, w: w + 1, fill: null });
+			},
+			fill() {
+				fill = this.fillStyle;
+				boxes.at(-1)!.fill = fill;
+			},
 			stroke() {},
-			fillText: (text: string, x: number, y: number) => written.push({ text, x, y })
+			strokeText(text: string, x: number, y: number) {
+				halos.push({ text, x, y, color: this.strokeStyle, width: this.lineWidth });
+			},
+			fillText(text: string, x: number, y: number) {
+				written.push({ text, x, y, align: this.textAlign });
+			}
 		};
-		const sets = config.data.datasets as unknown as Dataset[];
 		const chart = {
 			ctx,
-			// A plot wide enough for every label whole (review CASE-NUMBERS-B1: the plugin reads its
-			// right edge; the test below draws one too narrow).
-			chartArea: { left: 0, right: 10000, top: 0, bottom: 1000 },
+			chartArea: plot,
 			data: config.data,
 			isDatasetVisible: () => true,
-			getDatasetMeta: (i: number) => ({
-				data: (sets[i]!.data as unknown[]).map((_, k) => ({ x: 100 + 50 * i + k, y: 200 }))
-			})
+			getDatasetMeta: (i: number) => {
+				const tag = /^\[([^\]]+)\]/.exec(sets[i]!.caseLabel ?? '')?.[1];
+				return {
+					data: (sets[i]!.data as unknown[]).map(() => (tag ? at(tag) : others(i)))
+				};
+			}
 		};
 		const plugin = config.plugins!.find((p) => p.id === 'caseLabels')!;
 		plugin.afterDatasetsDraw!(chart as never, {} as never, {} as never, undefined as never);
-		const at = (label: string) => {
-			const i = sets.findIndex((d) => d.caseLabel === label);
-			return { x: 100 + 50 * i, y: 200 };
+		return { written, halos, boxes };
+	};
+
+	// Nit 5, slice 5c (rule 7): moved from "draws each ring's tag right of it with today's label
+	// code" (10 px right of its centre, above and below in turn, which overprinted close rings'
+	// labels): each ring's label goes where placePointLabels puts it, its first place right of
+	// the ring, its box POINT_LABEL_NEAR (2) px clear of the ring's mark (r 10 and half its 2 px
+	// border: 11), centred on it; over a halo of the surface; the brackets never reach the canvas.
+	it('labels each ring where placePointLabels puts it, right of it where that is free, over a halo, and tells where', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
+		const told: PointLabelsDrawn[] = [];
+		const config = pumpChartConfig(data, others(), {
+			speedText: '100 %',
+			legendLabels,
+			format,
+			onlabels: (placed) => told.push(placed)
+		});
+		const centres: Record<string, { x: number; y: number }> = {
+			Base: { x: 100, y: 200 },
+			2: { x: 400, y: 200 }
 		};
-		// Above the first ring and below the second (in turn), 10 px right of its centre (r 10).
-		const base = at('[Base] Base case');
-		const winter = at('[2] Winter');
+		const plot = { left: 0, right: 1000, top: 0, bottom: 1000 };
+		const { written, halos, boxes } = drawCaseLabels(config, plot, (tag) => centres[tag]!);
+		// 12 px text, 6 px a character here: a label 15 px tall (12 above its baseline, 3 below),
+		// its box's left 100 + 11 + 2 = 113, its top 200 − 15 / 2 = 192.5, its baseline 204.5.
+		// "[Base] Base case" is 16 characters, 96 px; "[2] Winter" 10, 60 px.
 		expect(boxes).toEqual([
-			[base.x + 10 + 0.5, base.y - 10 - 12 + 0.5, 6 * 6 - 1, 14, 3],
-			[winter.x + 10 + 0.5, winter.y + 20 - 12 + 0.5, 3 * 6 - 1, 14, 3]
+			{ x: 113, y: 192.5, w: 36, fill: '#ffffff' },
+			{ x: 413, y: 192.5, w: 18, fill: '#ffffff' }
 		]);
-		expect(written).toContainEqual({ text: 'Base case', x: base.x + 10 + 7 * 6, y: base.y - 10 });
-		expect(written).toContainEqual({ text: 'Winter', x: winter.x + 10 + 4 * 6, y: winter.y + 20 });
+		// The words where "[Base] " (42 px) and "[2] " (24 px) end, each over its halo.
+		expect(written).toContainEqual({ text: 'Base case', x: 155, y: 204.5, align: 'left' });
+		expect(written).toContainEqual({ text: 'Winter', x: 437, y: 204.5, align: 'left' });
+		expect(halos).toEqual([
+			{ text: 'Base case', x: 155, y: 204.5, color: '#ffffff', width: 3 },
+			{ text: 'Winter', x: 437, y: 204.5, color: '#ffffff', width: 3 }
+		]);
 		expect(written.map((w) => w.text)).toEqual(
 			expect.arrayContaining(['Base', '2', 'Base case', 'Winter'])
 		);
 		expect(written.some((w) => w.text.includes('['))).toBe(false);
+		// Told where: the head panel's plot, each ring, its label, none left out.
+		expect(told).toHaveLength(1);
+		expect(told[0]!.plot).toEqual(plot);
+		expect(told[0]!.items).toEqual([
+			{ kind: 'ring', x: 100, y: 200, r: 11 },
+			{ kind: 'ring', x: 400, y: 200, r: 11 }
+		]);
+		expect(told[0]!.labels.map((l) => [l.text, l.box, l.leader])).toEqual([
+			['[Base] Base case', { left: 113, right: 209, top: 192.5, bottom: 207.5 }, null],
+			['[2] Winter', { left: 413, right: 473, top: 192.5, bottom: 207.5 }, null]
+		]);
+		expect(told[0]!.leftOut).toEqual([]);
 	});
 
 	// Review CASE-NUMBERS-B1 (rule 4: "the name follows the box where it fits"): a label that would
-	// run past the plot's right edge is its number alone, never a name cut at the canvas's edge. On
-	// e5e6558 the one-off's case 2 at 1280 px read "[2] Pump PB", the name of the pump that is off in
-	// it, and the lineups image cut "[6] 2 of 4 running (Pump P3, Pump P4 of".
-	it('draws a ring’s name after its number only where the whole label fits in the plot, else its number alone', () => {
+	// run past the plot's right edge is never cut at the canvas's edge. On e5e6558 the one-off's
+	// case 2 at 1280 px read "[2] Pump PB", the name of the pump that is off in it. Nit 5, slice 5c
+	// (rule 7): moved from "its number alone, right of the ring, or left of it at the edge" (boxes at
+	// 110, 430 and 457): the placer tries the whole label at each of its places first, so case 2's
+	// name follows its box on the left, where it has room; case 3's has none, so its box is alone.
+	it('draws a ring’s name after its number wherever the whole label has a place in the plot, else its number alone', () => {
 		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
 		const input = (key: string, name: string) => ({
 			key,
@@ -528,63 +669,41 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		/** Each ring's centre (px): case 1 well inside, case 2 near the edge, case 3 at it. */
 		const ringX: Record<string, number> = { 1: 100, 2: 420, 3: 485 };
 		const draw = (options: { forImage?: boolean; compactLabels?: boolean }) => {
+			const told: PointLabelsDrawn[] = [];
 			const config = pumpChartConfig(data, cases, {
 				speedText: '100 %',
 				legendLabels,
 				format,
+				onlabels: (placed) => told.push(placed),
 				...options
 			});
-			const sets = config.data.datasets as unknown as Dataset[];
-			const written: { text: string; x: number; align: string }[] = [];
-			const boxes: { x: number; w: number }[] = [];
-			const ctx = {
-				font: '',
-				fillStyle: '',
-				strokeStyle: '',
-				lineWidth: 1,
-				textAlign: 'start',
-				textBaseline: 'alphabetic',
-				save() {},
-				restore() {},
-				measureText: (text: string) => ({ width: text.length * 6 }),
-				beginPath() {},
-				roundRect: (x: number, _y: number, w: number) => boxes.push({ x: x - 0.5, w: w + 1 }),
-				fill() {},
-				stroke() {},
-				fillText(text: string, x: number) {
-					written.push({ text, x, align: this.textAlign });
-				}
-			};
-			const chart = {
-				ctx,
-				chartArea: plot,
-				data: config.data,
-				isDatasetVisible: () => true,
-				getDatasetMeta: (i: number) => {
-					const tag = /^\[(\d+)\]/.exec(sets[i]!.caseLabel ?? '')?.[1];
-					return {
-						data: (sets[i]!.data as unknown[]).map(() => ({ x: ringX[tag!] ?? 60, y: 150 }))
-					};
-				}
-			};
-			const plugin = config.plugins!.find((p) => p.id === 'caseLabels')!;
-			plugin.afterDatasetsDraw!(chart as never, {} as never, {} as never, undefined as never);
-			return { written, boxes };
+			// The case shown's marks (its operating point, shutoff dash, BEP) at (60, 150).
+			const drawn = drawCaseLabels(
+				config,
+				plot,
+				(tag) => ({ x: ringX[tag]!, y: 150 }),
+				() => ({ x: 60, y: 150 })
+			);
+			return { ...drawn, told: told[0]! };
 		};
 		for (const forImage of [false, true]) {
-			const { written, boxes } = draw({ forImage });
+			const { written, boxes, told } = draw({ forImage });
 			// No name is cut: the names left out are not written at all, and nothing passes the edge.
 			const words = written.filter((w) => w.align !== 'center');
 			for (const w of words)
 				expect(w.x + w.text.length * 6, w.text).toBeLessThanOrEqual(plot.right);
-			expect(words.map((w) => w.text)).toEqual(['Pump PA off']);
-			// Case 1 fits whole, right of its ring: "[1] Pump PA off" is 90 px, 110 to 200.
-			expect(boxes[0]).toEqual({ x: 110, w: 18 });
-			expect(written).toContainEqual({ text: 'Pump PA off', x: 110 + 24, align: 'start' });
-			// Case 2's whole label would end at 430 + 90 = 520, past 500: its number alone, right of it.
-			expect(boxes[1]).toEqual({ x: 430, w: 18 });
-			// Case 3's number alone would end at 495 + 18 = 513: left of its ring, 457 to 475.
-			expect(boxes[2]).toEqual({ x: 485 - 10 - 18, w: 18 });
+			expect(words.map((w) => w.text)).toEqual(['Pump PA off', 'Pump PB off']);
+			// Case 1 fits whole right of its ring: 100 + 11 + 2 = 113 to 113 + 90 = 203.
+			expect(boxes[0]).toMatchObject({ x: 113, w: 18 });
+			expect(written).toContainEqual(expect.objectContaining({ text: 'Pump PA off', x: 137 }));
+			// Case 2's whole label would end at 433 + 90 = 523, past 500: left of its ring instead,
+			// 420 − 11 − 2 − 90 = 317 to 407, clear of case 3's ring (474 to 496).
+			expect(boxes[1]).toMatchObject({ x: 317, w: 18 });
+			expect(written).toContainEqual(expect.objectContaining({ text: 'Pump PB off', x: 341 }));
+			// Case 3's whole label (108 px) has no place: right passes 500, left and the corners meet
+			// case 2's label or lie nearer case 2's ring. Its number alone, left of it: 485 − 13 − 18
+			// = 454 to 472.
+			expect(boxes[2]).toMatchObject({ x: 454, w: 18 });
 			expect(boxes).toHaveLength(3);
 			for (const b of boxes) expect(b.x + b.w).toBeLessThanOrEqual(plot.right);
 			// Each box holds its number.
@@ -593,15 +712,53 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 				'2',
 				'3'
 			]);
+			expect(told.labels.map((l) => l.text)).toEqual(['[1] Pump PA off', '[2] Pump PB off', '[3]']);
+			expect(told.leftOut).toEqual([]);
 		}
-		// A phone's screen: each number alone, the one at the edge left of its ring.
+		// A phone's screen: each number alone; case 3's left place lies 3 px from case 2's box, under
+		// the 4 px gap, so it goes above its ring: 485 − 9 = 476, its bottom 150 − 13 = 137.
 		const phone = draw({ compactLabels: true });
-		expect(phone.boxes).toEqual([
-			{ x: 110, w: 18 },
-			{ x: 430, w: 18 },
-			{ x: 457, w: 18 }
-		]);
+		expect(phone.boxes.map((b) => b.x)).toEqual([113, 433, 476]);
+		expect(phone.boxes[2]).toMatchObject({ y: 122 });
 		expect(phone.written.filter((w) => w.align !== 'center')).toEqual([]);
+	});
+
+	// Nit 5, rule 7 (slice 5c): a ring whose label has no place is never dropped silently: the
+	// drawing tells it, by its case's number and name with its values, for the notes to name.
+	it('tells a ring whose label has no place, named by its case with its values, for the notes', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
+		const told: PointLabelsDrawn[] = [];
+		const config = pumpChartConfig(data, others(), {
+			speedText: '100 %',
+			legendLabels,
+			format,
+			onlabels: (placed) => told.push(placed)
+		});
+		// A plot 20 px square round both rings: no label has a place.
+		const { written, boxes } = drawCaseLabels(
+			config,
+			{ left: 90, right: 110, top: 190, bottom: 210 },
+			(tag) => (tag === 'Base' ? { x: 95, y: 200 } : { x: 105, y: 200 })
+		);
+		expect(boxes).toEqual([]);
+		expect(written.filter((w) => /Base|Winter|^2$/.test(w.text))).toEqual([]);
+		const ring = (c: OtherCaseData) => c.operating ?? c.held!;
+		const [base, winter] = others();
+		expect(told[0]!.labels).toEqual([]);
+		expect(told[0]!.leftOut).toEqual([
+			{
+				name: 'Base case',
+				mark: 'ring',
+				flow: `${format(ring(base!).x)} L/s`,
+				head: `${format(ring(base!).y)} m`
+			},
+			{
+				name: 'case 2, Winter',
+				mark: 'ring',
+				flow: `${format(ring(winter!).x)} L/s`,
+				head: `${format(ring(winter!).y)} m`
+			}
+		]);
 	});
 
 	it('lists each ring in the legend where its dataset is, though it is drawn on top', () => {
@@ -633,5 +790,181 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 			.map(({ d }) => d.label);
 		expect(labels).toEqual(expected);
 		expect(labels.slice(-3)).toEqual(['Base case', 'System curve, case 2', 'Case 2: Winter']);
+	});
+});
+
+// Pumps as named dots (owner, 2026-11-12, nit 5; Q1 "Shapes go too"; docs/proposals/pumps-nits.md
+// item 5, rules 2 and 5; slice 5c): each member's point on the group chart is a filled dot (r 6)
+// in its line's colour with a 2 px surface edge, named beside it (the placer's); members on one
+// line share that line's colour; the six slots keep their colours, each with a line pattern of its
+// own; a pump held at zero flow keeps the hollow diamond (rectRot) in its line's colour. Fails
+// first on the slots' shapes ▲ ■ ★ × + ▢, P2 and P4 aqua on P1's blue line, slots 1 and 2 both
+// solid (blue against aqua at 1.30:1) and a held pump's diamond in its own slot's colour.
+describe('the group chart’s members as dots in their line’s colour (nit 5, slice 5c)', () => {
+	type Dataset = Record<string, unknown> & {
+		label?: string;
+		memberIds?: string[];
+		showLine?: boolean;
+		caseLabel?: string;
+	};
+	const options = { legendLabels: () => [], format: (v: number) => formatNumber(v, 4) };
+	const sets = (config: ReturnType<typeof pumpGroupConfig>) =>
+		config.data.datasets as unknown as Dataset[];
+	/** Each member's point: a dataset of one point, no line, naming its member. */
+	const pointsOf = (config: ReturnType<typeof pumpGroupConfig>) =>
+		sets(config).filter((d) => d.showLine === false && d.memberIds?.length === 1);
+	/** The line a member is drawn on (inside its data), by its id. */
+	const lineOf = (config: ReturnType<typeof pumpGroupConfig>, id: string) =>
+		sets(config).find(
+			(d) =>
+				d.showLine !== false &&
+				d.memberIds?.includes(id) &&
+				!String(d.label).endsWith(', beyond its data')
+		)!;
+	/** The Group's ink dot: its 2 px edge is the surface, as the members' is. */
+	const groupDot = (config: ReturnType<typeof pumpGroupConfig>) =>
+		sets(config).find((d) => d.caseLabel === 'Group' || d.caseLabel === 'Group (crossing)')!;
+	/** A member on a curve of its own (`curve`), or sharing one with the members of that curve. */
+	const member = (
+		id: string,
+		slot: number,
+		curve: string,
+		values: Parameters<typeof pumpResult>[0] = {}
+	): GroupMemberInput => ({
+		id,
+		name: `Pump ${id}`,
+		result: pumpResult(values),
+		ratedRange: [0, 0.03],
+		curveId: curve,
+		slot,
+		flags: []
+	});
+	/** A station's duty, so the chart draws the Group dot (made-up: the shape of the API's). */
+	const station = {
+		duty: { flow: 0.03, head: 20, members: [] },
+		points: [],
+		dutyCheck: null
+	} as never;
+
+	it('draws every running member’s point as a circle r 6 filled with its line’s colour, with the Group dot’s 2 px surface edge', () => {
+		// Six members, each on a curve of its own: six lines, one per slot.
+		const members = GROUP_SLOTS.map((_, slot) =>
+			member(`P${slot + 1}`, slot, `C${slot + 1}`, { operatingFlow: 0.004 * (slot + 1) })
+		);
+		const config = pumpGroupConfig(groupChartData(members, SI_UNITS, station), options);
+		const points = pointsOf(config);
+		expect(points.map((d) => d.memberIds![0])).toEqual(['P1', 'P2', 'P3', 'P4', 'P5', 'P6']);
+		const surface = groupDot(config).borderColor;
+		expect(surface).toBeDefined();
+		for (const point of points) {
+			expect(point, point.label).toMatchObject({
+				pointStyle: 'circle',
+				pointRadius: 6,
+				borderWidth: 2,
+				borderColor: surface,
+				backgroundColor: lineOf(config, point.memberIds![0]!).borderColor
+			});
+			expect(point.pointRotation ?? 0, point.label).toBe(0);
+			// Named beside it on the canvas, as typed (the placer's label).
+			expect(point.caseLabel, point.label).toBe(`Pump ${point.memberIds![0]}`);
+		}
+	});
+
+	it('gives members on one shared line that line’s colour: the lineups’ P2 and P4 are blue on P1’s blue line, not aqua', () => {
+		// Made-up: four members on one curve at one speed (one line, slot 1's) and a fifth on its own.
+		const members = [
+			member('P1', 0, 'C1', { operatingFlow: 0.02 }),
+			member('P2', 1, 'C1', { operatingFlow: 0.021 }),
+			member('P3', 2, 'C1', { operatingFlow: 0.019 }),
+			member('P4', 3, 'C1', { operatingFlow: 0.022 }),
+			member('P5', 4, 'C5', { operatingFlow: 0.01 })
+		];
+		const config = pumpGroupConfig(groupChartData(members, SI_UNITS, null), options);
+		const colours = Object.fromEntries(
+			pointsOf(config).map((d) => [d.memberIds![0], d.backgroundColor])
+		);
+		expect(colours).toEqual({
+			P1: GROUP_BLUE,
+			P2: GROUP_BLUE,
+			P3: GROUP_BLUE,
+			P4: GROUP_BLUE,
+			P5: lineOf(config, 'P5').borderColor
+		});
+		// The lineups station as the fixture solves it: its four pumps on one line, one colour.
+		const lineups = pumpGroupConfig(lineupView('').data, options);
+		const shared = sets(lineups).filter((d) => d.showLine !== false && d.memberIds?.length === 4);
+		expect(shared).not.toHaveLength(0);
+		for (const point of pointsOf(lineups))
+			expect(point.backgroundColor, point.label).toBe(shared[0]!.borderColor);
+	});
+
+	it('keeps the six slots’ colours and gives each a line pattern of its own: slots 1 and 2 differ by more than hue', () => {
+		expect(GROUP_SLOTS.map((s) => s.color)).toEqual([
+			GROUP_BLUE,
+			GROUP_AQUA,
+			GROUP_BLUE,
+			GROUP_AQUA,
+			GROUP_BLUE,
+			GROUP_AQUA
+		]);
+		// Pairwise distinct inside the data (today: two solid, two dash-dot, two dashed).
+		const patterns = GROUP_SLOTS.map((s) => JSON.stringify(s.dash));
+		expect(new Set(patterns).size).toBe(6);
+		// No marker and no symbol any more: a slot is a colour and its dashes.
+		for (const slot of GROUP_SLOTS)
+			expect(Object.keys(slot).sort()).toEqual(['beyondDash', 'color', 'dash']);
+		// On the chart: six members on six lines, each line's pattern its own.
+		const members = GROUP_SLOTS.map((_, slot) => member(`P${slot + 1}`, slot, `C${slot + 1}`));
+		const config = pumpGroupConfig(groupChartData(members, SI_UNITS, null), options);
+		const drawn = members.map((m) => JSON.stringify(lineOf(config, m.id).borderDash ?? []));
+		expect(new Set(drawn).size).toBe(6);
+	});
+
+	it('draws a pump held at zero flow as the hollow diamond (rectRot) in its line’s colour, named “held at zero flow”', () => {
+		const held = { status: 'no_flow' as const, operatingFlow: 0, operatingHead: 30 };
+		// On a line of its own: its slot's colour (aqua, slot 2).
+		const alone = pumpGroupConfig(
+			groupChartData([member('PA', 0, 'C1'), member('PB', 1, 'C2', held)], SI_UNITS, station),
+			options
+		);
+		const surface = groupDot(alone).borderColor;
+		const diamond = pointsOf(alone).find((d) => d.memberIds![0] === 'PB')!;
+		expect(diamond).toMatchObject({
+			label: 'Pump PB, held at zero flow',
+			pointStyle: 'rectRot',
+			borderColor: GROUP_AQUA,
+			backgroundColor: surface
+		});
+		// On a line it shares with Pump PA: that line's colour (blue), as every member's point.
+		const sharing = pumpGroupConfig(
+			groupChartData([member('PA', 0, 'C1'), member('PB', 1, 'C1', held)], SI_UNITS, station),
+			options
+		);
+		expect(pointsOf(sharing).find((d) => d.memberIds![0] === 'PB')).toMatchObject({
+			pointStyle: 'rectRot',
+			borderColor: GROUP_BLUE,
+			backgroundColor: surface
+		});
+	});
+
+	it('leaves the members’ points out of the image’s legend: the labels on the chart name them', () => {
+		const members = [member('PA', 0, 'C1'), member('PB', 1, 'C2', { operatingFlow: 0.01 })];
+		const config = pumpGroupConfig(groupChartData(members, SI_UNITS, station), {
+			...options,
+			forImage: true
+		});
+		const filter = config.options!.plugins!.legend!.labels!.filter!;
+		const listed = sets(config).filter((_, i) =>
+			filter({ datasetIndex: i } as never, config.data as never)
+		);
+		expect(listed.filter((d) => d.showLine === false && d.memberIds?.length === 1)).toEqual([]);
+		// The lines stay, and the Group dot.
+		expect(listed.map((d) => d.label)).toEqual(
+			expect.arrayContaining([
+				'Pump PA, 100 % speed (own flow)',
+				'Pump PB, 100 % speed (own flow)',
+				groupDot(config).label
+			])
+		);
 	});
 });

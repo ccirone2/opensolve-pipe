@@ -418,9 +418,13 @@ describe('the card', () => {
 		expect(
 			within(figure).getByText(/^Pump curves and points are at each pump's flanges\./)
 		).toBeVisible();
-		// The legend under the chart, each line and marker named.
+		// The legend under the chart, each line and marker named. Nit 5, slice 5c (Q1 "Shapes go
+		// too", rules 1 and 2): moved from "▲ Pump PA", "■ Pump PB" and "● Group duty, on the curve":
+		// a running pump's point has no entry (the chart names it beside its dot, its line's entry
+		// names it), and no character stands for the Group's dot (its swatch is drawn).
+		const legendList = within(figure).getByRole('list', { name: 'Legend' });
 		expect(
-			within(within(figure).getByRole('list', { name: 'Legend' }))
+			within(legendList)
 				.getAllByRole('listitem')
 				.map((li) => li.textContent!.trim())
 		).toEqual([
@@ -428,10 +432,9 @@ describe('the card', () => {
 			'Pump PB, 85 % speed (own flow)',
 			"Group curve (station's flow)",
 			'Group curve, a pump beyond its data (dashed)',
-			'▲ Pump PA',
-			'■ Pump PB',
-			'● Group duty, on the curve'
+			'Group duty, on the curve'
 		]);
+		expect(designators(legendList)).toEqual([]);
 		// How the curve is computed: the response's methods section, under Details, headed by the
 		// words the export's Methods sheet gives it (groupMethodsHeading, slice 4c).
 		const summary = screen.getByText('How this curve is computed');
@@ -710,7 +713,15 @@ describe('the card', () => {
 		expect(toggle).toHaveAttribute('aria-expanded', 'true');
 		const points = screen.getByRole('table', { name: "Each pump's point (flow through it)" });
 		expect(within(points).getAllByRole('row')).toHaveLength(3);
-		expect(within(points).getByRole('rowheader', { name: /Pump PB/ })).toHaveTextContent('◇');
+		// Nit 5, slice 5c (rules 1 and 5): moved from a ◇ before the held pump's name: its row
+		// header is its name as typed, its State cell says in words why it has no flow, and no
+		// character is left.
+		const held = within(points).getByRole('rowheader', { name: /Pump PB/ });
+		expect(held.textContent!.trim()).toBe('Pump PB');
+		expect(held.closest('tr')!.lastElementChild!.textContent!.trim()).toBe(
+			'No flow (system head above shutoff)'
+		);
+		expect(designators(points)).toEqual([]);
 		const samples = await openTable("Group curve (station's flow at each rise)");
 		const response = c.groupCurve.body as PumpGroupCurveResponse;
 		expect(within(samples).getAllByRole('row')).toHaveLength(response.points.length + 1);
@@ -1428,26 +1439,28 @@ describe('the members, the station and the group chart’s reading (pumps-result
 		}
 	});
 
-	it('the legend after the reading, the strip and the actions: its line entries one per row, the members’ markers two-up from 18 rem, every marker from 26 rem', async () => {
+	// Nit 5, slice 5c (Q1 "Shapes go too", rule 2): moved from "the members' markers two-up from
+	// 18 rem, every marker from 26 rem": the members' entries are gone (each pump is named on the
+	// chart), so the grid goes two-up from 26 rem, where every marker entry takes one column, as the
+	// other markers did; below it each takes the row, as they did. Each marker's swatch is drawn.
+	it('the legend after the reading, the strip and the actions: its line entries one per row, its marker entries two-up from 26 rem', async () => {
 		const c = named('parallel-ideal');
 		render(PumpGroupChart, props(c, { system: systemReady(c) }));
 		await drawn();
 		const legend = screen.getByRole('list', { name: 'Legend' });
 		expect(legend.parentElement).toHaveClass('@container');
-		expect(legend).toHaveClass('grid', 'grid-cols-1', '@min-[18rem]:grid-cols-2');
+		expect(legend).toHaveClass('grid', 'grid-cols-1', '@min-[26rem]:grid-cols-2');
+		expect(legend.className).not.toContain('@min-[18rem]');
 		const items = within(legend).getAllByRole('listitem');
 		const kinds = items.map((li) =>
-			li.querySelector('svg') ? 'line' : /^\s*[▲■]/.test(li.textContent!) ? 'member' : 'marker'
+			li.querySelector('svg line') ? 'line' : li.querySelector('svg circle') ? 'marker' : 'other'
 		);
-		expect(kinds).toEqual(['line', 'line', 'line', 'line', 'line', 'member', 'member', 'marker']);
+		expect(kinds).toEqual(['line', 'line', 'line', 'line', 'line', 'marker']);
 		for (const [i, li] of items.entries()) {
 			if (kinds[i] === 'line') expect(li).toHaveClass('col-span-full');
-			if (kinds[i] === 'member') {
-				expect(li).not.toHaveClass('col-span-full');
-				expect(li.className).not.toContain('@min-[18rem]:col-span-full');
-			}
 			if (kinds[i] === 'marker') {
-				expect(li).toHaveClass('@min-[18rem]:col-span-full', '@min-[26rem]:col-span-1');
+				expect(li).not.toHaveClass('col-span-full');
+				expect(li.className).not.toContain('col-span');
 			}
 			// Its words in a span of their own that wraps in the cell, a name with no space too,
 			// never over the next entry (§5.3; S3 review LAYOUT-1).
@@ -1669,10 +1682,10 @@ describe('the group system curve (slice 4b)', () => {
 			"Group curve (station's flow)",
 			'Group curve, a pump beyond its data (dashed)',
 			"Group system curve (the rest of the network between the station's inlet and outlet, station's flow)",
-			'▲ Pump PA',
-			'■ Pump PB',
-			'● Group duty, where the group curve and the group system curve cross'
+			// Nit 5, slice 5c: moved from "▲ Pump PA", "■ Pump PB" and "● Group duty, …" (rules 1, 2).
+			'Group duty, where the group curve and the group system curve cross'
 		]);
+		expect(designators(legend)).toEqual([]);
 		expect(
 			within(legend)
 				.getByText(/^Group system curve/)
@@ -3831,7 +3844,9 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			expect(ring).toHaveAttribute('aria-hidden', 'true');
 			const circle = ring.querySelector('circle')!;
 			expect(circle.getAttribute('stroke')).toBe(GROUP_OTHER);
-			expect(circle.getAttribute('fill')).toBe('none');
+			// Nit 5, slice 5c (rule 8): moved from 'none' to the canvas's own fill, 'transparent'
+			// (chart-marks.ts CHART_MARKS.ring), so the swatch is the mark the canvas draws.
+			expect(circle.getAttribute('fill')).toBe('transparent');
 			expect(designators(li)).toEqual([]);
 		}
 		expect(within(figure).getByRole('img')).toHaveAccessibleName(
@@ -4486,30 +4501,36 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			plot: { left: 50, right: 900, top: 10, bottom: 500 }
 		});
 		imageChart.draw();
-		// The image writes the curves' labels in the desktop's words at 14 px (§9.3, §9.6): the base
-		// (Base, 4 running), "2 of 4 running" (2) and the 3-running cases merged, numbers ascending,
-		// each led by its cases' numbers in a box (owner, 2026-11-12, nit 5;
-		// docs/proposals/pumps-nits.md item 5, slice 5b: "[1, 4, 5, 6] 3 running", in place of
-		// "2, 4, 5, 6 · 3 running" by the lineup priority's ring numbers), and this case's own.
+		// The image writes the curves' labels in the desktop's words at 14 px (§9.3, §9.6): "2 of 4
+		// running" (2) and the 3-running cases merged, numbers ascending, each led by its cases'
+		// numbers in a box (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5, slice 5b:
+		// "[1, 4, 5, 6] 3 running", in place of "2, 4, 5, 6 · 3 running" by the lineup priority's
+		// ring numbers), and this case's own. Nit 5, slice 5c (rule 7: the points' labels come
+		// first): moved from the base's "[Base] 4 running" written too. The base's ring sits by its
+		// curve's end, and its tag, placed right of it, holds that label's place and both rows above
+		// it, so the image leaves that one label out and its notes count it, in place of none.
 		const labels = imageChart.written.filter((w) => / running( \(this case\))?$/.test(w.text));
 		expect(labels.map((w) => w.text).sort()).toEqual([
 			'1 running (this case)',
 			'2 running',
-			'3 running',
-			'4 running'
+			'3 running'
 		]);
-		for (const text of [
-			'1 running (this case)',
-			'[Base] 4 running',
-			'[1, 4, 5, 6] 3 running',
-			'[2] 2 running'
-		])
+		for (const text of ['1 running (this case)', '[1, 4, 5, 6] 3 running', '[2] 2 running'])
 			expect(imageChart.label(text), text).toMatchObject({ font: '14px system-ui, sans-serif' });
+		expect(imageChart.label('[Base] 4 running')).toBeUndefined();
+		// The base's ring's tag: its box alone (its curve is drawn), its number at 14 − 2 px, bold.
+		expect(imageChart.label('[Base]', '#ffffff')).toMatchObject({
+			font: '600 12px system-ui, sans-serif'
+		});
 		expect([...new Set(labels.map((w) => w.font))]).toEqual(['14px system-ui, sans-serif']);
 		expect(designators(labels.map((w) => w.text).join(' '))).toEqual([]);
+		// The image's notes count its own drawing's: one, where the screen's narrow drawing counted
+		// placed.leftOut.
+		expect(placed.leftOut).not.toBe(1);
 		const drawnLines = request.drawnLines!();
-		expect(drawnLines.some((l) => l.includes('left out for space'))).toBe(false);
-		expect(drawnLines).toEqual(request.lines.filter((l) => l !== sentence(placed.leftOut)));
+		expect(drawnLines).toEqual(
+			request.lines.map((l) => (l === sentence(placed.leftOut) ? sentence(1) : l))
+		);
 		// The image's datasets carry the family with its full labels.
 		const sets = request.config.data.datasets as unknown as Record<string, unknown>[];
 		expect(sets.filter((d) => d.curveFamily).map((d) => d.label)).toContain(

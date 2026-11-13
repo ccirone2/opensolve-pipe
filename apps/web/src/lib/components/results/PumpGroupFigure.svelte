@@ -26,6 +26,8 @@
 	} from '$lib/api/types';
 	import type { ChartImageSource } from '$lib/utils/export/chart-image';
 	import type { CurveLabelsDrawn } from '$lib/utils/pump-chart-config';
+	import { CHART_MARKS, memberMark, type ChartMark } from '$lib/utils/chart-marks';
+	import type { NotLabelledPoint } from '$lib/utils/point-labels';
 	import { DISCLAIMER } from '$lib/components/links';
 	import { STALE_CHUNK_MESSAGE } from '$lib/utils/export/load';
 	import type { Chart as ChartInstance } from 'chart.js';
@@ -51,7 +53,6 @@
 		groupSystemRows,
 		dutyCheckState,
 		dutyCheckWords,
-		HELD_SYMBOL,
 		OTHER_CURVE_COLUMN,
 		OTHER_CURVES_CAPTION,
 		otherCurveRows,
@@ -99,10 +100,11 @@
 		 */
 		reading?: { response: unknown; index: number } | null;
 		/**
-		 * A drawing of the chart on screen placed its curve labels: how many it left out for space
-		 * (D24 §9.3), which the card's notes count.
+		 * A drawing of the chart on screen placed its labels: how many curve labels it left out for
+		 * space (D24 §9.3), which the card's notes count, and the points whose labels it left out,
+		 * which they name with their values (nit 5, rule 7; slice 5c).
 		 */
-		onlabels?: (leftOut: number) => void;
+		onlabels?: (leftOut: number, points: NotLabelledPoint[]) => void;
 		/** The members, each with its slot. */
 		members: readonly GroupMemberInput[];
 		/** What is drawn (groupChartData). */
@@ -113,9 +115,12 @@
 		systemShown: PumpGroupCurveResponse | null;
 		/** The station and its duty: the group curve's response, else the group system curve's. */
 		stationShown: PumpGroupCurveResponse | null;
-		/** The notes under the chart (groupNotes), and the same for a count of labels left out. */
+		/**
+		 * The notes under the chart (groupNotes), and the same for a count of curve labels and the
+		 * points whose labels a drawing left out (the image's own).
+		 */
 		notes: GroupNotes;
-		notesWith: (leftOut: number) => GroupNotes;
+		notesWith: (leftOut: number, notLabelled?: readonly NotLabelledPoint[]) => GroupNotes;
 		/** Why the pumps are not a station, or their group curve not defined: the image's reasons. */
 		refusals: readonly Refusal[];
 		/** The members' names, in the station's order once known; and its arrangement. */
@@ -398,12 +403,15 @@
 	});
 
 	/**
-	 * A drawing of the chart on screen placed its curve labels: the notes count those left out,
-	 * and the canvas keeps the placement for measuring the layout (`data-curve-labels`).
+	 * A drawing of the chart on screen placed its labels: the notes count the curve labels left out
+	 * and name the points whose labels are (nit 5, rule 7), and the canvas keeps the placements for
+	 * measuring the layout (`data-curve-labels`, `data-point-labels`).
 	 */
 	function labelsDrawn(element: HTMLCanvasElement, placed: CurveLabelsDrawn) {
-		element.dataset.curveLabels = JSON.stringify(placed);
-		onlabels?.(placed.leftOut);
+		const { points, ...curves } = placed;
+		element.dataset.curveLabels = JSON.stringify(curves);
+		element.dataset.pointLabels = JSON.stringify(points);
+		onlabels?.(placed.leftOut, points.leftOut);
 	}
 
 	/** Why no image can be made now ('' when it can). */
@@ -478,8 +486,18 @@
 			? "the axes, the group system curve, each pump's own system curve"
 			: "the axes, each pump's own system curve"
 	);
-	/** A marker entry of the legend is a member's (two-up from 18 rem; the others from 26 rem). */
-	const memberEntry = (key: string) => key.startsWith('point-');
+	/**
+	 * A marker entry's swatch (nit 5, rule 8; slice 5c): its mark as the canvas draws it, from the
+	 * one spec (chart-marks.ts): the Group's ink dot, another case's slate ring, a held pump's
+	 * hollow diamond in its line's colour; its box holds the whole mark, its border's outer half too.
+	 */
+	const swatchOf = (item: { mark?: 'group' | 'ring' | 'held'; color: string }): ChartMark =>
+		item.mark === 'held'
+			? memberMark(item.color, true)
+			: item.mark === 'ring'
+				? CHART_MARKS.ring
+				: CHART_MARKS.group;
+	const swatchSize = (mark: ChartMark) => 2 * (mark.radius + mark.border / 2);
 
 	/** The chart drawn again at a fixed size with its caption and notes, as a PNG. */
 	async function downloadImage() {
@@ -488,22 +506,29 @@
 		makingImage = true;
 		const { Chart, downloadChartImage, pumpGroupConfig } = module;
 		const reasons = refusals.map((r) => wordsText(r.words));
-		/** The image's own count of curve labels left out (D24 §9.3), told as it is drawn. */
+		/**
+		 * The image's own count of curve labels left out (D24 §9.3) and its own points whose labels
+		 * are left out (nit 5, rule 7), told as it is drawn.
+		 */
 		let imageLeftOut = 0;
+		let imagePoints: NotLabelledPoint[] = [];
 		await downloadChartImage(Chart, {
 			config: pumpGroupConfig(data, {
 				legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
 				format: fmt,
 				forImage: true,
 				curveLabels,
-				onlabels: (placed) => (imageLeftOut = placed.leftOut)
+				onlabels: (placed) => {
+					imageLeftOut = placed.leftOut;
+					imagePoints = placed.points.leftOut;
+				}
 			}),
 			title: groupImageTitle(memberNames, arrangement),
 			lines: groupNoteLines(notes, reasons),
-			// With other cases' curves labelled, the notes count the image's own labels left out.
-			...(data.otherCurves.length
-				? { drawnLines: () => groupNoteLines(notesWith(imageLeftOut), reasons) }
-				: {}),
+			// The notes as the image's own drawing gives them: the points whose labels it left out,
+			// and, with other cases' curves labelled, its count of curve labels left out.
+			drawnLines: () =>
+				groupNoteLines(notesWith(data.otherCurves.length ? imageLeftOut : 0, imagePoints), reasons),
 			content: `Pumps together ${memberNames.join(', ')}`,
 			...(caseName ? { caseName } : {}),
 			disclaimer: DISCLAIMER,
@@ -726,25 +751,21 @@
 				{/if}
 			</div>
 			<!-- The legend after the reading, the strip and the actions, so the readout sits under its
-				canvas (§6.1, F12, F27): a container, its marker entries two-up where they fit (the
-				members' from 18 rem, every one's from 26 rem), its lines one per row; each entry's
-				words wrap in their cell, a name with no space too, never over the next (§5.3). -->
+				canvas (§6.1, F12, F27): a container, its marker entries two-up from 26 rem, its lines
+				one per row; each entry's words wrap in their cell, a name with no space too, never over
+				the next (§5.3). A running pump's point has no entry: the chart names it beside its dot
+				(nit 5, rule 2; slice 5c). -->
 			<div class="@container">
 				<ul
-					class="grid grid-cols-1 gap-x-3.5 gap-y-1 text-xs text-slate-800 @min-[18rem]:grid-cols-2"
+					class="grid grid-cols-1 gap-x-3.5 gap-y-1 text-xs text-slate-800 @min-[26rem]:grid-cols-2"
 					aria-label="Legend"
 				>
 					{#each legend as item (item.key)}
 						<li
-							class={[
-								'flex min-w-0 items-start gap-1.5',
-								item.kind === 'line'
-									? 'col-span-full'
-									: !memberEntry(item.key) && '@min-[18rem]:col-span-full @min-[26rem]:col-span-1'
-							]}
+							class={['flex min-w-0 items-start gap-1.5', item.kind === 'line' && 'col-span-full']}
 						>
 							{#if item.kind === 'line'}
-								<svg width="24" height="8" aria-hidden="true" class="mt-1 shrink-0"
+								<svg width="24" height="8" aria-hidden="true" class="chart-swatch mt-1 shrink-0"
 									><line
 										x1="0"
 										y1="4"
@@ -755,24 +776,43 @@
 										stroke-dasharray={item.dash?.join(' ') || undefined}
 									/></svg
 								>
-							{:else if item.tags}
-								<!-- An other case's ring as drawn (a slate ring, transparent inside), its
-									words naming its cases by number: no character stands for it (nit 5,
-									slice 5b). -->
-								<svg width="12" height="12" aria-hidden="true" class="mt-0.5 shrink-0"
-									><circle
-										cx="6"
-										cy="6"
-										r="5"
-										fill="none"
-										stroke={item.color}
-										stroke-width="2"
-									/></svg
-								>
+								<span class="min-w-0 wrap-break-word">{item.label}</span>
 							{:else}
-								<span aria-hidden="true" style:color={item.color}>{item.symbol}</span>
+								<!-- Its mark as the canvas draws it, from the one spec (rule 8): the Group's ink
+									dot, another case's slate ring (its words name its cases by number), a held
+									pump's hollow diamond in its line's colour; no character stands for any. Its
+									box holds the whole mark, its words centred on it (a 16 px line). -->
+								{@const mark = swatchOf(item)}
+								{@const size = swatchSize(mark)}
+								{@const c = size / 2}
+								<svg
+									width={size}
+									height={size}
+									aria-hidden="true"
+									class="chart-swatch shrink-0"
+									style:margin-top="{Math.max(0, (16 - size) / 2)}px"
+									>{#if item.mark === 'held'}<polygon
+											data-mark="held"
+											points="{c - mark.radius},{c} {c},{c - mark.radius} {c +
+												mark.radius},{c} {c},{c + mark.radius}"
+											fill={mark.fill}
+											stroke={mark.stroke}
+											stroke-width={mark.border}
+										/>{:else}<circle
+											data-mark={item.mark ?? 'group'}
+											cx={c}
+											cy={c}
+											r={mark.radius}
+											fill={mark.fill}
+											stroke={mark.stroke}
+											stroke-width={mark.border}
+										/>{/if}</svg
+								>
+								<span
+									class="min-w-0 wrap-break-word"
+									style:padding-top="{Math.max(0, (size - 16) / 2)}px">{item.label}</span
+								>
 							{/if}
-							<span class="min-w-0 wrap-break-word">{item.label}</span>
 						</li>
 					{/each}
 				</ul>
@@ -821,6 +861,8 @@
 				<p class="text-xs text-slate-700">{note}</p>
 			{/each}
 			{#if notes.dashed}<p class="text-xs text-slate-700">{notes.dashed}</p>{/if}
+			<!-- A point whose label the chart left out, named with its values (nit 5, rule 7). -->
+			{#if notes.notLabelled}<p class="text-xs text-slate-700">{notes.notLabelled}</p>{/if}
 		</div>
 		<!--
 			The reference (§5.3), three native disclosures, closed, each saying what it holds: how to
@@ -936,12 +978,8 @@
 							{#each table.rows as row (row.id)}
 								{@const point = data.points.find((p) => p.id === row.id)}
 								<tr class="border-t border-slate-100">
-									<th scope="row" class="px-2 py-1 text-left font-normal"
-										><span aria-hidden="true" style:color={row.style.color}
-											>{point?.held ? HELD_SYMBOL : row.style.symbol}</span
-										>
-										{row.name}</th
-									>
+									<!-- Each pump its name, as typed, no mark before it (nit 5, rules 1 and 2). -->
+									<th scope="row" class="px-2 py-1 text-left font-normal">{row.name}</th>
 									<td class="px-2 py-1 text-right tabular-nums"
 										>{point ? fmt(point.point.x) : '—'}</td
 									>
@@ -1270,3 +1308,27 @@
 		{/if}
 	</figure>
 </div>
+
+<style>
+	/*
+	 * Forced colours (nit 5, rule 8; slice 5c): the legend's swatches keep their shapes in the
+	 * system's colours, each mark as the canvas's forced drawing would read: lines and edges in the
+	 * text colour, the Group's dot filled with it and edged with the background, a held pump's
+	 * diamond hollow.
+	 */
+	@media (forced-colors: active) {
+		.chart-swatch {
+			forced-color-adjust: none;
+		}
+		.chart-swatch :is(line, circle, polygon) {
+			stroke: CanvasText;
+		}
+		.chart-swatch [data-mark='group'] {
+			fill: CanvasText;
+			stroke: Canvas;
+		}
+		.chart-swatch [data-mark='held'] {
+			fill: Canvas;
+		}
+	}
+</style>

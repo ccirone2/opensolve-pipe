@@ -215,7 +215,7 @@ The Pumps tabpanel (`PumpsView.svelte`'s `space-y-4` column), the same order at 
   - **In place of the canvas when needed:** the chunk-failure alert or "The chart cannot be drawn in this browser. The table below lists its points." Either forces the data region open and hides the chips, the slider and the actions, as today.
   - **The canvas** (`role="img"` with its summary and, now, `aria-busy`; the Chart.js legend inside it). Its legend click stays: it is how a design-check mark is hidden (`pump-chart-config.ts:211–212`).
   - **Reading.**
-    - The group "Show": chips Efficiency, Shaft power, NPSH, Speed range and Design checks, drawn as toggle chips: `.btn` at 44 px, a fill and an `<Icon name="check">` (an `aria-hidden` svg, no text) when pressed, an outline when not; `aria-pressed`; remembered per browser as today. The chips' text stays "Efficiency", "Shaft power", … exactly (`PumpChart.svelte.test.ts:716–720`).
+    - The group "Show": chips Efficiency, Shaft power, NPSH, Speed range and Design checks, drawn as toggle chips: `.btn` at 44 px, a fill and an `<Icon name="check">` (an `aria-hidden` svg, no text) when pressed, an outline when not; `aria-pressed`; remembered per browser as today. The chips' text stays "Efficiency", "Shaft power", … exactly (`PumpChart.svelte.test.ts:716–720`). Since `pumps-nits.md` item 1 (2026-11-12) the mark is a box in both states, checked when pressed (`Icon name="box-check"`) and empty when not (`Icon name="box"`), so a press changes no chip's width.
     - Then "Read at flow" with "Back to the duty". Pressing the button removes it, so the focus moves to the slider, as on the group chart: the slider is bound (`bind:this={readSlider}`) and the handler is `() => { cursor = null; void tick().then(() => readSlider?.focus()); }` (F40). Escape stays.
     - Then the readout: one `<p data-pump-readout>`, not live, "At the duty 21.58 L/s: Pump head 40.33 m, System head 40.34 m, …". Each pair is an inline `whitespace-nowrap` span "label value unit" at 14 px and the ", " separators are visually hidden, so its text is unchanged and `pump-chart.e2e.ts:30–44`, which find it as a `<p>` and read it with a regex, stay as they are.
     - This is the order `pump-chart.md` §4.1 gives.
@@ -299,7 +299,7 @@ The Pumps tabpanel (`PumpsView.svelte`'s `space-y-4` column), the same order at 
     - "How the group system curve is computed".
   - **The data region** (`#data`, after the reference, §5.1), in this order:
     1. "Each pump's point (flow through it)";
-    2. the duty sentence split into two paragraphs, each with its own Details: "● Group duty (station's flow): …; Duty check: …" and "System duty check: …";
+    2. the duty sentence split into two paragraphs, each with its own Details: "● Group duty (station's flow): …; Duty check: …" and "System duty check: …" (since `pumps-nits.md` item 5, slice 5a, 2026-11-12, it starts "Group duty (station's flow): …", with no ●);
     3. "Group curve (station's flow at each rise)";
     4. "Group system curve (…)";
     5. "Other cases' station duties" (a list below 640 px), which today comes before the group-curve tables (`PumpGroupChart.svelte:1424–1572` before `:1573–1674`);
@@ -444,7 +444,7 @@ Below 640 px (366 px at 390×844, 288 px at 320) the order and every control are
   - the group table's and Running combinations' scroll boxes, as size containers, so their flag lines and group lines can be `w-[100cqw]` as ResultsTable's box is (`ResultsTable.svelte:361–363`). Without that, `100cqw` would resolve against the small viewport (1,280 px on a desktop) and overflow the 452 px box. Neither holds a fixed-position descendant.
   - Never a card, and never an ancestor of a ResultsTable, a Dialog or a sheet: layout containment would trap a fixed-position sheet (ResultsTable's Fields sheet is `max-sm:fixed`, `ResultsTable.svelte:304`, and S6 puts a ResultsTable in the card). An e2e guard asserts that no ancestor of a "Fields shown in …" group has a computed `container-type` other than `normal`.
 - So the members, the case lists and the legend's symbol entries go one or two per row as their container allows, and the curve tables one column.
-- **Chips** wrap to two rows, and "on" is a ✓ as well as a colour.
+- **Chips** wrap to two rows, and "on" is a ✓ as well as a colour. (Since `pumps-nits.md` item 1, "on" is a checked box and "off" an empty one in the same place, so a press never rewraps the row.)
 - **Readouts** put one pair per line.
 - **The strip:** a line's button wraps under its sentence, and stays next to it in the reading order.
 - **Actions:** Download image drops under Show data table at 270 px or less, with its visible reason under it.
@@ -963,7 +963,7 @@ The group's Show data table is about 18 stops from the card's header, against 35
 **Names and marks.**
 
 - Visible words stay part of every name (WCAG 2.5.3); the nav's buttons are named by their words, then their mark's visually hidden words after a comma.
-- Toggle chips keep `aria-pressed`; their ✓ is an `aria-hidden` svg, so their text and names are unchanged.
+- Toggle chips keep `aria-pressed`; their ✓ is an `aria-hidden` svg, so their text and names are unchanged. (Since `pumps-nits.md` item 1, a box in both states, checked when on, still one `aria-hidden` svg.)
 - Capped boxes stay focusable and `aria-disabled`, look unavailable by their box only, keep their names at 4.5:1 or more, and are described by their cap.
 - An off case's note is in its box's description.
 - Disabled reasons that last are visible text, still in `aria-describedby`.
@@ -1529,6 +1529,7 @@ Every other check passed: the one-off view at every size, and the lineups at 128
 17. **The select is native** (§5.3 item 2). PumpsView draws a `<select class="input pr-8">`, `aria-labelledby` the h3 and `aria-describedby` its sentence, in place of SelectField, which draws a label of its own. So its name comes from the h3 and its description from the visible sentence. The h3 "Pump chart" (16 px semibold, tabindex −1) is drawn with one pump too; the select and its sentence only with more than one. The row is a container: the select sits beside the h3 from 26 rem and under it, with the row's whole width, below. The build had 21 rem, as §5.3 first said. At 390×844 that left the select 173 px of text room for the condenser's 237 px names, so it cut "CWP-1" to "CWP-6", the only part that tells the six pumps apart; on main the select was full width. After the records it moved to 26 rem, the readout's own breakpoint: under the h3 at 390×844 it has 274 px of room, beside it at 1280×800 293 px. `tests/pumps-layout.e2e.ts` checks at each size that the room holds the longest name. The room is the select's width less its padding and less the 20 px Chromium's select keeps for itself (its inner start padding and its arrow: names of 69, 237 and 276 px drew whole from 18 or 19 px more than text and padding, measured pixel for pixel against a wider select). The check failed first on the 21 rem build (193 px of room against 237 at 390×844, measured before the 20 px was taken off). At 320×640 no row holds the condenser's names: the select takes the row's whole width and the name is cut to "Condenser water pump CW", as on main, and the chart's caption names the pump shown.
 18. **The heading "Results per pump"** (§5.3 item 1). The h3 (16 px semibold, tabindex −1) and the table share a `space-y-2` div (`data-pump-table`), not a landmark. The table keeps its visually hidden caption, its name. Its note stays a sibling in the tab's column, so its 16 px gap after the table is unchanged.
 19. **The chips** (§5.3 Reading). Pressed: `border-blue-700 bg-blue-50 text-blue-900`, with a 16 px `Icon name="check"` before the word (`aria-hidden`, as every `Icon` is). Not pressed: `.btn`'s own slate-300 outline on white. The "Show" label is 12 px medium. The words are unchanged.
+    - Since `pumps-nits.md` item 1 (2026-11-12): a 16 px box leads each chip in both states, `Icon name="box-check"` in blue-700 when pressed and `Icon name="box"` in slate-500 when not, and `pressChip` keeps the pressed chip under the pointer.
 20. **The readout** (§5.3 Reading, §5.5). One `<p data-pump-readout>`, laid out as a grid in a container: the lead "At the duty {flow}:" on a row of its own, then the pairs one per row below 26 rem and two per row from it. Each pair is `whitespace-nowrap` at 14 px, its label slate-600 and its value medium. §5.3 drew inline pairs that wrap; the mock wraps them freely.
     - The hidden separators stay ",&nbsp;", today's text, not ", ". Svelte trims a plain space at the end of the `sr-only` span, and ESLint's `svelte/no-useless-mustaches` forbids `{', '}`.
     - Chromium's accessibility tree puts a space before each hidden comma ("22.76 m , System head"), as it did for today's flex items. The text content and the slider's `aria-valuetext` are unchanged.
@@ -1557,6 +1558,7 @@ Every other check passed: the one-off view at every size, and the lineups at 128
 32. **The shown case's tables are one column at the desktop split** (§5.5, F11). They go two-up only from a 40 rem container. So the lineups' pump card with the tables open is taller at 1280×800: 2,093 → 2,742 px below the canvas.
 33. **The Details' subject in another case's table** (§6.2). The shown case's Why no head Details are named "Details of the point at {flow} {unit}". Another case's are "Details of the point at {flow} {unit}, {case}": the other cases' curves share the shown curve's flow grid, so their names would repeat. `IssueDetail` gains an optional `subject`; its other callers are unchanged.
 34. **The tag keeps its ●** (§5.3 Other cases). It reads "● {case} (shown)": the `aria-hidden` ● is the chart's filled operating-point marker. The mock dropped it. The words are unchanged.
+    - Since `pumps-nits.md` item 5 (slice 5a, 2026-11-12): the tag is its words alone, "Base case (shown)", with no ●, as the mock drew it.
 35. **The case grid is no container** (§5.5). `grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]` needs none, so the page has one container fewer than §5.5 allows.
 36. **The off note sits under the name** (§5.3: "beside its box"). "(off in this case: no operating point)" is a `<p>` in the box's grid item, under its name and outside its label. In a 13 rem column it wraps to two lines, so it cannot share the box's line. Its id comes before the cap's in `aria-describedby`.
 37. **The overlay's cost is indented under its label** (`pl-6 -mt-1`, 12 px slate-600), as in the mock, rather than `.hint` at the box's edge. The other cases' live-line row is `sr-only` while idle, as the strip is.
@@ -1572,6 +1574,7 @@ Every other check passed: the one-off view at every size, and the lineups at 128
     - Three chips (lineups, condenser): one row at 1280×800, two at 390×844 and 320×640. On main: one, one and two.
     - Four chips (the one-off, with Design checks): two rows at 1280×800, "Design checks" alone on the second; two at 390×844; three at 320×640 (148 px). On main: one, two and two.
     - The review's L1 drew the mock's chips at these widths and got the same rows, so it was refuted (below).
+    - Since `pumps-nits.md` item 1 (2026-11-12) every chip keeps its pressed width in both states, so "each pressed chip is 24 px wider" no longer holds; the row counts above still do (`pumps-nits.md` §4.2: in the one-off two rows at 1280×800 and 390×844, three, 148 px, at 320×640).
 43. **§5.7 row 7's "5 in the tab", measured.** The pump chart's notes are one run of 9 paragraphs and 197 words in the one-off (324 px at 1280×800), 6 and 142 in the lineups, and 5 and 136 in the condenser. "Design-check limits drawn" is a `<p>`, so it does not break the run. As built, the one-off fails S3's "≤ 6 in the tab"; S3 settles it when it sets that budget.
 44. **What the after screenshots show,** for the later slices and the owner (deviceScaleFactor 1):
     - At 390×844 in the condenser, the select beside the h3 showed "Condenser water pump" and cut "CWP-1", the only part that tells the six pumps apart. On main it was full width under its label and showed the whole name. At 320×640 both cut it to "Condenser water pump CW". Fixed after the records: the select is under the h3 below 26 rem (item 17).
@@ -1864,6 +1867,7 @@ Every other check passed: the one-off view at every size, and the lineups at 128
 87. **The members** (§5.3 Members).
     - The fieldset "Pumps in the group" is an auto-fill grid of 13 rem columns, with no container: two columns in a 480 px pane, one on a phone.
     - Each label is `items-start py-3`, its box at the name's first line. The slot symbol keeps a 1 rem column (`w-4`), empty while unticked, so a name never moves on tick.
+    - Since `pumps-nits.md` item 5 (slice 5a, 2026-11-12): no slot symbol and no column for one; a name starts 8 px after its box (32 px with the column).
     - A capped box is greyed (`opacity-45`), its row `cursor-not-allowed`, its name kept at slate-600. §5.3 Members names only "At most 6 pumps in a group."; the look is the ui-guide's capped choice and §10's "the capped look".
     - "The calculation server finds …" is the fieldset's description (`aria-describedby`).
     - The fieldset is 244 / 332 / 348 px in the condenser and 140 / 244 / 260 in the lineups, at 1280×800 / 390×844 / 320×640 (320 / 336 / 352 and 144 / 160 / 176 on S2's code).
@@ -1922,6 +1926,7 @@ Every other check passed: the one-off view at every size, and the lineups at 128
      - The h5 and its section are drawn with scenarios and a station shown, or while the notes have other cases' lines (`(onothers && stationShown) || notes.others.length`). So the live line mounts with the section, before the other cases' requests, which wait for the group system curve.
      - The switch comes first, its cost visible. Its box sits at its label's first line (`items-start py-3`, the box `mt-0.5`): at 320×640 the label wraps, and a centred box sat between its two lines. That adds 20 px there only. The pump chart's "Also show the other cases' system curves" (S1) still centres its box.
      - While the switch is off, the one line. While it is on, "Cases on this chart": the case shown as a tag, then a box per other case, its ring and number in a reserved 2.5 rem column (`w-10`), its name and "(out of date)" in a span that wraps, a capped box greyed as the members'.
+     - Since `pumps-nits.md` item 5 (slice 5a, 2026-11-12): the case shown's tag is its words alone, "Base case (shown)", with no ●.
 104. **The other cases' own line** (§5.3 Progress; §5.1 item 4).
      - It says "Computing the other cases' station duties: k of n…" only while none of the card's own curves loads, since the other cases wait for them (the review's MUT-03); Cancel is drawn only then.
      - It also says "Not every other case's station duty was computed: see Running combinations.", which §5.3 draws as a plain paragraph, since §5.1 item 4 gives each request one line that says its state. The buttons' descriptions are unchanged.
@@ -1932,6 +1937,7 @@ Every other check passed: the one-off view at every size, and the lineups at 128
      - Only "How to read the rings" is medium in its summary, as in item 101; the mock draws the whole summary in medium.
      - The chevron stays centred on the summary, as in the mock. A first-line chevron needs `py-3`, which would add 20 px to every two-line summary.
      - The summary is 44 / 60 / 80 px.
+     - Kept by `pumps-nits.md` slice 5a (2026-11-12); its slice 5b, by the owner's answers of that day, numbers each case by its place in the Scenarios list and drops the glyph (`pumps-nits.md` item 5).
 106. **The parts helpers** (§5.3 The parts helper). `otherNoteParts` returns the parts (`off`, `frame`, `clip`, `claim`, `rings`, `notOn`, `leftOut`) and `otherNoteLines` joins them in today's order; `otherNotes` is gone. `GroupNotes` gains `otherParts`, which only the screen reads, and its `others` is `otherNoteLines(otherParts)`. New exports: `otherNoteParts`, `otherNoteLines`, `OTHER_RINGS_LEAD`, `OtherNoteParts` and `OtherRingItem`. Nothing under `utils/export/` or `utils/__fixtures__/` changed, and the chart-image and export word-for-word tests pass unchanged.
 107. **The pump chart's limits are a list** (S1's markup; item 43, which S1 left to S3). "Design-check limits drawn" names a `<ul>` of the limit notes, each an `<li>` holding its `<p>`; the closing sentence follows the list as its own `<p>`, then Go to Checks. No word or order changed. The one-off's run of 9 paragraphs failed "≤ 6 in the tab"; it is 5 now. The one-off's screens are pixel-identical to S2's at all three sizes.
 108. **§5.7 row 5 is measured from the card's header** (its toggle's bottom) to the top of the station dl's first value. The audit's 3,522 px ran from the card's top to the dl, 56 px more: the card's padding and its 44 px header.
@@ -2367,6 +2373,7 @@ Every other check passed: the one-off view at every size, and the lineups at 128
 150. **No "None" is drawn** (§5.3 Phones). §5.3 says "None" stays visually hidden. With the Flags column gone there is no cell to hold it. As in the group table since S3 ("None" becomes the absence of a flag line, §10 S3), a pump without flags has no line, visible or hidden (the review's WORDS-2, refuted). §5.3's Phones bullet is amended to say so.
 151. **The names** (§5.3 Pump names).
      - `CombinationGroup` gains `shown`, the case shown. PumpGroupChart passes `oninspect` down. In the shown case's group each name is a trace button: `flex min-h-11 w-max max-w-48 items-center gap-1 px-1 text-left font-medium wrap-break-word text-blue-800 underline`, its slot symbol `aria-hidden` and not underlined, the name in its own `min-w-0` span. Its name is the pump's label alone ("Pump PA"). A press opens that pump's trace for the case shown.
+     - Since `pumps-nits.md` item 5 (slice 5a, 2026-11-12): no slot symbol before the name (item 164).
      - In every other group the name is a plain row header with the same width rules. With no `oninspect` (the card's own component tests) no name is a button.
      - The names wrap at 12 rem in the table (`w-max max-w-48 wrap-break-word`) and anywhere on a phone (`max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere`). §5.3 does not set this. It is the group table's pattern (item 92) and the ui-guide's rule for a sticky name column. On S4's code the row header was `whitespace-nowrap` on desktop.
      - So in the condenser each name ("Condenser water pump CWP-1" to "CWP-6") takes two lines in all 42 member rows: 49 px each, against 29 to 109 px on S4's code. In the lineups the shown case's 4 rows are 49 px, the height of the 44 px buttons, and the other 32 are 29 to 31 px.
@@ -2539,6 +2546,7 @@ Every other check passed: the one-off view at every size, and the lineups at 128
      - On S5's code the title was the table's caption, drawn inside the box. The mock's phone column draws it above the box, its desktop column inside it.
      - Fields is remembered under "The pumps in the group" (`fieldsKey`), so a choice holds whatever case is shown.
      - Each name is the row header's content (`name`): the slot symbol, then a trace button that wraps at 12 rem, as before.
+     - Since `pumps-nits.md` item 5 (slice 5a, 2026-11-12): no slot symbol before the name (item 164).
      - The station's answer stays first: its first value is 397 / 505 / 557 px under the card's header in the condenser at 1280×800 / 390×844 / 320×640, unchanged.
      - Station grows by 51 px at 1280×800 and by 44 px on phones: 484 → 535 px at 1280×800, 1,180 → 1,224 at 390×844 and 1,552 → 1,596 at 320×640 in the condenser. The title (16 px) and the controls' row (44 px), with their 4 px gaps, now take 68 px above the box. The box loses its caption: at 1280×800 it is 365 → 348 px, 17 px shorter, with its heading row 45 → 53 px; as a list it is 24 px shorter, 1,015 → 991 and 1,367 → 1,343.
 163. **One pattern for the card's flag lines** (§5.3 Flags; §6.4 item 4).
@@ -2548,6 +2556,7 @@ Every other check passed: the one-off view at every size, and the lineups at 128
 164. **The slot symbol in a 1 rem column** (§15 item 157).
      - In both tables the symbol is `w-4 shrink-0 text-center`, so every name starts at one edge whatever the symbol's width.
      - In the group table the names now start at x 29 at 1280×800 and x 33 on phones. On S5's code they started between x 22 and 28, and between x 26 and 32 (the probe, at deviceScaleFactor 1). In Running combinations item 157 found them between x 52 and 57.
+     - Since `pumps-nits.md` item 5 (slice 5a, 2026-11-12): no slot symbol and no `w-4` column in either table; a name's words start 8 px into its row header (`NAME_INSET`; 28 px with the column).
 165. **Both tables take ResultsTable's look.**
      - Cells are `py-2`, aligned to the top, with a rule between rows. The sticky name column has its border and its shadow. A case's heading is `pt-2 pb-1`. On a phone each pump's block but its group's first has a rule above it.
      - The names are centred in their 44 px buttons (`min-h-11 items-center`), while the values sit at the top of their cells. So at 1280×800 a one-line trace button's name sits 6 px below its values, and a plain name, or a two-line name's first line, 4 px above them. On S5's code a one-line name sat on its values' line, and a two-line name 10 px above it (item 187).

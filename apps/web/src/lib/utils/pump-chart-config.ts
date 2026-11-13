@@ -874,7 +874,14 @@ export function pumpGroupConfig(
 	const { ink: INK, grid: GRID, text: TEXT, system: SYSTEM, slate: SLATE } = CHART_COLORS;
 	const fmt = format;
 	const font = (size: number) => (forImage ? { font: { size } } : {});
-	const crossed = (marker: string) => marker === 'cross' || marker === 'crossRot';
+	/**
+	 * A member marker Chart.js draws as lines alone (its drawPoint strokes `cross`, `crossRot` and
+	 * `star` and fills no area): stroked in its slot's colour at 3 px, never white, which drew
+	 * slot 3's star invisible on white and in the image's legend (owner, 2026-11-12, nit 5;
+	 * docs/proposals/pumps-nits.md item 5, until the members' points are dots).
+	 */
+	const crossed = (marker: string) =>
+		marker === 'cross' || marker === 'crossRot' || marker === 'star';
 	/**
 	 * A marker's clip (px beyond each edge of the plot): Chart.js's own allowance for a point, its
 	 * radius (hovered, its hover radius) and its border, kept on every edge. Chart.js allows none

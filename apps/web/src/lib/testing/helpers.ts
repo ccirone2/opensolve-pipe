@@ -404,3 +404,34 @@ export function wordsInSight(el: Element): string {
 	}
 	return words;
 }
+
+/**
+ * Characters that designate a pump, the group or a case (owner, 2026-11-12, nit 5: "I don't like
+ * the use of special characters to designate pumps and groups"; docs/proposals/pumps-nits.md item
+ * 5): Unicode's Geometric Shapes (U+25A0–25FF: ▲ ■ ● ○ ◇ ▢ △ ▽), Miscellaneous Symbols and
+ * Dingbats (U+2600–27BF: ★ ✳) and Miscellaneous Symbols and Arrows (U+2B00–2BFF).
+ */
+const DESIGNATOR_CLASS = String.raw`[\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF]`;
+const DESIGNATOR = new RegExp(DESIGNATOR_CLASS, 'g');
+/**
+ * A mark named in parentheses after the words it marks, "Shutoff head (–)": a +, ×, dash or
+ * hyphen, or a designator (with its text-style selector, U+FE0E).
+ */
+const MARK_IN_PARENTHESES = new RegExp(String.raw`\((?:[+×–-]|${DESIGNATOR_CLASS}\uFE0E?)\)`, 'g');
+
+/**
+ * The designator characters in `where` (nit 5's guard), each as found: every character of those
+ * blocks, a mark in parentheses ("(+)", "(–)"), and, in an element, the words of every
+ * aria-hidden span that is a lone × or + (a mark drawn as text). Empty when there is none.
+ */
+export function designators(where: Element | string): string[] {
+	const text = typeof where === 'string' ? where : (where.textContent ?? '');
+	const found = [...(text.match(DESIGNATOR) ?? []), ...(text.match(MARK_IN_PARENTHESES) ?? [])];
+	if (typeof where !== 'string') {
+		for (const hidden of where.querySelectorAll('[aria-hidden="true"]')) {
+			const words = (hidden.textContent ?? '').trim();
+			if (words === '×' || words === '+') found.push(words);
+		}
+	}
+	return found;
+}

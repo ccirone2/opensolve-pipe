@@ -63,9 +63,12 @@ const flagLine = createRawSnippet((row: () => Row) => ({
 			.join('')}</ul>`
 }));
 
-/** The caller's name: its own button, with a marker. */
+/**
+ * The caller's name: its own content in place of ResultsTable's button, words ResultsTable does
+ * not draw (no slot symbol since nit 5, owner, 2026-11-12; docs/proposals/pumps-nits.md item 5).
+ */
 const name = createRawSnippet((row: () => Row) => ({
-	render: () => `<span data-test-name>▲ ${row().name}</span>`
+	render: () => `<span data-test-name>${row().name}, the caller's</span>`
 }));
 
 const body = () => screen.getAllByRole('rowgroup')[1]!;
@@ -109,7 +112,7 @@ describe('ResultsTable: a flag line, a name and a region of the caller’s (pump
 		const onselect = vi.fn();
 		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump', name, onselect });
 		const header = within(rowOf('Pump PA')).getByRole('rowheader');
-		expect(header.querySelector('[data-test-name]')).toHaveTextContent('▲ Pump PA');
+		expect(header.querySelector('[data-test-name]')).toHaveTextContent("Pump PA, the caller's");
 		expect(within(header).queryByRole('button')).toBeNull();
 		expect(header).toHaveClass('sticky', 'left-0', 'sm:w-auto');
 		expect(header).not.toHaveClass('sm:min-w-[11rem]');
@@ -1194,5 +1197,244 @@ describe('S6, the CI fix: a press grows the table by whole pixels, so its box ca
 		expect(box.scrollLeft).toBe(71);
 		// Its words a quarter of a pixel from where they were: the nearest a whole pixel allows.
 		expect(wordsLeft(/^Flow/) - words).toBe(-0.25);
+	});
+});
+
+describe('Fields: columns hidden by default, the choice stored as departures from them, a sort shows its column (docs/proposals/pumps-nits.md item 3)', () => {
+	const KEY = 'opensolve-pipe:results-fields:Pumps';
+	/**
+	 * Three pumps of five columns, Power and NPSHa hidden until the user shows them (as Results
+	 * per pump's hydraulic power, NPSHa and NPSHr are); no flags, so no workspace.
+	 */
+	function withDefaults(): Table {
+		const row = (key: string, flow: string, power: string, npsh: string): Row => ({
+			key,
+			element: { kind: 'component', id: key },
+			name: `Pump ${key}`,
+			detail: '',
+			cells: { status: 'Running', flow, head: '40', power, npsh },
+			flags: []
+		});
+		return {
+			columns: [
+				{ key: 'status', label: 'Status' },
+				{ key: 'flow', label: 'Flow', unit: 'L/s', numeric: true },
+				{ key: 'head', label: 'Head', unit: 'm', numeric: true },
+				{ key: 'power', label: 'Power', unit: 'kW', numeric: true, hiddenByDefault: true },
+				{ key: 'npsh', label: 'NPSHa', unit: 'm', numeric: true, hiddenByDefault: true }
+			],
+			rows: [
+				row('PA', '21.5', '5.2', '9'),
+				row('PB', '19.2', '4.1', '12'),
+				row('PC', '20.1', '6.3', '7')
+			]
+		};
+	}
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const columns = () => screen.getAllByRole('columnheader').map((h) => squash(h.textContent));
+	const fieldsButton = () => screen.getByRole('button', { name: /^Fields/ });
+	const menu = () => screen.getByRole('group', { name: 'Fields shown in Pumps' });
+	const box = (name: RegExp) => within(menu()).getByRole('checkbox', { name });
+	const checked = () =>
+		within(menu())
+			.getAllByRole('checkbox')
+			.map((c) => [squash(c.closest('label')!.textContent), (c as HTMLInputElement).checked]);
+	const names = () =>
+		within(body())
+			.getAllByRole('rowheader')
+			.map((h) => squash(h.textContent));
+	const stored = () => localStorage.getItem(KEY);
+	const base = { caption: 'Pumps', first: 'Pump' };
+
+	it('with nothing stored: a column hidden by default is not drawn, its box is unchecked, and Fields counts it; Show all offered, Default fields not', async () => {
+		render(ResultsTable, { ...base, table: withDefaults() });
+		expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m']);
+		expect(squash(fieldsButton().textContent)).toBe('Fields (3 of 5)');
+		expect(screen.getByRole('button', { name: 'Fields (3 of 5), Pumps' })).toBe(fieldsButton());
+		// A phone's "Sort by" offers what is shown, as the headings do.
+		const sortBy = screen.getByRole('combobox', { name: 'Sort by, Pumps' }) as HTMLSelectElement;
+		expect([...sortBy.options].map((o) => o.text)).toEqual([
+			'Table order',
+			'Pump',
+			'Status',
+			'Flow (L/s)',
+			'Head (m)'
+		]);
+		await fireEvent.click(fieldsButton());
+		expect(checked()).toEqual([
+			['Status', true],
+			['Flow (L/s)', true],
+			['Head (m)', true],
+			['Power (kW)', false],
+			['NPSHa (m)', false]
+		]);
+		expect(within(menu()).getByRole('button', { name: 'Show all' })).toBeInTheDocument();
+		expect(within(menu()).queryByRole('button', { name: 'Default fields' })).toBeNull();
+		// The defaults are the table's, not a choice: nothing is stored.
+		expect(stored()).toBeNull();
+	});
+
+	it('checking a default-hidden box stores {"hidden":[],"shown":[k]} and draws it; unchecking it removes the key; a hidden column of the user’s is stored as today’s array while no default-hidden one is shown', async () => {
+		render(ResultsTable, { ...base, table: withDefaults() });
+		await fireEvent.click(fieldsButton());
+		await fireEvent.click(box(/^Power/));
+		expect(stored()).toBe('{"hidden":[],"shown":["power"]}');
+		expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m', 'Power kW']);
+		expect(squash(fieldsButton().textContent)).toBe('Fields (4 of 5)');
+		// The choice differs from the defaults: Default fields is offered.
+		expect(within(menu()).getByRole('button', { name: 'Default fields' })).toBeInTheDocument();
+		// Flow hidden as well: both departures.
+		await fireEvent.click(box(/^Flow/));
+		expect(stored()).toBe('{"hidden":["flow"],"shown":["power"]}');
+		expect(columns()).toEqual(['Pump', 'Status', 'Head m', 'Power kW']);
+		// Power unchecked again: no default-hidden column shown, so today's format, an array.
+		await fireEvent.click(box(/^Power/));
+		expect(stored()).toBe('["flow"]');
+		expect(columns()).toEqual(['Pump', 'Status', 'Head m']);
+		expect(squash(fieldsButton().textContent)).toBe('Fields (2 of 5)');
+		// Flow back: the choice equals the defaults, so the key goes.
+		await fireEvent.click(box(/^Flow/));
+		expect(stored()).toBeNull();
+		expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m']);
+		expect(within(menu()).queryByRole('button', { name: 'Default fields' })).toBeNull();
+		// And a default-hidden box checked then unchecked removes the key, too.
+		await fireEvent.click(box(/^NPSHa/));
+		expect(stored()).toBe('{"hidden":[],"shown":["npsh"]}');
+		await fireEvent.click(box(/^NPSHa/));
+		expect(stored()).toBeNull();
+		expect(squash(fieldsButton().textContent)).toBe('Fields (3 of 5)');
+	});
+
+	it('Show all stores the defaults as shown; Default fields forgets the choice; each moves the focus to the first box before it goes (ui-guide, Pickers)', async () => {
+		render(ResultsTable, { ...base, table: withDefaults() });
+		const fields = fieldsButton();
+		await fireEvent.click(fields);
+		const first = within(menu()).getAllByRole('checkbox')[0]!;
+		const all = within(menu()).getByRole('button', { name: 'Show all' });
+		all.focus();
+		await fireEvent.click(all);
+		expect(stored()).toBe('{"hidden":[],"shown":["power","npsh"]}');
+		expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m', 'Power kW', 'NPSHa m']);
+		expect(squash(fields.textContent)).toBe('Fields');
+		expect(screen.getByRole('button', { name: 'Fields, Pumps' })).toBe(fields);
+		expect(within(menu()).queryByRole('button', { name: 'Show all' })).toBeNull();
+		expect(document.activeElement).toBe(first);
+		// Every column shown is not the defaults: Default fields is offered.
+		const defaults = within(menu()).getByRole('button', { name: 'Default fields' });
+		defaults.focus();
+		await fireEvent.click(defaults);
+		expect(stored()).toBeNull();
+		expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m']);
+		expect(squash(fields.textContent)).toBe('Fields (3 of 5)');
+		expect(within(menu()).queryByRole('button', { name: 'Default fields' })).toBeNull();
+		expect(within(menu()).getByRole('button', { name: 'Show all' })).toBeInTheDocument();
+		expect(document.activeElement).toBe(first);
+		expect(fields).toHaveAttribute('aria-expanded', 'true');
+		// Escape still closes the menu, the focus back on its button.
+		await fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+		expect(fields).toHaveAttribute('aria-expanded', 'false');
+		expect(document.activeElement).toBe(fields);
+		// A user's own hidden column, then Default fields: forgotten too.
+		await fireEvent.click(fields);
+		await fireEvent.click(box(/^Head/));
+		expect(stored()).toBe('["head"]');
+		await fireEvent.click(within(menu()).getByRole('button', { name: 'Default fields' }));
+		expect(stored()).toBeNull();
+		expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m']);
+	});
+
+	it('a choice stored before this change, an array of the columns the user hid, is read unchanged: those columns and the defaults hidden (no migration, D14)', async () => {
+		localStorage.setItem(KEY, '["flow"]');
+		render(ResultsTable, { ...base, table: withDefaults() });
+		expect(columns()).toEqual(['Pump', 'Status', 'Head m']);
+		expect(squash(fieldsButton().textContent)).toBe('Fields (2 of 5)');
+		expect(stored()).toBe('["flow"]');
+		// One stored under a column now hidden by default is a departure of nothing: checking its
+		// box shows it.
+		cleanup();
+		localStorage.setItem(KEY, '["power"]');
+		render(ResultsTable, { ...base, table: withDefaults() });
+		expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m']);
+		await fireEvent.click(fieldsButton());
+		await fireEvent.click(box(/^Power/));
+		expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m', 'Power kW']);
+		expect(stored()).toBe('{"hidden":[],"shown":["power"]}');
+	});
+
+	it('counts only the table’s own columns: a stored Control with no Control column gives no count and no Show all (docs/roadmap.md: "Fields (10 of 10)")', async () => {
+		localStorage.setItem('opensolve-pipe:results-fields:Results', '["control"]');
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		const fields = screen.getByRole('button', { name: /^Fields/ });
+		expect(squash(fields.textContent)).toBe('Fields');
+		expect(screen.getByRole('button', { name: 'Fields, Results' })).toBe(fields);
+		await fireEvent.click(fields);
+		const own = screen.getByRole('group', { name: 'Fields shown in Results' });
+		expect(within(own).queryByRole('button', { name: 'Show all' })).toBeNull();
+		expect(within(own).queryByRole('button', { name: 'Default fields' })).toBeNull();
+		// Kept for the table that has the column (a speed-controlled pump solved again).
+		expect(localStorage.getItem('opensolve-pipe:results-fields:Results')).toBe('["control"]');
+		cleanup();
+		// With defaults: the defaults counted, the stored Control not.
+		localStorage.setItem(KEY, '["control"]');
+		render(ResultsTable, { ...base, table: withDefaults() });
+		expect(squash(fieldsButton().textContent)).toBe('Fields (3 of 5)');
+		await fireEvent.click(fieldsButton());
+		expect(within(menu()).queryByRole('button', { name: 'Default fields' })).toBeNull();
+	});
+
+	it('a table without defaults offers no Default fields, and its Show all removes the key, as before', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Results', first: 'Pump' });
+		await fireEvent.click(screen.getByRole('button', { name: /^Fields/ }));
+		const own = screen.getByRole('group', { name: 'Fields shown in Results' });
+		await fireEvent.click(within(own).getByRole('checkbox', { name: /^Head/ }));
+		expect(localStorage.getItem('opensolve-pipe:results-fields:Results')).toBe('["head"]');
+		expect(within(own).queryByRole('button', { name: 'Default fields' })).toBeNull();
+		await fireEvent.click(within(own).getByRole('button', { name: 'Show all' }));
+		expect(localStorage.getItem('opensolve-pipe:results-fields:Results')).toBeNull();
+	});
+
+	it('a sort request naming a hidden column sorts by it, draws it and stores the choice, its box checked; again after the user hides it (the Summary’s links)', async () => {
+		const view = render(ResultsTable, {
+			...base,
+			table: withDefaults(),
+			sortRequest: { key: 'power', direction: 'ascending', id: 1 }
+		});
+		await tick();
+		const power = screen.getByRole('columnheader', { name: /^Power/ });
+		expect(power).toHaveAttribute('aria-sort', 'ascending');
+		expect(names()).toEqual(['Pump PB', 'Pump PA', 'Pump PC']);
+		expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m', 'Power kW']);
+		expect(stored()).toBe('{"hidden":[],"shown":["power"]}');
+		await fireEvent.click(fieldsButton());
+		expect(box(/^Power/)).toBeChecked();
+		// Hidden again by the user: the sort goes with it.
+		await fireEvent.click(box(/^Power/));
+		expect(screen.queryByRole('columnheader', { name: /^Power/ })).toBeNull();
+		expect(stored()).toBeNull();
+		for (const h of screen.getAllByRole('columnheader')) expect(h).not.toHaveAttribute('aria-sort');
+		// The link pressed again (a new id): shown and sorted again.
+		await view.rerender({ sortRequest: { key: 'power', direction: 'descending', id: 2 } });
+		await tick();
+		expect(screen.getByRole('columnheader', { name: /^Power/ })).toHaveAttribute(
+			'aria-sort',
+			'descending'
+		);
+		expect(names()).toEqual(['Pump PC', 'Pump PA', 'Pump PB']);
+		expect(stored()).toBe('{"hidden":[],"shown":["power"]}');
+		cleanup();
+		// A column the user hid: shown and sorted, the choice back to the defaults (no key).
+		localStorage.setItem(KEY, '["flow"]');
+		render(ResultsTable, {
+			...base,
+			table: withDefaults(),
+			sortRequest: { key: 'flow', direction: 'ascending', id: 1 }
+		});
+		await tick();
+		expect(screen.getByRole('columnheader', { name: /^Flow/ })).toHaveAttribute(
+			'aria-sort',
+			'ascending'
+		);
+		expect(names()).toEqual(['Pump PB', 'Pump PC', 'Pump PA']);
+		expect(stored()).toBeNull();
 	});
 });

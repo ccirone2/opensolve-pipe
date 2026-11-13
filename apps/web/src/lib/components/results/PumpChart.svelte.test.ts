@@ -17,7 +17,7 @@ import {
 } from '$lib/utils/pump-chart';
 import { fakeResizeObserver, sizeBox } from '$lib/testing/resize';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '$lib/testing/results';
-import { outOfSight, wordsInSight } from '$lib/testing/helpers';
+import { designators, outOfSight, wordsInSight } from '$lib/testing/helpers';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
 import type { ChartImageRequest, ChartImageSource } from '$lib/utils/export/chart-image';
@@ -157,7 +157,8 @@ describe('pump chart', () => {
 		expect(toggle).toHaveAttribute('aria-expanded', 'false');
 		await fireEvent.click(toggle);
 		expect(toggle).toHaveAttribute('aria-expanded', 'true');
-		expect(toggle).toHaveTextContent('Hide data table');
+		// The words in sight (Show kept beside them in one cell, invisible: pumps-nits.md item 1).
+		expect(wordsInSight(toggle).replace(/\s+/g, ' ').trim()).toBe('Hide data table');
 		const curve = await openTable('Pump curve at 100 % speed');
 		const rows = within(curve).getAllByRole('row').slice(1);
 		expect(
@@ -951,7 +952,7 @@ describe('pump chart layout (pumps-results-layout.md §5.3)', () => {
 		expect(readout).not.toHaveAttribute('aria-live');
 	});
 
-	it('draws the chips as toggles: filled with a check when on, outlined when off, the same words', async () => {
+	it('draws the chips as toggles: filled with a checked box when on, outlined with an empty box when off, the mark first in both, the same words', async () => {
 		withCanvas();
 		const result = pumpResult({
 			efficiencyCurve: [
@@ -965,17 +966,30 @@ describe('pump chart layout (pumps-results-layout.md §5.3)', () => {
 		});
 		render(PumpChart, { result, name: 'P', prefs: SI_UNITS });
 		const chips = within(screen.getByRole('group', { name: 'Show' })).getAllByRole('button');
+		// One aria-hidden 16 px mark leads the word in both states, so a press changes no chip's width
+		// (the owner's nits of 2026-11-12, item 1, docs/proposals/pumps-nits.md): a box with its check
+		// in blue-700 when on, the box alone in slate-500 when off. Nit 1 moved `check` (one svg when
+		// on, none when off) to these: one svg in both, in the same slot, its shape and tone by state.
 		const look = () =>
-			chips.map((chip) => ({
-				text: chip.textContent,
-				pressed: chip.getAttribute('aria-pressed'),
-				btn: chip.classList.contains('btn'),
-				filled: chip.classList.contains('bg-blue-50'),
-				check: chip.querySelectorAll('svg[aria-hidden="true"]').length
-			}));
+			chips.map((chip) => {
+				const mark = chip.firstElementChild;
+				const nodes = [...chip.childNodes];
+				return {
+					text: chip.textContent,
+					pressed: chip.getAttribute('aria-pressed'),
+					btn: chip.classList.contains('btn'),
+					filled: chip.classList.contains('bg-blue-50'),
+					marks: chip.querySelectorAll('svg').length,
+					slot: !!mark?.matches('svg[aria-hidden="true"].size-4.shrink-0'),
+					lead: !!mark && nodes.slice(0, nodes.indexOf(mark)).every((n) => !n.textContent?.trim()),
+					shape: [...(mark?.children ?? [])].map((n) => n.tagName.toLowerCase()).join(' '),
+					tone: [...(mark?.classList ?? [])].filter((c) => c.startsWith('text-')).join(' ')
+				};
+			});
+		const on = { marks: 1, slot: true, lead: true, shape: 'rect path', tone: 'text-blue-700' };
 		expect(look()).toEqual([
-			{ text: 'Efficiency', pressed: 'true', btn: true, filled: true, check: 1 },
-			{ text: 'Shaft power', pressed: 'true', btn: true, filled: true, check: 1 }
+			{ text: 'Efficiency', pressed: 'true', btn: true, filled: true, ...on },
+			{ text: 'Shaft power', pressed: 'true', btn: true, filled: true, ...on }
 		]);
 		await fireEvent.click(chips[1]!);
 		expect(look()[1]).toEqual({
@@ -983,7 +997,20 @@ describe('pump chart layout (pumps-results-layout.md §5.3)', () => {
 			pressed: 'false',
 			btn: true,
 			filled: false,
-			check: 0
+			marks: 1,
+			slot: true,
+			lead: true,
+			shape: 'rect',
+			tone: 'text-slate-500'
+		});
+		// And back: the checked box again, in the same slot.
+		await fireEvent.click(chips[1]!);
+		expect(look()[1]).toEqual({
+			text: 'Shaft power',
+			pressed: 'true',
+			btn: true,
+			filled: true,
+			...on
 		});
 		expect(chips[1]).toHaveAccessibleName('Shaft power');
 	});
@@ -1128,13 +1155,34 @@ describe('pump chart layout (pumps-results-layout.md §5.3)', () => {
 		expect(button()).not.toHaveAttribute('title');
 	});
 
-	it('names its data table button for the pump chart, its visible words unchanged', async () => {
+	it('names its data table button for the pump chart, its visible words unchanged, one width for both', async () => {
 		withCanvas();
 		render(PumpChart, { result: pumpResult(), name: 'P', prefs: SI_UNITS, system: READY });
 		const toggle = screen.getByRole('button', { name: 'Show data table of the pump chart' });
 		expect(toggle.querySelector('.sr-only')).toHaveTextContent('of the pump chart');
+		// Show and Hide stacked in one grid cell, the word not said invisible and aria-hidden, so the
+		// swap changes the button's width by nothing and moves Download image beside it by nothing
+		// (the owner's nits of 2026-11-12, item 1, docs/proposals/pumps-nits.md).
+		expect(toggle.querySelector('[data-table-words]')).toHaveClass('grid');
+		const words = () =>
+			[...toggle.querySelectorAll('[data-table-words] > span')].map((w) => ({
+				text: w.textContent,
+				cell: w.classList.contains('col-start-1') && w.classList.contains('row-start-1'),
+				invisible: w.classList.contains('invisible'),
+				ariaHidden: w.getAttribute('aria-hidden')
+			}));
+		expect(words()).toEqual([
+			{ text: 'Show data table', cell: true, invisible: false, ariaHidden: null },
+			{ text: 'Hide data table', cell: true, invisible: true, ariaHidden: 'true' }
+		]);
 		await fireEvent.click(toggle);
 		expect(toggle).toHaveAccessibleName('Hide data table of the pump chart');
+		expect(words()).toEqual([
+			{ text: 'Show data table', cell: true, invisible: true, ariaHidden: 'true' },
+			{ text: 'Hide data table', cell: true, invisible: false, ariaHidden: null }
+		]);
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAccessibleName('Show data table of the pump chart');
 	});
 
 	it('puts the actions under the strip and the notes after them: facts first, the method, the limits', async () => {
@@ -1165,8 +1213,10 @@ describe('pump chart layout (pumps-results-layout.md §5.3)', () => {
 		const order = [
 			/^The head rises with flow from 0 to 5 L\/s \(amber\)/,
 			/^NPSHa falls below NPSHr at about 22\.5 L\/s \(read from the drawn lines\)/,
-			/^Best efficiency point \(\+\): 70 % at 12 L\/s/,
-			/^Shutoff head \(–\): 30 m\.$/,
+			// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): BEP and the dash in
+			// words, not "(+)" and "(–)".
+			/^Best efficiency point \(BEP\): 70 % at 12 L\/s/,
+			/^Shutoff head \(the dash at zero flow\): 30 m\.$/,
 			/^Efficiency: the duty's flow is outside the efficiency curve's data/,
 			/^Shaft power ρgQH\/η over the flows/,
 			/^Dashed: the pump curve extrapolated beyond its data \(0 to 30 L\/s/,
@@ -1546,11 +1596,14 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		const grid = group.querySelector('legend + div')!;
 		expect(grid).toHaveClass('grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]');
 		const tag = grid.firstElementChild!;
-		expect(squash(tag.textContent)).toBe('● Base case (shown)');
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): its words alone, no ●
+		// before them, and nothing in it hidden from a screen reader.
+		expect(designators(tag)).toEqual([]);
+		expect(squash(tag.textContent)).toBe('Base case (shown)');
 		expect(tag).toHaveClass('rounded', 'bg-slate-100', 'text-xs');
 		expect(tag).not.toHaveClass('border');
 		expect(tag.querySelector('input')).toBeNull();
-		expect(tag.querySelector('[aria-hidden="true"]')).toHaveTextContent('●');
+		expect(tag.querySelector('[aria-hidden="true"]')).toBeNull();
 		// Each other case: its box, its marker in a column of its own, its name.
 		const boxes = within(group).getAllByRole('checkbox');
 		expect(boxes.map((b) => (b as HTMLInputElement).checked)).toEqual([true, true, true]);
@@ -2250,7 +2303,8 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 				system: { status: 'cancelled', by: 'goalSeek' },
 				covers: [
 					/^No best efficiency point is marked/,
-					/^Shutoff head \(–\): [\d.]+ m, extrapolated along the curve's start slope/,
+					// Nit 5: the dash in words, not "(–)".
+					/^Shutoff head \(the dash at zero flow\): [\d.]+ m, extrapolated along the curve's start slope/,
 					/^NPSHa along the system curve is drawn once the system curve is computed\.$/
 				]
 			},

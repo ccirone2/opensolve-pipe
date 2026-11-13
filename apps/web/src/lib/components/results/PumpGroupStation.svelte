@@ -13,7 +13,8 @@
 	- The station's answer, the dl "The station" at 14 px with the values in bold.
 	- The group table, a ResultsTable since S6a (§9 S6a; the owner's table rules, build-density.md
 	  §14 to §18): sort by any column, Fields, Flagged only, a list below 640 px. A row per member,
-	  its name with its slot symbol and a trace button, wrapping at 12 rem; for a flagged member a
+	  its name a trace button, wrapping at 12 rem (no slot symbol: owner, 2026-11-12, nit 5,
+	  docs/proposals/pumps-nits.md item 5); for a flagged member a
 	  flag line under its row at the box's visible width, each flag's pill (its icon and severity
 	  word, flagTone's tint) followed by its text, read once and named by its pump (FlagLine, which
 	  reads no workspace, in place of ResultsTable's FlagBadge), after the pump's values on a phone.
@@ -131,8 +132,8 @@
 
 	/**
 	 * The group table as a results table (§9 S6a): a row per member in the table's order, keyed
-	 * by its id; its slot (the chart's colour and marker) kept beside the name by the name's
-	 * snippet. The title names the case shown, in a project with scenarios.
+	 * by its id, named by its name alone (nit 5: no slot symbol). The title names the case shown,
+	 * in a project with scenarios.
 	 */
 	const title = $derived(`The pumps in the group${caseName ? `, ${caseName}` : ''}`);
 	const resultsTable = $derived<Table>({
@@ -146,7 +147,6 @@
 			flags: [...row.flags]
 		}))
 	});
-	const slots = $derived(new Map(table.rows.map((row) => [row.id, row.style])));
 </script>
 
 {#snippet words(list: Words)}
@@ -157,31 +157,24 @@
 			>{:else}{word.name}{/if}{/each}
 {/snippet}
 
-<!-- A member's name (§5.3 Station; ui-guide, a button holding a name): its slot symbol, not
-	underlined, in a column of its own (1 rem, as the members' grid reserves), so every name starts
-	at one edge whatever the symbol's width; then its name, a trace button when one can open. Its
-	own width its one line up to 12 rem, so the column is that wide and a long name wraps inside it
-	(the table's overflow would otherwise give it its longest word). Below 640 px, a list (§5.5), it
-	takes the line's width and wraps anywhere, a name with no space too. -->
+<!-- A member's name (§5.3 Station; ui-guide, a button holding a name): its name alone, a trace
+	button when one can open (a pump is its name: owner, 2026-11-12, nit 5,
+	docs/proposals/pumps-nits.md item 5, so no slot symbol and no column for one; every name starts
+	at one edge). Its own width its one line up to 12 rem, so the column is that wide and a long
+	name wraps inside it (the table's overflow would otherwise give it its longest word). Below
+	640 px, a list (§5.5), it takes the line's width and wraps anywhere, a name with no space too. -->
 {#snippet memberName(row: Row)}
-	{@const slot = slots.get(row.key)}
 	{#if oninspect}
 		<button
 			type="button"
-			class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 text-left font-medium wrap-break-word text-blue-800 underline underline-offset-2 max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
+			class="flex min-h-11 w-max max-w-48 items-center px-1 text-left font-medium wrap-break-word text-blue-800 underline underline-offset-2 max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
 			onclick={() => oninspect(row.element.id)}
 		>
-			<span
-				aria-hidden="true"
-				class="w-4 shrink-0 text-center no-underline"
-				style:color={slot?.color}>{slot?.symbol}</span
-			><span class="min-w-0">{row.name}</span>
+			<span class="min-w-0">{row.name}</span>
 		</button>
 	{:else}
 		<span
-			class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 font-medium wrap-break-word max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
-			><span aria-hidden="true" class="w-4 shrink-0 text-center" style:color={slot?.color}
-				>{slot?.symbol}</span
+			class="flex min-h-11 w-max max-w-48 items-center px-1 font-medium wrap-break-word max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
 			><span class="min-w-0">{row.name}</span></span
 		>
 	{/if}
@@ -294,9 +287,9 @@
 	{/if}
 	<!-- The group table (§5.3 Station, §9 S6a): a ResultsTable, so it sorts, chooses its fields
 		and shows the flagged pumps only, as every results table does, and reads as a list below
-		640 px. Its visible title names it and its box (a region and a Tab stop); each name its slot
-		symbol and a trace button, wrapping at 12 rem; each flagged pump's flag line its pills and
-		their text (FlagLine), not FlagBadge, which reads the workspace. -->
+		640 px. Its visible title names it and its box (a region and a Tab stop); each name a trace
+		button, wrapping at 12 rem; each flagged pump's flag line its pills and their text
+		(FlagLine), not FlagBadge, which reads the workspace. -->
 	<div class="space-y-1" data-group-table>
 		<p id="{id}-table-title" class="text-xs font-semibold text-slate-700">{title}</p>
 		<ResultsTable

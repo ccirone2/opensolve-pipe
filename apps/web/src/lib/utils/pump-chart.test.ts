@@ -757,9 +757,11 @@ describe('valueNotes: the notes about the values, in the screen’s order', () =
 	it('puts the facts that qualify a reading first: each rising range, then the NPSHa crossing', () => {
 		const v = valueNotes(notes, data);
 		expect(v.first).toEqual([...rising, crossing]);
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): the shutoff head's dash
+		// named in words, not "(–)"; the same 20 characters read.
 		expect(v.facts.map((n) => n.slice(0, 20))).toEqual([
 			'Best efficiency poin',
-			'Shutoff head (–): 30'
+			'Shutoff head (the da'
 		]);
 		expect(v.panels.map((n) => n.slice(0, 20))).toEqual([
 			'Efficiency: the duty',

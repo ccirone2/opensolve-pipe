@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Chart } from 'chart.js';
 import { DISCLAIMER } from '../../components/links';
+import { designators } from '../../testing/helpers';
 import { pumpResult, systemCurveResponse } from '../../testing/results';
 import {
 	chartNotes,
@@ -176,7 +177,33 @@ describe('the image’s notes', () => {
 			...screen.facts,
 			casesNote(others, MARKER_SYMBOLS)
 		]);
-		expect(screen.facts).toEqual(['Shutoff head (–): 30 m.']);
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): the dash named in words,
+		// not "(–)".
+		expect(screen.facts).toEqual(['Shutoff head (the dash at zero flow): 30 m.']);
+	});
+
+	it('name the best efficiency point and the shutoff head in words, on screen and in the image, with no mark in parentheses (nit 5; docs/proposals/pumps-nits.md item 5)', () => {
+		const result = pumpResult({
+			efficiencyCurve: [
+				{ flow: 0.004, efficiency: 0.4 },
+				{ flow: 0.012, efficiency: 0.7 },
+				{ flow: 0.02, efficiency: 0.6 }
+			],
+			bestEfficiencyPoint: { flow: 0.012, efficiency: 0.7, head: 18, headExtrapolated: false }
+		});
+		const data = pumpChartData(result, SI_UNITS, [0, 0.03]);
+		const screen = chartNotes({ data, result, system: undefined });
+		const image = chartNotes({ data, result, system: undefined, reasonsIn: IMAGE_REASONS_IN });
+		// "BEP", the cross's label on the chart (pump-chart-config.ts factDatasets); the dash at
+		// zero flow, the shutoff head's mark, which has no label.
+		expect(screen.facts).toEqual([
+			"Best efficiency point (BEP): 70 % at 12 L/s and 18 m, the efficiency curve's highest point inside its data, at this speed.",
+			'Shutoff head (the dash at zero flow): 30 m.'
+		]);
+		expect(image.facts).toEqual(screen.facts);
+		const footer = imageNoteLines(image, [], MARKER_SYMBOLS);
+		expect(footer).toEqual(expect.arrayContaining(screen.facts));
+		for (const line of screen.facts) expect(designators(line), line).toEqual([]);
 	});
 
 	it('name the markers by the glyphs the chart draws, ✳ and ▽ among them (pumps-results-layout.md §6.2 S8)', () => {
@@ -274,7 +301,8 @@ describe('downloading the image', () => {
 				stale: false,
 				notes: [
 					'The system curve has not been computed for this solve.',
-					'Shutoff head (–): 30 m.'
+					// Nit 5: the dash named in words, not "(–)".
+					'Shutoff head (the dash at zero flow): 30 m.'
 				],
 				disclaimer: DISCLAIMER,
 				origin: 'https://opensolve-pipe.app',
@@ -314,7 +342,8 @@ describe('downloading the image', () => {
 		expect(drawn).toHaveLength(1);
 		expect(drawn[0]!.footer.slice(0, 3)).toEqual([
 			'The system curve has not been computed for this solve.',
-			'Shutoff head (–): 30 m.',
+			// Nit 5: the dash named in words, not "(–)".
+			'Shutoff head (the dash at zero flow): 30 m.',
 			'Off in this case (no operating point): Pump PA off.'
 		]);
 	});

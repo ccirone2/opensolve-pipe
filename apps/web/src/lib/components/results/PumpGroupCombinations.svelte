@@ -97,7 +97,7 @@
 			}))
 		)
 	});
-	/** Each case's own lines, and each member's slot and marks, by the table's keys. */
+	/** Each case's own lines, and each member's marks, by the table's keys. */
 	const groups = $derived(
 		new Map<string, CombinationGroup>(combinations.groups.map((g) => [g.key, g]))
 	);
@@ -139,31 +139,24 @@
 	{#if group?.detail}<span class={[GROUP_LINE, 'text-xs text-slate-600']}>{group.detail}</span>{/if}
 {/snippet}
 
-<!-- A member's name (§5.3 Pump names): its slot symbol, not underlined, in a column of its own
-	(1 rem), so every name starts at one edge whatever the symbol's width (§15 item 157), as in the
-	group table; a trace button only in the shown case's rows, in either form, since a trace opens
-	for the case shown (§13 Later); plain words in every other. Its own width its one line up to
-	12 rem, so the column is that wide; below 640 px it takes the line's width and wraps anywhere,
-	a name with no space too. -->
+<!-- A member's name (§5.3 Pump names): its name alone (a pump is its name: owner, 2026-11-12,
+	nit 5, docs/proposals/pumps-nits.md item 5, so no slot symbol and no column for one; every name
+	starts at one edge, as in the group table); a trace button only in the shown case's rows, in
+	either form, since a trace opens for the case shown (§13 Later); plain words in every other. Its
+	own width its one line up to 12 rem, so the column is that wide; below 640 px it takes the
+	line's width and wraps anywhere, a name with no space too. -->
 {#snippet memberName(row: Row)}
-	{@const member = members.get(rowKey(row))}
 	{#if groups.get(row.group ?? '')?.shown && oninspect}
 		<button
 			type="button"
-			class="flex min-h-11 w-max max-w-48 items-center gap-1 px-1 text-left font-medium wrap-break-word text-blue-800 underline underline-offset-2 max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
+			class="flex min-h-11 w-max max-w-48 items-center px-1 text-left font-medium wrap-break-word text-blue-800 underline underline-offset-2 max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
 			onclick={() => oninspect(row.element.id)}
 		>
-			<span
-				aria-hidden="true"
-				class="w-4 shrink-0 text-center no-underline"
-				style:color={member?.style.color}>{member?.style.symbol}</span
-			><span class="min-w-0">{row.name}</span>
+			<span class="min-w-0">{row.name}</span>
 		</button>
 	{:else}
 		<span
-			class="flex w-max max-w-48 items-center gap-1 px-1 py-0.5 font-medium wrap-break-word max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
-			><span aria-hidden="true" class="w-4 shrink-0 text-center" style:color={member?.style.color}
-				>{member?.style.symbol}</span
+			class="flex w-max max-w-48 items-center px-1 py-0.5 font-medium wrap-break-word max-sm:w-auto max-sm:max-w-none max-sm:wrap-anywhere"
 			><span class="min-w-0">{row.name}</span></span
 		>
 	{/if}

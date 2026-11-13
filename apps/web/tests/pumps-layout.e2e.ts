@@ -2021,6 +2021,14 @@ const RING_NOTES_1280: Readonly<Record<string, number>> = {
 const TABS_TO_GROUP_TABLE = 20;
 /** §5.7 row 4: the lineups' group legend at 390×844: measured in S3 + 10 % (332 px), and ≤ 452 px. */
 const LEGEND_390 = 365;
+/**
+ * Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): a pump is its name, so no column
+ * is kept before it for a slot symbol (§15 item 157's 1 rem, and its 4 px gap). In the card's two
+ * tables a name's words start at its row header's edge plus the cell's and the name's padding
+ * (px-1 each): 8 px, 28 px with the column. In "Pumps in the group" they start right after the
+ * box, the label's gap (gap-2): 8 px, 32 px with the column. Measured at every size; at most this.
+ */
+const NAME_INSET = 8;
 
 /**
  * No name in the card cut short: no button, summary, label, list item, legend or heading, and
@@ -2090,6 +2098,31 @@ async function cardPart(
 			LONGEST_RUN.tab
 		);
 		return;
+	}
+
+	// Nit 5 (NAME_INSET): each member's name right after its box, no column kept for a symbol.
+	const memberInsets = await page.evaluate(() => {
+		const c = document.querySelector('[data-pumps-together]')!;
+		const members = [...c.querySelectorAll('fieldset')].find(
+			(f) => f.querySelector(':scope > legend')?.textContent?.trim() === 'Pumps in the group'
+		);
+		return [...(members?.querySelectorAll('label') ?? [])].map((label) => {
+			const box = label.querySelector('input')!.getBoundingClientRect();
+			const name = label.querySelector('span.min-w-0')!;
+			return {
+				name: (name.textContent ?? '').trim(),
+				inset: name.getBoundingClientRect().left - box.right
+			};
+		});
+	});
+	console.log(
+		`${where}: the members' names ${[...new Set(memberInsets.map((m) => Math.round(m.inset)))].join(', ')} px after their boxes`
+	);
+	soft(memberInsets.length, `the members' boxes, ${where}`).toBeGreaterThan(0);
+	for (const member of memberInsets) {
+		soft(member.inset, `"${member.name}" right after its box, ${where}`).toBeLessThanOrEqual(
+			NAME_INSET + 0.5
+		);
 	}
 
 	// §5.7 row 5: the station's first value under the card's header.
@@ -2306,11 +2339,13 @@ async function cardPart(
 	for (; stops < 80; stops++) {
 		const at = await page.evaluate(() => {
 			const a = document.activeElement;
-			return (
-				!!a &&
-				/^(Show|Hide) data table of the group chart$/.test(
-					(a.textContent ?? '').replace(/\s+/g, ' ').trim()
-				)
+			if (a?.tagName !== 'BUTTON') return false;
+			// Its words as said: the word not said, kept beside them invisible and aria-hidden so
+			// that the swap keeps one width (pumps-nits.md item 1), left out.
+			const copy = a.cloneNode(true) as Element;
+			for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+			return /^(Show|Hide) data table of the group chart$/.test(
+				(copy.textContent ?? '').replace(/\s+/g, ' ').trim()
 			);
 		});
 		if (at) break;
@@ -2888,7 +2923,7 @@ function readCombinations() {
 	if (!card || !block || !box) return null;
 	const table = box.querySelector('table')!;
 	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
-	/** An element's words without its aria-hidden marks (a slot's symbol, a ring). */
+	/** An element's words without its aria-hidden marks (a ring; a slot's symbol before nit 5). */
 	const words = (el: Element) => {
 		const copy = el.cloneNode(true) as Element;
 		for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
@@ -2925,11 +2960,14 @@ function readCombinations() {
 				})),
 				members: [...tbody.querySelectorAll('th[scope="row"]')].map((th) => {
 					const name = th.firstElementChild!;
+					const own = name.querySelector('span.min-w-0');
 					return {
 						name: words(name),
 						button: name.tagName === 'BUTTON',
 						inView: inView(name),
-						shown: shownWhole(name) && [...name.children].every(shownWhole)
+						shown: shownWhole(name) && [...name.children].every(shownWhole),
+						// Where its words start in its row header (nit 5, NAME_INSET).
+						inset: own ? own.getBoundingClientRect().left - th.getBoundingClientRect().left : null
 					};
 				}),
 				notes: [...tbody.querySelectorAll<HTMLElement>('[data-row-notes]')].map((note) => ({
@@ -3080,6 +3118,11 @@ async function combinationsPart(
 				soft(member.button, `${what}: "${member.name}" a trace button`).toBe(g === 0);
 				soft(member.inView, `${what}: "${member.name}" in the box's view`).toBe(true);
 				soft(member.shown, `${what}: "${member.name}" shown to its end`).toBe(true);
+				// Nit 5: its words at its row header's edge, no column kept for a slot symbol.
+				soft(member.inset, `${what}: where "${member.name}" starts`).not.toBeNull();
+				soft(member.inset ?? 99, `${what}: where "${member.name}" starts`).toBeLessThanOrEqual(
+					NAME_INSET + 0.5
+				);
 			}
 			for (const note of group.notes) {
 				soft(note.label, `${what}: a flag line's label`).toBe('Flags');
@@ -3596,8 +3639,10 @@ function readGroupTable() {
 					seen: seen(name),
 					whole: !!name && name.scrollWidth <= name.clientWidth + 1,
 					button: !!th.querySelector('button'),
-					// Where its words start, after its slot symbol's 1 rem column (§15 item 157).
-					left: name ? name.getBoundingClientRect().left : null
+					// Where its words start (§15 item 157), and how far into its row header: since nit
+					// 5 no 1 rem column is kept before them for a slot symbol (NAME_INSET).
+					left: name ? name.getBoundingClientRect().left : null,
+					inset: name ? name.getBoundingClientRect().left - th.getBoundingClientRect().left : null
 				};
 			}),
 		lines: [...(table?.querySelectorAll('[data-row-notes]') ?? [])].map((line) => {
@@ -3689,13 +3734,23 @@ async function groupTablePart(page: Page, where: string) {
 		soft(member.whole, `the name "${member.name}" shown to its end, ${where}`).toBe(true);
 		soft(member.button, `the name "${member.name}" a trace button, ${where}`).toBe(true);
 	}
-	// Every name starts at one edge, whatever its slot symbol's width (§15 item 157; S6 review
-	// MUT-04: the symbols' 1 rem column taken away failed nothing).
+	// Every name starts at one edge (§15 item 157; S6 review MUT-04), and since nit 5 at its row
+	// header's edge: no column kept before it for a slot symbol (NAME_INSET; 28 px with one).
 	const lefts = m.members.map((member) => member.left ?? 0);
 	soft(
 		Math.max(...lefts) - Math.min(...lefts),
 		`the group table's names start at one edge, ${where}`
 	).toBeLessThanOrEqual(0.5);
+	const insets = m.members.map((member) => member.inset ?? 99);
+	console.log(
+		`${where}: the group table's names ${[...new Set(insets.map(Math.round))].join(', ')} px into their row headers`
+	);
+	for (const [i, inset] of insets.entries()) {
+		soft(
+			inset,
+			`where "${m.members[i]!.name}" starts in its row header, ${where}`
+		).toBeLessThanOrEqual(NAME_INSET + 0.5);
+	}
 	for (const line of m.lines) {
 		const what = `the flag line of ${line.id}, ${where}`;
 		soft(line.label, `${what}: labelled`).toBe('Flags');
@@ -5120,13 +5175,18 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 	expect(groupTitle).toMatch(/^The pumps in the group, /);
 
 	// Each table's Fields and, on a phone, its "Sort by" named apart: the visible words, then the
-	// table's name, visually hidden (A11Y-S6-3; ui-guide).
+	// table's name, visually hidden (A11Y-S6-3; ui-guide). Results per pump's count names its
+	// fields hidden by default: hydraulic power, NPSHa and NPSHr (pumps-nits.md item 3).
 	const captions = ['Results per pump', groupTitle, 'Running combinations'];
+	const counts: Record<string, string> = { 'Results per pump': ' (7 of 10)' };
 	await expect(tab.getByRole('button', { name: /^Fields/ })).toHaveCount(3);
 	for (const caption of captions) {
 		await expect
 			.soft(
-				tab.getByRole('button', { name: `Fields, ${caption}`, exact: true }),
+				tab.getByRole('button', {
+					name: `Fields${counts[caption] ?? ''}, ${caption}`,
+					exact: true
+				}),
 				`Fields of ${caption}`
 			)
 			.toHaveCount(1);
@@ -7131,4 +7191,672 @@ test('S8 second check: “Also show the other cases’ system curves” stays un
 		).toBeLessThanOrEqual(1);
 		soft(settled.hit, `the switch still under the point pressed once settled, ${where}`).toBe(true);
 	}
+});
+
+// ---- The owner's nits of 2026-11-12 (docs/proposals/pumps-nits.md) ------------------------------
+
+/**
+ * The pump chart's Show row as read for a press (pumps-nits.md item 1): each chip's box, the row's
+ * height, the slider's top under it, and the chip at the point pressed.
+ */
+function readChips(group: Element, point: { x: number; y: number }) {
+	const slider = group.closest('figure')!.querySelector('input[type="range"]');
+	return {
+		row: group.getBoundingClientRect().height,
+		chips: [...group.querySelectorAll('button')].map((b) => {
+			const r = b.getBoundingClientRect();
+			return { name: b.textContent!.trim(), top: r.top, left: r.left, width: r.width };
+		}),
+		slider: slider ? slider.getBoundingClientRect().top : null,
+		hit: document.elementFromPoint(point.x, point.y)?.closest('button')?.textContent?.trim() ?? null
+	};
+}
+
+test('Nits item 1: no press of a Show chip moves a chip, its row or the slider under it, by pointer or key, at 1280, 390 and 320 px (pumps-nits.md item 1; ui-guide, toggle chips; a press moves nothing under the pointer)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	await oneOff(page);
+	const figure = await pumpFigure(page);
+	const group = figure.getByRole('group', { name: 'Show' });
+	const chips = group.getByRole('button');
+	// Three panel chips, whose presses make the canvas above a panel taller or shorter (96 px on a
+	// phone, 112 on a desktop: chartHeightRem), and Design checks, the fourth: on 673d266 a chip
+	// pressed off lost its check and 24 px of width, so the row's wrap changed (§15 item 42: 3 rows
+	// at 320×640, 2 at 390×844 and 1280×800).
+	await expect(chips).toHaveText(['Efficiency', 'Shaft power', 'NPSH', 'Design checks']);
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	const pressAt = async (i: number, where: string, by: 'pointer' | 'key' = 'pointer') => {
+		const chip = chips.nth(i);
+		const was = await chip.getAttribute('aria-pressed');
+		const r = (await chip.boundingBox())!;
+		const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+		const before = await group.evaluate(readChips, point);
+		const what = `${before.chips[i]!.name} pressed ${was === 'true' ? 'off' : 'on'} by ${by} ${where} at ${sizeOf(page)}`;
+		expect(before.hit, `the chip at the point pressed, ${what}`).toBe(before.chips[i]!.name);
+		if (by === 'key') {
+			await chip.focus();
+			await page.keyboard.press('Space');
+		} else if (isMobile) await page.touchscreen.tap(point.x, point.y);
+		else await page.mouse.click(point.x, point.y);
+		await expect(chip).toHaveAttribute('aria-pressed', was === 'true' ? 'false' : 'true');
+		await page.waitForTimeout(300);
+		const after = await group.evaluate(readChips, point);
+		console.log(
+			`${what}: row ${before.row} -> ${after.row}; tops ${before.chips.map((c) => c.top).join(' ')} -> ${after.chips.map((c) => c.top).join(' ')}; lefts ${before.chips.map((c) => c.left).join(' ')} -> ${after.chips.map((c) => c.left).join(' ')}; widths ${before.chips.map((c) => c.width).join(' ')} -> ${after.chips.map((c) => c.width).join(' ')}`
+		);
+		soft(after.row, `the row's height, ${what}`).toBe(before.row);
+		for (const [k, c] of after.chips.entries()) {
+			const b = before.chips[k]!;
+			soft(Math.abs(c.top - b.top), `${c.name}'s top, ${what}`).toBeLessThanOrEqual(0.5);
+			soft(Math.abs(c.left - b.left), `${c.name}'s left, ${what}`).toBeLessThanOrEqual(0.5);
+			soft(Math.abs(c.width - b.width), `${c.name}'s width, ${what}`).toBeLessThanOrEqual(0.5);
+		}
+		soft(Math.abs(after.slider! - before.slider!), `the slider's top, ${what}`).toBeLessThanOrEqual(
+			0.5
+		);
+		soft(after.hit, `the chip still under the point pressed, ${what}`).toBe(before.chips[i]!.name);
+	};
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		// Each chip off in turn, then on in turn, the row in the middle of the pane as a user
+		// reading the chart reaches it; then a panel's chip off and on from the keyboard.
+		const centred = async () => {
+			await group.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+			await page.waitForTimeout(200);
+		};
+		for (const i of [0, 1, 2, 3, 0, 1, 2, 3]) {
+			await centred();
+			await pressAt(i, '(the row centred)');
+		}
+		for (const turn of [1, 2]) {
+			await centred();
+			await pressAt(1, `(the row centred, turn ${turn})`, 'key');
+		}
+		// The canvas's top at the pane's top, the whole canvas and the row in view (at the project's
+		// size; at 320×640 the row is then below the pane): where the browser's own scroll anchoring
+		// holds the canvas, not the row.
+		if (size !== viewport) continue;
+		for (const turn of [1, 2]) {
+			await figure.locator('[role="img"]').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+			await page.waitForTimeout(200);
+			await pressAt(0, `(the canvas at the pane’s top, turn ${turn})`);
+		}
+	}
+	await page.setViewportSize(viewport);
+});
+
+test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, its row or the slider under it, though a panel’s note below the row goes with its panel, at 1280×800 and 1280×1000 (pumps-nits.md item 1; review PUMPS-NITS-B1)', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(
+		isMobile,
+		'On a phone the Show row is not in view at the end of the pane (review PUMPS-NITS-B1: 390×844, 360×740 and 320×640, four projects)'
+	);
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	// The examples where the review found it, each with its Show row in view at the pane's end:
+	// pressed off, a panel's chip takes its panel from the canvas above the row and its note from
+	// below it, so the pane's range shrinks by both and the browser pulls the pane back to its new
+	// end. On 9016510 that left the row lower by the note: Shaft power 36 px and NPSH 20 px on the
+	// transfer example, 52 and 56 px on the condenser's, the first and the last with the canvas
+	// then under the point pressed.
+	for (const { example, project, size } of [
+		{
+			example: 'the transfer example',
+			project: pumpTransferExample,
+			size: { width: 1280, height: 800 }
+		},
+		{
+			example: 'the condenser example',
+			project: () => exampleProject('condenser-water')!,
+			size: { width: 1280, height: 1000 }
+		}
+	]) {
+		await page.setViewportSize(size);
+		await page.goto('/');
+		await open(page, project());
+		await solveConverged(page);
+		const figure = await pumpFigure(page);
+		await settle(page, 1000);
+		const group = figure.getByRole('group', { name: 'Show' });
+		const chips = group.getByRole('button');
+		await expect(chips).toHaveText(['Efficiency', 'Shaft power', 'NPSH']);
+		const pressAt = async (i: number, where: string, by: 'pointer' | 'key' = 'pointer') => {
+			await scrollPane(page, { to: 1e7 });
+			await page.waitForTimeout(100);
+			const chip = chips.nth(i);
+			const was = await chip.getAttribute('aria-pressed');
+			const r = (await chip.boundingBox())!;
+			const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+			const before = await group.evaluate(readChips, point);
+			const what = `${before.chips[i]!.name} pressed ${was === 'true' ? 'off' : 'on'} by ${by} ${where}, ${example} at ${sizeOf(page)}`;
+			expect(before.hit, `the chip at the point pressed, ${what}`).toBe(before.chips[i]!.name);
+			if (by === 'key') {
+				await chip.focus();
+				await page.keyboard.press('Space');
+			} else await page.mouse.click(point.x, point.y);
+			await expect(chip).toHaveAttribute('aria-pressed', was === 'true' ? 'false' : 'true');
+			await page.waitForTimeout(300);
+			const after = await group.evaluate(readChips, point);
+			console.log(
+				`${what}: tops ${before.chips.map((c) => c.top).join(' ')} -> ${after.chips.map((c) => c.top).join(' ')}; at the point ${after.hit}`
+			);
+			soft(after.row, `the row's height, ${what}`).toBe(before.row);
+			for (const [k, c] of after.chips.entries()) {
+				const b = before.chips[k]!;
+				soft(Math.abs(c.top - b.top), `${c.name}'s top, ${what}`).toBeLessThanOrEqual(0.5);
+				soft(Math.abs(c.left - b.left), `${c.name}'s left, ${what}`).toBeLessThanOrEqual(0.5);
+			}
+			soft(
+				Math.abs(after.slider! - before.slider!),
+				`the slider's top, ${what}`
+			).toBeLessThanOrEqual(0.5);
+			soft(after.hit, `the chip still under the point pressed, ${what}`).toBe(
+				before.chips[i]!.name
+			);
+		};
+		// Each chip off in turn, then on in turn, the pane at its end before each press; then Shaft
+		// power off and on from the keyboard.
+		for (const i of [0, 1, 2, 0, 1, 2]) await pressAt(i, '(the pane at its end)');
+		for (const turn of [1, 2]) await pressAt(1, `(the pane at its end, turn ${turn})`, 'key');
+		// What a press held below the chart's notes goes once it is scrolled out of sight below the
+		// pane, so no blank band is left at the chart's foot.
+		await pressAt(1, '(the pane at its end, then scrolled to its top)');
+		await scrollPane(page, { to: 0 });
+		await page.waitForTimeout(150);
+		soft(
+			await figure.evaluate((el) => getComputedStyle(el).paddingBottom),
+			`the room held below the chart's notes once out of sight, ${example}`
+		).toBe('0px');
+		await pressAt(1, '(the pane at its end, after it was scrolled to its top)');
+	}
+});
+
+/**
+ * A chart's Show data table as read for a press (pumps-nits.md item 1): its box, Download image's
+ * box beside it, the height of their row, and whether the button is at the point pressed.
+ */
+function readTableToggle(toggle: Element, point: { x: number; y: number }) {
+	const row = toggle.parentElement!;
+	const image = row.querySelector('[data-chart-image]');
+	const box = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return { top: r.top, left: r.left, width: r.width };
+	};
+	return {
+		row: row.getBoundingClientRect().height,
+		toggle: box(toggle),
+		image: image ? box(image) : null,
+		hit: document.elementFromPoint(point.x, point.y)?.closest('button') === toggle
+	};
+}
+
+test('Nits item 1: neither chart’s Show data table, pressed to Hide data table and back, moves itself or Download image beside it, or rewraps their row, at 1280, 390 and 320 px (pumps-nits.md item 1; ui-guide, a press moves nothing under the pointer)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	await oneOff(page);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const figure = await pumpFigure(page);
+	const toggles = [
+		{
+			chart: 'the pump chart',
+			button: figure.getByRole('button', { name: /^(Show|Hide) data table of the pump chart$/ })
+		},
+		{
+			chart: 'the group chart',
+			button: card.getByRole('button', { name: /^(Show|Hide) data table of the group chart$/ })
+		}
+	];
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		for (const { chart, button } of toggles) {
+			for (const shown of [true, false]) {
+				const where = `${chart}'s ${shown ? 'Show' : 'Hide'} data table pressed at ${sizeOf(page)}`;
+				await button.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+				await page.waitForTimeout(200);
+				const r = (await button.boundingBox())!;
+				const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+				const before = await button.evaluate(readTableToggle, point);
+				expect(before.hit, `the button at the point pressed, ${where}`).toBe(true);
+				expect(before.image, `Download image beside it, ${where}`).not.toBeNull();
+				if (isMobile) await page.touchscreen.tap(point.x, point.y);
+				else await page.mouse.click(point.x, point.y);
+				await expect(button).toHaveAttribute('aria-expanded', String(shown));
+				await page.waitForTimeout(300);
+				const after = await button.evaluate(readTableToggle, point);
+				console.log(
+					`${where}: row ${before.row} -> ${after.row}; button ${JSON.stringify(before.toggle)} -> ${JSON.stringify(after.toggle)}; Download image ${JSON.stringify(before.image)} -> ${JSON.stringify(after.image)}`
+				);
+				soft(after.row, `their row's height, ${where}`).toBe(before.row);
+				for (const key of ['top', 'left', 'width'] as const) {
+					soft(
+						Math.abs(after.toggle[key] - before.toggle[key]),
+						`the button's ${key}, ${where}`
+					).toBeLessThanOrEqual(0.5);
+					soft(
+						Math.abs(after.image![key] - before.image![key]),
+						`Download image's ${key}, ${where}`
+					).toBeLessThanOrEqual(0.5);
+				}
+				soft(after.hit, `the button still under the point pressed, ${where}`).toBe(true);
+			}
+		}
+	}
+	await page.setViewportSize(viewport);
+});
+
+/**
+ * Results per pump's Status cells as drawn (pumps-nits.md item 2): each row's height and its
+ * Status cell's, the cell's padding and words, the pill's box and computed style, and the same row
+ * with its status as plain text, as it was before the pill: a clone in the same tbody, measured and
+ * removed at once, so a row is compared with itself and "no row grows" needs no recorded number.
+ */
+function readStatusPills(wrap: Element) {
+	const table = wrap.querySelector('table')!;
+	const box = table.parentElement!;
+	const rows = [...table.querySelectorAll('tbody tr')].filter((tr) =>
+		tr.querySelector('th[role="rowheader"]')
+	);
+	return {
+		box: { client: box.clientWidth, scroll: box.scrollWidth },
+		rows: rows.map((tr) => {
+			const cell = tr.querySelector<HTMLElement>('td[data-label="Status"]')!;
+			const pills = cell.querySelectorAll<HTMLElement>('[data-status-pill]');
+			const pill = pills[0];
+			const style = getComputedStyle(cell);
+			// Above and below its content box: its padding, and the divider over every row but the
+			// first (a 1 px border).
+			const above = parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop);
+			const below = parseFloat(style.paddingBottom) + parseFloat(style.borderBottomWidth);
+			const plain = tr.cloneNode(true) as HTMLElement;
+			const plainCell = plain.querySelector<HTMLElement>('td[data-label="Status"]')!;
+			plainCell.textContent = (cell.textContent ?? '').trim();
+			tr.after(plain);
+			const plainRow = plain.getBoundingClientRect().height;
+			const plainStatus = plainCell.getBoundingClientRect().height;
+			plain.remove();
+			const c = cell.getBoundingClientRect();
+			const p = pill?.getBoundingClientRect();
+			const ps = pill ? getComputedStyle(pill) : null;
+			return {
+				name: (tr.querySelector('th [class*="font-medium"]')?.textContent ?? '').trim(),
+				text: (cell.textContent ?? '').trim(),
+				row: tr.getBoundingClientRect().height,
+				plainRow,
+				status: c.height - above - below,
+				plainStatus: plainStatus - above - below,
+				pills: pills.length,
+				pill:
+					p && ps
+						? {
+								word: pill!.textContent,
+								height: p.height,
+								// From the cell's content box: the pill sits on its first line.
+								top: p.top - c.top - above,
+								right: p.right,
+								cellRight: c.right,
+								lineHeight: ps.lineHeight,
+								fontSize: ps.fontSize,
+								background: ps.backgroundColor,
+								color: ps.color,
+								border: ps.borderTopWidth,
+								paddingY: `${ps.paddingTop} ${ps.paddingBottom}`,
+								radius: parseFloat(ps.borderTopLeftRadius)
+							}
+						: null
+			};
+		})
+	};
+}
+
+/** The per-pump statuses of the three fixture projects the pill's tints and qualifiers need. */
+const STATUS_VIEWS: { view: string; statuses: [string, string, string][] }[] = [
+	{
+		view: 'controlled',
+		statuses: [
+			['Pump PA', 'Running', 'Running'],
+			['Pump PB', 'Running', 'Running (holding flow setpoint)']
+		]
+	},
+	{
+		view: 'dead-headed',
+		statuses: [
+			['Pump PA', 'Running', 'Running'],
+			['Pump PB', 'No flow', 'No flow (system head above shutoff)']
+		]
+	},
+	{
+		view: 'off',
+		statuses: [
+			['Pump PA', 'Running', 'Running'],
+			['Pump PB', 'Off', 'Off']
+		]
+	}
+];
+
+test('Nits item 2: each pump’s status a pill of its state word on its row’s 20 px line, tinted by the state, no row grown and nothing sideways, axe clean with the pills’ contrast checked, at 1280, 390 and 320 px (pumps-nits.md item 2; ui-guide, a state is a borderless pill)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	const tints = new Map<string, string>();
+	for (const { view, statuses } of STATUS_VIEWS) {
+		await page.setViewportSize(viewport);
+		await page.goto('/');
+		await open(page, projectOf(view));
+		await solveConverged(page);
+		const tab = await pumpsTab(page);
+		const wrap = tab.locator('[data-pump-table]');
+		await expect(wrap.getByRole('table', { name: 'Results per pump' })).toBeVisible();
+		for (const size of sizes) {
+			await page.setViewportSize(size);
+			await settle(page, 1000);
+			const where = `${view} at ${sizeOf(page)}`;
+			await noSidewaysScroll(page, where);
+			const read = await wrap.evaluate(readStatusPills);
+			console.log(`${where}: ${JSON.stringify(read)}`);
+			// A phone's list never scrolls sideways; from 640 px the table's box may.
+			if (isMobile) soft(read.box.scroll, `the table's box, ${where}`).toBe(read.box.client);
+			soft(
+				read.rows.map((r) => [r.name, r.pill?.word ?? null, r.text]),
+				`each pump's pill and its cell's words, ${where}`
+			).toEqual(statuses);
+			for (const r of read.rows) {
+				const what = `${r.name}'s Status, ${where}`;
+				soft(r.pills, `one pill, ${what}`).toBe(1);
+				if (!r.pill) continue;
+				// The pill's line is the row's 20 px line: line-height 20 px, no padding above or
+				// below it, so the line is not grown; the state word at 12 px; no border.
+				soft(r.pill.height, `the pill's height, ${what}`).toBe(20);
+				soft(r.pill.lineHeight, `the pill's line height, ${what}`).toBe('20px');
+				soft(r.pill.paddingY, `the pill's padding above and below, ${what}`).toBe('0px 0px');
+				soft(r.pill.fontSize, `the pill's font size, ${what}`).toBe('12px');
+				soft(r.pill.border, `the pill's border, ${what}`).toBe('0px');
+				soft(r.pill.radius, `the pill's rounded ends, ${what}`).toBeGreaterThanOrEqual(10);
+				soft(
+					Math.abs(r.pill.top),
+					`the pill on the cell's first line, ${what}`
+				).toBeLessThanOrEqual(0.5);
+				soft(r.pill.right, `the pill inside its cell, ${what}`).toBeLessThanOrEqual(
+					r.pill.cellRight + 0.5
+				);
+				// No row grows: the row and its Status line as with the status in plain text.
+				soft(
+					Math.abs(r.row - r.plainRow),
+					`the row's height (${r.row} px), ${what}`
+				).toBeLessThanOrEqual(0.5);
+				soft(
+					Math.abs(r.status - r.plainStatus),
+					`the Status line's height (${r.status} px), ${what}`
+				).toBeLessThanOrEqual(0.5);
+				// On a phone the cell is the Status line, its height its lines': 20 px lines, and one
+				// line at 390 px. From 640 px a cell is as tall as its row, which the name sets.
+				if (isMobile) {
+					soft(r.status % 20 < 0.5 || r.status % 20 > 19.5, `20 px lines, ${what}`).toBe(true);
+					if (sizeOf(page) !== '320x640') soft(r.status, `one 20 px line, ${what}`).toBe(20);
+				}
+				soft(r.pill.background, `the pill's fill, ${what}`).not.toBe('rgba(0, 0, 0, 0)');
+				const tint = `${r.pill.background} / ${r.pill.color}`;
+				soft(tints.get(r.pill.word!) ?? tint, `one tint per state word, ${what}`).toBe(tint);
+				tints.set(r.pill.word!, tint);
+			}
+			// The pills' contrast checked by axe's own rule, every pill a node it passed (none left
+			// incomplete).
+			const contrast = await new AxeBuilder({ page })
+				.include('[data-pump-table] [data-status-pill]')
+				.withRules(['color-contrast'])
+				.analyze();
+			soft(
+				contrast.violations.map((v) => `${v.id} (${v.nodes.length})`),
+				`the pills' colour contrast, ${where}`
+			).toEqual([]);
+			soft(
+				contrast.incomplete.map((v) => `${v.id} (${v.nodes.length})`),
+				`the pills' colour contrast left incomplete, ${where}`
+			).toEqual([]);
+			soft(
+				contrast.passes.flatMap((v) => v.nodes).length,
+				`the pills whose colour contrast passed, ${where}`
+			).toBe(statuses.length);
+		}
+		// The whole tab clean at each size, as every S-slice's views are, after the measurements
+		// (axeClean opens every disclosure).
+		for (const size of [...sizes].reverse()) {
+			await page.setViewportSize(size);
+			await settle(page, 1000);
+			await axeClean(page, `${view} at ${sizeOf(page)}`);
+		}
+	}
+	// Three states, three tints.
+	expect([...tints.keys()].sort()).toEqual(['No flow', 'Off', 'Running']);
+	expect(new Set([...tints.values()].map((t) => t.split(' / ')[0])).size).toBe(3);
+	await page.setViewportSize(viewport);
+});
+
+/**
+ * Results per pump's size, its table and its box (pumps-nits.md item 3): the wrap's height (on a
+ * phone the list), the table's width, the box's, and its column headings' words.
+ */
+function readPumpTable(wrap: Element) {
+	const table = wrap.querySelector('table')!;
+	const box = table.parentElement!;
+	return {
+		height: Math.round(table.getBoundingClientRect().height),
+		width: Math.round(table.getBoundingClientRect().width),
+		box: { client: box.clientWidth, scroll: box.scrollWidth },
+		headings: [...table.querySelectorAll('thead th')].map((th) =>
+			(th.textContent ?? '').replace(/\s+/g, ' ').trim()
+		)
+	};
+}
+
+test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPSHr, Fields counting them; a box shows one, remembered after a reload; Default fields hides it again; the table narrower and a phone’s list shorter, at 1280, 390 and 320 px (pumps-nits.md item 3)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	const hiddenByDefault = /^(Hydraulic power|NPSHa|NPSHr)\b/;
+	const views = [
+		{ view: 'off', count: '7 of 10', all: 10, project: () => projectOf('off') },
+		{ view: 'controlled', count: '8 of 11', all: 11, project: () => projectOf('controlled') },
+		{
+			view: 'condenser',
+			count: '7 of 10',
+			all: 10,
+			project: () => exampleProject('condenser-water')!
+		}
+	];
+	for (const { view, count, all, project } of views) {
+		await page.setViewportSize(viewport);
+		await page.goto('/');
+		await open(page, project());
+		await solveConverged(page);
+		let tab = await pumpsTab(page);
+		let wrap = tab.locator('[data-pump-table]');
+		const table = wrap.getByRole('table', { name: 'Results per pump' });
+		await expect(table).toBeVisible();
+		const fieldsNamed = (n: string) =>
+			wrap.getByRole('button', { name: `Fields (${n}), Results per pump`, exact: true });
+		await expect(fieldsNamed(count), `Fields' name, ${view}`).toHaveCount(1);
+		for (const size of sizes) {
+			await page.setViewportSize(size);
+			await settle(page, 1000);
+			const where = `${view} at ${sizeOf(page)}`;
+			const shown = await wrap.evaluate(readPumpTable);
+			soft(
+				shown.headings.filter((h) => hiddenByDefault.test(h)),
+				`defaults, ${where}`
+			).toEqual([]);
+			soft(shown.headings, `defaults, ${where}`).toHaveLength(all - 3 + 1);
+			soft(
+				shown.headings.some((h) => h.startsWith('NPSH margin')),
+				`NPSH margin, ${where}`
+			).toBe(true);
+			// Show all, measured, then Default fields: back to the defaults.
+			const fields = wrap.getByRole('button', { name: /^Fields/ });
+			await fields.click();
+			const menu = page.getByRole('group', { name: 'Fields shown in Results per pump' });
+			await expect(menu).toBeVisible();
+			await menu.getByRole('button', { name: 'Show all' }).click();
+			await expect(menu.getByRole('button', { name: 'Show all' })).toHaveCount(0);
+			await expect(
+				wrap.getByRole('button', { name: 'Fields, Results per pump', exact: true })
+			).toHaveCount(1);
+			await page.keyboard.press('Escape');
+			await expect(menu).toBeHidden();
+			await settle(page, 500);
+			const every = await wrap.evaluate(readPumpTable);
+			console.log(
+				`${where}: Results per pump by default ${shown.height} px high, ${shown.width} px wide (box ${shown.box.client}, holding ${shown.box.scroll}); every field ${every.height} px high, ${every.width} px wide (holding ${every.box.scroll})`
+			);
+			soft(every.headings, `every field, ${where}`).toHaveLength(all + 1);
+			if (isMobile) {
+				// A phone's list: shorter by the three fields' lines; never sideways.
+				soft(shown.height, `the list's height by default, ${where}`).toBeLessThan(every.height);
+				soft(shown.box.scroll, `the list's box, ${where}`).toBe(shown.box.client);
+			} else {
+				soft(shown.width, `the table's width by default, ${where}`).toBeLessThan(every.width);
+			}
+			await fields.click();
+			await menu.getByRole('button', { name: 'Default fields' }).click();
+			await expect(menu.getByRole('button', { name: 'Default fields' })).toHaveCount(0);
+			// It went as it was pressed: the focus on the first box, in the menu.
+			await expect(menu.getByRole('checkbox').first()).toBeFocused();
+			await page.keyboard.press('Escape');
+			await expect(fieldsNamed(count)).toHaveCount(1);
+			await noSidewaysScroll(page, where);
+		}
+		if (isMobile) {
+			// A phone's "Sort by": the field chosen shows whole beside its direction and Fields, on
+			// one line, whatever Fields' count says, at 390, 360 and 320 px, chosen there or by the
+			// Summary's "Pumps, smallest first" (S6 review TBL-4; review PUMPS-NITS-A2: the default
+			// count, "(7 of 10)", took 54 px from it and cut "NPSH margin (m)" at 360 and 320 px).
+			const cut: string[] = [];
+			const select = wrap.getByRole('combobox', { name: 'Sort by, Results per pump' });
+			const fields = wrap.getByRole('button', { name: /^Fields/ });
+			const direction = wrap.getByRole('button', { name: /lowest first|highest first/ });
+			const check = async (where: string) => {
+				const m = await select.evaluate((el) => {
+					const s = el as HTMLSelectElement;
+					const css = getComputedStyle(s);
+					const context = document.createElement('canvas').getContext('2d')!;
+					context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+					const text = s.selectedOptions[0]?.text ?? '';
+					return {
+						text,
+						width: Math.ceil(context.measureText(text).width),
+						room: Math.floor(
+							s.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+						)
+					};
+				});
+				console.log(`${where}: "${m.text}" ${m.width} px in ${m.room - MENULIST_INNER}`);
+				if (m.room - MENULIST_INNER < m.width) {
+					cut.push(`${where}: "${m.text}" ${m.width} px in ${m.room - MENULIST_INNER}`);
+				}
+				if (!(await direction.count())) {
+					cut.push(`${where}: "${m.text}" chosen, no sort`);
+					return;
+				}
+				const tops = await Promise.all(
+					[select, direction, fields].map(async (c) => (await c.boundingBox())!.y)
+				);
+				if (Math.max(...tops) - Math.min(...tops) > 2) {
+					cut.push(`${where}: "${m.text}" chosen, Sort, its direction and Fields on ${tops}`);
+				}
+			};
+			for (const size of [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]) {
+				await page.setViewportSize(size);
+				await settle(page, 1000);
+				const where = `${view} at ${sizeOf(page)}`;
+				const link = (await resultsView(page, 'Summary')).getByRole('button', {
+					name: 'Pumps, smallest first'
+				});
+				if (view === 'condenser') await expect(link).toHaveCount(1);
+				if (await link.count()) {
+					await link.click();
+					await expect(select).toHaveValue('npshMargin');
+					await check(`${where}, by the Summary's link`);
+				} else {
+					await resultsView(page, 'Pumps');
+				}
+				const options = (await select.locator('option').allInnerTexts()).filter(
+					(o) => o !== 'Table order'
+				);
+				soft(options.length, `Sort by's fields, ${where}`).toBeGreaterThanOrEqual(5);
+				for (const option of options) {
+					await select.selectOption({ label: option });
+					await check(where);
+				}
+				await select.selectOption({ label: 'Table order' });
+				await expect(direction).toHaveCount(0);
+			}
+			soft(cut, `a field chosen cut short, or its line broken, ${view}`).toEqual([]);
+		}
+		if (view !== 'controlled') continue;
+		// NPSHa's box checked: its column shown and counted, the menu axe clean with both its
+		// buttons (Show all, Default fields); remembered after a reload; Default fields forgets it.
+		const fields = wrap.getByRole('button', { name: /^Fields/ });
+		await fields.click();
+		const menu = page.getByRole('group', { name: 'Fields shown in Results per pump' });
+		await menu.getByRole('checkbox', { name: /^NPSHa/ }).check();
+		await expect(table.getByRole('columnheader', { name: /^NPSHa/ })).toHaveCount(1);
+		await expect(menu.getByRole('button', { name: 'Default fields' })).toBeVisible();
+		await expect(menu.getByRole('button', { name: 'Show all' })).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(fieldsNamed('9 of 11')).toHaveCount(1);
+		expect(
+			await page.evaluate(() =>
+				localStorage.getItem('opensolve-pipe:results-fields:Results per pump')
+			)
+		).toBe('{"hidden":[],"shown":["npshAvailable"]}');
+		await axeClean(page, `${view} at ${sizeOf(page)}, NPSHa shown`);
+		await page.reload();
+		await solveConverged(page);
+		tab = await pumpsTab(page);
+		wrap = tab.locator('[data-pump-table]');
+		await expect(fieldsNamed('9 of 11')).toHaveCount(1);
+		await expect(
+			wrap
+				.getByRole('table', { name: 'Results per pump' })
+				.getByRole('columnheader', { name: /^NPSHa/ })
+		).toHaveCount(1);
+		await wrap.getByRole('button', { name: /^Fields/ }).click();
+		await page
+			.getByRole('group', { name: 'Fields shown in Results per pump' })
+			.getByRole('button', { name: 'Default fields' })
+			.click();
+		await page.keyboard.press('Escape');
+		await expect(fieldsNamed('8 of 11')).toHaveCount(1);
+		await expect(
+			wrap
+				.getByRole('table', { name: 'Results per pump' })
+				.getByRole('columnheader', { name: /^NPSHa/ })
+		).toHaveCount(0);
+		expect(
+			await page.evaluate(() =>
+				localStorage.getItem('opensolve-pipe:results-fields:Results per pump')
+			)
+		).toBeNull();
+	}
+	await page.setViewportSize(viewport);
 });

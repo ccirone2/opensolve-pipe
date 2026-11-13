@@ -194,10 +194,12 @@ describe('the Pumps together card in the Pumps view', () => {
 		const boxes = within(
 			within(card()).getByRole('group', { name: 'Pumps in the group' })
 		).getAllByRole('checkbox') as HTMLInputElement[];
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): each box's label its pump's
+		// name alone, ticked or not, no slot symbol before it.
 		expect(boxes.map((b) => [b.closest('label')!.textContent!.trim(), b.checked])).toEqual([
 			['Pump P1', false],
-			['■ Pump P2', true],
-			['★ Pump P3', true]
+			['Pump P2', true],
+			['Pump P3', true]
 		]);
 		// The case is named on the figure (the fake answers with the fixture's three-pump station).
 		expect(

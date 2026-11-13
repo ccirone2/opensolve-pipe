@@ -78,7 +78,6 @@
 		groupNotes,
 		groupTable,
 		namesProject,
-		slotStyle,
 		type GroupMemberInput
 	} from '$lib/utils/pump-group-chart';
 	import {
@@ -423,7 +422,6 @@
 					{#each pumps as pump (pump.id)}
 						{@const on = ticked(pump.id)}
 						{@const capped = !on && full}
-						{@const style = on ? slotStyle(slots.indexOf(pump.id)) : null}
 						<!-- Capped (ui-guide): the box greyed, the name kept readable (slate-600). -->
 						<label
 							class={[
@@ -445,10 +443,8 @@
 									setTicked(pump.id, event.currentTarget.checked);
 								}}
 							/>
-							<!-- The slot symbol's column is kept, so a name never moves on tick. -->
-							<span aria-hidden="true" class="w-4 shrink-0 text-center" style:color={style?.color}
-								>{style?.symbol ?? ''}</span
-							>
+							<!-- A pump is its name (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md
+								item 5): no slot symbol, so nothing before the name moves it on tick. -->
 							<span class="min-w-0 wrap-break-word">{pump.name}</span>
 						</label>
 					{/each}

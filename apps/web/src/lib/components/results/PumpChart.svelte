@@ -298,6 +298,64 @@
 		hidden = hidden.includes(key) ? hidden.filter((p) => p !== key) : [...hidden, key];
 		saveHiddenPanels(hidden);
 	}
+	/**
+	 * Room held at the figure's foot (px, below its last note) by the last chip pressed, so a chip
+	 * pressed with its pane at the end stays under the pointer too (review PUMPS-NITS-B1; below).
+	 */
+	let tail = $state(0);
+	/**
+	 * A chip stays under the pointer (ui-guide, a press moves nothing under the pointer; the owner's
+	 * nits of 2026-11-12, item 1, docs/proposals/pumps-nits.md): a panel's chip makes the canvas
+	 * above it a panel taller or shorter (chartHeightRem), so once the press is drawn its scroller
+	 * scrolls by what the chip moved, as switchOverlay does; a press from the keyboard too. Where the
+	 * browser already kept it in place (scroll anchoring) it moved nothing, and nothing scrolls.
+	 *
+	 * At the pane's end the scroll cannot take it all (review PUMPS-NITS-B1): pressed off, a panel's
+	 * chip takes its note below the row as well as its panel above it, so the pane's range shrinks
+	 * by both and the browser pulls the pane back to its new end, leaving the row lower by the note.
+	 * What the scroll could not take is held as room at the figure's foot, where the note was, and
+	 * scrolled; each press sets it anew (an "on" press gives the note back), and it goes as it is
+	 * scrolled out of sight below the pane (the effect below). Where even that cannot hold the chip
+	 * (a pane too short to scroll) none is held. At the pane's top nothing can (the tall-window
+	 * limit, pumps-nits.md item 1).
+	 */
+	async function pressChip(button: HTMLButtonElement, key: ChipKey) {
+		const before = button.getBoundingClientRect().top;
+		tail = 0;
+		togglePanel(key);
+		await tick();
+		if (!button.isConnected) return;
+		/** Scroll by what the chip moved; what it is still off by. */
+		const follow = () => {
+			const moved = button.getBoundingClientRect().top - before;
+			if (Math.abs(moved) > 0.5) scrollerOf(button).scrollTop += moved;
+			return button.getBoundingClientRect().top - before;
+		};
+		const left = follow();
+		if (left <= 0.5) return;
+		tail = Math.ceil(left);
+		await tick();
+		if (button.isConnected && follow() > 0.5) tail = 0;
+	}
+	// The room held goes as it leaves the pane's view below, as far as it is out of sight: what lies
+	// after it is out of sight too, so nothing in view moves and the pane is never pulled back.
+	$effect(() => {
+		const el = figure;
+		if (!tail || !el) return;
+		const scroller = scrollerOf(el);
+		const whole = scroller === document.scrollingElement;
+		const target: EventTarget = whole ? window : scroller;
+		const trim = () => {
+			const bottom = whole
+				? scroller.clientHeight
+				: scroller.getBoundingClientRect().top + scroller.clientTop + scroller.clientHeight;
+			const top = el.getBoundingClientRect().bottom - tail;
+			const keep = Math.max(0, Math.min(tail, Math.ceil(bottom - top)));
+			if (keep < tail) tail = keep;
+		};
+		target.addEventListener('scroll', trim, { passive: true });
+		return () => target.removeEventListener('scroll', trim);
+	});
 	const phone = mediaQuery('(max-width: 639px)');
 	const heightRem = $derived(chartHeightRem(shown, phone.current));
 
@@ -679,7 +737,13 @@
 	canvas's, the part that is redrawn, so no live line below has a busy ancestor (§5.3 markup
 	rules, §7).
 -->
-<figure bind:this={figure} class="space-y-2" aria-labelledby="{id}-caption" tabindex="-1">
+<figure
+	bind:this={figure}
+	class="space-y-2"
+	style:padding-bottom={tail ? `${tail}px` : undefined}
+	aria-labelledby="{id}-caption"
+	tabindex="-1"
+>
 	<!-- Its words wrap, a 40-character unbroken name too, as the group chart's figcaption (§7
 		Targets: text reflows at 320 px; S7 review LAYOUT-5). -->
 	<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">
@@ -703,7 +767,9 @@
 			<canvas bind:this={canvas} aria-hidden="true"></canvas>
 		</div>
 		{#if chips.length}
-			<!-- Toggle chips (§5.3, Reading): filled with a check when on, outlined when off. -->
+			<!-- Toggle chips (§5.3, Reading): filled with a checked box when on, outlined with an empty
+				box when off, the 16 px mark first in both, so a press changes no chip's width and the
+				row never rewraps (pumps-nits.md item 1). -->
 			<div role="group" aria-label="Show" class="flex flex-wrap items-center gap-2">
 				<span class="text-xs font-medium text-slate-700" aria-hidden="true">Show</span>
 				{#each chips as chip (chip)}
@@ -712,10 +778,11 @@
 						type="button"
 						class={['btn px-3', on && 'border-blue-700 bg-blue-50 text-blue-900 hover:bg-blue-100']}
 						aria-pressed={on}
-						onclick={() => togglePanel(chip)}
-						>{#if on}<Icon name="check" class="size-4 shrink-0 text-blue-700" />{/if}{CHIP_LABELS[
-							chip
-						]}</button
+						onclick={(event) => void pressChip(event.currentTarget, chip)}
+						><Icon
+							name={on ? 'box-check' : 'box'}
+							class={['size-4 shrink-0', on ? 'text-blue-700' : 'text-slate-500']}
+						/>{CHIP_LABELS[chip]}</button
 					>
 				{/each}
 			</div>
@@ -843,8 +910,20 @@
 				aria-controls="{id}-table"
 				onclick={toggleTable}
 			>
-				<!-- The space outside the hidden suffix, so every name computation keeps it. -->
-				{tableShown ? 'Hide data table' : 'Show data table'}
+				<!-- One width for both words (pumps-nits.md item 1): Show and Hide stacked in one
+					grid cell, the one not said invisible and aria-hidden, so the swap moves nothing beside
+					it (it moved Download image 6.5 px at 390 and 1280 px). The space outside the hidden
+					suffix, so every name computation keeps it. -->
+				<span class="grid" data-table-words>
+					<span
+						class={['col-start-1 row-start-1', tableShown && 'invisible']}
+						aria-hidden={tableShown || undefined}>Show data table</span
+					>
+					<span
+						class={['col-start-1 row-start-1', !tableShown && 'invisible']}
+						aria-hidden={!tableShown || undefined}>Hide data table</span
+					>
+				</span>
 				<span class="sr-only">of the pump chart</span>
 			</button>
 			{#if image}
@@ -1178,10 +1257,11 @@
 				<legend class="text-xs font-medium text-slate-700">Cases on the chart</legend>
 				<!-- An auto-fill grid, 13 rem at least: two columns in a 480 px pane, one on a phone. -->
 				<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-3">
-					<!-- The case shown: a tag, not a control (§5.2 Tags). -->
+					<!-- The case shown: a tag, not a control (§5.2 Tags); its words alone, no ● before
+						them (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5). -->
 					<span
 						class="col-span-full mt-1 justify-self-start rounded bg-slate-100 px-1.5 text-xs text-slate-700"
-						><span aria-hidden="true">●</span> {caseName ?? 'This case'} (shown)</span
+						>{caseName ?? 'This case'} (shown)</span
 					>
 					{#each cases.listed as other (other.key)}
 						{@const on = shownKeys.has(other.key)}

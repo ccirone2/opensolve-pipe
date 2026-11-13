@@ -107,7 +107,10 @@ const PANEL_AXES: Readonly<Record<PanelKey, { id: string; weight: number }>> = {
 	npsh: { id: 'yNpsh', weight: 1.3 }
 };
 
-/** Legend markers: curves as a line (dashed where dashed), points as their marker. */
+/**
+ * Legend markers: curves as a line (drawn solid: a point-style line swatch takes no dash), points
+ * as their marker.
+ */
 function legendStyle(dataset: {
 	label?: string;
 	showLine?: boolean;
@@ -1034,9 +1037,9 @@ export function pumpChartConfig(
 							!(chartData.datasets[item.datasetIndex ?? -1] as { duty?: boolean } | undefined)
 								?.duty,
 						...font(14),
-						// Curves as a line (dashed where dashed), the operating point as a dot, an other
-						// case as its ring. Chart.js lists datasets by `order`: the rings (−1, drawn on
-						// top) are listed where their datasets are, as before.
+						// Curves as a line (solid: Chart.js gives a point-style line swatch no dash), the
+						// operating point as a dot, an other case as its ring. Chart.js lists datasets by
+						// `order`: the rings (−1, drawn on top) are listed where their datasets are, as before.
 						generateLabels: (c) =>
 							legendLabels(c)
 								.map((item) => ({

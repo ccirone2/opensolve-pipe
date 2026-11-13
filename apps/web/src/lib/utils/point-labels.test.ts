@@ -302,8 +302,9 @@ describe('placePointLabels on the captured charts (rule 7)', () => {
 				checkPlacement(`${view} ${chart}`, items, obstacles, c.plot, placement);
 			});
 
-	// The plan's "[1, 5]" was written on the design study's numbers. Slice 5c integration: moved
-	// from "[1, 5]" or "[1, 5, 6]" (either accepted, by a ring with no place joining ring 1's label)
+	// The plan's "[1, 5]" named rings 1 and 5 as the 0.1 px pair; in the study, as here, that
+	// pair is rings 5 and 6. Slice 5c integration: moved from "[1, 5]" or "[1, 5, 6]" (either
+	// accepted, by a ring with no place joining ring 1's label)
 	// to the one outcome on this fixture: rings 5 and 6 are 0.1 px apart and ring 1 is 2.3 px from
 	// them, all within POINT_LABEL_CLUSTER (12 px), so the three share one label from the start,
 	// "[1, 5, 6]", their numbers ascending, as the browser draws it at 1280×800.

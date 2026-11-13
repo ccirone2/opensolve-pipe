@@ -761,6 +761,48 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		]);
 	});
 
+	// Nit 5, slice 5c integration (rule 7: no label over a mark it does not name): the short labels
+	// ("BEP", an iso-efficiency line's "70 %") kept clear of the labels drawn before them only, so
+	// "BEP" was written over another case's ring in the browser (the lineups' case 2 and the
+	// condenser's case 1 at 1280×800, the lineups' case 2 at 390×844). A short label that would lie
+	// over a ring or over any mark but its own point's is left out, as one over a label is: the
+	// legend and the notes name the best efficiency point.
+	it('leaves a short label out where it would lie over a ring or another mark, as over a label', () => {
+		const result = pumpResult({
+			bestEfficiencyPoint: { flow: 0.012, efficiency: 0.7, head: 18, headExtrapolated: false }
+		});
+		const data = pumpChartData(result, SI_UNITS, [0, 0.03]);
+		const config = pumpChartConfig(data, others(), { speedText: '100 %', legendLabels, format });
+		const sets = config.data.datasets as unknown as Dataset[];
+		const bep = sets.findIndex((d) => d.pointLabel === 'BEP');
+		const operating = sets.findIndex((d) => d.label === 'Operating point');
+		expect(bep).toBeGreaterThanOrEqual(0);
+		expect(operating).toBeGreaterThanOrEqual(0);
+		const plot = { left: 0, right: 1000, top: 0, bottom: 1000 };
+		const far = { x: 5000, y: 5000 };
+		/** "BEP" as drawn: its cross at (200, 200), case 2's ring at `ring`, the duty at `duty`. */
+		const draw = (ring: { x: number; y: number }, duty = far) =>
+			drawCaseLabels(
+				config,
+				plot,
+				(tag) => (tag === '2' ? ring : { x: 700, y: 700 }),
+				(i) => (i === bep ? { x: 200, y: 200 } : i === operating ? duty : far)
+			)
+				.written.filter((w) => w.text === 'BEP')
+				.map(({ text, x, y }) => ({ text, x, y }));
+		// Clear of every mark: 6 px right of its cross and 6 px above it, 11 px text, 18 px wide
+		// here; its box 206 to 224 across, 183 to 194 down, over its own cross (190.5 to 209.5).
+		expect(draw({ x: 600, y: 600 })).toEqual([{ text: 'BEP', x: 206, y: 194 }]);
+		// Case 2's ring (r 10 and half its 2 px border: 11) at (215, 180): 204 to 226 across, 169 to
+		// 191 down, over the box. Its own label goes right of it (228 on), clear of the box.
+		expect(draw({ x: 215, y: 180 })).toEqual([]);
+		// The operating point's dot (r 6 and half its 2 px border: 7) at (230, 190): 223 to 237
+		// across, 183 to 197 down, over the box's right end.
+		expect(draw({ x: 600, y: 600 }, { x: 230, y: 190 })).toEqual([]);
+		// Just clear of both: the ring's box ends at 182, above the box's top (183).
+		expect(draw({ x: 215, y: 171 }, { x: 232, y: 190 })).toEqual([{ text: 'BEP', x: 206, y: 194 }]);
+	});
+
 	it('lists each ring in the legend where its dataset is, though it is drawn on top', () => {
 		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], systemCurveResponse());
 		const plain = pumpChartConfig(data, others(), { speedText: '100 %', legendLabels, format });

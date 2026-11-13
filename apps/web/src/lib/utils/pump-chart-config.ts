@@ -791,6 +791,8 @@ export function pumpChartConfig(
 			};
 			const rings: number[] = [];
 			const obstacles: PxBox[] = [];
+			/** The same marks by their dataset: a short label keeps clear of all but its own point's. */
+			const marks: { i: number; box: PxBox }[] = [];
 			chart.data.datasets.forEach((dataset, i) => {
 				const ds = dataset as PointLabelled & {
 					showLine?: boolean;
@@ -801,8 +803,11 @@ export function pumpChartConfig(
 				else if (ds.showLine === false && chart.isDatasetVisible(i)) {
 					const r = (ds.pointRadius ?? 0) + (ds.borderWidth ?? 0) / 2;
 					for (const el of chart.getDatasetMeta(i).data)
-						if (Number.isFinite(el.x) && Number.isFinite(el.y))
-							obstacles.push(markBox(el.x, el.y, r));
+						if (Number.isFinite(el.x) && Number.isFinite(el.y)) {
+							const box = markBox(el.x, el.y, r);
+							obstacles.push(box);
+							marks.push({ i, box });
+						}
 				}
 			});
 			const { placed } = pointLabelsOf(chart, rings, obstacles, plot, caseSize);
@@ -811,7 +816,8 @@ export function pumpChartConfig(
 			for (const label of placed.labels) drawPointLabel(ctx, label, caseSize, SLATE);
 			onlabels?.(placed);
 			// Short labels at one point of a line or marker ("BEP", "70 %"), in dataset order; a
-			// label that would overlap one already drawn is left out (the legend and notes name it).
+			// label that would overlap one already drawn, or a mark, is left out (the legend and notes
+			// name it).
 			const size = forImage ? 13 : 11;
 			ctx.font = `${size}px system-ui, sans-serif`;
 			ctx.fillStyle = SLATE;
@@ -824,6 +830,9 @@ export function pumpChartConfig(
 					h: box.bottom - box.top
 				})
 			);
+			// Nor is one drawn over a mark it does not name (rule 7; slice 5c integration: "BEP" fell on
+			// another case's ring): the rings, and every single-point mark but its own point's.
+			const ringMarks = placed.items.map(({ x, y, r }) => markBox(x, y, r));
 			chart.data.datasets.forEach((dataset, i) => {
 				const { pointLabel, labelAt } = dataset as { pointLabel?: string; labelAt?: number };
 				const points = chart.getDatasetMeta(i).data;
@@ -842,7 +851,11 @@ export function pumpChartConfig(
 						box.y < o.y + o.h &&
 						o.y < box.y + box.h
 				);
-				if (overlaps) return;
+				const overMark = [...ringMarks, ...marks.filter((m) => m.i !== i).map((m) => m.box)].some(
+					(m) =>
+						box.x < m.right && m.left < box.x + box.w && box.y < m.bottom && m.top < box.y + box.h
+				);
+				if (overlaps || overMark) return;
 				taken.push(box);
 				ctx.fillText(pointLabel, point.x + 6, point.y - 6);
 			});

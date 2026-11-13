@@ -300,20 +300,22 @@ describe('placePointLabels on the captured charts (rule 7)', () => {
 				checkPlacement(`${view} ${chart}`, items, obstacles, c.plot, placement);
 			});
 
-	it('lineups, the pump chart at 454 px: the rings of cases 1 and 5 share one label, "[1, 5]"', () => {
-		// Rings 5 and 6 are 0.1 px apart and ring 1 is 2.3 px from them: ring 5 has no place
-		// nearer its own point than ring 1's or ring 6's, so it joins ring 1's label, its numbers
-		// ascending, the label placed again. Ring 6, placed after it, finds a place of its own (the
-		// design study's prototype drew "1, 5" and "6") or joins the same label ("[1, 5, 6]"), as
-		// the places' geometry gives; either way it is named once (the checks above). At 340 and
-		// 270 px the rings crowd the operating point and the BEP: there the checks above hold them.
+	// The plan's "[1, 5]" was written on the design study's numbers. Slice 5c integration: moved
+	// from "[1, 5]" or "[1, 5, 6]" (either accepted, by a ring with no place joining ring 1's label)
+	// to the one outcome on this fixture: rings 5 and 6 are 0.1 px apart and ring 1 is 2.3 px from
+	// them, all within POINT_LABEL_CLUSTER (12 px), so the three share one label from the start,
+	// "[1, 5, 6]", their numbers ascending, as the browser draws it at 1280×800.
+	it('lineups, the pump chart at 454 px: the rings of cases 1, 5 and 6 share one label, "[1, 5, 6]"', () => {
+		// At 340 and 270 px the rings crowd the operating point and the BEP: there the checks above
+		// hold them.
 		const { items, placement } = place('lineups-454', 'pump');
 		const ring = (n: number) =>
 			items.findIndex((it) => it.kind === 'ring' && it.numbers.includes(n));
 		const joined = labelOf(placement, ring(1));
-		expect(joined?.text).toMatch(/^\[1, 5(, 6)?\]$/);
-		expect(joined!.items).toEqual(expect.arrayContaining([ring(1), ring(5)]));
+		expect(joined?.text).toBe('[1, 5, 6]');
+		expect(joined!.items).toEqual([ring(1), ring(5), ring(6)].sort((a, b) => a - b));
 		expect(labelOf(placement, ring(5))).toBe(joined);
+		expect(labelOf(placement, ring(6))).toBe(joined);
 	});
 
 	it('lineups and condenser, the group chart: the members’ coincident dots share one label', () => {

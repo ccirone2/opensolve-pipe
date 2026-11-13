@@ -7,13 +7,14 @@
 	to, utils/results.ts resultsProject), as the Links table names it: its flow's sign, its pipe
 	numbers and its trace refer to those ends, even after a reversal since the solve. A side panel
 	over the results on wide screens (the results under it are inert while it is open); a dialog
-	(bottom sheet) on narrow ones. In a project with scenarios it names the case solved and, for a
-	scenario, lists the element's values the scenario changed, with their base values, from the
-	server's record (proposal scenario-manager.md §6.11). Use in goal seek, on the Result values
-	heading, opens the goal-seek dialog with a new goal on this element (proposal goal-seek.md
-	§6.2); on narrow screens the trace, a sheet itself, closes first. A note or data source that
-	names a project library entry (CLAUDE.md D22: 'project library pipe spec "…" (PS1)') links to
-	it: the library opens with that entry in view (proposal project-library.md §6.4).
+	(bottom sheet) on narrow ones, whose results notice alone keeps Solve again, since the header is
+	inert behind it (build-density.md §19). In a project with scenarios it names the case solved
+	and, for a scenario, lists the element's values the scenario changed, with their base values,
+	from the server's record (proposal scenario-manager.md §6.11). Use in goal seek, on the Result
+	values heading, opens the goal-seek dialog with a new goal on this element (proposal
+	goal-seek.md §6.2); on narrow screens the trace, a sheet itself, closes first. A note or data
+	source that names a project library entry (CLAUDE.md D22: 'project library pipe spec "…" (PS1)')
+	links to it: the library opens with that entry in view (proposal project-library.md §6.4).
 -->
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
@@ -336,7 +337,10 @@
 						</span>
 					</p>
 				{/if}
-				<ResultsStateNotice values />
+				<!-- Below 1024 px the trace is a sheet over the header (inert behind it, Ctrl+Enter
+					ignored there), so its notice keeps Solve again; from 1024 px the header is live and
+					the notice says where Solve is (build-density.md §19). -->
+				<ResultsStateNotice values solve={!wide.current} />
 			</div>
 		{/if}
 

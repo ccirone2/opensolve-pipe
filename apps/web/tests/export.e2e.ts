@@ -7,12 +7,12 @@ import {
 	currentHeading,
 	downloadFrom,
 	expectNothingSent,
-	openCases,
 	readWorkbook,
 	readZip,
 	resultsPane,
 	resultsView,
 	showPane,
+	solveAll,
 	solveConverged
 } from './support';
 
@@ -164,13 +164,12 @@ test('a project with a scenario: all cases from Compare cases', async ({ page })
 	await page.goto(`/p#${encode(project)}`);
 	await expect(currentHeading(page)).toHaveText('Suction tank');
 	await showPane(page, 'Results');
-	const solveAll = (await openCases(page)).getByRole('button', { name: 'Solve all' });
 	// Solve all: the base, then the scenario, one request after the other.
 	let answered = 0;
 	page.on('response', (r) => {
 		if (r.url().endsWith('/api/v1/solve') && r.status() === 200) answered++;
 	});
-	await solveAll.click();
+	await solveAll(page);
 	await expect.poll(() => answered).toBe(2);
 	await expect(caseGroup(page)).not.toContainText('Solving');
 	await resultsPane(page).getByRole('tab', { name: 'Compare cases' }).click();

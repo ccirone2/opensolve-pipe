@@ -486,6 +486,8 @@ Orphaned and not-applicable overrides are not physics. They appear in the respon
   - From 640 px there is one row.
 - **Solve** solves the active case. When scenarios exist its accessible name includes the case ("Solve Winter"); the visible label stays "Solve". The existing Cancel also cancels a Solve all run, with the accessible name "Cancel solving all cases". A solve goes on after a case switch: Solve keeps its spinner and Cancel, named "Cancel solving Winter" when another case is shown, and the other Solve buttons are unavailable until it ends (review fix, §10).
 
+*(As built since `build-density.md` §13 and §19, 2026-11-12: with scenarios the button opens the Scenarios menu (§6.3). While cases are to solve and the network has a component, its badge shows ▶ and their count in amber in place of the teal scenario count, counting down during Solve all, and its name adds them, "Scenarios (3), 2 cases to solve"; it is "Scenarios (3)" once every case is current. On short landscape screens (at most 20 rem tall, at least 35.5 rem wide) the header is one row pinned to the top. The other Solve buttons that wait for a solve are the Scenarios menu's Solve all and, below 1024 px, the trace sheet's Solve again.)*
+
 ### 6.3 Case bar (`workspace/ScenarioBar.svelte`, new)
 
 The bar appears only when the project has at least one scenario. It sits between the header and `<main>`: across both panes on desktop, and above the Build/Results tabs on phones, so it is visible in every pane.
@@ -502,6 +504,8 @@ Phone (390 px): the mode sentence is hidden below 640 px (the colour, the select
 - **Case select.** A native `<select>` with the visible label "Case". Its options are "Base case", then each scenario as "Winter (3 changes)" or "Winter (3 changes, 1 no longer applies)".
 - **Switching.** It is page state: not an undo step and not in the link. A polite live region announces it: "Showing scenario Winter, 3 changes. Your edits now change this scenario."
 - **Solve all.** It is `aria-disabled` with the reason "Every case's results are current." when nothing needs solving, or "Every case is solved except Winter, which has an error to fix first." when the only cases left have a current error of their own. During a run it stays in place, unavailable (the focus stays on it), and the progress "Solving 2 of 4: Winter…" has a line of its own under the row, the one live region that announces it; a single solve of a case other than the one shown reads "Solving Winter…" there (review fix, §10). Its hint: "Solves each case whose results are missing or out of date, one after another: up to {n} solves."
+
+*(As built since `build-density.md` §13 and §19, 2026-11-12: the bar is the Scenarios menu, and Solve all leads it, the page's one Solve all: "Solve all (n)" with its count while it can run, then its line, which shows this hint or a lasting reason (a passing one is visually hidden and in its title), then its progress line; Ctrl/⌘+Shift+Enter runs it, and the Scenarios badge shows ▶ and the count of cases to solve in amber.)*
 
 ### 6.4 Scenario manager (`workspace/ScenarioManager.svelte`, new)
 
@@ -531,7 +535,7 @@ At a bound (`schemaBounds`: 20 scenarios, 30 changes), New, Duplicate and value 
 
 - **Build.** Build shows the case's values. The navigator path, tab and open port stay, since the topology is the same.
 - **Results.** Results shows the case's latest results and keeps the selected view (Nodes, Links, …), so flipping cases on one table compares them. An open trace stays on the same element if the case has results; otherwise it closes.
-- **No results yet.** A case without results shows "Winter has not been solved yet. [Solve] or [Solve all]", the button's accessible name "Solve Winter" (a name of up to 100 characters on a button would not fit a phone).
+- **No results yet.** A case without results shows "Winter has not been solved yet. [Solve] or [Solve all]", the button's accessible name "Solve Winter" (a name of up to 100 characters on a button would not fit a phone). *(Since `build-density.md` §19, 2026-11-12: no buttons; the words name the header's Solve and, while two cases or more are to solve, the Scenarios menu's Solve all, each with its icon and, on a fine pointer, its shortcut.)*
 - **Load.** Reloading or opening a link starts on the base case.
 
 ### 6.6 Editing in a scenario
@@ -635,12 +639,12 @@ Every base edit runs inside `carryChanges(change)`, a wrapper applied in `store.
 
 ### 6.10 Solve and Solve all
 
-- **Solve one.** Header Solve, "Solve again" and "Solve now" solve the active case. The request carries the full project plus `scenarioId` (absent for the base). The rest is today's flow: a newer solve supersedes an older one, an edit during a solve makes its result out of date, and the method version is recorded.
+- **Solve one.** Header Solve, "Solve again" and "Solve now" solve the active case. *(Since `build-density.md` §19, 2026-11-12: the header's Solve, Ctrl/⌘+Enter, and the trace sheet's Solve again below 1024 px; the pane's Solve again and Solve now went.)* The request carries the full project plus `scenarioId` (absent for the base). The rest is today's flow: a newer solve supersedes an older one, an edit during a solve makes its result out of date, and the method version is recorded.
 - **Solve all** (decision 17):
   - **Which cases:** those whose results are missing, out of date, cancelled or failed with a network error. A case with current results, or with a current topology or validation error, is skipped: the solver is deterministic.
   - **Order:** the base first, then the scenarios in list order, one request at a time, all from the project as it was when Solve all was pressed. Edits during the run make results out of date by the usual rules.
   - **Errors:** a topology, validation, fluid or not-found error is recorded for its case, and the run continues. Any `NetworkError` (no connection, timeout, 429, 503 `SERVER_BUSY` or `TIMEOUT`) stops the run. The cases not reached show "Not solved: the run stopped after a network error", and Solve all offers itself again.
-  - **Progress:** Solve shows its spinner. The bar and the Compare view show "Solving 2 of 4: Winter…". Compare's headers show Waiting, Solving… or the outcome. The results status line says "Solving 2 of 4 (Winter)…".
+  - **Progress:** Solve shows its spinner. The bar and the Compare view show "Solving 2 of 4: Winter…". *(Since `build-density.md` §19: the Scenarios menu's status line, or the header's screen-reader line while it is closed, and Compare's plain line; the amber badge counts the cases left down.)* Compare's headers show Waiting, Solving… or the outcome. The results status line says "Solving 2 of 4 (Winter)…".
   - **Cancel:** aborts the request in flight and skips the rest. Cases already solved keep their new results. The others keep what they had, labelled as today, and focus returns to Solve.
 - **System curves.** A solve starting still cancels curve requests. A curve fetch waits for the run (one request at a time).
 
@@ -670,7 +674,7 @@ Every base edit runs inside `carryChanges(change)`, a wrapper applied in `store.
 **Content**
 
 - The heading "Compare cases" and the intro "Chosen results of each case side by side. Under each scenario value is its difference from the base case.", with [Choose results…] and [Solve all].
-- When some results are missing or out of date: "2 of 4 cases have results that are missing or out of date." with [Solve all], counting the cases Solve all would solve. Cases whose latest solve failed with an error of their own are named apart: "Winter failed with an error to fix first: Solve all skips it until its inputs change."
+- When some results are missing or out of date: "2 of 4 cases have results that are missing or out of date." with [Solve all], counting the cases Solve all would solve. *(Since `build-density.md` §19, 2026-11-12: Compare has no Solve all; the line reads "2 of 4 cases have results that are missing or out of date: Solve all, in the Scenarios menu at the top, solves them one after another.", with the menu's icon and, on a fine pointer, its shortcut, and with no results "No case has results yet." alone.)* Cases whose latest solve failed with an error of their own are named apart: "Winter failed with an error to fix first: Solve all skips it until its inputs change."
 - **Columns:** the base first, then the scenarios. Each header is a button that switches to its case, with a status line: Converged, Did not converge, Out of date, Not solved, Failed, Solving…, Waiting or Cancelled, each with an icon.
 - **Rows:** "Pump A · Flow (L/s)". The row header opens that element's trace in the active case; while the active case has no results it is unavailable, described "Solve Winter to open its traces.". A column header switches case and gives the focus to that case's tab.
 
@@ -759,11 +763,11 @@ Every base edit runs inside `carryChanges(change)`, a wrapper applied in `store.
 ### 6.15 Accessibility checklist
 
 - **Text, not colour only.** The case is named in text wherever colour marks it: the bar, the banner, the chips and "Changed".
-- **Live regions** announce case switches, solve-all progress and outcome, undo switches and refusals, each once: Solve all's progress only in the case bar, and a case switch replaces the results status line instead of updating it.
+- **Live regions** announce case switches, solve-all progress and outcome, undo switches and refusals, each once: Solve all's progress only in the case bar, and a case switch replaces the results status line instead of updating it. *(Since `build-density.md` §13 and §19: Solve all's progress in the Scenarios menu's line and, while the menu is closed, the header's screen-reader line, which also says a cancel made with the menu closed, once; a network stop with it closed is an alert.)*
 - **Focus.**
   - A new scenario focuses its name; Delete focuses the list heading.
   - Show and "Switch to base case" focus the current heading (`focusCurrentHeading`).
-  - The end of a run focuses Solve (Solve all stays in place during the run, so a run started from it keeps the focus there). The overlay Cancel and retry hand focus to each other. A control that goes when it is used (Compare's column headers, the card's Compare cases) gives the focus to the tab it shows.
+  - The end of a run focuses Solve (Solve all stays in place during the run, so a run started from it keeps the focus there). *(Since `build-density.md` §19: a run that ran to its end gives the focus to Solve if it was in the Scenarios menu; a cancelled or stopped one keeps the menu open and the focus on its Solve all, also after a pointer press on Cancel.)* The overlay Cancel and retry hand focus to each other. A control that goes when it is used (Compare's column headers, the card's Compare cases) gives the focus to the tab it shows.
 - **Group notes.** The inputs of a composite value (a pipe's size and material, the fluid, a valve's resistance) are each described by the group's note ("Changed in this scenario. Base value …", "Winter sets its own value.").
 - **Locked fields** are read-only and focusable, described by "Same in every scenario."
 - **Interaction.** All targets are at least 44 px. There is no drag and no hover-only information. Comparison and chart data are available as tables.

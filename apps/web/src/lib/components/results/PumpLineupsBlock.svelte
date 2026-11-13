@@ -7,16 +7,21 @@
 	The Pumps tab's S4 (pumps-results-layout.md §5.3, §9 S4): a framed, tinted panel, the one part
 	of the card that changes the project, its h4 (14 px) with the plain tag "Changes the project"
 	beside it, a sibling, so the region is named by the h4 alone. While a gate holds (§7.2), only its
-	sentence, Solve all for gates 4 to 6 (with its lasting reason, as below), and the table button.
-	Otherwise one structure in every state, so no control in use moves from one branch of the
-	markup to another, in D24 §7.11's order: the preset ("Cases to add", label 12 px; By number
-	running or Each pump off, page state); one native disclosure, the plan, holding what it makes
-	(About), the interchangeability sentence and the stop order (By number running only), the cases
-	it would make (each with its kind in words), which group the names count and which pump each id
-	is; one row with Add and the one Solve all (the Scenarios menu's reasons, 4d's); Add's refusal;
-	Solve all's reason while it lasts (one that passes, while a solve runs, stays visually hidden
-	and in `title`); after an Add that ticked it, "Now ticked: …", said by the polite line too and
-	gone from both with the Add it reports.
+	sentence and the table button. Otherwise one structure in every state, so no control in use
+	moves from one branch of the markup to another, in D24 §7.11's order: the preset ("Cases to
+	add", label 12 px; By number running or Each pump off, page state); one native disclosure, the
+	plan, holding what it makes (About), the interchangeability sentence and the stop order (By
+	number running only), the cases it would make (each with its kind in words), which group the
+	names count and which pump each id is; one row with Add alone; Add's refusal; after an Add that
+	ticked it, "Now ticked: …", said by the polite line too and gone from both with the Add it
+	reports.
+
+	One Solve all, the Scenarios menu's (build-density.md §19): the block has none of its own, nor a
+	line pointing to it. The Add notice's tail names it (pump-lineups.ts) and the Scenarios badge
+	turns amber with the count of cases to solve; Ctrl/⌘+Shift+Enter runs it from Add. After Add
+	the focus stays on Add, the same node, which then reads "Add cases", unavailable and described
+	by its visible refusal (D24 §7.8's focus handoff to the block's Solve all superseded by
+	build-density.md §19).
 
 	The fold (§5.3): the plan is drawn closed only when every planned case exists (nothing to add,
 	some made), open otherwise, and opens itself when cases come to remain (another preset, a
@@ -34,41 +39,22 @@
 <script lang="ts" module>
 	import type { LineupPlan, LineupPreset } from '$lib/utils/pump-lineups';
 
-	/** Solve all in the block: the Scenarios menu's reasons (solveAllReason; 4d's). */
-	export interface SolveAllState {
-		count: number;
-		canRun: boolean;
-		/** Why it is unavailable ('' when it can run). */
-		reason: string;
-		/** What it does, when it can run. */
-		hint: string;
-		/**
-		 * The reason passes (a solve, Solve all or a goal seek runs): visually hidden and the
-		 * button's `title`, so nothing flashes; a reason that lasts is shown (pumps-results-layout.md
-		 * §5.3, ui-guide).
-		 */
-		passing?: boolean;
-	}
-
 	export interface LineupsBlockProps {
 		/** What the block would make now (lineupPlan), or why not. */
 		plan: LineupPlan;
-		solveAll: SolveAllState;
 		/** Choose the preset (page state). */
 		onpreset?: (preset: LineupPreset) => void;
 		/** Move a pump one place earlier ('up') or later ('down') in the stop order (page state). */
 		onmove?: (pumpId: string, dir: 'up' | 'down') => void;
 		/** Set the stop order back to the default. */
 		ondefaultorder?: () => void;
-		/** Add the cases (one undo step); the focus then moves to the block's Solve all. */
+		/** Add the cases (one undo step); the focus stays on Add (build-density.md §19). */
 		onadd?: () => void;
 		/**
 		 * "Also show the other cases' station duties" is ticked (page state, ws.pumpGroupOthers): an
 		 * Add that ticks it says so ("Now ticked: …", pumps-results-layout.md §5.3).
 		 */
 		othersOn?: boolean;
-		/** Solve every case not yet solved (the Scenarios menu's Solve all). */
-		onsolveall?: () => void;
 		/**
 		 * Open the Scenarios manager on Pump lineups, showing the card's pumps only (slice L2, §8.1);
 		 * the button is drawn when it is given.
@@ -91,17 +77,8 @@
 	import SegmentedField from '$lib/components/ui/SegmentedField.svelte';
 	import { registerSection } from './section-nav.svelte';
 
-	let {
-		plan,
-		solveAll,
-		onpreset,
-		onmove,
-		ondefaultorder,
-		onadd,
-		othersOn,
-		onsolveall,
-		ontable
-	}: LineupsBlockProps = $props();
+	let { plan, onpreset, onmove, ondefaultorder, onadd, othersOn, ontable }: LineupsBlockProps =
+		$props();
 	const id = $props.id();
 
 	const presets = (Object.keys(LINEUP_PRESET_LABELS) as LineupPreset[]).map((value) => ({
@@ -113,7 +90,6 @@
 	/** The section nav's "Add cases" (pumps-results-layout.md §5.4): this block's heading. */
 	let heading: HTMLElement | undefined = $state();
 	registerSection('add-cases', () => heading);
-	let solveAllButton: HTMLButtonElement | undefined = $state();
 	/**
 	 * The block's polite line: what the last move or Default order did, or "Now ticked: …" after
 	 * an Add that ticked "Also show …" (pumps-results-layout.md §5.3, §7 Live regions).
@@ -157,12 +133,6 @@
 	let frame = 0;
 	$effect(() => () => cancelAnimationFrame(frame));
 
-	/**
-	 * Solve all's reason drawn: one that lasts, under a gate too (§5.3 item 5; §7 Names and marks:
-	 * a lasting reason is visible text, §6.2).
-	 */
-	const reasonShown = $derived(!!solveAll.reason && !solveAll.passing);
-
 	/** The move button of `pumpId` in `dir` (found by data attributes: ids are any string). */
 	function stopButton(pumpId: string, dir: 'up' | 'down'): HTMLButtonElement | undefined {
 		const buttons = section?.querySelectorAll<HTMLButtonElement>('[data-stop-id][data-dir]') ?? [];
@@ -198,12 +168,14 @@
 	}
 
 	/**
-	 * Add the cases; then the focus is on the block's Solve all (4d's), so an Add that ticked "Also
-	 * show …" says so in the block's polite line as well as on screen (§5.3): the focus would not
-	 * pass the line. The line is emptied at the press and the words written two frames later, so it
-	 * is drawn empty before it speaks (§7 Live regions; S1's rule, §15 item 24): emptied and filled
-	 * in one task, the accessibility tree would see no change. They are not written once "Now
-	 * ticked" has gone again, or once a stop order's move has written its own message.
+	 * Add the cases; the focus stays on Add, the same node, which then reads "Add cases", described
+	 * by its refusal (build-density.md §19). An Add that ticked "Also show …" says so in the block's
+	 * polite line as well as on screen (§5.3): the visible line is drawn after Add, which holds the
+	 * focus, and nothing would announce it. The line is emptied at the press and the words written
+	 * two frames later, so it is drawn empty before it speaks (§7 Live regions; S1's rule, §15 item
+	 * 24): emptied and filled in one task, the accessibility tree would see no change. They are not
+	 * written once "Now ticked" has gone again, or once a stop order's move has written its own
+	 * message.
 	 */
 	async function addCases() {
 		if (plan.gate || plan.refusal || !plan.add.length) return;
@@ -212,7 +184,6 @@
 		status = '';
 		onadd?.();
 		await tick();
-		solveAllButton?.focus();
 		if (!wasOn && othersOn) {
 			ticked = true;
 			frame = requestAnimationFrame(() => {
@@ -221,9 +192,6 @@
 				});
 			});
 		}
-	}
-	function solveAllCases(event: MouseEvent) {
-		if (solveAll.canRun && event.detail <= 1) onsolveall?.();
 	}
 </script>
 
@@ -368,52 +336,28 @@
 			</div>
 		</details>
 	{/if}
-	{#if !plan.gate || plan.showSolveAll}
-		<!-- 3. One row: Add and the one Solve all, in every state, so the focus Add hands to Solve
-			all stays on the same button through the run and after (D24 §7.8). -->
+	{#if !plan.gate}
+		<!-- 3. One row: Add alone, in every state, so the focus an Add leaves on it stays on the same
+			button after the add (build-density.md §19: Solve all is the Scenarios menu's). -->
 		<div class="flex flex-wrap items-center gap-2">
-			{#if !plan.gate}
-				<button
-					type="button"
-					class="btn"
-					aria-disabled={!!plan.refusal}
-					aria-describedby={plan.refusal ? `${id}-refusal` : undefined}
-					onclick={() => void addCases()}>{plan.label}</button
-				>
-			{/if}
-			{#if plan.showSolveAll}
-				<button
-					bind:this={solveAllButton}
-					type="button"
-					class="btn"
-					aria-disabled={!solveAll.canRun}
-					aria-describedby="{id}-solve-all"
-					title={!reasonShown && solveAll.reason ? solveAll.reason : undefined}
-					onclick={solveAllCases}
-				>
-					<Icon name="play" class="size-4" /> Solve all{solveAll.count
-						? ` (${solveAll.count})`
-						: ''}
-				</button>
-			{/if}
+			<button
+				type="button"
+				class="btn"
+				aria-disabled={!!plan.refusal}
+				aria-describedby={plan.refusal ? `${id}-refusal` : undefined}
+				onclick={() => void addCases()}>{plan.label}</button
+			>
 		</div>
 	{/if}
 	<!-- 4. Add's refusal, visible: with every planned case made it is D24's own line, naming them. -->
 	{#if !plan.gate && plan.refusal}
 		<p id="{id}-refusal" class="hint">{plan.refusal}</p>
 	{/if}
-	{#if plan.showSolveAll}
-		<!-- 5. Solve all's reason while it lasts, visible, under a gate too (§7 Names and marks);
-			else its passing reason or what it does, visually hidden. Either is its description. -->
-		<p id="{id}-solve-all" class={reasonShown ? 'hint' : 'sr-only'}>
-			{solveAll.reason || solveAll.hint}
-		</p>
-	{/if}
 	{#if ticked && othersOn && !plan.gate}
 		<p class="hint" data-now-ticked>{ADD_CASES_WORDS.nowTicked}</p>
 	{/if}
 	{#if ontable}
-		<!-- 6. At its foot whenever it is drawn, gates included (D24 slice L2, §8.1). -->
+		<!-- 5. At its foot whenever it is drawn, gates included (D24 slice L2, §8.1). -->
 		<button type="button" class="btn btn-quiet text-blue-800" onclick={() => ontable?.()}
 			>{LINEUP_TABLE_WORDS.cardButton}</button
 		>

@@ -12,7 +12,9 @@ import {
 	resultsPane,
 	resultsView,
 	setNumber,
-	showPane
+	showPane,
+	solveAll,
+	solveAllButton
 } from './support';
 
 /**
@@ -35,11 +37,44 @@ async function openExample(page: Page) {
 }
 
 const scenariosButton = (page: Page) => page.getByRole('button', { name: /^Scenarios/ });
-const solveAllButton = (page: Page) =>
-	caseGroup(page).getByRole('button', { name: 'Solve all', includeHidden: true });
-/** Press Solve all, in the Scenarios menu. */
-async function solveAll(page: Page): Promise<void> {
-	await (await openCases(page)).getByRole('button', { name: 'Solve all' }).click();
+
+/** On screen at a size of its own: not hidden, and not sr-only's 1 px box, which toBeVisible accepts. */
+async function seenBox(locator: Locator): Promise<boolean> {
+	return locator.evaluate((el) => {
+		const r = el.getBoundingClientRect();
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			r.width > 1 &&
+			r.height > 1
+		);
+	});
+}
+
+/**
+ * The words a sighted user reads on a control: its text drawn at a size of its own, nothing
+ * hidden (`invisible`) and nothing in sr-only's 1 px box, at any depth.
+ */
+async function seenText(locator: Locator): Promise<string> {
+	return locator.evaluate((control) => {
+		const drawn = (el: Element) => {
+			const r = el.getBoundingClientRect();
+			return (
+				el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+				r.width > 1 &&
+				r.height > 1
+			);
+		};
+		let text = '';
+		const walker = document.createTreeWalker(control, NodeFilter.SHOW_TEXT);
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			let seen = true;
+			for (let el = n.parentElement; el && seen; el = el === control ? null : el.parentElement) {
+				seen = drawn(el);
+			}
+			if (seen) text += n.textContent;
+		}
+		return text.replace(/\s+/g, ' ').trim();
+	});
 }
 
 /** Create a scenario in the manager, name it, and close the manager: it is the case shown. */
@@ -93,7 +128,8 @@ test('create a scenario, change a value in it, reset it; locked values; back to 
 	await expect(scenariosButton(page)).toHaveAccessibleName('Scenarios');
 
 	await newScenario(page, 'Pump off');
-	await expect(scenariosButton(page)).toHaveAccessibleName('Scenarios (1)');
+	// Never solved: the name counts the base case and Pump off to solve (build-density.md §19).
+	await expect(scenariosButton(page)).toHaveAccessibleName('Scenarios (1), 2 cases to solve');
 	const panel = await showComponent(page, 'Transfer pump');
 	await expect(panel.getByRole('note', { name: 'Scenario' })).toContainText('Scenario: Pump off.');
 	// Topology actions are hidden in a scenario.
@@ -300,9 +336,18 @@ test('cancel Solve all; then Solve all solves only the cases still missing', asy
 	await expect(bar.getByRole('status', { includeHidden: true })).toHaveText(
 		/^Solve all was cancelled/
 	);
+	// A pointer press on Cancel is not outside the menu: it stays open, its cancel line in sight
+	// (build-density.md §13 item 4, §19).
+	expect(
+		await seenBox(bar.getByRole('status', { includeHidden: true })),
+		'the cancel line seen'
+	).toBe(true);
+	// The press focused Cancel; Cancel gone, the focus goes back into the open menu, to Solve all
+	// (which resumes the run), not to the header's Solve outside it (WCAG 2.4.11).
+	await expect(solveAllButton(page)).toBeFocused();
 	await expect(
 		page.getByRole('banner').getByRole('button', { name: /^Solve Base case$/ })
-	).toBeFocused();
+	).not.toBeFocused();
 	// The base keeps its results.
 	await expect(resultsStatus(page)).toHaveText('Last solve of Base case: converged');
 
@@ -342,7 +387,8 @@ test('share and reopen: the scenarios are in the link, which opens on the base c
 	await other.goto(`/p${fragment}`);
 	await expect(currentHeading(other)).toHaveText('Suction tank');
 	await expect(caseMenu(other)).toHaveValue('');
-	await expect(scenariosButton(other)).toHaveAccessibleName('Scenarios (1)');
+	// A link holds no results: both cases to solve (build-density.md §19).
+	await expect(scenariosButton(other)).toHaveAccessibleName('Scenarios (1), 2 cases to solve');
 	await chooseCase(other, 'Higher tank (1 change)');
 	const reopened = await showComponent(other, 'Discharge tank');
 	const level = reopened.getByRole('textbox', { name: /^Liquid level/ });
@@ -442,13 +488,15 @@ test('a long case name fits: Solve, the Case menu and the case bar during Solve 
 	await openExample(page);
 	await newScenario(page, name);
 
-	// The Solve of a case without results says the case before it, not on the button.
+	// The Solve of a case without results is the header's (build-density.md §19): it names the
+	// case for screen readers only, so its visible label stays "Solve" and it stays inside the
+	// screen.
 	await showPane(page, 'Results');
-	const pane = (await resultsPane(page).boundingBox())!;
-	const solve = resultsPane(page).getByRole('button', { name: `Solve ${name}` });
+	const solve = page.getByRole('banner').getByRole('button', { name: `Solve ${name}` });
 	await expect(solve).toBeVisible();
 	const box = (await solve.boundingBox())!;
-	expect(box.x + box.width).toBeLessThanOrEqual(pane.x + pane.width);
+	expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+	expect(await seenText(solve)).toBe('Solve');
 
 	// Solve all's progress has a line of its own in the case bar: a short one never squeezes the
 	// Case menu, a long one never squeezes the sentence on where edits go.

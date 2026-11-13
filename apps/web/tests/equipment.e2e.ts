@@ -10,13 +10,13 @@ import {
 	closeTrace,
 	currentHeading,
 	newProject,
-	openCases,
 	openScenarioManager,
 	resultsPane,
 	resultsView,
 	setNumber,
 	showPane,
 	sig4,
+	solveAll,
 	solveConverged,
 	tableTexts,
 	traceOf
@@ -346,7 +346,7 @@ test('scenarios: a dirty strainer and another vendor’s Cv; compare and export 
 	).toBeVisible();
 
 	// Solve all: the base, then each scenario.
-	await (await openCases(page)).getByRole('button', { name: 'Solve all' }).click();
+	await solveAll(page);
 	await expect(caseGroup(page)).not.toContainText('Solving');
 	expect(sent.map((r) => r.scenarioId ?? 'base').sort()).toEqual(['S1', 'S2', 'base']);
 	// The bodies are read as they arrive: wait for the three.

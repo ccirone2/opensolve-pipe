@@ -21,6 +21,8 @@ import {
 	resultsPane,
 	resultsScroller,
 	resultsView,
+	solveAll,
+	solveAllButton,
 	solveConverged
 } from './support';
 
@@ -33,12 +35,13 @@ import {
  * the station (points without a rise, and why) and a PRV inside it (no group curve, the group
  * system curve all the same). Slice 4c: the export writes the group computed, in five sheets after
  * System curves, sending nothing. Slice 4d: the cases with one pump off added in one step and
- * solved with Solve all, each case's pumps in Running combinations, each station duty a numbered
- * ring on the base case's group system curve, offered for pumps in parallel only, and axe clean
- * with everything open; since D24 through the Add cases block with Each pump off chosen. D24 slice
- * L1b (pump-lineups.md §10.1): By number running on four pumps, the stop order moved by keyboard
- * on desktop and by taps on a phone, three cases added and solved, each with its lineup line in
- * Running combinations, and axe clean with the stop order open. D24 slice L3 (pump-lineups.md
+ * solved with Solve all (the Scenarios menu's since build-density.md §19), each case's pumps in
+ * Running combinations, each station duty a numbered ring on the base case's group system curve,
+ * offered for pumps in parallel only, and axe clean with everything open; since D24 through the
+ * Add cases block with Each pump off chosen. D24 slice L1b (pump-lineups.md §10.1): By number
+ * running on four pumps, the stop order moved by keyboard on desktop and by taps on a phone, three
+ * cases added and solved, each with its lineup line in Running combinations, and axe clean with
+ * the stop order open. D24 slice L3 (pump-lineups.md
  * §10.3): after that flow, the three lineups' own group curves named in the chart's accessible name,
  * listed point by point in "Other cases' group curves" and drawn in the image, axe clean. The
  * projects are the shared fixture's
@@ -676,7 +679,7 @@ function solveAnswer(page: Page, scenarioId: string) {
 /**
  * Open `one-off` without its scenarios, solve, open the card (its two curves answered), add the
  * cases with one pump off (Each pump off chosen in the Add cases block, D24) and solve them with
- * the block's Solve all; returns the answers.
+ * the Scenarios menu's Solve all, the page's one since build-density.md §19; returns the answers.
  */
 async function addAndSolve(page: Page) {
 	const project = structuredClone(projectOf('one-off'));
@@ -695,21 +698,24 @@ async function addAndSolve(page: Page) {
 	await block.getByRole('button', { name: 'Add 2 cases' }).click();
 	await expect(
 		page.getByText(
-			'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all solves every case not yet solved; Undo removes them.'
+			'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		)
 	).toBeVisible();
-	const solveAll = block.getByRole('button', { name: 'Solve all (2)' });
-	await expect(solveAll).toBeFocused();
+	// The focus stays on Add, which then reads "Add cases"; the menu's Solve all counts the two.
+	await expect(block.getByRole('button', { name: /^Add( \d+)? cases?$/ })).toBeFocused();
+	await expect(solveAllButton(page)).toHaveText('Solve all (2)');
 	const solves = [solveAnswer(page, 'S1'), solveAnswer(page, 'S2')];
 	const duties = [curveAnswer(page, 'group', 'S1'), curveAnswer(page, 'group', 'S2')];
-	await solveAll.click();
+	await solveAll(page);
 	const [s1, s2] = await Promise.all(solves);
 	const [d1, d2] = await Promise.all(duties);
 	for (const d of [d1!, d2!]) expect(d.status).toBe(200);
-	// The run ends with the button in place, unavailable, still focused.
-	const after = block.getByRole('button', { name: 'Solve all' });
-	await expect(after).toHaveAttribute('aria-disabled', 'true');
-	await expect(after).toBeFocused();
+	// The run ends with the menu's Solve all in place, unavailable, and the header's Solve focused:
+	// the menu's end-of-run handoff (build-density.md §19).
+	await expect(solveAllButton(page)).toHaveAttribute('aria-disabled', 'true');
+	await expect(
+		page.getByRole('banner').getByRole('button', { name: 'Solve Base case' })
+	).toBeFocused();
 	return { card, block, base, solves: { S1: s1!, S2: s2! }, duties: [d1!, d2!] };
 }
 
@@ -969,25 +975,26 @@ test('add cases by number running: the stop order moved, three cases added and s
 	await expect(block.getByRole('button', { name: 'Default order' })).toBeVisible();
 	await noSidewaysScroll(page);
 
-	// 4. Add 3 cases: the notice, Solve all focused; then Solve all.
+	// 4. Add 3 cases: the notice, the focus kept on Add; then the Scenarios menu's Solve all, the
+	// page's one (build-density.md §19).
 	await block.getByRole('button', { name: 'Add 3 cases' }).click();
 	await expect(
 		page.getByText(
-			`Added 3 cases by number running: ${andList(names.map((n) => `«${n}»`))}. Solve all solves every case not yet solved; Undo removes them.`
+			`Added 3 cases by number running: ${andList(names.map((n) => `«${n}»`))}. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.`
 		)
 	).toBeVisible();
-	const solveAll = block.getByRole('button', { name: 'Solve all (3)' });
-	await expect(solveAll).toBeFocused();
+	await expect(block.getByRole('button', { name: /^Add( \d+)? cases?$/ })).toBeFocused();
+	await expect(solveAllButton(page)).toHaveText('Solve all (3)');
 	const ids = ['S1', 'S2', 'S3'] as const;
 	const solves = ids.map((id) => solveAnswer(page, id));
 	const duties = ids.map((id) => curveAnswer(page, 'group', id));
-	await solveAll.click();
+	await solveAll(page);
 	const solved = (await Promise.all(solves)).map((r) => r.solvedState!);
 	for (const d of await Promise.all(duties)) expect(d.status).toBe(200);
-	await expect(block.getByRole('button', { name: 'Solve all' })).toHaveAttribute(
-		'aria-disabled',
-		'true'
-	);
+	await expect(solveAllButton(page)).toHaveAttribute('aria-disabled', 'true');
+	await expect(
+		page.getByRole('banner').getByRole('button', { name: 'Solve Base case' })
+	).toBeFocused();
 
 	// 5. Running combinations: four groups, each with its lineup line and each pump's values from
 	// its own solve, in display units; three rings.
@@ -1057,11 +1064,12 @@ test('the curve family: after adding cases by number running, each lineup’s ow
 	];
 	await expect(block.getByRole('list', { name: 'Cases:' }).getByRole('listitem')).toHaveText(names);
 	await block.getByRole('button', { name: 'Add 3 cases' }).click();
-	const solveAll = block.getByRole('button', { name: 'Solve all (3)' });
-	await expect(solveAll).toBeFocused();
+	// The focus stays on Add; Solve all is the Scenarios menu's (build-density.md §19).
+	await expect(block.getByRole('button', { name: /^Add( \d+)? cases?$/ })).toBeFocused();
+	await expect(solveAllButton(page)).toHaveText('Solve all (3)');
 	const ids = ['S1', 'S2', 'S3'] as const;
 	const curves = ids.map((id) => curveAnswer(page, 'group', id));
-	await solveAll.click();
+	await solveAll(page);
 	const family = await Promise.all(curves);
 	for (const c of family) expect(c.status).toBe(200);
 	const running = [3, 2, 1];

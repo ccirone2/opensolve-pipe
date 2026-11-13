@@ -136,9 +136,10 @@ export type Calculating = 'solve' | 'solveAll' | 'goalSeek' | null;
 
 /**
  * Why a control that starts `starting` is unavailable while `calculating` runs ('' when it is
- * available). Every Solve, Solve all, Solve again and Solve now control and Run goal seek take
- * their reason here, from the store's one `calculating` getter, so a new entry point cannot miss
- * a goal seek. `header`: the control sits beside the header's Cancel.
+ * available). The header's Solve, the Scenarios menu's Solve all (and its shortcut), the trace
+ * sheet's Solve again, Run goal seek and export take their reason here, from the store's one
+ * `calculating` getter, so a new entry point cannot miss a goal seek (build-density.md §19: no
+ * pane repeats Solve or Solve all). `header`: the control sits beside the header's Cancel.
  */
 export function calculatingReason(
 	calculating: Calculating,
@@ -168,14 +169,8 @@ export function calculatingReason(
 		: `A solve is running; ${cancel}`;
 }
 
-/**
- * Why Solve all is unavailable ('' when it can run): the Scenarios menu's words (CaseMenu.svelte),
- * which the Pumps together card's Add cases block repeats (PumpsView.svelte, CLAUDE.md D21, D24),
- * from one function so the two never differ. In order: an empty network; a goal seek or a run
- * (calculatingReason); a single solve, named by its case, which need not be the one shown; then
- * nothing to solve, with the cases left out for an error named.
- */
-export function solveAllReason(state: {
+/** What Solve all's state is derived from (the store's, as Workspace.solveAllState passes it). */
+export interface SolveAllInput {
 	empty: boolean;
 	calculating: Calculating;
 	/** The case whose solve is in flight (store.solvingCase). */
@@ -185,7 +180,16 @@ export function solveAllReason(state: {
 	/** The cases left out for an error (store.casesWithErrors()). */
 	errors: readonly CaseId[];
 	caseName: (caseId: CaseId) => string;
-}): string {
+}
+
+/**
+ * Why Solve all is unavailable ('' when it can run): the Scenarios menu's words (CaseMenu.svelte),
+ * the badge's and the shortcut's (WorkspaceHeader.svelte, Workspace.svelte), from one function
+ * so they never differ (build-density.md §19). In order: an empty network; a goal seek or a run
+ * (calculatingReason); a single solve, named by its case, which need not be the one shown; then
+ * nothing to solve, with the cases left out for an error named.
+ */
+export function solveAllReason(state: SolveAllInput): string {
 	if (state.empty) return 'Add a component to the network first.';
 	if (state.calculating === 'goalSeek' || state.calculating === 'solveAll') {
 		return calculatingReason(state.calculating, 'solve');
@@ -201,6 +205,38 @@ export function solveAllReason(state: {
 	const list =
 		names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 	return `Every case is solved except ${list}, which ${names.length === 1 ? 'has' : 'have'} an error to fix first.`;
+}
+
+/**
+ * Solve all as the Scenarios menu, its badge and its shortcut show it (build-density.md §19):
+ * how many cases a run would solve, whether it can run now, why not (solveAllReason), what it
+ * does, and whether the reason passes. The reasons while a solve, Solve all or a goal seek runs
+ * pass, and are said, not shown; the others last, and are shown (ui-guide: "A reason that lasts is
+ * shown; one that passes is not").
+ */
+export interface SolveAllState {
+	/** How many cases a run would solve (store.casesToSolve()). */
+	count: number;
+	canRun: boolean;
+	/** Why it cannot run ('' when it can): solveAllReason's words. */
+	reason: string;
+	/** What it does, with the count. */
+	hint: string;
+	/** The reason lasts only while a calculation runs. */
+	passing: boolean;
+}
+
+/** Solve all's state from the store's (Workspace.solveAllState), one source for every control. */
+export function solveAllState(state: SolveAllInput): SolveAllState {
+	const count = state.toSolve;
+	const reason = solveAllReason(state);
+	return {
+		count,
+		canRun: !reason,
+		reason,
+		hint: `Solves each case whose results are missing or out of date, one after another: up to ${count} solve${count === 1 ? '' : 's'}.`,
+		passing: !!reason && state.calculating !== null
+	};
 }
 
 // ---------------------------------------------------------------------------------------------

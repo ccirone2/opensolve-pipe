@@ -72,6 +72,7 @@ import {
 	rowIssues,
 	runProblems,
 	solveAllReason,
+	solveAllState,
 	stateChangeText,
 	toleranceBounds,
 	toleranceProblem,
@@ -721,6 +722,99 @@ describe("Run's reasons (§6.8) and the request", () => {
 			'Every case is solved except Base case, Winter and Summer, which have an error to fix first.'
 		);
 		expect(state()).toBe("Every case's results are current.");
+	});
+
+	it("derives Solve all's state, the one source for the Scenarios menu, its badge and the shortcut", () => {
+		// build-density.md §19: PumpsView's derivation moved here; it takes over the state table of
+		// PumpGroupOneOff.svelte.test.ts (S4 review MUT-01: `passing`). Each object is written out
+		// in full: count, canRun, reason, hint and passing.
+		const names: Record<string, string> = { S1: 'Winter', S2: 'Summer' };
+		const state = (values: Partial<Parameters<typeof solveAllState>[0]> = {}) =>
+			solveAllState({
+				empty: false,
+				calculating: null,
+				solvingCase: undefined,
+				toSolve: 0,
+				errors: [],
+				caseName: (c) => (c === null ? 'Base case' : names[c]!),
+				...values
+			});
+		const hint = (n: string) =>
+			`Solves each case whose results are missing or out of date, one after another: up to ${n}.`;
+		// Nothing running: it can run, and says what it does (plural and singular).
+		expect(state({ toSolve: 7 })).toEqual({
+			count: 7,
+			canRun: true,
+			reason: '',
+			hint: hint('7 solves'),
+			passing: false
+		});
+		expect(state({ toSolve: 1 })).toEqual({
+			count: 1,
+			canRun: true,
+			reason: '',
+			hint: hint('1 solve'),
+			passing: false
+		});
+		// A case with an error does not stop the others.
+		expect(state({ toSolve: 2, errors: ['S1'] })).toEqual({
+			count: 2,
+			canRun: true,
+			reason: '',
+			hint: hint('2 solves'),
+			passing: false
+		});
+		// While a calculation runs, its reason passes (calculating is not null).
+		expect(state({ toSolve: 2, calculating: 'solve', solvingCase: 'S1' })).toEqual({
+			count: 2,
+			canRun: false,
+			reason: 'A solve of Winter is running; Cancel in the header stops it.',
+			hint: hint('2 solves'),
+			passing: true
+		});
+		expect(state({ toSolve: 2, calculating: 'solve' })).toEqual({
+			count: 2,
+			canRun: false,
+			reason: 'A solve is running; Cancel in the header stops it.',
+			hint: hint('2 solves'),
+			passing: true
+		});
+		expect(state({ toSolve: 2, calculating: 'solveAll', solvingCase: null })).toEqual({
+			count: 2,
+			canRun: false,
+			reason: 'Solve all is running; Cancel in the header stops it.',
+			hint: hint('2 solves'),
+			passing: true
+		});
+		expect(state({ toSolve: 2, calculating: 'goalSeek' })).toEqual({
+			count: 2,
+			canRun: false,
+			reason: 'A goal seek is running; Cancel in the header stops it.',
+			hint: hint('2 solves'),
+			passing: true
+		});
+		// Reasons that last: every case current, the rest with an error, an empty network.
+		expect(state()).toEqual({
+			count: 0,
+			canRun: false,
+			reason: "Every case's results are current.",
+			hint: hint('0 solves'),
+			passing: false
+		});
+		expect(state({ errors: ['S1'] })).toEqual({
+			count: 0,
+			canRun: false,
+			reason: 'Every case is solved except Winter, which has an error to fix first.',
+			hint: hint('0 solves'),
+			passing: false
+		});
+		expect(state({ empty: true, toSolve: 2 })).toEqual({
+			count: 2,
+			canRun: false,
+			reason: 'Add a component to the network first.',
+			hint: hint('2 solves'),
+			passing: false
+		});
 	});
 
 	it('marks a goal or variable already chosen, by the published uniqueBy keys', () => {

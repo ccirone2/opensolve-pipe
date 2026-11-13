@@ -44,6 +44,8 @@ import {
 	setNumber,
 	showPane,
 	solve,
+	solveAll as pressSolveAll,
+	solveAllButton,
 	solveConverged,
 	traceOf
 } from './support';
@@ -81,10 +83,13 @@ function solveCounter(page: Page): { n: number } {
 	return counter;
 }
 
-/** Solve all from the Scenarios menu, and wait for its `expected` solves and the run's end. */
+/**
+ * Solve all from the Scenarios menu, its one home (build-density.md §19), and wait for its
+ * `expected` solves and the run's end.
+ */
 async function solveAll(page: Page, counter: { n: number }, expected: number) {
 	const start = counter.n;
-	await (await openCases(page)).getByRole('button', { name: 'Solve all' }).click();
+	await pressSolveAll(page);
 	await expect.poll(() => counter.n - start, { timeout: 180_000 }).toBe(expected);
 	await expect(caseGroup(page)).not.toContainText('Solving', { timeout: 60_000 });
 	if (await page.getByRole('group', { name: 'Case', exact: true }).isVisible()) {
@@ -212,8 +217,8 @@ async function lineups(page: Page, project: Project = projectOf('lineups')) {
 /**
  * 3. condenser (the example "Chiller plant condenser water system"): 6 pumps and 1 scenario; the
  * base case solved, the card open, Add cases by number running pressed (5 cases, "Also show the
- * other cases' station duties" ticked by it) and its notice dismissed, then the block's Solve all:
- * 7 solves in all.
+ * other cases' station duties" ticked by it) and its notice dismissed, then the Scenarios menu's
+ * Solve all, the page's one (build-density.md §19): 7 solves in all.
  */
 async function condenser(page: Page) {
 	const counter = solveCounter(page);
@@ -231,8 +236,8 @@ async function condenser(page: Page) {
 	// timer): not before this.
 	const closes = Date.now() + 6_000;
 	await add.click();
-	const solveAllButton = block.getByRole('button', { name: /^Solve all/ });
-	await expect(solveAllButton).toBeFocused();
+	// The focus stays on Add, the same button, which then reads "Add cases" (build-density.md §19).
+	await expect(block.getByRole('button', { name: /^Add( \d+)? cases?$/ })).toBeFocused();
 	// The Add's notice sits over the pane's foot: pressed away while it is new, as a user would.
 	// Pressed after the solves, it raced its own timer: on main's CI after PRs #273–#275 (runs
 	// 42932749641 and 42932792439) it was seen then and gone by the press, which waited for it until
@@ -244,10 +249,14 @@ async function condenser(page: Page) {
 	await notice.getByRole('button', { name: 'Dismiss' }).click({ timeout: 4_000 });
 	await expect(dismiss).toHaveCount(0);
 	expect(Date.now(), "the press closed the Add's notice, not its own timer").toBeLessThan(closes);
-	await solveAllButton.click();
+	await solveAll(page, counter, 6);
 	await expect.poll(() => counter.n, { timeout: 240_000 }).toBe(7);
-	await expect(solveAllButton).toHaveText('Solve all', { timeout: 240_000 });
-	await expect(solveAllButton).toHaveAttribute('aria-disabled', 'true');
+	await expect(solveAllButton(page)).toHaveText('Solve all', { timeout: 240_000 });
+	await expect(solveAllButton(page)).toHaveAttribute('aria-disabled', 'true');
+	// The menu's line, its description, says why it waits: a reason that lasts.
+	await expect(solveAllButton(page)).toHaveAccessibleDescription(
+		"Every case's results are current."
+	);
 	await settle(page, 3000);
 	await expect(dismiss, "no notice over the pane's foot").toHaveCount(0);
 	return { solves: counter.n, added };
@@ -2389,10 +2398,13 @@ function readAddCases(b: Element) {
 		? [...group.querySelectorAll('label')].map((l) => l.getBoundingClientRect())
 		: [];
 	const plan = b.querySelector<HTMLDetailsElement>('[data-lineup-plan]');
-	const solveAlls = [...b.querySelectorAll('button')].filter((x) =>
-		/^Solve all/.test(squash(x.textContent))
-	);
-	const row = solveAlls[0]?.parentElement ?? null;
+	const buttons = [...b.querySelectorAll('button')];
+	// No Solve all in the block since build-density.md §19 (the Scenarios menu's is the page's
+	// one): counted, so one coming back fails.
+	const solveAlls = buttons.filter((x) => /^Solve all/.test(squash(x.textContent)));
+	// The row: Add's, Add alone in it (§19); none under a gate.
+	const add = buttons.find((x) => /^Add( \d+)? cases?$/.test(squash(x.textContent)));
+	const row = add?.parentElement ?? null;
 	// Every line of text in sight inside the panel's padding: a long name wraps there (§5.5).
 	const past: string[] = [];
 	const walker = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
@@ -2464,10 +2476,11 @@ function readAddCases(b: Element) {
 /**
  * Add cases' part of S4 at the size shown, with the card open (soft, so a run reports every
  * check): the panel's type (the h4 14 px, its label and tag 12 px, the tag beside the h4), its
- * segments one row of 44 px (§5.5), one Solve all, every line inside the frame, the plan's
- * folded height (§5.7 via ADD_CASES_FOLDED) with the row in sight after the nav's press (§2.2),
- * and its Tab order (§7 item 24): the segments, the plan's summary and what it holds, Add,
- * Solve all, the table button.
+ * segments one row of 44 px (§5.5), no Solve all (build-density.md §19: the Scenarios menu's is
+ * the page's one), every line inside the frame, the plan's folded height (§5.7 via
+ * ADD_CASES_FOLDED) with the row in sight after the nav's press (§2.2), the menu's Solve all's
+ * lasting reason on screen, and its Tab order (§7 item 24): the segments, the plan's summary and
+ * what it holds, Add, the table button.
  */
 async function addCasesPart(page: Page, view: string, where: string) {
 	const soft = expect.configure({ soft: true });
@@ -2484,21 +2497,18 @@ async function addCasesPart(page: Page, view: string, where: string) {
 	soft(m.tagBesideH4, `the tag beside the h4, ${where}`).toBe(true);
 	soft(m.segmentsOneRow, `the segments one row, ${where}`).toBe(true);
 	soft(m.group, `the segments' height, ${where}`).toBeGreaterThanOrEqual(44);
-	soft(m.solveAll, `Solve all in the block, ${where}`).toBe(1);
+	soft(m.solveAll, `Solve all in the block, ${where}`).toBe(0);
 	soft(m.past, `lines past Add cases' frame, ${where}`).toEqual([]);
 	soft(m.pad.foot, `the frame's padding at its foot as at its head, ${where}`).toBe(m.pad.head);
 	soft(m.folded, `the plan drawn, ${where}`).not.toBeNull();
 	const budget = ADD_CASES_FOLDED[view]?.[size];
 	if (budget !== undefined && m.folded) {
 		soft(m.folded.height, `Add cases folded, ${where}`).toBeLessThanOrEqual(budget);
-		soft(m.folded.rowInSight, `Add and Solve all in sight after the nav's press, ${where}`).toBe(
-			true
-		);
+		soft(m.folded.rowInSight, `Add in sight after the nav's press, ${where}`).toBe(true);
 	}
 	// The lines the block shows as text are on screen, each where it is drawn (§9 S4 New lines;
 	// §5.3 items 4 and 5; S4 review MUT-01, MUT-02): the tag, the plan's summary clause, Add's
-	// refusal, "Now ticked", the id line while the plan is open, and Solve all's reason while it
-	// lasts (unavailable at rest: no solve runs here).
+	// refusal, "Now ticked" and the id line while the plan is open.
 	const lines: [string, Locator][] = [
 		['"Changes the project"', block.locator('[data-add-cases-tag]')],
 		["the plan's summary clause", block.locator('[data-lineup-plan] > summary > span > span')],
@@ -2506,16 +2516,23 @@ async function addCasesPart(page: Page, view: string, where: string) {
 		['"Now ticked"', block.locator('[data-now-ticked]')]
 	];
 	if (m.planOpen) lines.push(['the id line', block.locator('[data-lineup-ids]')]);
-	const solveAllButton = block.getByRole('button', { name: /^Solve all/ });
-	if (
-		(await solveAllButton.count()) === 1 &&
-		(await solveAllButton.getAttribute('aria-disabled')) === 'true'
-	) {
-		lines.push(["Solve all's lasting reason", block.locator('[id$="-solve-all"]')]);
-	}
 	for (const [what, line] of lines) {
 		if (!(await line.count())) continue;
 		soft(await seenLine(line), `${what} on screen, ${where}`).toBe(true);
+	}
+	// Solve all's reason while it lasts (unavailable at rest: no solve runs here), on screen in
+	// the Scenarios menu, its one home since build-density.md §19: the menu opened to read it, and
+	// closed again.
+	const solveAllMenu = solveAllButton(page);
+	if (
+		(await solveAllMenu.count()) === 1 &&
+		(await solveAllMenu.getAttribute('aria-disabled')) === 'true'
+	) {
+		await openCases(page);
+		const reason = page.locator(`[id="${await solveAllMenu.getAttribute('aria-describedby')}"]`);
+		soft(await seenLine(reason), `Solve all's lasting reason on screen, ${where}`).toBe(true);
+		await page.keyboard.press('Escape');
+		await expect(caseGroup(page)).toBeHidden();
 	}
 
 	// §7 item 24: the Tab order through the block, from its segments.
@@ -2546,13 +2563,13 @@ async function addCasesPart(page: Page, view: string, where: string) {
 		`then the plan's summary, ${where}`
 	).toBe(true);
 	soft(
-		stops.slice(1, -3).every((t) => t.inPlan),
+		stops.slice(1, -2).every((t) => t.inPlan),
 		`then what the plan holds, ${where}: ${names.join(' | ')}`
 	).toBe(true);
 	soft(
-		names.slice(-3).map((n) => n.replace(/ \(\d+\)$/, '').replace(/^Add (\d+ )?cases?$/, 'Add')),
+		names.slice(-2).map((n) => n.replace(/^Add (\d+ )?cases?$/, 'Add')),
 		`then the row and the table button, ${where}`
-	).toEqual(['Add', 'Solve all', 'Pump lineups table…']);
+	).toEqual(['Add', 'Pump lineups table…']);
 }
 
 // ---- S5: Running combinations' lead and the extremes as a table (§5.3, §9 S5, §10 S5) ----------
@@ -6326,7 +6343,7 @@ test('S5 review: the extremes list’s names with a measure no case gives, each 
 const LONG_PUMP_2 = 'CondenserWaterPrimaryLoopPumpNorthSide02';
 const NOW_TICKED = "Now ticked: “Also show the other cases' station duties” (Group chart).";
 
-test('Add cases in one structure: the plan, its fold and its new lines, one Solve all and the focus kept on it after Add, long names inside the frame at each size; axe clean with the plan and the stop order open (§5.3, §9 S4, §10 S4)', async ({
+test('Add cases in one structure: the plan, its fold and its new lines, no Solve all and the focus kept on Add after Add and through a run started with Ctrl+Shift+Enter from Add, long names inside the frame at each size; axe clean with the plan and the stop order open (§5.3, §9 S4, §10 S4; build-density.md §19)', async ({
 	page,
 	isMobile
 }) => {
@@ -6346,6 +6363,7 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	const plan = block.locator('[data-lineup-plan]');
 	const summary = plan.locator(':scope > summary');
 	const ids = block.locator('[data-lineup-ids]');
+	// None in the block since build-density.md §19: the Scenarios menu's is the page's one.
 	const solveAlls = block.getByRole('button', { name: /^Solve all/ });
 
 	// 1. Cases to add: the plan drawn open, its summary saying what it holds; the names write ids,
@@ -6370,7 +6388,7 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	expect
 		.soft(await seenLine(summary.locator(':scope > span > span')), "the summary's clause on screen")
 		.toBe(true);
-	await expect(solveAlls).toHaveCount(1);
+	await expect(solveAlls).toHaveCount(0);
 	// The stop order opened too: every line the block draws ends inside its frame, the long names
 	// in the sentence, the stop order and the id line among them.
 	await block.locator('[data-stop-order] > summary').click();
@@ -6388,7 +6406,7 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 		);
 		expect.soft(m.past, `lines past Add cases' frame, ${where}`).toEqual([]);
 		expect.soft(await cutInCard(page), `names cut short in the card, ${where}`).toEqual([]);
-		expect.soft(m.solveAll, `Solve all in the block, ${where}`).toBe(1);
+		expect.soft(m.solveAll, `Solve all in the block, ${where}`).toBe(0);
 		expect.soft(m.tagBesideH4, `the tag beside the h4, ${where}`).toBe(true);
 		expect.soft(m.segmentsOneRow, `the segments one row, ${where}`).toBe(true);
 		expect.soft(m.pad.foot, `the frame's padding at its foot, ${where}`).toBe(m.pad.head);
@@ -6398,9 +6416,11 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	// axe over the whole tab with the plan and the stop order open (every disclosure is).
 	await axeClean(page, `Add cases, the plan and the stop order open, at ${sizeOf(page)}`);
 
-	// 2. Add, by the keyboard on desktop and a tap on a phone: the focus on the block's Solve all
-	// (D24 §7.8), "Now ticked" on screen and in the block's polite line, which the focus would not
-	// pass; the plan as the user left it, open; the refusal naming the cases made.
+	// 2. Add, by the keyboard on desktop and a tap on a phone: the focus stays on Add, the same
+	// button, which then reads "Add cases", unavailable and described by its refusal (D24 §7.8's
+	// handoff to the block's Solve all superseded by build-density.md §19); "Now ticked" on screen
+	// and in the block's polite line, since it is drawn after the control that holds the focus;
+	// the plan as the user left it, open; the refusal naming the cases made.
 	const add = block.getByRole('button', { name: 'Add 3 cases' });
 	if (isMobile) {
 		await add.tap();
@@ -6408,8 +6428,8 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 		await add.focus();
 		await page.keyboard.press('Enter');
 	}
-	const solveAll = block.getByRole('button', { name: 'Solve all (3)' });
-	await expect(solveAll).toBeFocused();
+	const added = block.getByRole('button', { name: 'Add cases', exact: true });
+	await expect(added).toBeFocused();
 	await expect(block.locator('[data-now-ticked]')).toHaveText(NOW_TICKED);
 	await expect(block.locator('[data-now-ticked]')).toBeVisible();
 	expect
@@ -6428,27 +6448,41 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	);
 	await expect(refusal).toBeVisible();
 	expect.soft(await seenLine(refusal), 'the refusal on screen').toBe(true);
-	await expect(solveAlls).toHaveCount(1);
+	await expect(added).toHaveAttribute('aria-disabled', 'true');
+	await expect(added).toHaveAccessibleDescription(
+		'Every case by number running already exists: «3 of 4 running (P4 off)», «2 of 4 running (P3, P4 off)» and «1 of 4 running (P2, P3, P4 off)».'
+	);
+	await expect(solveAlls).toHaveCount(0);
+	// The Scenarios menu's Solve all counts the three (build-density.md §19).
+	await expect(solveAllButton(page)).toHaveText('Solve all (3)');
 
-	// 3. Solve all: the three cases solved; the button keeps the focus, in place, and its reason,
-	// which lasts, is then on screen and its description (§5.3 item 5).
+	// 3. Solve all, by its shortcut from Add (Ctrl+Shift+Enter, build-density.md §19): the three
+	// cases solved; the focus stays on Add, in place, through the run and after it; the menu's
+	// Solve all then unavailable, its reason, which lasts, its description and on screen in the
+	// menu (§5.3 item 5).
 	const start = counter.n;
-	if (isMobile) await solveAll.tap();
-	else await page.keyboard.press('Enter');
+	await page.keyboard.press('Control+Shift+Enter');
+	await expect.poll(() => counter.n - start, { timeout: 180_000 }).toBeGreaterThan(0);
+	await expect(added).toBeFocused();
 	await expect.poll(() => counter.n - start, { timeout: 180_000 }).toBe(3);
-	const after = block.getByRole('button', { name: 'Solve all', exact: true });
+	const after = solveAllButton(page);
 	await expect(after).toHaveAttribute('aria-disabled', 'true', { timeout: 120_000 });
-	await expect(after).toBeFocused();
-	const reason = block.getByText("Every case's results are current.", { exact: true });
+	await expect(after).toHaveText('Solve all');
+	await expect(added).toBeFocused();
+	await expect(after).toHaveAccessibleDescription("Every case's results are current.");
+	await expect(solveAlls).toHaveCount(0);
+	await settle(page);
+	await expect(added).toBeFocused();
+	const menu = await openCases(page);
+	const reason = menu.getByText("Every case's results are current.", { exact: true });
 	await expect(reason).toBeVisible();
 	expect.soft(await seenLine(reason), "Solve all's lasting reason on screen").toBe(true);
-	await expect(after).toHaveAccessibleDescription("Every case's results are current.");
-	await expect(solveAlls).toHaveCount(1);
-	await settle(page);
+	await page.keyboard.press('Escape');
+	await expect(caseGroup(page)).toBeHidden();
 
 	// 4. The card closed and opened: the block is drawn again with every case made, so the plan is
-	// folded (§5.3 The fold): the segments, its summary, the row, the refusal, the reason and the
-	// table button.
+	// folded (§5.3 The fold): the segments, its summary, the row, the refusal and the table button;
+	// Solve all's reason is the Scenarios menu's (build-density.md §19), not the block's.
 	await toggle.click();
 	await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 	await toggle.click();
@@ -6458,9 +6492,8 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	await expect(summary).toHaveText('The plan: 3 cases by number running: all 3 made');
 	await expect(ids).toBeHidden();
 	await expect(refusal).toBeVisible();
-	await expect(reason).toBeVisible();
+	await expect(block.getByText("Every case's results are current.")).toHaveCount(0);
 	expect.soft(await seenLine(refusal), 'the refusal on screen, folded').toBe(true);
-	expect.soft(await seenLine(reason), "Solve all's lasting reason on screen, folded").toBe(true);
 	expect
 		.soft(
 			await seenLine(summary.locator(':scope > span > span')),
@@ -6489,13 +6522,14 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 	// S1, "3 of 4 running (P4 off)", is the same case as Each pump off's P4 off (D24 §7.4).
 	await expect(summary).toHaveText('The plan: 4 cases with each pump off: 3 to add');
 	await expect(ids).toHaveCount(0);
-	await expect(solveAlls).toHaveCount(1);
+	await expect(solveAlls).toHaveCount(0);
 	await noSidewaysScroll(page, `Add cases, Each pump off, at ${sizeOf(page)}`);
 
 	// 6. "Also show …" unticked, then an Add that ticks it again: the polite line is empty at the
 	// press and its words come two frames later, so it is drawn empty before it speaks and the
-	// words are said though the focus goes to Solve all (§5.3, §7 Live regions; S1's rule; S4
-	// review AT-1, ADD-1). A frame counter and the line's changes, from here on.
+	// words are said though the focus stays on Add, before the line (§5.3, §7 Live regions; S1's
+	// rule; S4 review AT-1, ADD-1; build-density.md §19). A frame counter and the line's changes,
+	// from here on.
 	const box = card.getByRole('checkbox', { name: "Also show the other cases' station duties" });
 	const status = block.locator('[data-stop-status]');
 	await box.uncheck();
@@ -6532,7 +6566,8 @@ test('Add cases in one structure: the plan, its fold and its new lines, one Solv
 		await again.focus();
 		await page.keyboard.press('Enter');
 	}
-	await expect(block.getByRole('button', { name: /^Solve all/ })).toBeFocused();
+	await expect(block.getByRole('button', { name: /^Add( \d+)? cases?$/ })).toBeFocused();
+	await expect(solveAlls).toHaveCount(0);
 	await expect(box).toBeChecked();
 	await expect(block.locator('[data-now-ticked]')).toHaveText(NOW_TICKED);
 	await expect(status).toHaveText(NOW_TICKED);

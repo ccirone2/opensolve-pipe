@@ -1214,18 +1214,15 @@ describe('lineupPlan: the gates (§7.2)', () => {
 			const at = (values: Partial<LineupPlanInput>) => gate({ preset, ...values });
 			expect(at({ station: series })).toMatchObject({
 				gateKind: 'series',
-				gate: 'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.',
-				showSolveAll: false
+				gate: 'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.'
 			});
 			expect(at({ station: { ...station, arrangement: 'mixed' } })).toMatchObject({
 				gateKind: 'mixed',
-				gate: 'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.',
-				showSolveAll: false
+				gate: 'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.'
 			});
 			expect(at({ project: lineups.project, shownCase: 'S8' })).toMatchObject({
 				gateKind: 'scenario',
-				gate: 'Cases are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with pumps off, duplicate it in Scenarios and set those pumps off there.',
-				showSolveAll: false
+				gate: 'Cases are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with pumps off, duplicate it in Scenarios and set those pumps off there.'
 			});
 			// The arrangement first: a series station in a scenario says why in series.
 			expect(at({ station: series, project: lineups.project, shownCase: 'S8' }).gateKind).toBe(
@@ -1233,8 +1230,7 @@ describe('lineupPlan: the gates (§7.2)', () => {
 			);
 			expect(at({ base: { response: lineups.solve, stale: true } })).toMatchObject({
 				gateKind: 'stale',
-				gate: "The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now.",
-				showSolveAll: true
+				gate: "The base case's results are out of date: solve it again with Solve, at the top, so the pumps that run are read from the project as it is now."
 			});
 			expect(at({ base: null }).gateKind).toBe('stale');
 			const offs = edit(lineups.solve, {
@@ -1244,8 +1240,7 @@ describe('lineupPlan: the gates (§7.2)', () => {
 			});
 			expect(at({ base: { response: offs, stale: false } })).toMatchObject({
 				gateKind: 'fewer_on',
-				gate: 'Needs two or more of these pumps switched on in the base case: Pump P2, Pump P3 and Pump P4 are off.',
-				showSolveAll: true
+				gate: 'Needs two or more of these pumps switched on in the base case: Pump P2, Pump P3 and Pump P4 are off.'
 			});
 			// One off: "is".
 			expect(at({ memberIds: ['P1', 'P2'], base: { response: offs, stale: false } }).gate).toBe(
@@ -1261,8 +1256,7 @@ describe('lineupPlan: the gates (§7.2)', () => {
 			});
 			expect(at({ base: { response: none, stale: false } })).toMatchObject({
 				gateKind: 'no_flow',
-				gate: 'No pump of the group carries flow in the base case, so switching pumps off changes nothing.',
-				showSolveAll: true
+				gate: 'No pump of the group carries flow in the base case, so switching pumps off changes nothing.'
 			});
 			// Under a gate: nothing else, and the button's words with no count.
 			for (const plan of [
@@ -1284,7 +1278,6 @@ describe('lineupPlan: the gates (§7.2)', () => {
 			}
 			// No station: no block.
 			expect(at({ station: null })).toMatchObject({ gate: null, gateKind: null, add: [] });
-			expect(at({ station: null }).showSolveAll).toBe(false);
 		}
 	});
 });
@@ -1294,7 +1287,6 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		const project = withoutScenarios(lineups.project);
 		const plan = planOn(lineups);
 		expect(plan.gate).toBeNull();
-		expect(plan.showSolveAll).toBe(true);
 		expect(plan.about).toBe(
 			"Makes one scenario for each number of these pumps running, from 3 down to 1: the base case with the pumps that stop first switched off and nothing else changed. In a case's name, running means switched on; Running combinations shows whether each pump carries flow. Other sets of the same number of pumps are not made: change the stop order and add again to compare them."
 		);
@@ -1339,7 +1331,7 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		expect(plan.label).toBe('Add 3 cases');
 		expect(plan.undoLabel).toBe('add cases by number running');
 		expect(plan.notice).toBe(
-			'Added 3 cases by number running: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all solves every case not yet solved; Undo removes them.'
+			'Added 3 cases by number running: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
 		// Exactly the fixture's S1 to S3, the scenarios the API solved.
 		const made = withLineupCases(project, plan.add);
@@ -1536,7 +1528,7 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		]);
 		expect(plan.label).toBe('Add 1 case');
 		expect(plan.notice).toBe(
-			'Added 1 case by number running: «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all solves every case not yet solved; Undo removes them.'
+			'Added 1 case by number running: «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
 		// The same name: the short form.
 		expect(items(planOn(lineups, { project: lineups.project }))[0]).toBe(
@@ -1816,7 +1808,7 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		expect(w.moved('Pump P1', 2, 4)).toBe('Pump P1 is now number 2 of 4 to stop.');
 		expect(w.resetDone('Pump P4')).toBe('Default order: Pump P4 stops first.');
 		expect(lineupNotice('running', ['A, B', 'C'])).toBe(
-			'Added 2 cases by number running: «A, B» and «C». Solve all solves every case not yet solved; Undo removes them.'
+			'Added 2 cases by number running: «A, B» and «C». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
 		expect(lineupNotice('each', ['Pump PA off'])).toBe(addedNotice(['Pump PA off']));
 	});
@@ -1988,16 +1980,15 @@ describe('lineupPlan: Each pump off (4d’s cases; 4d’s plan tests moved here)
 		// §7.12: "Add cases with one pump off ({n})" becomes "Add {n} cases".
 		expect(plan.label).toBe('Add 2 cases');
 		expect(plan.refusal).toBeNull();
-		expect(plan.showSolveAll).toBe(true);
 		const made = withLineupCases(project, plan.add);
 		// Exactly the fixture's S1 and S2, the scenarios the API solved.
 		expect(made.scenarios).toEqual(oneOffCase.project.scenarios!.slice(0, 2));
 		expect(made.scenarios!.map((s) => s.id)).toEqual(plan.add.map((a) => a.id));
 		expect(addedNotice(plan.add.map((a) => a.name))).toBe(
-			'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all solves every case not yet solved; Undo removes them.'
+			'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
 		expect(addedNotice(['Pump PA off'])).toBe(
-			'Added 1 case with one pump off: Pump PA off. Solve all solves every case not yet solved; Undo removes them.'
+			'Added 1 case with one pump off: Pump PA off. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
 		expect(plan.notice).toBe(addedNotice(['Pump PA off', 'Pump PB off']));
 		expect(plan.undoLabel).toBe('add cases with one pump off');
@@ -2173,7 +2164,6 @@ describe('lineupPlan: Each pump off (4d’s cases; 4d’s plan tests moved here)
 		expect(gate({ station: series }).gate).toBe(
 			'Cases are added here for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.'
 		);
-		expect(gate({ station: series }).showSolveAll).toBe(false);
 		// §7.12: gate 2 likewise (row 2).
 		expect(gate({ station: mixed }).gate).toBe(
 			'Cases are added here for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.'
@@ -2183,23 +2173,20 @@ describe('lineupPlan: Each pump off (4d’s cases; 4d’s plan tests moved here)
 		expect(shown.gate).toBe(
 			'Cases are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with pumps off, duplicate it in Scenarios and set those pumps off there.'
 		);
-		expect(shown.showSolveAll).toBe(false);
 		// The arrangement first: a series station in a scenario says why in series.
 		expect(gate({ station: series, shownCase: 'S3', project: oneOffCase.project }).gate).toMatch(
 			/^Cases are added here for pumps in parallel only: in series/
 		);
 		const stale = gate({ base: { response: oneOffCase.solve, stale: true } });
 		expect(stale.gate).toBe(
-			"The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now."
+			"The base case's results are out of date: solve it again with Solve, at the top, so the pumps that run are read from the project as it is now."
 		);
-		expect(stale.showSolveAll).toBe(true);
 		const offPlan = gate({
 			base: { response: withStatus(oneOffCase.solve, 'PB', 'off'), stale: false }
 		});
 		expect(offPlan.gate).toBe(
 			'Needs two or more of these pumps switched on in the base case: Pump PB is off.'
 		);
-		expect(offPlan.showSolveAll).toBe(true);
 		const bothOff = gate({
 			base: {
 				response: withStatus(withStatus(oneOffCase.solve, 'PB', 'off'), 'PA', 'off'),
@@ -2222,10 +2209,54 @@ describe('lineupPlan: Each pump off (4d’s cases; 4d’s plan tests moved here)
 		expect(none.gate).toBe(
 			'No pump of the group carries flow in the base case, so switching pumps off changes nothing.'
 		);
-		expect(none.showSolveAll).toBe(true);
 		for (const plan of [offPlan, none, stale, shown]) expect(plan.add).toEqual([]);
 		// No station: no block.
-		expect(gate({ station: null })).toMatchObject({ gate: null, add: [], showSolveAll: false });
+		expect(gate({ station: null })).toMatchObject({ gate: null, add: [] });
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// One Solve, one Solve all (build-density.md §19): the block has no Solve all of its own
+// ---------------------------------------------------------------------------------------------
+
+describe('the words that name the one Solve and the one Solve all (build-density.md §19)', () => {
+	it('ends the Add notice, both presets, by naming the Scenarios menu’s Solve all', () => {
+		const tail =
+			'Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.';
+		expect(planOn(lineups).notice).toBe(
+			`Added 3 cases by number running: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». ${tail}`
+		);
+		expect(lineupNotice('running', ['A, B', 'C'])).toBe(
+			`Added 2 cases by number running: «A, B» and «C». ${tail}`
+		);
+		expect(planOn(oneOffCase, { preset: 'each' }).notice).toBe(
+			`Added 2 cases with one pump off: Pump PA off and Pump PB off. ${tail}`
+		);
+		expect(addedNotice(['Pump PA off'])).toBe(
+			`Added 1 case with one pump off: Pump PA off. ${tail}`
+		);
+		expect(lineupNotice('each', ['Pump PA off'])).toBe(addedNotice(['Pump PA off']));
+	});
+
+	it('says in gate 4 that Solve, at the top, solves the base case again; no plan offers a Solve all', () => {
+		const stale =
+			"The base case's results are out of date: solve it again with Solve, at the top, so the pumps that run are read from the project as it is now.";
+		for (const preset of ['running', 'each'] as const) {
+			const fresh = planOn(lineups, { preset, base: { response: lineups.solve, stale: true } });
+			expect(fresh).toMatchObject({ gateKind: 'stale', gate: stale });
+			expect(planOn(lineups, { preset, base: null })).toMatchObject({
+				gateKind: 'stale',
+				gate: stale
+			});
+			// LineupPlan.showSolveAll is gone with the block's button, offered or under a gate.
+			for (const plan of [
+				fresh,
+				planOn(lineups, { preset }),
+				planOn(lineups, { preset, station: stationOf(solvedCase('series')) })
+			]) {
+				expect(plan).not.toHaveProperty('showSolveAll');
+			}
+		}
 	});
 });
 

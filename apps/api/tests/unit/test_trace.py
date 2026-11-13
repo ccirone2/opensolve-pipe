@@ -156,6 +156,7 @@ def test_component_intermediates_match_their_results(
                 ("NPSH available NPSHa", pump.npsh_available),
                 ("NPSH required NPSHr", pump.npsh_required),
                 ("NPSH margin", pump.npsh_margin),
+                ("NPSH margin ratio NPSHa/NPSHr", pump.npsh_margin_ratio),
                 ("Efficiency η", pump.efficiency),
                 ("Shaft power P_shaft", pump.shaft_power),
             ):

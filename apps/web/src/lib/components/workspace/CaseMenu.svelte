@@ -1,22 +1,31 @@
 <!--
-	The Scenarios menu (proposal build-density.md §13): opened from the header's Scenarios button
-	once the project has scenarios, it holds what the case bar under the header held — the case
-	shown, Solve all with its progress — and the way into the scenario manager. The bar took a row
-	of every screen for choices made now and then; the case shown is still said where it matters
-	(the Build pane's note in a scenario, the Results pane, Solve's name).
+	The Scenarios menu (proposal build-density.md §13, §19): opened from the header's Scenarios
+	button once the project has scenarios. Solve all leads it: since §19 (the owner, 2026-11-12:
+	"one Solve, one Solve all") it is the one Solve all of the page, the menu's first control, a
+	primary button counting the cases it would solve ("Solve all (7)"), with Ctrl/⌘+Shift+Enter
+	(Workspace.svelte), while the Scenarios badge counts them down in the header. Then its line, its
+	progress, the case shown and the way into the scenario manager. The case bar under the header
+	held these before §13; the case shown is still said where it matters (the Build pane's note in
+	a scenario, the Results pane, Solve's name).
 -->
 <!--
-	From the case bar (proposal scenario-manager.md §6.3): it switches the case (page state,
-	announced) and runs Solve all, with its progress on a line of its own, and says when a solve of
-	another case than the one shown is running. Solve all stays in place during a run (unavailable),
-	so the focus stays on it; the run's end gives the focus to Solve. While a goal seek runs, Solve
-	all is unavailable with the reason, and the status line says which case it runs on. The header
-	repeats the progress for screen readers while this menu is closed.
+	Solve all (scenario-manager.md §6.3; build-density.md §19). Its count shows only while it can
+	run: during a run the badge carries the countdown, so no unavailable "Solve all (6)" sits beside
+	"Solving 1 of 7". Its line is always its description: what it does while it can run; a reason
+	that lasts (every case current, the rest with an error to fix first, an empty network) shown;
+	one that passes (a solve, Solve all or a goal seek running) said and in its title, not shown
+	(ui-guide). The reasons are one function's (utils/goal-seek.ts solveAllState) with the badge's
+	and the shortcut's. A held Enter (the one that opened the menu) does not run it: its repeats are
+	prevented. Solve all stays in place during a run (unavailable), so the focus stays on it; a
+	run that ran to its end gives the focus to Solve when it was in the menu, and a cancelled or
+	stopped one leaves it on Solve all, which resumes the run. The status line says the progress,
+	a solve of another case than the one shown, a goal seek and how a stopped run ended; the header
+	says the progress and a cancel while this menu is closed, and raises a network stop as an alert.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import { solveAllReason } from '$lib/utils/goal-seek';
 
 	let { onmanage, onchoose }: { onmanage: () => void; onchoose?: () => void } = $props();
 	const ws = useWorkspace();
@@ -25,25 +34,12 @@
 
 	const scenario = $derived(ws.activeScenario);
 	const run = $derived(store.run);
-	const toSolve = $derived(store.casesToSolve());
-	const errors = $derived(store.casesWithErrors());
-	const empty = $derived(!ws.project.components.length);
 	/** A single solve in flight (of any case: it goes on after a case switch). */
 	const solvingCase = $derived(run ? undefined : store.solvingCase);
 	const goalSeek = $derived(store.calculating === 'goalSeek' ? store.goalSeek : null);
-	const canRun = $derived(store.calculating === null && toSolve.length > 0 && !empty);
+	/** Solve all now: its count, whether it can run and why not (the badge's and the keys' too). */
+	const all = $derived(ws.solveAllState);
 
-	/** Why Solve all waits: one function with the Pumps together card's (utils/goal-seek.ts). */
-	const reason = $derived(
-		solveAllReason({
-			empty,
-			calculating: store.calculating,
-			solvingCase: store.solvingCase,
-			toSolve: toSolve.length,
-			errors,
-			caseName: (c) => ws.caseName(c)
-		})
-	);
 	const progress = $derived.by(() => {
 		if (!run) return '';
 		const current = run.cases[run.index];
@@ -75,23 +71,50 @@
 	}
 
 	function solveAll(event: MouseEvent) {
-		if (canRun && event.detail <= 1) void ws.solveAll();
+		// The second click of a double click does nothing (a click with detail 0 is a key's).
+		if (all.canRun && event.detail <= 1) void ws.solveAll();
 	}
 
-	// The end of a run: if its button area has the focus, Solve takes it.
+	// A run that ran to its end (the header closes the menu): if the menu has the focus, Solve
+	// takes it. A cancelled or stopped one keeps the menu open, and the focus where it is (on Solve
+	// all, which resumes the run): moved out, it would close the menu (WorkspaceHeader's focusout).
 	let area: HTMLElement | undefined = $state();
 	let wasRunning = false;
 	$effect.pre(() => {
 		const running = !!run;
-		if (wasRunning && !running && area?.contains(document.activeElement)) {
+		const stop = untrack(() => store.runStop);
+		if (wasRunning && !running && !stop && area?.contains(document.activeElement)) {
 			queueMicrotask(() => document.querySelector<HTMLElement>('[data-solve-button]')?.focus());
 		}
 		wasRunning = running;
 	});
 </script>
 
-<div role="group" aria-label="Case" class="dense space-y-2">
-	<div class="field">
+<div bind:this={area} role="group" aria-label="Case" class="dense space-y-2">
+	<button
+		type="button"
+		class="btn btn-primary w-full sm:w-auto"
+		data-solve-all
+		aria-disabled={!all.canRun}
+		aria-describedby="{id}-line"
+		aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter"
+		title={all.passing ? all.reason : 'Solve all (Ctrl+Shift+Enter or ⌘+Shift+Enter)'}
+		onclick={solveAll}
+		onkeydown={(event) => {
+			// A held Enter repeats: the press that opened the menu must not run it.
+			if (event.key === 'Enter' && event.repeat) event.preventDefault();
+		}}
+	>
+		<Icon name="play" class="size-4" /> Solve all{#if all.canRun}{` (${all.count})`}{/if}
+	</button>
+	<p id="{id}-line" class={all.passing ? 'sr-only' : 'text-xs text-slate-600'}>
+		{all.reason || all.hint}
+	</p>
+	<!-- Present before its text (a live region); empty, it takes no room (its margin collapses). -->
+	<p role="status" class="text-sm break-words">
+		{progress || seeking || other || stopped}
+	</p>
+	<div class="field border-t border-slate-200 pt-2">
 		<label for="{id}-case" class="label">Case</label>
 		<select
 			id="{id}-case"
@@ -110,26 +133,7 @@
 			? "Edits change only this scenario's values."
 			: 'Edits change the base case and every scenario that does not set its own value.'}
 	</p>
-	<div bind:this={area} class="flex flex-wrap items-center gap-2">
-		<button
-			type="button"
-			class="btn"
-			aria-disabled={!canRun}
-			aria-describedby="{id}-hint"
-			title={reason || undefined}
-			onclick={solveAll}
-		>
-			<Icon name="play" class="size-4" /> Solve all
-		</button>
-		<span id="{id}-hint" class="sr-only">
-			{reason ||
-				`Solves each case whose results are missing or out of date, one after another: up to ${toSolve.length} solve${toSolve.length === 1 ? '' : 's'}.`}
-		</span>
-		<button type="button" class="btn btn-quiet ml-auto text-blue-800" onclick={onmanage}>
-			<Icon name="layers" class="size-4" /> Manage scenarios…
-		</button>
-	</div>
-	<p role="status" class="text-sm break-words empty:hidden">
-		{progress || seeking || other || stopped}
-	</p>
+	<button type="button" class="btn btn-quiet text-blue-800" onclick={onmanage}>
+		<Icon name="layers" class="size-4" /> Manage scenarios…
+	</button>
 </div>

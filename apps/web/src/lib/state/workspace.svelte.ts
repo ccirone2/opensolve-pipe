@@ -79,8 +79,10 @@ import {
 	localDate,
 	newScenarioDescription,
 	reservedIds,
+	solveAllState,
 	toRequest,
 	type GoalSeekSetup,
+	type SolveAllState,
 	type WordsContext
 } from '../utils/goal-seek';
 import type { CaseMarker } from '../utils/pump-chart';
@@ -593,6 +595,23 @@ export class Workspace {
 	/** The project's scenarios. */
 	get scenarios(): readonly Scenario[] {
 		return scenariosOf(this.store.project);
+	}
+
+	/**
+	 * Solve all now: its count, whether it can run and why not (utils/goal-seek.ts solveAllState).
+	 * The one source for the Scenarios menu, its badge and Ctrl/⌘+Shift+Enter (build-density.md
+	 * §19), read from the store as it is, so a new control cannot miss a reason.
+	 */
+	get solveAllState(): SolveAllState {
+		const store = this.store;
+		return solveAllState({
+			empty: !store.project.components.length,
+			calculating: store.calculating,
+			solvingCase: store.solvingCase,
+			toSolve: store.casesToSolve().length,
+			errors: store.casesWithErrors(),
+			caseName: (c) => this.caseName(c)
+		});
 	}
 
 	/** "Base case" or the scenario's name. */

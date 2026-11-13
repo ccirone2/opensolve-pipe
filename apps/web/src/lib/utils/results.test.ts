@@ -978,7 +978,7 @@ describe('Results per pump hides hydraulic power, NPSHa and NPSHr by default (do
 		]);
 		// A hint, `true` or absent: never written false.
 		for (const c of fixed.columns) expect([undefined, true]).toContain(c.hiddenByDefault);
-		// The trace view, Build's result strip and the export read every cell, the hint not.
+		// The trace view and the export read every cell, the hint not.
 		expect(fixed.rows[0]!.cells).toMatchObject({
 			hydraulicPower: '4',
 			npshAvailable: '12',

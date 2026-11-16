@@ -226,9 +226,10 @@
 	 * pressed heading's box does (ResultsTable pressHeading); where the browser already kept it in
 	 * place (scroll anchoring) it moved nothing, and nothing scrolls. With the data table shown,
 	 * each curve the press asked for adds its table above the switch as it answers (§5.3 The data
-	 * region), so while they are computed the switch is held (S8 second check LAYOUT-2): each
-	 * change of the figure's size scrolls it back, before it is painted, until the last curve
-	 * has answered or the user takes a step of their own (then a press lands where they aim).
+	 * region), so while they are computed the switch is held (S8 second check LAYOUT-2): the
+	 * update that draws or takes away a table scrolls it back (`tablesAbove` below), and so does
+	 * each change of the figure's size before it is painted, until the last curve has answered or
+	 * the user takes a step of their own (then a press lands where they aim).
 	 */
 	async function switchOverlay(input: HTMLInputElement) {
 		const before = input.getBoundingClientRect().top;
@@ -265,6 +266,25 @@
 	});
 	// Another pump shown, or the chart gone: nothing more to hold.
 	$effect(() => () => held?.end());
+	/** The other cases with a system curve: each has its table last in the data region (§5.3). */
+	const othersWithCurves = $derived(otherData.filter((o) => o.system));
+	/**
+	 * The data region as it stands above the switch: shown or not, and the cases whose system-curve
+	 * table it holds. One string, so it changes only as the region or a table comes or goes, not at
+	 * every state of a case's curve.
+	 */
+	const tablesAbove = $derived.by(() =>
+		tableShown ? ['', ...othersWithCurves.map((o) => o.key)].join('\u0000') : null
+	);
+	// Each curve that answers draws its table above the switch in the update that brings it: keep
+	// the switch in place in that same update (S8 second check LAYOUT-2). A browser runs the
+	// ResizeObserver above only at its next frame, and a press or a read in a task before it found
+	// the switch 56 px lower (CI run 43438550309). Only a table drawn or taken away keeps it here,
+	// as the frame's observer would; no hold, nothing kept.
+	$effect(() => {
+		void tablesAbove;
+		untrack(() => held?.keep());
+	});
 
 	// The range as numbers, so a new array with the same values does not rebuild the chart.
 	const low = $derived(ratedRange?.[0] ?? null);
@@ -1264,7 +1284,7 @@
 			</div>
 			<!-- The other cases' system curves, on this chart's flow grid, last (§5.3, F33); each open
 				by default when one of its points has no head (§9 S7). -->
-			{#each otherData.filter((o) => o.system) as other (other.key)}
+			{#each othersWithCurves as other (other.key)}
 				<CurveTable
 					key="system-{caseId(other.key)}"
 					caption="System curve, {other.label}"

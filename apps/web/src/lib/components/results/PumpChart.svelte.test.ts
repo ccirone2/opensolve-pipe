@@ -2176,6 +2176,112 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		pane.remove();
 	});
 
+	it('keeps “Also show the other cases’ system curves” in place in the update that draws or takes away a curve’s table above it, not at the next frame, and in no other update (S8 second check LAYOUT-2; CI run 43438550309)', async () => {
+		withCanvas();
+		const observers = fakeResizeObserver();
+		// The pane that scrolls (the Results pane), as in the test above.
+		const pane = document.createElement('div');
+		pane.style.overflowY = 'auto';
+		document.body.append(pane);
+		sizeBox(pane, { clientHeight: 600, scrollHeight: 4000 });
+		let scrolled = 0;
+		Object.defineProperty(pane, 'scrollTop', {
+			configurable: true,
+			get: () => scrolled,
+			set: (v: number) => (scrolled = v)
+		});
+		const others = [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')];
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			tags: TAGS,
+			oncanceloverlay: vi.fn()
+		};
+		const onoverlay = (on: boolean) =>
+			void view.rerender({
+				...props,
+				others,
+				overlayCurves: on,
+				overlayProgress: on ? { done: 0, total: 3 } : null,
+				onoverlay
+			});
+		/** The Pumps view's update: the other cases anew, those named with their curve. */
+		const update = (answered: string[], done: number) =>
+			view.rerender({
+				...props,
+				others: others.map((o) =>
+					answered.includes(o.key) ? { ...o, system: systemCurveResponse() } : { ...o }
+				),
+				overlayCurves: true,
+				overlayProgress: { done, total: 3 },
+				onoverlay
+			});
+		const view = render(PumpChart, {
+			target: pane,
+			props: { ...props, others, overlayCurves: false, overlayProgress: null, onoverlay }
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		);
+		const figure = screen.getByRole('figure');
+		const box = screen.getByRole('checkbox', { name: "Also show the other cases' system curves" });
+		const systemTables = () => figure.querySelectorAll('[data-curve-table^="system-"]').length;
+		// The switch's top as a browser lays it out: 56 px lower for each system curve's table drawn
+		// above it (a closed disclosure and the region's gap), higher by what the pane scrolled.
+		box.getBoundingClientRect = () => ({ top: 300 + 56 * systemTables() - scrolled }) as DOMRect;
+		const top = () => box.getBoundingClientRect().top;
+		const watchedBefore = observers.watched();
+		await fireEvent.click(box);
+		expect(box).toBeChecked();
+		await vi.waitFor(() => expect(observers.watched()).toBeGreaterThan(watchedBefore));
+		// Winter's curve answers: its table drawn above the switch. A browser runs ResizeObservers
+		// only at its next frame, and a press or a read can come first: the switch is in place in
+		// the update that drew the table, no observer run.
+		await update(['S1'], 1);
+		expect(systemTables()).toBe(1);
+		expect(top(), 'in place as the table is drawn').toBe(300);
+		// The frame's observers then find nothing to move.
+		observers.resize();
+		expect(top()).toBe(300);
+		// Summer's curve starts: the other cases anew, no table drawn or taken away. A scroll that is
+		// no step the hold watches (the browser's find in page) is left as the frame's observer
+		// would leave it: no table, nothing kept.
+		scrolled += 40;
+		await update(['S1'], 1);
+		expect(scrolled, 'nothing kept with no table drawn or taken away').toBe(96);
+		// Summer answers: its table drawn, the switch kept where it was pressed.
+		await update(['S1', 'S2'], 2);
+		expect(systemTables()).toBe(2);
+		expect(top(), 'in place as the second table is drawn').toBe(300);
+		// Winter solved again meanwhile (Solve all, pressed before the switch): its curve was the
+		// old solve's, so its table goes; the switch kept in place as it goes.
+		await update(['S2'], 1);
+		expect(systemTables()).toBe(1);
+		expect(top(), 'in place as a table is taken away').toBe(300);
+		// The data table hidden (a press: the hold let go), the curves switched off and on again:
+		// held anew. A curve that answers now draws no table, so nothing is kept.
+		window.dispatchEvent(new Event('pointerdown'));
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Hide data table of the pump chart' })
+		);
+		expect(systemTables()).toBe(0);
+		await fireEvent.click(box);
+		expect(box).not.toBeChecked();
+		const watchedHidden = observers.watched();
+		await fireEvent.click(box);
+		expect(box).toBeChecked();
+		await vi.waitFor(() => expect(observers.watched()).toBeGreaterThan(watchedHidden));
+		const at = (scrolled += 40);
+		await update(['S1'], 1);
+		expect(scrolled, 'nothing kept with the data table hidden').toBe(at);
+		view.unmount();
+		observers.restore();
+		pane.remove();
+	});
+
 	it('draws the other cases’ line empty before it speaks, when mounted with their curves being computed (F17)', async () => {
 		// A pump chosen whose own curve is ready, with the other cases' curves asked for: the chart is
 		// mounted as their requests start (§7 Live regions).

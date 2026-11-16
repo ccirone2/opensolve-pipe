@@ -151,6 +151,13 @@ export interface ExportInput {
 	now: Date;
 	/** −now.getTimezoneOffset(): every local time is computed from `now` and this. */
 	utcOffsetMinutes: number;
+	/**
+	 * The time the file name and the CSV zip's folder carry, with its own offset: the name the
+	 * dialog showed when Download was pressed (§12 item 36), a minute before `now`'s when the press
+	 * came just after a minute boundary, before the dialog's tick. Absent: `now` and
+	 * `utcOffsetMinutes`.
+	 */
+	nameTime?: { now: Date; utcOffsetMinutes: number };
 	/** The build commit (`version` from $app/environment). */
 	appVersion: string;
 	/** The calculation server's source link (serverSourceHref()). */
@@ -213,6 +220,9 @@ export function buildExport(input: ExportInput): ExportBundle {
 	const { options } = input;
 	const project = input.project.metadata.name;
 	const shown = ctx.single ? ctx.cases[0] : undefined;
+	// The name and the zip's folder carry the name's time; About, README.txt, the workbook's
+	// created time and the zip's entry times carry `now` (§12 item 36).
+	const named = input.nameTime ?? { now: input.now, utcOffsetMinutes: input.utcOffsetMinutes };
 	return {
 		sheets,
 		omitted: [
@@ -228,11 +238,11 @@ export function buildExport(input: ExportInput): ExportBundle {
 			case: ctx.hasScenarios ? (shown ? shown.input.name : 'All cases') : null,
 			content: options.format === 'csv' ? 'results (CSV)' : 'results',
 			ext: options.format === 'csv' ? 'zip' : 'xlsx',
-			now: input.now,
-			utcOffsetMinutes: input.utcOffsetMinutes,
+			now: named.now,
+			utcOffsetMinutes: named.utcOffsetMinutes,
 			notConverged: !!shown?.response && !shown.hasValues
 		}),
-		folder: options.format === 'csv' ? zipFolderName(input.now, input.utcOffsetMinutes) : null,
+		folder: options.format === 'csv' ? zipFolderName(named.now, named.utcOffsetMinutes) : null,
 		title: project,
 		created: input.now,
 		utcOffsetMinutes: input.utcOffsetMinutes,

@@ -4,7 +4,9 @@
  * contents). The model (model.ts) then builds the file from this alone.
  *
  * - The page: `now` and its offset from UTC (every local time in the file is computed from these
- *   two), the build commit (`version`), the calculation server's source link and the page's origin.
+ *   two, but the file name's), the time the dialog's name shows with its own offset (the name and
+ *   the zip's folder carry it: §12 item 36), the build commit (`version`), the calculation
+ *   server's source link and the page's origin.
  * - The current project, the display units and the library's names (as data).
  * - Each exported case in case order (the base, then the scenarios): its name and status, its
  *   response by Compare's rule (`caseResponse`: none for a failed case or one a stopped run did not
@@ -106,12 +108,16 @@ function caseOf(ws: ExportSource, caseId: CaseId): ExportCase {
 	};
 }
 
-/** The snapshot of `ws` for `options`, at `now` (§2.1). `page` defaults to the browser's. */
+/**
+ * The snapshot of `ws` for `options`, at `now` (§2.1). `page` defaults to the browser's; `named`,
+ * the time the file name carries, to `now` (the dialog passes the time its name shows).
+ */
 export function exportInput(
 	ws: ExportSource,
 	options: ExportOptions,
 	now: Date,
-	page: PageFacts = pageFacts()
+	page: PageFacts = pageFacts(),
+	named: Date = now
 ): ExportInput {
 	const store = ws.store;
 	const project = store.project;
@@ -133,6 +139,7 @@ export function exportInput(
 		options,
 		now,
 		utcOffsetMinutes: -now.getTimezoneOffset(),
+		nameTime: { now: named, utcOffsetMinutes: -named.getTimezoneOffset() },
 		appVersion: page.appVersion,
 		serverSource: page.serverSource,
 		origin: page.origin.replace(/\/+$/, ''),

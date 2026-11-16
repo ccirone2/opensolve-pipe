@@ -2,7 +2,8 @@
  * The export's snapshot (proposal export.md §2.1): what exportInput takes from the workspace's
  * public getters, with the real ProjectStore and a fake solver (testing/workspace.ts): the cases
  * the choice exports, each response by Compare's rule, its staleness, the projects as sent and as
- * solved, its system curves and group curves, the Compare rows, the goal seek and the page's facts.
+ * solved, its system curves and group curves, the Compare rows, the goal seek, the page's facts
+ * and the time the file name carries (§12 item 36).
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { version } from '$app/environment';
@@ -75,6 +76,25 @@ describe('the snapshot', () => {
 		expect(c!.response).toBe(ws.store.results.response);
 		expect(c!.sent).toBe(ws.store.sentProjectFor(null));
 		expect(c!.inputs).toBe(ws.store.caseInputs(null));
+	});
+
+	it('takes the time the name shows with its own offset, or the press’s (§12 item 36)', async () => {
+		// 2026-10-25, the night summer time ends in Berlin: 02:59:59 CEST, then 02:00:00 CET.
+		process.env.TZ = 'Europe/Berlin';
+		const ws = testWorkspace(pumpTransferExample(), {
+			solver: { solve: async () => response(pumpTransferSolved()) }
+		});
+		await ws.store.solve();
+		const shown = new Date('2026-10-25T00:59:59.900Z');
+		const pressed = new Date('2026-10-25T01:00:00.010Z');
+		const input = exportInput(ws, SHOWN, pressed, PAGE, shown);
+		expect(input.now).toBe(pressed);
+		expect(input.utcOffsetMinutes).toBe(60);
+		expect(input.nameTime).toEqual({ now: shown, utcOffsetMinutes: 120 });
+		expect(exportInput(ws, SHOWN, pressed, PAGE).nameTime).toEqual({
+			now: pressed,
+			utcOffsetMinutes: 60
+		});
 	});
 
 	it('exports the case shown, or every case with scenarios', async () => {

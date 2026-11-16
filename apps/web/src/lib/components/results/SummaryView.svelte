@@ -1,8 +1,13 @@
 <!--
 	Summary of a solve, answers first (proposal ui-ux-refinement.md item 8): each pump's operating
-	point and NPSH margin, then the extremes a designer checks, each with where it is (a link to that
-	element's results and trace) and a link to the table sorted on it: the lowest and highest static
-	pressure (Nodes), the highest velocity (Links) and the smallest NPSH margin (Pumps). The fluid
+	point and NPSH margin ratio, then the extremes a designer checks, each with where it is (a link
+	to that element's results and trace) and a link to the table sorted on it: the lowest and highest
+	static pressure (Nodes), the highest velocity (Links) and the smallest NPSH margin ratio (Pumps).
+	The ratio, NPSHa ÷ NPSHr, stands in for the absolute margin, as in Results per pump (the owner's
+	nit 4 and Q3, 2026-11-12: "Ratio everywhere"; docs/proposals/pumps-nits.md item 4): the extreme's
+	value and its link move together, since the smallest margin and the smallest ratio can be two
+	pumps'. A pump with no ratio that cavitates says so in its line, with its margin (npshRatioCue);
+	the extreme is the smallest ratio given, as the sorted table puts a pump without one last. The
 	properties and atmospheric pressure the solver used, with their sources, are one disclosure
 	below (inputs, not answers). With design checks on (D19), a card counts them and lists the
 	checks not met, with a link to the Checks view. Flags come before the views, in the Results
@@ -21,9 +26,10 @@
 		Formatter,
 		highestPressureNode,
 		lowestPressureNode,
+		npshRatioCue,
 		pumpStatusLabel,
 		resultsProject,
-		smallestNpshMargin,
+		smallestNpshMarginRatio,
 		type ElementRef,
 		type ResultsView,
 		type SortDirection
@@ -46,7 +52,7 @@
 	const lowest = $derived(lowestPressureNode(solved));
 	const highest = $derived(highestPressureNode(solved));
 	const fastest = $derived(fastestLink(solved));
-	const npsh = $derived(smallestNpshMargin(solved));
+	const npsh = $derived(smallestNpshMarginRatio(solved));
 	const checks = $derived(solved.designChecks ?? []);
 	const failed = $derived(checks.filter((c) => c.outcome === 'fail'));
 	/** Checks not met listed on the card before "All checks". */
@@ -59,7 +65,8 @@
 		Object.entries(solved.pumpResults).map(([pumpId, result]) => ({
 			element: { kind: 'component', id: pumpId } as ElementRef,
 			name: componentById(ws.project, pumpId)?.name ?? pumpId,
-			result
+			result,
+			cue: npshRatioCue(result, f)
 		}))
 	);
 
@@ -146,8 +153,9 @@
 								{f.value(pump.result.operatingFlow, 'flow')} at {f.value(
 									pump.result.operatingHead,
 									'head'
-								)}{#if pump.result.npshMargin !== null && pump.result.npshMargin !== undefined}&nbsp;·
-									NPSH margin {f.value(pump.result.npshMargin, 'head')}{/if}
+								)}{#if pump.result.npshMarginRatio !== null && pump.result.npshMarginRatio !== undefined}&nbsp;·
+									NPSH margin ratio {f.plain(pump.result.npshMarginRatio)}{:else if pump.cue}&nbsp;·
+									{pump.cue}{/if}
 							{:else}
 								{pumpStatusLabel(pump.result, flagsForElement(solved.flags, pump.element))}
 							{/if}
@@ -242,15 +250,15 @@
 				{/if}
 				{#if npsh}
 					<div>
-						{@render extreme('Smallest NPSH margin')}
+						{@render extreme('Smallest NPSH margin ratio')}
 						<dd class="flex flex-wrap items-center gap-x-2">
-							<span class="tabular-nums">{f.value(npsh.margin, 'head')}</span>
+							<span class="tabular-nums">{f.plain(npsh.ratio)}</span>
 							{@render link(
 								{ kind: 'component', id: npsh.id },
 								componentById(ws.project, npsh.id)?.name ?? npsh.id
 							)}
 							{#if pumps.length > 1}
-								{@render sorted('pumps', 'npshMargin', 'ascending', 'Pumps, smallest first')}
+								{@render sorted('pumps', 'npshMarginRatio', 'ascending', 'Pumps, smallest first')}
 							{/if}
 						</dd>
 					</div>

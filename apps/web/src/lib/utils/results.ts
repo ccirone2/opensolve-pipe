@@ -1004,11 +1004,44 @@ export function pumpControlText(result: PumpResult, prefs: UnitPreferences): str
 }
 
 /**
+ * Words for a pump with no NPSH margin ratio that cavitates all the same: "Cavitates (NPSHr 0): NPSH
+ * margin -2.521 m". The API gives no ratio where NPSHr is 0 at the operating flow, or the quotient
+ * is not finite; with a negative NPSHa the margin is then negative and CAVITATION is raised
+ * (PumpResult.npshMarginRatio, TSD §5.5; corpus unit_rich1090 PU2). A null ratio is no sign of a
+ * safe margin, so wherever the ratio is shown in the margin's place these words stand in for it:
+ * Results per pump's cell, Build's strip, the Summary and Compare (the owner's nit 4 and Q3,
+ * 2026-11-12; docs/proposals/pumps-nits.md item 4). Every number is the API's, in the display
+ * units. Null where the ratio is given, or the margin is none or not negative.
+ */
+export function npshRatioCue(pump: PumpResult, f: Formatter): string | null {
+	const margin = pump.npshMargin;
+	if (pump.npshMarginRatio !== null && pump.npshMarginRatio !== undefined) return null;
+	if (margin === null || margin === undefined || !(margin < 0)) return null;
+	const why = pump.npshRequired === 0 ? ' (NPSHr 0)' : '';
+	return `Cavitates${why}: NPSH margin ${f.value(margin, 'head')}`;
+}
+
+/**
+ * A pump's NPSH margin ratio cell: the API's NPSHa ÷ NPSHr, a pure number to 4 significant figures,
+ * or "—" without one. A pump with no ratio that cavitates keeps the "—" as its first line, so it
+ * sorts as no value, last either way, as ResultsTable sorts every column, and never as text among
+ * the ratios; its second line says why (npshRatioCue), so the cell is never a bare "—" and a phone
+ * shows it (docs/proposals/pumps-nits.md item 4).
+ */
+function npshRatioCell(pump: PumpResult, f: Formatter): Cell {
+	const cue = npshRatioCue(pump, f);
+	return cue ? ['—', cue] : f.plain(pump.npshMarginRatio);
+}
+
+/**
  * Pumps: operating point, power and NPSH. An off pump has no speed ("—"). A Control column is
  * shown only when a pump of the solve is speed-controlled (it keeps narrow tables narrow).
- * Hydraulic power, NPSHa and NPSHr are hidden until the user shows them in Fields, so the table
- * opens with one NPSH reading, the margin (the owner, 2026-11-12; docs/proposals/pumps-nits.md
- * item 3); a cavitating pump's flag still states all three.
+ * Hydraulic power, NPSHa, NPSHr and the NPSH margin are hidden until the user shows them in
+ * Fields, so the table opens with one NPSH reading, the NPSH margin ratio (the owner, 2026-11-12,
+ * nits 3 and 4: "add NPSH margin as a ratio and make it a default in the results table. Don't make
+ * absolute margin a default."; docs/proposals/pumps-nits.md items 3 and 4); a cavitating pump's
+ * flag still states NPSHa, NPSHr and the margin, and one with no ratio says so in its ratio cell
+ * (npshRatioCue).
  */
 export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPreferences): Table {
 	const f = new Formatter(prefs);
@@ -1025,7 +1058,9 @@ export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPref
 		f.column('shaftPower', 'Shaft power', 'power'),
 		hiddenByDefault(f.column('npshAvailable', 'NPSHa', 'head')),
 		hiddenByDefault(f.column('npshRequired', 'NPSHr', 'head')),
-		f.column('npshMargin', 'NPSH margin', 'head')
+		hiddenByDefault(f.column('npshMargin', 'NPSH margin', 'head')),
+		// NPSHa ÷ NPSHr from the API (PumpResult.npshMarginRatio): a pure number, no unit.
+		f.column('npshMarginRatio', 'NPSH margin ratio', 'dimensionless')
 	];
 	const rows = orderedIds(project, Object.keys(results)).map((id) => {
 		const pump = results[id] as PumpResult;
@@ -1041,7 +1076,8 @@ export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPref
 			shaftPower: f.num(pump.shaftPower, 'power'),
 			npshAvailable: f.num(pump.npshAvailable, 'head'),
 			npshRequired: f.num(pump.npshRequired, 'head'),
-			npshMargin: f.num(pump.npshMargin, 'head')
+			npshMargin: f.num(pump.npshMargin, 'head'),
+			npshMarginRatio: npshRatioCell(pump, f)
 		});
 	});
 	return { columns, rows };
@@ -1622,7 +1658,9 @@ export interface ElementSummary {
  */
 const SUMMARY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
 	'Pipe connection': ['flow', 'velocity', 'headLoss'],
-	Pump: ['status', 'flow', 'head', 'npshMargin'],
+	// A pump's NPSH reading is its margin ratio, as Results per pump's default (the owner's Q3,
+	// 2026-11-12: "Ratio everywhere"; docs/proposals/pumps-nits.md item 4).
+	Pump: ['status', 'flow', 'head', 'npshMarginRatio'],
 	Valve: ['state', 'flow', 'pressureDrop'],
 	// Δp ÷ set says how close a closed valve is to opening, or how far an open one relieves past it
 	// (a locked-closed valve stays closed above 100 %: its state says so).
@@ -1897,13 +1935,18 @@ export function highestPressureNode(solved: SolvedState): NodeResult | null {
 	return highest;
 }
 
-/** The pump with the smallest NPSH margin (only pumps with one: a fluid with a vapor pressure). */
-export function smallestNpshMargin(solved: SolvedState): { id: string; margin: number } | null {
-	let smallest: { id: string; margin: number } | null = null;
+/**
+ * The pump with the smallest NPSH margin ratio, NPSHa ÷ NPSHr (the Summary's extreme; the owner's
+ * Q3, 2026-11-12: "Ratio everywhere"; docs/proposals/pumps-nits.md item 4). Only pumps the API gives
+ * a ratio: as Results per pump sorted by it, smallest first, puts a pump with none last. A pump
+ * with no ratio that cavitates says so in its own line (npshRatioCue).
+ */
+export function smallestNpshMarginRatio(solved: SolvedState): { id: string; ratio: number } | null {
+	let smallest: { id: string; ratio: number } | null = null;
 	for (const [id, pump] of Object.entries(solved.pumpResults)) {
-		const margin = pump.npshMargin;
-		if (margin === null || margin === undefined) continue;
-		if (!smallest || margin < smallest.margin) smallest = { id, margin };
+		const ratio = pump.npshMarginRatio;
+		if (ratio === null || ratio === undefined) continue;
+		if (!smallest || ratio < smallest.ratio) smallest = { id, ratio };
 	}
 	return smallest;
 }

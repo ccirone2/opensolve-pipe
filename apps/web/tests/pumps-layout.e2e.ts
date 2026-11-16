@@ -5299,9 +5299,10 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 
 	// Each table's Fields and, on a phone, its "Sort by" named apart: the visible words, then the
 	// table's name, visually hidden (A11Y-S6-3; ui-guide). Results per pump's count names its
-	// fields hidden by default: hydraulic power, NPSHa and NPSHr (pumps-nits.md item 3).
+	// fields hidden by default: hydraulic power, NPSHa, NPSHr and the NPSH margin, its ratio shown
+	// (pumps-nits.md items 3 and 4).
 	const captions = ['Results per pump', groupTitle, 'Running combinations'];
-	const counts: Record<string, string> = { 'Results per pump': ' (7 of 10)' };
+	const counts: Record<string, string> = { 'Results per pump': ' (7 of 11)' };
 	await expect(tab.getByRole('button', { name: /^Fields/ })).toHaveCount(3);
 	for (const caption of captions) {
 		await expect
@@ -7799,7 +7800,7 @@ function readPumpTable(wrap: Element) {
 	};
 }
 
-test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPSHr, Fields counting them; a box shows one, remembered after a reload; Default fields hides it again; the table narrower and a phone’s list shorter, at 1280, 390 and 320 px (pumps-nits.md item 3)', async ({
+test('Nits items 3 and 4: Results per pump opens without Hydraulic power, NPSHa, NPSHr and NPSH margin, with NPSH margin ratio, Fields counting them; a box shows one, remembered after a reload; Default fields hides it again; the table narrower and a phone’s list shorter, at 1280, 390 and 320 px (pumps-nits.md items 3 and 4)', async ({
 	page,
 	isMobile
 }) => {
@@ -7807,14 +7808,16 @@ test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPS
 	const soft = expect.configure({ soft: true });
 	const viewport = page.viewportSize()!;
 	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
-	const hiddenByDefault = /^(Hydraulic power|NPSHa|NPSHr)\b/;
+	// Item 3's three, and the absolute margin once its ratio is shown (item 4, the owner's Q3).
+	const hiddenByDefault = /^(Hydraulic power|NPSHa|NPSHr)\b|^NPSH margin(?! ratio)/;
+	const DEFAULT_HIDDEN = 4;
 	const views = [
-		{ view: 'off', count: '7 of 10', all: 10, project: () => projectOf('off') },
-		{ view: 'controlled', count: '8 of 11', all: 11, project: () => projectOf('controlled') },
+		{ view: 'off', count: '7 of 11', all: 11, project: () => projectOf('off') },
+		{ view: 'controlled', count: '8 of 12', all: 12, project: () => projectOf('controlled') },
 		{
 			view: 'condenser',
-			count: '7 of 10',
-			all: 10,
+			count: '7 of 11',
+			all: 11,
 			project: () => exampleProject('condenser-water')!
 		}
 	];
@@ -7839,10 +7842,10 @@ test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPS
 				shown.headings.filter((h) => hiddenByDefault.test(h)),
 				`defaults, ${where}`
 			).toEqual([]);
-			soft(shown.headings, `defaults, ${where}`).toHaveLength(all - 3 + 1);
+			soft(shown.headings, `defaults, ${where}`).toHaveLength(all - DEFAULT_HIDDEN + 1);
 			soft(
-				shown.headings.some((h) => h.startsWith('NPSH margin')),
-				`NPSH margin, ${where}`
+				shown.headings.some((h) => h.startsWith('NPSH margin ratio')),
+				`NPSH margin ratio, ${where}`
 			).toBe(true);
 			// Show all, measured, then Default fields: back to the defaults.
 			const fields = wrap.getByRole('button', { name: /^Fields/ });
@@ -7863,7 +7866,7 @@ test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPS
 			);
 			soft(every.headings, `every field, ${where}`).toHaveLength(all + 1);
 			if (isMobile) {
-				// A phone's list: shorter by the three fields' lines; never sideways.
+				// A phone's list: shorter by the four fields' lines; never sideways.
 				soft(shown.height, `the list's height by default, ${where}`).toBeLessThan(every.height);
 				soft(shown.box.scroll, `the list's box, ${where}`).toBe(shown.box.client);
 			} else {
@@ -7881,8 +7884,9 @@ test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPS
 		if (isMobile) {
 			// A phone's "Sort by": the field chosen shows whole beside its direction and Fields, on
 			// one line, whatever Fields' count says, at 390, 360 and 320 px, chosen there or by the
-			// Summary's "Pumps, smallest first" (S6 review TBL-4; review PUMPS-NITS-A2: the default
-			// count, "(7 of 10)", took 54 px from it and cut "NPSH margin (m)" at 360 and 320 px).
+			// Summary's "Pumps, smallest first", which sorts by the ratio since item 4 (S6 review
+			// TBL-4; review PUMPS-NITS-A2: the default count, "(7 of 10)", took 54 px from it and cut
+			// "NPSH margin (m)" at 360 and 320 px).
 			const cut: string[] = [];
 			const select = wrap.getByRole('combobox', { name: 'Sort by, Results per pump' });
 			const fields = wrap.getByRole('button', { name: /^Fields/ });
@@ -7927,7 +7931,7 @@ test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPS
 				if (view === 'condenser') await expect(link).toHaveCount(1);
 				if (await link.count()) {
 					await link.click();
-					await expect(select).toHaveValue('npshMargin');
+					await expect(select).toHaveValue('npshMarginRatio');
 					await check(`${where}, by the Summary's link`);
 				} else {
 					await resultsView(page, 'Pumps');
@@ -7956,7 +7960,7 @@ test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPS
 		await expect(menu.getByRole('button', { name: 'Default fields' })).toBeVisible();
 		await expect(menu.getByRole('button', { name: 'Show all' })).toBeVisible();
 		await page.keyboard.press('Escape');
-		await expect(fieldsNamed('9 of 11')).toHaveCount(1);
+		await expect(fieldsNamed('9 of 12')).toHaveCount(1);
 		expect(
 			await page.evaluate(() =>
 				localStorage.getItem('opensolve-pipe:results-fields:Results per pump')
@@ -7967,7 +7971,7 @@ test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPS
 		await solveConverged(page);
 		tab = await pumpsTab(page);
 		wrap = tab.locator('[data-pump-table]');
-		await expect(fieldsNamed('9 of 11')).toHaveCount(1);
+		await expect(fieldsNamed('9 of 12')).toHaveCount(1);
 		await expect(
 			wrap
 				.getByRole('table', { name: 'Results per pump' })
@@ -7979,7 +7983,7 @@ test('Nits item 3: Results per pump opens without Hydraulic power, NPSHa and NPS
 			.getByRole('button', { name: 'Default fields' })
 			.click();
 		await page.keyboard.press('Escape');
-		await expect(fieldsNamed('8 of 11')).toHaveCount(1);
+		await expect(fieldsNamed('8 of 12')).toHaveCount(1);
 		await expect(
 			wrap
 				.getByRole('table', { name: 'Results per pump' })

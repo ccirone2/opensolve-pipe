@@ -671,26 +671,31 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		);
 	});
 
-	it('hides Hydraulic power, NPSHa and NPSHr by default, counted in Fields’ name, each a box to check, every value still in the trace (docs/proposals/pumps-nits.md item 3)', async () => {
+	it('hides Hydraulic power, NPSHa, NPSHr and NPSH margin by default and shows NPSH margin ratio, counted in Fields’ name, each a box to check, every value still in the trace (docs/proposals/pumps-nits.md items 3 and 4)', async () => {
 		localStorage.removeItem('opensolve-pipe:results-fields:Results per pump');
 		const { panel } = await solveAndOpenPumps(pumpTransferExample(), pumpTransferSolved());
 		const table = panel.getByRole('table', { name: 'Results per pump' });
 		const shown = ['Status', 'Flow L/s', 'Head m', 'Speed %', 'Efficiency %', 'Shaft power kW'];
-		for (const name of [...shown, 'NPSH margin m']) {
+		// The ratio has no unit: its heading is its label alone.
+		for (const name of [...shown, 'NPSH margin ratio']) {
 			expect(within(table).getByRole('columnheader', { name }), name).toBeInTheDocument();
 		}
-		for (const name of [/^Hydraulic power/, /^NPSHa/, /^NPSHr/]) {
+		// The margin's heading reads "NPSH margin m" and its box "NPSH margin (m)" (jsdom: "NPSH
+		// margin(m)"): one pattern for both, never the ratio's.
+		const hidden = [/^Hydraulic power/, /^NPSHa/, /^NPSHr/, /^NPSH margin(?! ratio)/];
+		for (const name of hidden) {
 			expect(within(table).queryByRole('columnheader', { name }), String(name)).toBeNull();
 		}
 		expect(within(table).getAllByRole('columnheader')).toHaveLength(8);
-		// Fields names its count, seven of the table's ten shown, then the table.
-		const fields = panel.getByRole('button', { name: 'Fields (7 of 10), Results per pump' });
-		expect(fields.textContent!.replace(/\s+/g, ' ').trim()).toBe('Fields (7 of 10)');
+		// Fields names its count, seven of the table's eleven shown, then the table.
+		const fields = panel.getByRole('button', { name: 'Fields (7 of 11), Results per pump' });
+		expect(fields.textContent!.replace(/\s+/g, ' ').trim()).toBe('Fields (7 of 11)');
 		await fireEvent.click(fields);
 		const menu = panel.getByRole('group', { name: 'Fields shown in Results per pump' });
-		for (const name of [/^Hydraulic power/, /^NPSHa/, /^NPSHr/]) {
+		for (const name of hidden) {
 			expect(within(menu).getByRole('checkbox', { name }), String(name)).not.toBeChecked();
 		}
+		expect(within(menu).getByRole('checkbox', { name: /^NPSH margin ratio/ })).toBeChecked();
 		expect(
 			within(menu)
 				.getAllByRole('checkbox')
@@ -703,9 +708,64 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		await fireEvent.click(within(table).getByRole('button', { name: /^Transfer pump/ }));
 		const dialog = within(await screen.findByRole('dialog', { name: 'Transfer pump' }));
 		const values = dialog.getByRole('region', { name: 'Result values' });
-		for (const label of ['Hydraulic power (kW)', 'NPSHa (m)', 'NPSHr (m)', 'NPSH margin (m)']) {
+		for (const label of [
+			'Hydraulic power (kW)',
+			'NPSHa (m)',
+			'NPSHr (m)',
+			'NPSH margin (m)',
+			'NPSH margin ratio'
+		]) {
 			expect(values, label).toHaveTextContent(label);
 		}
+	});
+
+	it('explains the NPSH margin ratio under Results per pump, and when it is not given (docs/proposals/pumps-nits.md item 4, review PUMPS-NITS-B2)', async () => {
+		const { panel } = await solveAndOpenPumps(pumpTransferExample(), pumpTransferSolved());
+		const note = panel.getByText(/^Head is the rise in the energy grade line/);
+		const words = note.textContent!.replace(/\s+/g, ' ');
+		expect(words).toMatch(/NPSH margin ratio is NPSHa [÷/] NPSHr/);
+		expect(words).toMatch(/not given where NPSHr is zero/);
+	});
+
+	it('names the cavitation and the margin in the NPSH margin ratio cell of a pump with no ratio whose margin is negative, on a phone too (docs/proposals/pumps-nits.md item 4)', async () => {
+		localStorage.removeItem('opensolve-pipe:results-fields:Results per pump');
+		// Made-up results: the booster's NPSHr is 0 at its flow and its NPSHa −2.521 m, so its margin
+		// is −2.521 m, it has no ratio and CAVITATION is raised (corpus unit_rich1090 PU2).
+		const base = pumpTransferExample();
+		const booster = createComponent('pump', base, { name: 'Booster pump' });
+		const project = insertComponentInConnection(base, 'L3', booster);
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult(),
+				[booster.id]: pumpResult({
+					npshAvailable: -2.521,
+					npshRequired: 0,
+					npshMargin: -2.521,
+					npshMarginRatio: null
+				})
+			},
+			flags: [
+				flag({
+					code: 'CAVITATION',
+					severity: 'invalid',
+					message: 'made-up',
+					componentId: booster.id
+				})
+			]
+		});
+		const { panel } = await solveAndOpenPumps(project, solved);
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		const ratio = (name: string) => {
+			const cell = rowFor(table, name).querySelector('td[data-label="NPSH margin ratio"]');
+			expect(cell, `${name}: its NPSH margin ratio cell`).toBeInstanceOf(HTMLElement);
+			return cell as HTMLElement;
+		};
+		expect(ratio('Transfer pump')).toHaveTextContent(/^4$/);
+		const cue = ratio('Booster pump');
+		expect(cue).toHaveTextContent(/cavitat/i);
+		expect(cue.textContent).toMatch(/[-−]2\.521/);
+		// Not a value the row has none of: a phone's list shows it.
+		expect(cue).not.toHaveClass('max-sm:sr-only');
 	});
 
 	it("draws each pump's status as a pill holding its state word, tinted by the state, the qualifier after it as plain text and the cell's words the label's (docs/proposals/pumps-nits.md item 2)", async () => {
@@ -906,9 +966,10 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		const { answers, panel } = await solveAndOpenPumps(project, solved);
 		const table = panel.getByRole('table', { name: 'Results per pump' });
 		expect(within(table).getByRole('columnheader', { name: 'Control' })).toBeInTheDocument();
-		// Eleven fields with Control, eight shown by default (docs/proposals/pumps-nits.md item 3).
+		// Twelve fields with Control, eight shown by default (docs/proposals/pumps-nits.md items 3
+		// and 4).
 		expect(
-			panel.getByRole('button', { name: 'Fields (8 of 11), Results per pump' })
+			panel.getByRole('button', { name: 'Fields (8 of 12), Results per pump' })
 		).toBeInTheDocument();
 		const row = rowFor(table, 'Transfer pump');
 		expect(cells(row)).toEqual(

@@ -6,7 +6,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { Project, SolvedState } from '$lib/api/types';
+import type { Flag, Project, PumpResult, SolvedState } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { flag, node, pumpResult, pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
@@ -43,19 +43,23 @@ function columnHeading(name: RegExp): HTMLElement {
 }
 
 describe('the Summary answers first', () => {
-	it('gives each pump’s operating point and NPSH margin, then the extremes with where they are', async () => {
+	it('gives each pump’s operating point and NPSH margin ratio, then the extremes with where they are', async () => {
 		await solveWith(pumpTransferSolved());
 		const pumps = results().getByRole('region', { name: 'Pumps' });
-		expect(pumps).toHaveTextContent('Transfer pump 20 L/s at 22 m · NPSH margin 9 m');
+		// The ratio, NPSHa ÷ NPSHr, in place of the margin (the owner's Q3, 2026-11-12: "Ratio
+		// everywhere"; docs/proposals/pumps-nits.md item 4).
+		expect(pumps).toHaveTextContent('Transfer pump 20 L/s at 22 m · NPSH margin ratio 4');
+		expect(pumps).not.toHaveTextContent('NPSH margin 9 m');
 		const extremes = within(results().getByRole('region', { name: 'Extremes' }));
 		for (const label of [
 			'Lowest static pressure',
 			'Highest static pressure',
 			'Highest velocity',
-			'Smallest NPSH margin'
+			'Smallest NPSH margin ratio'
 		]) {
 			expect(extremes.getByText(label)).toBeInTheDocument();
 		}
+		expect(extremes.queryByText('Smallest NPSH margin')).toBeNull();
 		// The fluid is one closed disclosure below the answers.
 		const fluid = results().getByRole('heading', { name: 'Fluid: Water' }).closest('details')!;
 		expect(fluid.open).toBe(false);
@@ -215,21 +219,141 @@ describe('results tables sort and filter', () => {
 	});
 });
 
-describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits.md item 3)', () => {
+describe('the Summary’s NPSH reading is the margin ratio (docs/proposals/pumps-nits.md item 4, the owner’s Q3)', () => {
 	const KEY = 'opensolve-pipe:results-fields:Results per pump';
+	const sig4 = (v: number) => String(Number(v.toPrecision(4)));
 
-	it('“Pumps, smallest first” sorts Results per pump by NPSH margin and shows it, though a stored choice hid it; the choice then stored as the box checked', async () => {
-		// Made-up results: a booster after the transfer pump, its NPSH margin the smaller.
+	/** The extreme "Smallest NPSH margin ratio": its whole entry, and the pump it names. */
+	function smallestRatio() {
+		const entry = within(results().getByRole('region', { name: 'Extremes' }))
+			.getByText('Smallest NPSH margin ratio')
+			.closest('div')!;
+		const named = within(entry)
+			.getAllByRole('button')
+			.filter((b) => b.textContent?.trim() !== 'Pumps, smallest first');
+		expect(named).toHaveLength(1);
+		return { entry, pump: named[0]!.textContent!.trim() };
+	}
+
+	/** The transfer pump and a booster after it, solved with these made-up results. */
+	async function twoPumps(
+		transfer: PumpResult,
+		boosterResult: PumpResult,
+		flags: (boosterId: string) => Flag[] = () => []
+	) {
 		const base = pumpTransferExample();
 		const booster = createComponent('pump', base, { name: 'Booster pump' });
 		const project = insertComponentInConnection(base, 'L3', booster);
-		localStorage.setItem(KEY, '["npshMargin"]');
+		localStorage.removeItem(KEY);
+		await solveWith(
+			pumpTransferSolved({
+				pumpResults: { P1: transfer, [booster.id]: boosterResult },
+				flags: flags(booster.id)
+			}),
+			project
+		);
+	}
+
+	/** Each pump's line under Pumps, by its name. */
+	function pumpLine(name: string): HTMLElement {
+		const pumps = within(results().getByRole('region', { name: 'Pumps' }));
+		return pumps.getByRole('button', { name }).closest('li') as HTMLElement;
+	}
+
+	it('names the pump of the smallest ratio and links to Results per pump sorted by the ratio, its first row that pump, where the smallest margin is another pump’s', async () => {
+		// Made-up results: the transfer pump NPSHa 4 m, NPSHr 2 m (margin 2 m, ratio 2); the
+		// booster NPSHa 20 m, NPSHr 15 m (margin 5 m, ratio 20 ÷ 15). The smallest margin is the
+		// transfer pump's, the smallest ratio the booster's: value and link move together.
+		try {
+			await twoPumps(
+				pumpResult({ npshAvailable: 4, npshRequired: 2, npshMargin: 2, npshMarginRatio: 2 }),
+				pumpResult({
+					npshAvailable: 20,
+					npshRequired: 15,
+					npshMargin: 5,
+					npshMarginRatio: 20 / 15
+				})
+			);
+			expect(pumpLine('Transfer pump')).toHaveTextContent(
+				'Transfer pump 20 L/s at 22 m · NPSH margin ratio 2'
+			);
+			expect(pumpLine('Booster pump')).toHaveTextContent(
+				`Booster pump 20 L/s at 22 m · NPSH margin ratio ${sig4(20 / 15)}`
+			);
+			const { entry, pump } = smallestRatio();
+			expect(pump).toBe('Booster pump');
+			expect(entry).toHaveTextContent(sig4(20 / 15));
+			await fireEvent.click(results().getByRole('button', { name: 'Pumps, smallest first' }));
+			await tick();
+			expect(results().getByRole('tab', { name: 'Pumps' })).toHaveAttribute(
+				'aria-selected',
+				'true'
+			);
+			expect(columnHeading(/^NPSH margin ratio/)).toHaveAttribute('aria-sort', 'ascending');
+			expect(rowNames()).toEqual(['Booster pump', 'Transfer pump']);
+			expect(rowNames()[0]).toBe(pump);
+		} finally {
+			localStorage.removeItem(KEY);
+		}
+	});
+
+	it('names the cavitation and the margin of a pump with no ratio whose margin is negative; the extreme and its link still name one pump', async () => {
+		// Made-up results: the booster's NPSHr is 0 at its flow and its NPSHa −2.521 m, so its
+		// margin is −2.521 m, it has no ratio and CAVITATION is raised (corpus unit_rich1090 PU2):
+		// a null ratio is no sign of a safe margin (API review A1/B1).
+		try {
+			await twoPumps(
+				pumpResult(),
+				pumpResult({
+					npshAvailable: -2.521,
+					npshRequired: 0,
+					npshMargin: -2.521,
+					npshMarginRatio: null
+				}),
+				(booster) => [
+					flag({
+						code: 'CAVITATION',
+						severity: 'invalid',
+						message: 'made-up',
+						componentId: booster
+					})
+				]
+			);
+			expect(pumpLine('Transfer pump')).toHaveTextContent('· NPSH margin ratio 4');
+			const line = pumpLine('Booster pump');
+			expect(line).toHaveTextContent(/cavitat/i);
+			expect(line.textContent).toMatch(/[-−]2\.521\s?m\b/);
+			// The extreme and the first row of its sorted table are one pump, whichever it names; if
+			// it names the booster, it says why it has no ratio.
+			const { entry, pump } = smallestRatio();
+			if (pump === 'Booster pump') expect(entry).toHaveTextContent(/cavitat/i);
+			else expect(entry).toHaveTextContent('4');
+			await fireEvent.click(results().getByRole('button', { name: 'Pumps, smallest first' }));
+			await tick();
+			expect(columnHeading(/^NPSH margin ratio/)).toHaveAttribute('aria-sort', 'ascending');
+			expect(rowNames()[0]).toBe(pump);
+		} finally {
+			localStorage.removeItem(KEY);
+		}
+	});
+});
+
+describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits.md item 3)', () => {
+	const KEY = 'opensolve-pipe:results-fields:Results per pump';
+
+	it('“Pumps, smallest first” sorts Results per pump by NPSH margin ratio and shows it, though a stored choice hid it; the choice then stored as the box checked', async () => {
+		// Made-up results: a booster after the transfer pump, its NPSH margin ratio the smaller
+		// (NPSHa 8 m ÷ NPSHr 3 m against 12 m ÷ 3 m).
+		const base = pumpTransferExample();
+		const booster = createComponent('pump', base, { name: 'Booster pump' });
+		const project = insertComponentInConnection(base, 'L3', booster);
+		localStorage.setItem(KEY, '["npshMarginRatio"]');
 		try {
 			await solveWith(
 				pumpTransferSolved({
 					pumpResults: {
 						P1: pumpResult(),
-						[booster.id]: pumpResult({ npshAvailable: 8, npshMargin: 5 })
+						[booster.id]: pumpResult({ npshAvailable: 8, npshMargin: 5, npshMarginRatio: 8 / 3 })
 					}
 				}),
 				project
@@ -239,10 +363,12 @@ describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits
 			const pumpsTab = results().getByRole('tab', { name: 'Pumps' });
 			expect(pumpsTab).toHaveAttribute('aria-selected', 'true');
 			const table = within(results().getByRole('table', { name: 'Results per pump' }));
-			expect(table.getByRole('columnheader', { name: /^NPSH margin/ })).toHaveAttribute(
+			expect(table.getByRole('columnheader', { name: /^NPSH margin ratio/ })).toHaveAttribute(
 				'aria-sort',
 				'ascending'
 			);
+			// The absolute margin stays hidden by default: the link shows only the column it sorts by.
+			expect(table.queryByRole('columnheader', { name: /^NPSH margin m/ })).toBeNull();
 			expect(
 				table.getAllByRole('rowheader').map((h) => h.querySelector('span')?.textContent?.trim())
 			).toEqual(['Booster pump', 'Transfer pump']);
@@ -308,7 +434,7 @@ describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits
 		}
 	});
 
-	it('keeps NPSH margin hidden after “Pumps, smallest first”, through a new solve and the Pumps tab pressed again', async () => {
+	it('keeps NPSH margin ratio hidden after “Pumps, smallest first”, through a new solve and the Pumps tab pressed again', async () => {
 		const base = pumpTransferExample();
 		const booster = createComponent('pump', base, { name: 'Booster pump' });
 		const project = insertComponentInConnection(base, 'L3', booster);
@@ -318,26 +444,26 @@ describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits
 				pumpTransferSolved({
 					pumpResults: {
 						P1: pumpResult(),
-						[booster.id]: pumpResult({ npshAvailable: 8, npshMargin: 5 })
+						[booster.id]: pumpResult({ npshAvailable: 8, npshMargin: 5, npshMarginRatio: 8 / 3 })
 					}
 				})
 			);
 			await fireEvent.click(results().getByRole('button', { name: 'Pumps, smallest first' }));
 			await tick();
 			const table = () => within(results().getByRole('table', { name: 'Results per pump' }));
-			expect(table().getByRole('columnheader', { name: /^NPSH margin/ })).toHaveAttribute(
+			expect(table().getByRole('columnheader', { name: /^NPSH margin ratio/ })).toHaveAttribute(
 				'aria-sort',
 				'ascending'
 			);
-			await hideField('Results per pump', /^NPSH margin/);
-			expect(localStorage.getItem(KEY)).toBe('["npshMargin"]');
+			await hideField('Results per pump', /^NPSH margin ratio/);
+			expect(localStorage.getItem(KEY)).toBe('["npshMarginRatio"]');
 			await solveAgainThenOpen(solve, 'Pumps');
 			expect(results().getByRole('tab', { name: 'Pumps' })).toHaveAttribute(
 				'aria-selected',
 				'true'
 			);
-			expect(table().queryByRole('columnheader', { name: /^NPSH margin/ })).toBeNull();
-			expect(localStorage.getItem(KEY)).toBe('["npshMargin"]');
+			expect(table().queryByRole('columnheader', { name: /^NPSH margin ratio/ })).toBeNull();
+			expect(localStorage.getItem(KEY)).toBe('["npshMarginRatio"]');
 		} finally {
 			localStorage.removeItem(KEY);
 		}

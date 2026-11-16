@@ -633,6 +633,9 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			q('NPSHa', 'head'),
 			q('NPSHr', 'head'),
 			q('NPSH margin', 'head'),
+			// NPSHa ÷ NPSHr from the API, a pure number: the screen's fields (D17; the owner's nit
+			// 4, docs/proposals/pumps-nits.md item 4).
+			number('NPSH margin ratio'),
 			q('Suction absolute pressure', 'pressure', { absolute: true }),
 			text('Flags')
 		],
@@ -664,6 +667,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 					u.value(pump.npshAvailable, 'head'),
 					u.value(pump.npshRequired, 'head'),
 					u.value(pump.npshMargin, 'head'),
+					pump.npshMarginRatio,
 					u.value(pump.suctionAbsolutePressure, 'pressure'),
 					codes(flags)
 				];

@@ -348,7 +348,7 @@
 		</details>
 		<p class="hint">
 			Curves are fitted with a monotone piecewise cubic through the points. The NPSHr curve gives
-			the NPSH margin in the results.
+			the NPSH margin and its ratio in the results.
 		</p>
 	</div>
 {/if}

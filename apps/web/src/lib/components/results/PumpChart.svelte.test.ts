@@ -54,6 +54,11 @@ interface Recorded {
 }
 
 const charts = vi.hoisted(() => [] as { config: unknown; destroyed: boolean; draws?: number }[]);
+/**
+ * What a chart's first drawing does, run in its constructor as Chart.js with `animation: false`
+ * draws there (pump-chart-config.ts): by default nothing (none of the rings' labels placed).
+ */
+const drawing = vi.hoisted(() => ({ first: null as ((config: unknown) => void) | null }));
 /** The chart image's requests (the image code itself is tested in chart-image.test.ts). */
 const images = vi.hoisted(() => ({ requests: [] as unknown[] }));
 
@@ -66,6 +71,7 @@ vi.mock('./chart-setup', async () => ({
 		constructor(_context: unknown, config: unknown) {
 			this.record = { config, destroyed: false };
 			charts.push(this.record);
+			drawing.first?.(config);
 		}
 		destroy() {
 			this.record.destroyed = true;
@@ -85,6 +91,7 @@ const getContext = HTMLCanvasElement.prototype.getContext;
 beforeEach(() => {
 	charts.length = 0;
 	images.requests.length = 0;
+	drawing.first = null;
 });
 
 afterEach(() => {
@@ -99,6 +106,66 @@ function withCanvas() {
 }
 
 const READY: SystemCurveState = { status: 'ready', curve: systemCurveResponse() };
+
+// The other cases' rings labelled as a drawing of the chart places them (nit 5, rule 7; slice
+// 5c), for the tests that read the notes' "Not labelled on the chart" line: crowded in a tiny
+// plot, no ring's label has a place; apart in a roomy one, each has.
+type Box = { left: number; right: number; top: number; bottom: number };
+/**
+ * The caseLabels plugin of `config` run on a stand-in chart: the rings' centres `at(i)` for the
+ * i-th ring, every other point far outside the plot; text 6 px a character.
+ */
+const drawLabels = (
+	config: PumpChartConfig,
+	plot: Box,
+	at: (ring: number) => { x: number; y: number }
+) => {
+	const sets = config.data.datasets as unknown as { otherCase?: boolean; data: unknown[] }[];
+	const rings = sets.flatMap((d, i) => (d.otherCase ? [i] : []));
+	const noop = () => {};
+	const ctx = {
+		font: '',
+		fillStyle: '',
+		strokeStyle: '',
+		lineWidth: 1,
+		lineJoin: 'miter',
+		textAlign: 'start',
+		textBaseline: 'alphabetic',
+		save: noop,
+		restore: noop,
+		setLineDash: noop,
+		beginPath: noop,
+		moveTo: noop,
+		lineTo: noop,
+		roundRect: noop,
+		fill: noop,
+		stroke: noop,
+		strokeText: noop,
+		fillText: noop,
+		measureText: (text: string) => ({ width: text.length * 6 })
+	};
+	const chart = {
+		ctx,
+		chartArea: plot,
+		data: config.data,
+		isDatasetVisible: () => true,
+		getDatasetMeta: (i: number) => ({
+			data: sets[i]!.data.map(() =>
+				rings.includes(i) ? at(rings.indexOf(i)) : { x: 5000, y: 5000 }
+			)
+		})
+	};
+	config.plugins!.find((p) => p.id === 'caseLabels')!.afterDatasetsDraw!(
+		chart as never,
+		{} as never,
+		{} as never,
+		undefined as never
+	);
+};
+const TINY = { left: 90, right: 110, top: 190, bottom: 210 };
+const ROOMY = { left: 0, right: 1000, top: 0, bottom: 1000 };
+const crowded = (ring: number) => ({ x: 95 + 10 * ring, y: 200 });
+const apart = (ring: number) => ({ x: 100 + 300 * ring, y: 200 });
 
 /** The next animation frame's callbacks have run (jsdom draws one every 16 ms). */
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -2176,7 +2243,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		pane.remove();
 	});
 
-	it('keeps “Also show the other cases’ system curves” in place in the update that draws or takes away a curve’s table above it, not at the next frame, and in no other update (S8 second check LAYOUT-2; CI run 43438550309)', async () => {
+	it('keeps “Also show the other cases’ system curves” in place in the update that draws or takes away a curve’s table above it, not at the next frame, and in no update that moves nothing above it (S8 second check LAYOUT-2; CI run 43438550309; review RACE-3)', async () => {
 		withCanvas();
 		const observers = fakeResizeObserver();
 		// The pane that scrolls (the Results pane), as in the test above.
@@ -2246,12 +2313,13 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		// The frame's observers then find nothing to move.
 		observers.resize();
 		expect(top()).toBe(300);
-		// Summer's curve starts: the other cases anew, no table drawn or taken away. A scroll that is
-		// no step the hold watches (the browser's find in page) is left as the frame's observer
-		// would leave it: no table, nothing kept.
+		// Summer's curve starts: the other cases anew, nothing above the switch drawn or taken away
+		// (no table, no case's box, row or line). A scroll that is no step the hold watches (the
+		// browser's find in page) is left until an update moves something above the switch, as the
+		// frame's observer leaves it until the figure's size changes: nothing kept here.
 		scrolled += 40;
 		await update(['S1'], 1);
-		expect(scrolled, 'nothing kept with no table drawn or taken away').toBe(96);
+		expect(scrolled, 'nothing kept with nothing above the switch drawn or taken away').toBe(96);
 		// Summer answers: its table drawn, the switch kept where it was pressed.
 		await update(['S1', 'S2'], 2);
 		expect(systemTables()).toBe(2);
@@ -2280,6 +2348,273 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		view.unmount();
 		observers.restore();
 		pane.remove();
+	});
+
+	it('keeps “Also show the other cases’ system curves” in place in the update that adds or takes away a case’s box, its words, its off line or its row above it while held, as a Solve all run answers, with the data table shown or hidden (S8 second check LAYOUT-2; review RACE-1)', async () => {
+		withCanvas();
+		const observers = fakeResizeObserver();
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			tags: TAGS,
+			oncanceloverlay: vi.fn()
+		};
+		const winter = other('S1', 'Winter');
+		const summer = other('S2', 'Summer');
+		const spring = other('S3', 'Spring');
+		for (const shown of [true, false]) {
+			const where = `the data table ${shown ? 'shown' : 'hidden'}`;
+			// Each pass starts from no data table remembered (§9 S7).
+			localStorage.clear();
+			// The pane that scrolls (the Results pane), as in the tests above.
+			const pane = document.createElement('div');
+			pane.style.overflowY = 'auto';
+			document.body.append(pane);
+			sizeBox(pane, { clientHeight: 600, scrollHeight: 4000 });
+			let scrolled = 0;
+			Object.defineProperty(pane, 'scrollTop', {
+				configurable: true,
+				get: () => scrolled,
+				set: (v: number) => (scrolled = v)
+			});
+			// Solve all was pressed before the switch: Winter is out of date and Spring not solved yet,
+			// so not one of the other cases; their curves wait for the run (ProjectStore.loadSystemCurve).
+			let cases: OtherCaseInput[] = [{ ...winter, stale: true }, summer];
+			const onoverlay = (on: boolean) =>
+				void view.rerender({
+					...props,
+					others: cases,
+					overlayCurves: on,
+					overlayProgress: on ? { done: 0, total: cases.length } : null,
+					onoverlay
+				});
+			/**
+			 * The Pumps view's update as the run solves a case: the other cases anew, no curve yet; then
+			 * the chart drawn again with them, before the run's next answer.
+			 */
+			const update = async (next: OtherCaseInput[]) => {
+				cases = next;
+				const drawn = charts.length;
+				view.rerender({
+					...props,
+					others: next,
+					overlayCurves: true,
+					overlayProgress: { done: 0, total: next.length },
+					onoverlay
+				});
+				await vi.waitFor(() => expect(charts.length).toBeGreaterThan(drawn));
+			};
+			const drawnBefore = charts.length;
+			const view = render(PumpChart, {
+				target: pane,
+				props: { ...props, others: cases, overlayCurves: false, overlayProgress: null, onoverlay }
+			});
+			await vi.waitFor(() => expect(charts.length).toBeGreaterThan(drawnBefore));
+			if (shown) {
+				await fireEvent.click(
+					screen.getByRole('button', { name: 'Show data table of the pump chart' })
+				);
+			}
+			const figure = screen.getByRole('figure');
+			const list = within(figure).getByRole('group', { name: 'Cases on the chart' });
+			const box = within(figure).getByRole('checkbox', {
+				name: "Also show the other cases' system curves"
+			});
+			const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
+			const boxes = () => within(list).getAllByRole('checkbox').length;
+			const outOfDate = () => count(list.textContent ?? '', /\(out of date\)/g);
+			const offLines = () =>
+				count(list.textContent ?? '', /\(off in this case: no operating point\)/g);
+			const rows = () => figure.querySelectorAll('[data-pump-data] tbody tr').length;
+			// The switch's top as a browser lays it out: lower by each case's box above it (44 px), each
+			// name "(out of date)" wraps (20 px), each off line under a box (20 px) and each row of
+			// "Operating points by case" (33 px), higher by what the pane scrolled.
+			box.getBoundingClientRect = () =>
+				({
+					top: 300 + 44 * boxes() + 20 * outOfDate() + 20 * offLines() + 33 * rows() - scrolled
+				}) as DOMRect;
+			const top = () => box.getBoundingClientRect().top;
+			const pressed = top();
+			const watchedBefore = observers.watched();
+			const drawn = charts.length;
+			await fireEvent.click(box);
+			expect(box).toBeChecked();
+			await vi.waitFor(() => expect(observers.watched()).toBeGreaterThan(watchedBefore));
+			await vi.waitFor(() => expect(charts.length).toBeGreaterThan(drawn));
+			expect(top()).toBe(pressed);
+			// Each change the run makes above the switch, no table drawn or taken away: kept in its own
+			// update, before any ResizeObserver runs (none is run here). Spring solved for the first
+			// time joins the other cases: its box (and, shown, its row).
+			await update([{ ...winter, stale: true }, summer, spring]);
+			expect(boxes()).toBe(3);
+			expect(top(), `in place as a case joins, ${where}`).toBe(pressed);
+			// Winter solved again: up to date, its name shorter.
+			await update([winter, summer, spring]);
+			expect(outOfDate()).toBe(0);
+			expect(top(), `in place as a case is brought up to date, ${where}`).toBe(pressed);
+			// Summer's new solve failed: by Compare's rule it is no longer one of the other cases.
+			await update([winter, spring]);
+			expect(boxes()).toBe(2);
+			expect(top(), `in place as a case leaves, ${where}`).toBe(pressed);
+			// Spring solved again with the pump off: the off line under its box.
+			await update([winter, other('S3', 'Spring', offPump)]);
+			expect(offLines()).toBe(1);
+			expect(top(), `in place as the pump goes off in a case, ${where}`).toBe(pressed);
+			// The other cases anew with nothing above the switch changed: a scroll made by no step the
+			// hold watches (the browser's find in page) is left, nothing kept (review RACE-3).
+			const at = (scrolled += 40);
+			await update([winter, other('S3', 'Spring', offPump)]);
+			expect(scrolled, `nothing kept with nothing above the switch changed, ${where}`).toBe(at);
+			window.dispatchEvent(new Event('pointerdown'));
+			expect(observers.watched()).toBe(watchedBefore);
+			view.unmount();
+			pane.remove();
+		}
+		observers.restore();
+	});
+
+	it('keeps the switch in place as a drawing of the chart brings or takes away the “Not labelled on the chart” line above it while held, and keeps the line from an answer to the drawing it brings, so the last answer leaves the switch where it was pressed too (S8 second check LAYOUT-2; review RACE-2)', async () => {
+		withCanvas();
+		const observers = fakeResizeObserver();
+		// Chart.js with `animation: false` draws in its constructor, which places the rings' labels:
+		// crowded, no ring's label has a place and the notes name each ring; apart, each has one.
+		let crowd = false;
+		drawing.first = (config) =>
+			drawLabels(config as PumpChartConfig, crowd ? TINY : ROOMY, crowd ? crowded : apart);
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03] as [number, number],
+			system: READY,
+			tags: TAGS,
+			oncanceloverlay: vi.fn()
+		};
+		const others = [
+			other('S1', 'Winter', { operatingFlow: 0.012, operatingHead: 25 }),
+			other('S2', 'Summer', { operatingFlow: 0.015, operatingHead: 22 }),
+			other('S3', 'Spring', { operatingFlow: 0.018, operatingHead: 20 }),
+			other('S4', 'Autumn', { operatingFlow: 0.021, operatingHead: 18 })
+		];
+		for (const shown of [true, false]) {
+			const where = `the data table ${shown ? 'shown' : 'hidden'}`;
+			localStorage.clear();
+			crowd = false;
+			const pane = document.createElement('div');
+			pane.style.overflowY = 'auto';
+			document.body.append(pane);
+			sizeBox(pane, { clientHeight: 600, scrollHeight: 4000 });
+			let scrolled = 0;
+			Object.defineProperty(pane, 'scrollTop', {
+				configurable: true,
+				get: () => scrolled,
+				set: (v: number) => (scrolled = v)
+			});
+			const onoverlay = (on: boolean) =>
+				void view.rerender({
+					...props,
+					others,
+					overlayCurves: on,
+					overlayProgress: on ? { done: 0, total: 4 } : null,
+					onoverlay
+				});
+			/** The Pumps view's update: the other cases anew, those named with their curve. */
+			const update = (answered: string[]) =>
+				view.rerender({
+					...props,
+					others: others.map((o) =>
+						answered.includes(o.key) ? { ...o, system: systemCurveResponse() } : { ...o }
+					),
+					overlayCurves: true,
+					overlayProgress: answered.length < 4 ? { done: answered.length, total: 4 } : null,
+					onoverlay
+				});
+			/** The chart drawn again after `drawnBefore` drawings, and what its drawing placed shown. */
+			const drawnAgain = async (drawnBefore: number) => {
+				await vi.waitFor(() => expect(charts.length).toBeGreaterThan(drawnBefore));
+				await tick();
+			};
+			const drawnBefore = charts.length;
+			const view = render(PumpChart, {
+				target: pane,
+				props: { ...props, others, overlayCurves: false, overlayProgress: null, onoverlay }
+			});
+			await drawnAgain(drawnBefore);
+			if (shown) {
+				await fireEvent.click(
+					screen.getByRole('button', { name: 'Show data table of the pump chart' })
+				);
+			}
+			const figure = screen.getByRole('figure');
+			const notes = figure.querySelector('[data-pump-notes]') as HTMLElement;
+			const noted = () => within(notes).queryByText(/^Not labelled on the chart: /) !== null;
+			const tables = () => figure.querySelectorAll('[data-curve-table^="system-"]').length;
+			const box = within(figure).getByRole('checkbox', {
+				name: "Also show the other cases' system curves"
+			});
+			// The switch's top as a browser lays it out: lower by the line naming the rings left out
+			// (20 px), by each system curve's table (56 px) and by what else grows above it, higher by
+			// what the pane scrolled.
+			let grown = 0;
+			box.getBoundingClientRect = () =>
+				({ top: 300 + 20 * Number(noted()) + 56 * tables() + grown - scrolled }) as DOMRect;
+			const top = () => box.getBoundingClientRect().top;
+			expect(noted()).toBe(false);
+			const pressed = top();
+			const watchedBefore = observers.watched();
+			let drawn = charts.length;
+			await fireEvent.click(box);
+			expect(box).toBeChecked();
+			await vi.waitFor(() => expect(observers.watched()).toBeGreaterThan(watchedBefore));
+			await drawnAgain(drawn);
+			expect(top()).toBe(pressed);
+			// Winter answers, its ring's label then left out with the others' (crowded): the line comes
+			// with the drawing, after the update, and the switch is kept as it comes, no observer run.
+			crowd = true;
+			drawn = charts.length;
+			await update(['S1']);
+			expect(top(), `in place as Winter answers, ${where}`).toBe(pressed);
+			await drawnAgain(drawn);
+			expect(noted()).toBe(true);
+			expect(top(), `in place as a drawing brings the line, ${where}`).toBe(pressed);
+			// Summer answers, every ring labelled in the next drawing: the line kept until that drawing
+			// takes it away, and the switch kept as it goes.
+			crowd = false;
+			drawn = charts.length;
+			await update(['S1', 'S2']);
+			expect(noted(), `the line kept until the next drawing, ${where}`).toBe(true);
+			expect(top(), `in place as Summer answers, ${where}`).toBe(pressed);
+			await drawnAgain(drawn);
+			expect(noted()).toBe(false);
+			expect(top(), `in place as a drawing takes the line away, ${where}`).toBe(pressed);
+			// Spring answers, crowded again: the line comes back with the drawing.
+			crowd = true;
+			drawn = charts.length;
+			await update(['S1', 'S2', 'S3']);
+			await drawnAgain(drawn);
+			expect(noted()).toBe(true);
+			expect(top(), `in place as a drawing brings the line back, ${where}`).toBe(pressed);
+			// Autumn answers, the last: the hold ends in that update, the line kept through it and
+			// through the drawing it brings, which leaves out the same rings.
+			drawn = charts.length;
+			await update(['S1', 'S2', 'S3', 'S4']);
+			expect(noted(), `the line kept as the last curve answers, ${where}`).toBe(true);
+			expect(top(), `in place as the last curve answers, ${where}`).toBe(pressed);
+			await drawnAgain(drawn);
+			expect(noted()).toBe(true);
+			expect(top(), `in place once the last answer is drawn, ${where}`).toBe(pressed);
+			// Let go: a change of the figure's size after it scrolls nothing (with the data table
+			// shown, its tables' boxes are watched too, so the hold is told by what it does).
+			const at = scrolled;
+			grown += 10;
+			observers.resize(figure);
+			expect(scrolled, `let go once every curve has answered, ${where}`).toBe(at);
+			view.unmount();
+			pane.remove();
+		}
+		observers.restore();
 	});
 
 	it('draws the other cases’ line empty before it speaks, when mounted with their curves being computed (F17)', async () => {
@@ -3053,62 +3388,6 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 // left out.
 describe('a ring whose label has no place, named in the notes (nit 5, rule 7; slice 5c)', () => {
 	afterEach(() => localStorage.clear());
-	type Box = { left: number; right: number; top: number; bottom: number };
-	/**
-	 * The caseLabels plugin of `config` run on a stand-in chart: the rings' centres `at(i)` for the
-	 * i-th ring, every other point far outside the plot; text 6 px a character.
-	 */
-	const drawLabels = (
-		config: PumpChartConfig,
-		plot: Box,
-		at: (ring: number) => { x: number; y: number }
-	) => {
-		const sets = config.data.datasets as unknown as { otherCase?: boolean; data: unknown[] }[];
-		const rings = sets.flatMap((d, i) => (d.otherCase ? [i] : []));
-		const noop = () => {};
-		const ctx = {
-			font: '',
-			fillStyle: '',
-			strokeStyle: '',
-			lineWidth: 1,
-			lineJoin: 'miter',
-			textAlign: 'start',
-			textBaseline: 'alphabetic',
-			save: noop,
-			restore: noop,
-			setLineDash: noop,
-			beginPath: noop,
-			moveTo: noop,
-			lineTo: noop,
-			roundRect: noop,
-			fill: noop,
-			stroke: noop,
-			strokeText: noop,
-			fillText: noop,
-			measureText: (text: string) => ({ width: text.length * 6 })
-		};
-		const chart = {
-			ctx,
-			chartArea: plot,
-			data: config.data,
-			isDatasetVisible: () => true,
-			getDatasetMeta: (i: number) => ({
-				data: sets[i]!.data.map(() =>
-					rings.includes(i) ? at(rings.indexOf(i)) : { x: 5000, y: 5000 }
-				)
-			})
-		};
-		config.plugins!.find((p) => p.id === 'caseLabels')!.afterDatasetsDraw!(
-			chart as never,
-			{} as never,
-			{} as never,
-			undefined as never
-		);
-	};
-	const TINY = { left: 90, right: 110, top: 190, bottom: 210 };
-	const ROOMY = { left: 0, right: 1000, top: 0, bottom: 1000 };
-	const crowded = (ring: number) => ({ x: 95 + 10 * ring, y: 200 });
-	const apart = (ring: number) => ({ x: 100 + 300 * ring, y: 200 });
 	const other = (key: string, name: string, flow: number, head: number) =>
 		({
 			key,

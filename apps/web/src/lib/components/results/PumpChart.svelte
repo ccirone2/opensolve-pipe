@@ -227,9 +227,10 @@
 	 * place (scroll anchoring) it moved nothing, and nothing scrolls. With the data table shown,
 	 * each curve the press asked for adds its table above the switch as it answers (§5.3 The data
 	 * region), so while they are computed the switch is held (S8 second check LAYOUT-2): the
-	 * update that draws or takes away a table scrolls it back (`tablesAbove` below), and so does
-	 * each change of the figure's size before it is painted, until the last curve has answered or
-	 * the user takes a step of their own (then a press lands where they aim).
+	 * update that changes what is drawn above it scrolls it back (`aboveSwitch` below: a table, a
+	 * case's box, its words, its off line or its row, the note naming the rings left out), and so
+	 * does each change of the figure's size before it is painted, until the last curve has answered
+	 * or the user takes a step of their own (then a press lands where they aim).
 	 */
 	async function switchOverlay(input: HTMLInputElement) {
 		const before = input.getBoundingClientRect().top;
@@ -256,7 +257,9 @@
 		held = { keep, end };
 	}
 	// The last curve answered (or the rest cancelled): its table is drawn, so keep the switch in
-	// place once more and let it go.
+	// place once more and let it go. The notes' line naming the rings left out stays as it was
+	// until the chart is drawn again (`notLabelled`); a drawing that then leaves out other rings
+	// (the last curve rescaling the axes) changes that line after the hold (review RACE-2, left).
 	$effect(() => {
 		if (overlayProgress) return;
 		untrack(() => {
@@ -269,20 +272,38 @@
 	/** The other cases with a system curve: each has its table last in the data region (§5.3). */
 	const othersWithCurves = $derived(otherData.filter((o) => o.system));
 	/**
-	 * The data region as it stands above the switch: shown or not, and the cases whose system-curve
-	 * table it holds. One string, so it changes only as the region or a table comes or goes, not at
-	 * every state of a case's curve.
+	 * What is drawn above the switch that the other cases can change while it is held, as one
+	 * string, so it changes only as that layout does, not at every state of a case's curve: each
+	 * listed case's box with its words (its name, "(out of date)") and its off line, the line naming
+	 * the cases that take no slot, the notes' line naming the rings left out (`notLabelled`, below),
+	 * and, with the data region shown, each case's row in "Operating points by case" and each
+	 * system curve's table (review RACE-1, RACE-2). A Solve all run that overlaps the hold adds,
+	 * removes or changes cases as it answers, with no table drawn (ProjectStore.loadSystemCurve
+	 * waits for it).
 	 */
-	const tablesAbove = $derived.by(() =>
-		tableShown ? ['', ...othersWithCurves.map((o) => o.key)].join('\u0000') : null
+	const aboveSwitch = $derived.by(() =>
+		[
+			...cases.listed.map((o) => [o.key, o.name, o.stale, o.result.status].join('\u0001')),
+			offNote ?? '',
+			notLabelled ?? '',
+			...(tableShown
+				? [
+						'\u0002',
+						...otherData.map((o) => o.key),
+						'\u0002',
+						...othersWithCurves.map((o) => o.key)
+					]
+				: [])
+		].join('\u0000')
 	);
-	// Each curve that answers draws its table above the switch in the update that brings it: keep
-	// the switch in place in that same update (S8 second check LAYOUT-2). A browser runs the
+	// What is drawn above the switch changes in an update: a curve that answers draws its table, a
+	// case the run solves comes, goes or changes, a drawing of the chart names other rings. Keep the
+	// switch in place in that same update (S8 second check LAYOUT-2). A browser runs the
 	// ResizeObserver above only at its next frame, and a press or a read in a task before it found
-	// the switch 56 px lower (CI run 43438550309). Only a table drawn or taken away keeps it here,
-	// as the frame's observer would; no hold, nothing kept.
+	// the switch 56 px lower (CI run 43438550309). An update that moves nothing above it keeps
+	// nothing (review RACE-3); no hold, nothing kept.
 	$effect(() => {
-		void tablesAbove;
+		void aboveSwitch;
 		untrack(() => held?.keep());
 	});
 
@@ -725,12 +746,14 @@
 			JSON.stringify(ringsLeftOut.points) === JSON.stringify(placed.leftOut);
 		if (!same) ringsLeftOut = { data: drawnData, cases: drawnCases, points: placed.leftOut };
 	}
-	/** "Not labelled on the chart: case 2, Winter, its ring at …" for this drawing, or null. */
-	const notLabelled = $derived(
-		ringsLeftOut.data === data && ringsLeftOut.cases === otherData
-			? notLabelledNote(ringsLeftOut.points)
-			: null
-	);
+	/**
+	 * "Not labelled on the chart: case 2, Winter, its ring at …" for the chart's last drawing, or
+	 * null: kept from a change of the cases until the drawing it brings replaces it, so the line
+	 * above "Also show the other cases' system curves" is not taken away and drawn again at every
+	 * answer, the last one's too, which ends the switch's hold (review RACE-2). None while no chart
+	 * can be drawn.
+	 */
+	const notLabelled = $derived(cannotDraw || !canvas ? null : notLabelledNote(ringsLeftOut.points));
 
 	/** The case shown's other cases' system curves, or this pump's, are being computed. */
 	const curvesLoading = $derived(loading || !!overlayProgress);

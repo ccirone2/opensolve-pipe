@@ -45,6 +45,7 @@ import {
 	resultsView,
 	setNumber,
 	showPane,
+	sig4,
 	solve,
 	solveAll as pressSolveAll,
 	solveAllButton,
@@ -7800,6 +7801,18 @@ function readPumpTable(wrap: Element) {
 	};
 }
 
+/**
+ * Results per pump's list by default on a phone at 390×844, in px (pumps-nits.md item 4,
+ * Budgets): the plan's 731 for the condenser (989 with every field), tightened to what was
+ * measured with the ratio shown and the margin hidden, 725, the height item 3 left; the off and
+ * controlled fixtures as item 3 left them, 201 and 245.
+ */
+const PUMP_LIST_390: Readonly<Record<string, number>> = {
+	off: 201,
+	controlled: 245,
+	condenser: 725
+};
+
 test('Nits items 3 and 4: Results per pump opens without Hydraulic power, NPSHa, NPSHr and NPSH margin, with NPSH margin ratio, Fields counting them; a box shows one, remembered after a reload; Default fields hides it again; the table narrower and a phone’s list shorter, at 1280, 390 and 320 px (pumps-nits.md items 3 and 4)', async ({
 	page,
 	isMobile
@@ -7868,6 +7881,11 @@ test('Nits items 3 and 4: Results per pump opens without Hydraulic power, NPSHa,
 			if (isMobile) {
 				// A phone's list: shorter by the four fields' lines; never sideways.
 				soft(shown.height, `the list's height by default, ${where}`).toBeLessThan(every.height);
+				if (sizeOf(page) === '390x844') {
+					soft(shown.height, `the list's budget by default, ${where}`).toBeLessThanOrEqual(
+						PUMP_LIST_390[view]!
+					);
+				}
 				soft(shown.box.scroll, `the list's box, ${where}`).toBe(shown.box.client);
 			} else {
 				soft(shown.width, `the table's width by default, ${where}`).toBeLessThan(every.width);
@@ -7994,6 +8012,221 @@ test('Nits items 3 and 4: Results per pump opens without Hydraulic power, NPSHa,
 				localStorage.getItem('opensolve-pipe:results-fields:Results per pump')
 			)
 		).toBeNull();
+	}
+	await page.setViewportSize(viewport);
+});
+
+// ---- Nit 4: a pump that cavitates with no NPSH margin ratio (pumps-nits.md item 4) -------------
+
+/**
+ * The pump transfer example made to cavitate with no NPSH margin ratio, from made-up test inputs
+ * (apps/api tests/unit/test_npsh_margin_ratio.py's VACUUM): its suction tank 5 m below the pump,
+ * 0.5 m of water in it under 80 kPa of vacuum (gauge), so NPSHa is below zero; its discharge tank
+ * at the pump's level, so the pump still runs; and NPSHr 0 at every flow, so the API gives no ratio
+ * (PumpResult.npshMarginRatio needs NPSHr > 0) while the margin, NPSHa − 0, is negative and
+ * CAVITATION is raised: a null ratio is no sign of a safe margin (the API review's A1/B1). Its one
+ * scenario opens the suction tank to the air: NPSHa above zero and NPSHr still 0, so no ratio and
+ * no cavitation, and nothing to say.
+ */
+function cavitatingTransfer(): Project {
+	const project = pumpTransferExample();
+	for (const c of project.components) {
+		if (c.type !== 'reservoir') continue;
+		if (c.id === 'R1') {
+			Object.assign(c, { elevation: -5, liquidLevel: 0.5, surfacePressure: -80e3 });
+		} else {
+			c.elevation = 0;
+		}
+	}
+	const curve = project.pumpLibrary[0]!;
+	curve.npshrCurve = curve.npshrCurve!.map((point) => ({ ...point, npshr: 0 }));
+	project.scenarios = [
+		{
+			id: 'S1',
+			name: 'Suction tank open to the air',
+			overrides: [{ kind: 'component', componentId: 'R1', field: 'surfacePressure', value: 0 }]
+		}
+	];
+	return project;
+}
+
+/** A cell's or a value's lines as drawn, each squashed, empty ones left out. */
+const linesOf = (text: string) =>
+	text
+		.split('\n')
+		.map((line) => line.replace(/\s+/g, ' ').trim())
+		.filter(Boolean);
+
+/** Text with its runs of white space as one space, trimmed. */
+const squashText = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+/** `text` as a regular expression that matches it literally. */
+const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) says so, with its NPSH margin, wherever the ratio stands in for the margin: Results per pump, the Summary, Build’s result strip and Compare, on screen and axe clean at 1280, 390 and 320 px (pumps-nits.md item 4; the API review’s A1/B1)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	const counter = solveCounter(page);
+	await open(page, cavitatingTransfer());
+	const solved = await solveConverged(page);
+	// The API's answer: running, NPSHr 0, the margin (NPSHa − 0) below zero, no ratio, CAVITATION.
+	const p1 = solved.pumpResults.P1!;
+	expect(p1.status).toBe('running');
+	expect(p1.npshRequired).toBe(0);
+	expect(p1.npshMargin).toBe(p1.npshAvailable);
+	expect(p1.npshMargin!).toBeLessThan(0);
+	expect(p1.npshMarginRatio).toBeNull();
+	expect(solved.flags.filter((f) => f.code === 'CAVITATION').map((f) => f.componentId)).toEqual([
+		'P1'
+	]);
+	// The words, with the margin in m as the API gives it to 4 significant figures (between −10 and
+	// −1 m it has two decimals or more, so none is padded).
+	expect(p1.npshMargin!).toBeGreaterThan(-10);
+	expect(p1.npshMargin!).toBeLessThan(-1);
+	const cue = `Cavitates (NPSHr 0): NPSH margin ${sig4(p1.npshMargin!)} m`;
+	// The scenario solved too: open to the air, no ratio and a margin of zero or more.
+	const answered = page.waitForResponse(
+		(r) =>
+			r.url().endsWith('/api/v1/solve') &&
+			(r.request().postDataJSON() as { scenarioId?: string }).scenarioId === 'S1'
+	);
+	await solveAll(page, counter, 1);
+	const open1 = (await (await answered).json()).solvedState.pumpResults.P1;
+	expect(open1.npshRequired).toBe(0);
+	expect(open1.npshMargin).toBeGreaterThanOrEqual(0);
+	expect(open1.npshMarginRatio).toBeNull();
+	const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+	const axeResults = async (where: string) => {
+		const scan = await new AxeBuilder({ page })
+			.include('section[aria-label="Results"]')
+			.withTags(AXE_TAGS)
+			.analyze();
+		expect
+			.soft(
+				scan.violations.map((v) => `${v.id} (${v.nodes.length})`),
+				`axe, ${where}`
+			)
+			.toEqual([]);
+	};
+
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		const where = `at ${sizeOf(page)}`;
+
+		// Results per pump: two lines, "—" (no value, so the row sorts with those that have none)
+		// and then the words; drawn on a phone too, where only a bare "—" is left out of a row.
+		const tab = await pumpsTab(page);
+		await settle(page, 1000);
+		const cell = tab
+			.getByRole('table', { name: 'Results per pump' })
+			.locator('td[data-label="NPSH margin ratio"]');
+		await expect(cell).toHaveCount(1);
+		expect(linesOf(await cell.innerText()), `the ratio's cell, ${where}`).toEqual(['—', cue]);
+		expect(await seenBox(cell), `the ratio's cell on screen, ${where}`).toBe(true);
+		expect(
+			await seenLine(cell.getByText(cue, { exact: true })),
+			`the words on screen, ${where}`
+		).toBe(true);
+		await noSidewaysScroll(page, `Results per pump, ${where}`);
+		await axeClean(page, `the cavitating pump, ${where}`);
+
+		// The Summary: the words in the ratio's place in the pump's line, and no smallest ratio,
+		// since no pump has one.
+		const summary = await resultsView(page, 'Summary');
+		const line = summary.getByRole('region', { name: 'Pumps' }).getByRole('listitem');
+		await expect(line).toHaveCount(1);
+		expect(squashText(await line.innerText()), `the Summary's line, ${where}`).toMatch(
+			new RegExp(`^Transfer pump [\\d.]+ L/s at [\\d.]+ m · ${literal(cue)}$`)
+		);
+		expect(await seenLine(line), `the Summary's line on screen, ${where}`).toBe(true);
+		await expect(
+			summary
+				.getByRole('region', { name: 'Extremes' })
+				.getByRole('term')
+				.filter({ hasText: /NPSH/ })
+		).toHaveCount(0);
+		await noSidewaysScroll(page, `the Summary, ${where}`);
+		await axeResults(`the Summary, ${where}`);
+
+		// Build's result strip: the pump's NPSH reading, the same two lines as its cell.
+		await showPane(page, 'Build');
+		await buildPane(page).getByRole('button', { name: 'Jump to a component' }).click();
+		await page
+			.getByRole('dialog', { name: 'Jump to a component' })
+			.getByRole('button', { name: /^Transfer pump/ })
+			.click();
+		await expect(buildPane(page).getByRole('heading', { level: 2 })).toHaveText('Transfer pump');
+		const strip = buildPane(page)
+			.getByRole('group', { name: /^Last solve/ })
+			.first();
+		const reading = strip
+			.locator('dl > div')
+			.filter({ has: page.locator('dt', { hasText: /^NPSH margin ratio$/ }) });
+		await expect(reading).toHaveCount(1);
+		expect(linesOf(await reading.locator('dd').innerText()), `the strip, ${where}`).toEqual([
+			'—',
+			cue
+		]);
+		expect(
+			await seenLine(reading.getByText(cue, { exact: true })),
+			`the strip's words on screen, ${where}`
+		).toBe(true);
+		await expect(strip.locator('dt').filter({ hasText: /^NPSH margin\s\(m\)$/ })).toHaveCount(0);
+		expect(
+			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+			`the page's width, Build, ${where}`
+		).toBe(true);
+
+		// Compare: the ratio's default row, the base case's cell "—" with the words as its note and
+		// its invalid mark; the scenario's a bare "—", since its pump does not cavitate.
+		await showPane(page, 'Results');
+		await resultsPane(page).getByRole('tab', { name: 'Compare cases' }).click();
+		const compare = resultsPane(page).getByRole('region', { name: 'Compare cases' });
+		const cells =
+			size.width >= 1024
+				? compare
+						.getByRole('table', { name: 'Results by case' })
+						.getByRole('row')
+						.filter({
+							has: page.getByRole('rowheader', {
+								name: 'Transfer pump · NPSH margin ratio',
+								exact: true
+							})
+						})
+						.getByRole('cell')
+				: compare
+						.getByRole('region', { name: 'Transfer pump · NPSH margin ratio', exact: true })
+						.getByRole('definition');
+		await expect(cells).toHaveCount(2);
+		// Its invalid mark: an icon and, for screen readers, "physically invalid:".
+		await expect(cells.nth(0)).toContainText('physically invalid:');
+		expect(
+			linesOf(await cells.nth(0).innerText())
+				.map((l) => l.replace(/^physically invalid:\s*/, ''))
+				.filter(Boolean),
+			`Compare's base case, ${where}`
+		).toEqual(['—', cue]);
+		expect(
+			await seenLine(cells.nth(0).getByText(cue, { exact: true })),
+			`Compare's words on screen, ${where}`
+		).toBe(true);
+		expect(linesOf(await cells.nth(1).innerText()), `Compare's scenario, ${where}`).toEqual(['—']);
+		// Compare has no results view row, so no Results pane scroller of its own: the page's width.
+		expect(
+			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+			`the page's width, Compare, ${where}`
+		).toBe(true);
+		await axeResults(`Compare, ${where}`);
+		// Back to the case's results.
+		await resultsPane(page)
+			.getByRole('tablist', { name: 'Results of' })
+			.getByRole('tab')
+			.first()
+			.click();
 	}
 	await page.setViewportSize(viewport);
 });

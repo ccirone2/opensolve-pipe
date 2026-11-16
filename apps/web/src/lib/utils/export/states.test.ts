@@ -35,7 +35,7 @@ import { refusalWords, wordsText } from '../pump-groups';
 import groupFixture from '../__fixtures__/pump-groups-input.json';
 import { Formatter } from '../results';
 import { withScenarios } from '../scenarios';
-import { displayUnit, fromSI } from '../units';
+import { displayUnit, fromSI, IMPERIAL_UNITS, SI_UNITS } from '../units';
 import { writeCsvZip } from './csv';
 import { fixtureInput, readSheet, sheetIds } from './export-testing.testing';
 import { exportInput, nameStamp, type PageFacts } from './input';
@@ -592,6 +592,118 @@ describe('Compare cases reads a connection on it as it is now (rows name its end
 		const reason = "its connection's pipes changed since that case was solved";
 		expect(readSheet(bundle, 'about').rows).toContainEqual(['Not in this file', what, reason]);
 		expect(bundle.omitted).toContainEqual({ what, reason });
+	});
+});
+
+describe('Compare cases: a pump that cavitates with no NPSH margin ratio (docs/proposals/pumps-nits.md item 4; review E-0-2, E-1-2)', () => {
+	// Made-up results (testing/results.ts). The base case's pump: NPSHr 0 at its flow and NPSHa
+	// −2.521 m, so its margin is −2.521 m, it has no ratio and CAVITATION is raised (corpus
+	// unit_rich1090 PU2). Winter's: a ratio, 6 ÷ 3.7. Peak's: NPSHr 0 and NPSHa 5 m, no ratio and
+	// no cavitation, nothing to say. Compare's default row for the pump is its ratio (the owner's
+	// Q3, "Ratio everywhere"): the base case's cell is empty, and an empty cell there is no sign of
+	// a safe value, so About says why, in the screen's words (compareCells' note).
+	const cavitating = pumpResult({
+		npshAvailable: -2.521,
+		npshRequired: 0,
+		npshMargin: -2.521,
+		npshMarginRatio: null
+	});
+	const answer: Answer = (id) =>
+		id === null
+			? converged({
+					pumpResults: { P1: cavitating },
+					flags: [
+						flag({
+							code: 'CAVITATION',
+							severity: 'invalid',
+							message: 'made-up',
+							componentId: 'P1'
+						})
+					]
+				})
+			: id === 'S1'
+				? converged({
+						pumpResults: {
+							P1: pumpResult({
+								npshAvailable: 6,
+								npshRequired: 3.7,
+								npshMargin: 2.3,
+								npshMarginRatio: 6 / 3.7
+							})
+						}
+					})
+				: converged({
+						pumpResults: {
+							P1: pumpResult({
+								npshAvailable: 5,
+								npshRequired: 0,
+								npshMargin: 5,
+								npshMarginRatio: null
+							})
+						}
+					});
+	const ROW = 'Transfer pump · NPSH margin ratio';
+	/** The two scenarios, shown in US customary units. */
+	const imperial = () => {
+		const p = twoScenarios();
+		p.settings.units = { ...IMPERIAL_UNITS };
+		return p;
+	};
+
+	for (const [units, head] of [
+		['display', '-8.271 ft'],
+		['si', '-2.521 m']
+	] as const) {
+		it(`says in About why the base case's ratio cell is empty, in the file's units (${units}: ${head})`, async () => {
+			const ws = workspace(imperial(), answer);
+			await ws.store.solveAll();
+			// The defaults: the ratio's row, since the base case has a margin.
+			expect(ws.compareRows).toBeNull();
+			const bundle = bundleOf(ws, { ...ALL, units });
+			const t = readSheet(bundle, 'compare-cases');
+			const row = t.rows.find((r) => t.get(r, 'Row') === ROW)!;
+			expect(row).toBeDefined();
+			expect(t.get(row, 'Base case')).toBeNull();
+			expect(t.get(row, 'Winter (S1)')).toBe(6 / 3.7);
+			expect(t.get(row, 'Peak (S2)')).toBeNull();
+			// The screen's words for that cell, in the file's units: −2.521 m, or ÷ 0.3048 m/ft.
+			expect(String(Number((-2.521 / 0.3048).toPrecision(4)))).toBe('-8.271');
+			const prefs = units === 'si' ? SI_UNITS : ws.displayUnits;
+			expect(prefs.head).toBe(units === 'si' ? 'm' : 'ft');
+			const columns: CompareColumn[] = ws.store.caseIds.map((c) => {
+				const solved = ws.store.resultsFor(c).response!.solvedState;
+				return { solved, converged: true, sent: null, inputs: null };
+			});
+			const cells = compareCells(
+				{ quantity: 'pumpNpshMarginRatio', elementId: 'P1' },
+				columns,
+				ws.labelsProject,
+				prefs
+			);
+			expect(new Formatter(prefs).value(-2.521, 'head')).toBe(head);
+			expect(cells[0]!.note).toBe(`Cavitates (NPSHr 0): NPSH margin ${head}`);
+			expect(cells[1]!.note).toBeUndefined();
+			expect(cells[2]!.note).toBeUndefined();
+			const about = readSheet(bundle, 'about').rows.filter((r) =>
+				String(r[1]).startsWith(`Compare cases: ${ROW}`)
+			);
+			// One row, for the base case only: Winter has a ratio and Peak does not cavitate.
+			expect(about).toEqual([
+				['Export', `Compare cases: ${ROW} (Base case)`, `No value: ${cells[0]!.note}`]
+			]);
+			// Nothing is left out: the API gives no value.
+			expect(bundle.omitted.map((o) => o.what).join(' ')).not.toContain(ROW);
+		});
+	}
+
+	it('says nothing where every case has a ratio, or none cavitates', async () => {
+		const ws = workspace(twoScenarios(), (id) =>
+			id === null ? converged() : answer(id === 'S1' ? 'S1' : 'S2', pumpTransferExample())
+		);
+		await ws.store.solveAll();
+		const about = readSheet(bundleOf(ws, ALL), 'about').rows;
+		expect(about.filter((r) => String(r[1]).startsWith('Compare cases: '))).toEqual([]);
+		expect(about.flat().join(' ')).not.toMatch(/cavitat/i);
 	});
 });
 

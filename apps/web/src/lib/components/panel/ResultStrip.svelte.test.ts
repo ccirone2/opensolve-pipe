@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TopologyError } from '$lib/api/client';
 import type { Component, Flag, PipeConnection, Project, SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
-import { flag, link, pumpTransferSolved, response } from '$lib/testing/results';
+import { flag, link, pumpResult, pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { reversePiping, updateComponent } from '$lib/utils/edit';
@@ -61,13 +61,43 @@ describe('results in context', () => {
 		ws.pane = 'build';
 		await tick();
 		const [strip] = strips();
+		// A pump's NPSH reading is its margin ratio, NPSHa ÷ NPSHr, with no unit (the owner's Q3,
+		// 2026-11-12: "Ratio everywhere"; docs/proposals/pumps-nits.md item 4).
 		expect(values(strip!)).toEqual([
 			'Status: Running',
 			'Flow (L/s): 20',
 			'Head (m): 22',
-			'NPSH margin (m): 9'
+			'NPSH margin ratio: 4'
 		]);
 		expect(within(strip!).queryByText(/Out of date/)).toBeNull();
+	});
+
+	it('names the cavitation and the margin of a pump with no NPSH margin ratio whose margin is negative, never leaving it out (docs/proposals/pumps-nits.md item 4)', async () => {
+		// Made-up: NPSHr 0 at the operating flow and NPSHa −2.521 m, so the margin −2.521 m, no
+		// ratio and CAVITATION raised (corpus unit_rich1090 PU2): a null ratio is no sign of a safe
+		// margin.
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({
+					npshAvailable: -2.521,
+					npshRequired: 0,
+					npshMargin: -2.521,
+					npshMarginRatio: null
+				})
+			},
+			flags: [
+				flag({ code: 'CAVITATION', severity: 'invalid', message: 'made-up', componentId: 'P1' })
+			]
+		});
+		const { ws } = mount(() => Promise.resolve(response(solved)));
+		await ws.solve();
+		ws.nav.jumpTo('P1');
+		ws.pane = 'build';
+		await tick();
+		const [strip] = strips();
+		const text = shown(strip!).join(' | ');
+		expect(text).toMatch(/cavitat/i);
+		expect(text).toMatch(/[-−]2\.521/);
 	});
 
 	it('shows a connection’s flow, velocity and head loss in Piping', async () => {

@@ -1064,7 +1064,8 @@ describe('one pump off on the Pumps together card', () => {
 			);
 		const before = headings();
 		expect(before[0]).toBe('Delivery tank 5 m higher (shown)');
-		const margin = within(region).getByRole('columnheader', { name: /^NPSH margin/ });
+		// The ratio, the card's NPSH reading, the margin hidden by default (pumps-nits.md item 4).
+		const margin = within(region).getByRole('columnheader', { name: /^NPSH margin ratio/ });
 		await fireEvent.click(within(margin).getByRole('button'));
 		expect(margin).toHaveAttribute('aria-sort', 'ascending');
 		expect(headings()).toEqual([]);
@@ -1192,7 +1193,7 @@ describe('one pump off on the Pumps together card', () => {
 			within(extremes)
 				.getAllByRole('columnheader')
 				.map((h) => h.textContent)
-		).toEqual(['Pump', 'Largest flow', 'Largest shaft power', 'Smallest NPSH margin']);
+		).toEqual(['Pump', 'Largest flow', 'Largest shaft power', 'Smallest NPSH margin ratio']);
 		const extremeRows = within(extremes)
 			.getAllByRole('row')
 			.filter((r) => within(r).queryByRole('rowheader'));
@@ -1203,8 +1204,8 @@ describe('one pump off on the Pumps together card', () => {
 					.map((c) => c.dataset.label)
 			)
 		).toEqual([
-			['Largest flow', 'Largest shaft power', 'Smallest NPSH margin'],
-			['Largest flow', 'Largest shaft power', 'Smallest NPSH margin']
+			['Largest flow', 'Largest shaft power', 'Smallest NPSH margin ratio'],
+			['Largest flow', 'Largest shaft power', 'Smallest NPSH margin ratio']
 		]);
 		for (const row of extremeRows) {
 			for (const cell of within(row).getAllByRole('cell')) {

@@ -633,6 +633,9 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			q('NPSHa', 'head'),
 			q('NPSHr', 'head'),
 			q('NPSH margin', 'head'),
+			// NPSHa ÷ NPSHr from the API, a pure number: the screen's fields (D17; the owner's nit
+			// 4, docs/proposals/pumps-nits.md item 4).
+			number('NPSH margin ratio'),
 			q('Suction absolute pressure', 'pressure', { absolute: true }),
 			text('Flags')
 		],
@@ -664,6 +667,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 					u.value(pump.npshAvailable, 'head'),
 					u.value(pump.npshRequired, 'head'),
 					u.value(pump.npshMargin, 'head'),
+					pump.npshMarginRatio,
 					u.value(pump.suctionAbsolutePressure, 'pressure'),
 					codes(flags)
 				];
@@ -1977,18 +1981,36 @@ const LEFT_OUT_REASONS: Readonly<Record<string, string>> = {
 /**
  * The Compare sheet's connection values that read otherwise than in their case's own tables
  * (compareValue's notes), as "row (case)": given with the other sign (reversed since that case was
- * solved), and left out, with the reason (an end moved since, or its pipes changed). Empty without
- * a Compare sheet.
+ * solved), and left out, with the reason (an end moved since, or its pipes changed). And its empty
+ * cells where no value is no sign of a safe one, with the screen's note for that cell in the
+ * file's units (compareCells: a pump that cavitates with no NPSH margin ratio, "Cavitates (NPSHr
+ * 0): NPSH margin -2.521 m"; docs/proposals/pumps-nits.md item 4, review E-0-2, E-1-2), so the file
+ * says what the screen says (D17). Empty without a Compare sheet.
  */
 export function compareNotes(ctx: ExportContext): {
 	reversed: string[];
 	leftOut: { what: string; reason: string }[];
+	noValue: { what: string; note: string }[];
 } {
-	const notes = { reversed: [] as string[], leftOut: [] as { what: string; reason: string }[] };
+	const notes = {
+		reversed: [] as string[],
+		leftOut: [] as { what: string; reason: string }[],
+		noValue: [] as { what: string; note: string }[]
+	};
 	if (ctx.single || ctx.cases.length < 2) return notes;
 	const project = ctx.input.project;
 	const columns = compareColumnsOf(ctx);
 	for (const row of ctx.input.compareRows) {
+		if (QUANTITIES[row.quantity].noValueNote) {
+			// The screen's own cells, in the file's units, as the Status row is.
+			compareCells(row, columns, project, ctx.units.prefs).forEach((cell, i) => {
+				const c = ctx.cases[i]!;
+				if (c.hasValues && cell.note) {
+					notes.noValue.push({ what: `${rowLabel(project, row)} (${c.label})`, note: cell.note });
+				}
+			});
+			continue;
+		}
 		if (QUANTITIES[row.quantity].element !== 'connection') continue;
 		ctx.cases.forEach((c, i) => {
 			if (!c.hasValues) return;

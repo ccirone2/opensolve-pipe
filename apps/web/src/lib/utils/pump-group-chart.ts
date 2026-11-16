@@ -70,7 +70,14 @@ import {
 } from './pump-chart';
 import { notLabelledNote, type NotLabelledPoint } from './point-labels';
 import { pressureControlOnly } from './pump-groups';
-import { Formatter, pumpStatusLabel, type Column } from './results';
+import {
+	Formatter,
+	hiddenByDefault,
+	npshRatioCell,
+	npshRatioSortKeys,
+	pumpStatusLabel,
+	type Column
+} from './results';
 import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
 import { displayUnit, formatNumber, fromSI, unitLabel, type UnitId } from './units';
 
@@ -1896,8 +1903,11 @@ export interface GroupRow {
 	id: string;
 	name: string;
 	style: GroupSlot;
-	cells: Record<string, string>;
+	/** Text, or lines: a pump that cavitates with no NPSH margin ratio (npshRatioCell). */
+	cells: Record<string, string | string[]>;
 	flags: readonly Flag[];
+	/** Its NPSH margin ratio's sort key where its text does not carry it (npshRatioSortKeys). */
+	sortKeys?: Readonly<Record<string, number>>;
 }
 
 export interface GroupTable {
@@ -1910,7 +1920,11 @@ export interface GroupTable {
 /**
  * The group table: per member, from the solve (shown before the group curve arrives), then its
  * share and loss on its way from the response's duty. Columns by arrangement: parallel adds
- * "Lost on its way", series the inlet and discharge static pressures (gauge, from `nodes`).
+ * "Lost on its way", series the inlet and discharge static pressures (gauge, from `nodes`). Its
+ * NPSH reading is the margin ratio, NPSHa ÷ NPSHr, as Results per pump's, the margin hidden by
+ * default (the owner's nit 4 and Q3, 2026-11-12: "Ratio everywhere"; docs/proposals/pumps-nits.md
+ * item 4, review E-1-4); a pump that cavitates with no ratio says so with its margin and sorts
+ * below every ratio (npshRatioCell, npshRatioSortKeys).
  */
 export function groupTable(
 	members: readonly GroupMemberInput[],
@@ -1937,7 +1951,8 @@ export function groupTable(
 			: []),
 		f.column('efficiency', 'η', 'fraction'),
 		f.column('shaftPower', 'Shaft power', 'power'),
-		f.column('npshMargin', 'NPSH margin', 'head'),
+		hiddenByDefault(f.column('npshMargin', 'NPSH margin', 'head')),
+		f.column('npshMarginRatio', 'NPSH margin ratio', 'dimensionless'),
 		f.column('shutoff', 'Shutoff head', 'head'),
 		{ key: 'inCurve', label: 'Inside curve data' }
 	];
@@ -1959,6 +1974,7 @@ export function groupTable(
 				name: m.name,
 				style: slotStyle(m.slot),
 				flags: m.flags,
+				...npshRatioSortKeys(r),
 				cells: {
 					state: pumpStatusLabel(r, m.flags),
 					speed: r.status === 'off' ? '—' : f.num(r.speed, 'fraction'),
@@ -1971,6 +1987,7 @@ export function groupTable(
 					efficiency: f.num(r.efficiency, 'fraction'),
 					shaftPower: f.num(r.shaftPower, 'power'),
 					npshMargin: f.num(r.npshMargin, 'head'),
+					npshMarginRatio: npshRatioCell(r, f),
 					shutoff: atMax ? `${shutoff} (${atMax} at maximum speed)` : shutoff,
 					inCurve: running ? (r.inCurveRange ? 'Yes' : 'No: beyond its data') : '—'
 				}

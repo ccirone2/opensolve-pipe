@@ -578,6 +578,12 @@ export interface Row {
 	 * unique only within its group (the same pump in each case).
 	 */
 	group?: string;
+	/**
+	 * A cell's sort value where its text does not carry it, by column key, read before sortValue:
+	 * a pump that cavitates with no NPSH margin ratio shows "—" and its words, and sorts as −∞,
+	 * below every ratio (npshRatioSortKeys; docs/proposals/pumps-nits.md item 4, review E-0-1).
+	 */
+	sortKeys?: Readonly<Record<string, number>>;
 }
 
 /**
@@ -665,8 +671,12 @@ function text(key: string, label: string, wrap = false): Column {
 	return wrap ? { key, label, wrap } : { key, label };
 }
 
-/** A column the table leaves out until the user shows it (`Column.hiddenByDefault`). */
-function hiddenByDefault(column: Column): Column {
+/**
+ * A column the table leaves out until the user shows it (`Column.hiddenByDefault`): Results per
+ * pump's, and the NPSH margin in the Pumps together card's group table and Running combinations
+ * (docs/proposals/pumps-nits.md items 3 and 4).
+ */
+export function hiddenByDefault(column: Column): Column {
 	return { ...column, hiddenByDefault: true };
 }
 
@@ -1004,11 +1014,67 @@ export function pumpControlText(result: PumpResult, prefs: UnitPreferences): str
 }
 
 /**
+ * Words for a pump with no NPSH margin ratio that cavitates all the same: "Cavitates (NPSHr 0): NPSH
+ * margin -2.521 m". The API gives no ratio where NPSHr is 0 at the operating flow, or the quotient
+ * is not finite; with a negative NPSHa the margin is then negative and CAVITATION is raised
+ * (PumpResult.npshMarginRatio, TSD §5.5; corpus unit_rich1090 PU2). A null ratio is no sign of a
+ * safe margin, so wherever the ratio is shown in the margin's place these words stand in for it:
+ * Results per pump's cell, Build's strip, the Summary and Compare (the owner's nit 4 and Q3,
+ * 2026-11-12; docs/proposals/pumps-nits.md item 4). Every number is the API's, in the display
+ * units. Null where the ratio is given, or the margin is none or not negative.
+ */
+export function npshRatioCue(pump: PumpResult, f: Formatter): string | null {
+	if (!cavitatesWithoutRatio(pump)) return null;
+	const why = pump.npshRequired === 0 ? ' (NPSHr 0)' : '';
+	return `Cavitates${why}: NPSH margin ${f.value(pump.npshMargin!, 'head')}`;
+}
+
+/**
+ * The pump has no NPSH margin ratio and a negative margin: it cavitates all the same (npshRatioCue).
+ * Its NPSHa ÷ NPSHr, NPSHa below zero over an NPSHr of 0 (or one the quotient overflows), tends to
+ * −∞, so it ranks below every ratio given: first in a sort smallest first, and the Summary's
+ * smallest (review E-0-1, E-1-1).
+ */
+function cavitatesWithoutRatio(pump: PumpResult): boolean {
+	const margin = pump.npshMargin;
+	if (pump.npshMarginRatio !== null && pump.npshMarginRatio !== undefined) return false;
+	return margin !== null && margin !== undefined && margin < 0;
+}
+
+/**
+ * A pump's NPSH margin ratio cell: the API's NPSHa ÷ NPSHr, a pure number to 4 significant figures,
+ * or "—" without one. A pump with no ratio that cavitates keeps the "—" as its first line, never
+ * text among the ratios, and its second line says why (npshRatioCue), so the cell is never a bare
+ * "—" and a phone shows it; it sorts by its row's key (npshRatioSortKeys), below every ratio. A
+ * bare "—" sorts as no value, last either way (docs/proposals/pumps-nits.md item 4). Results per
+ * pump, the group table and Running combinations (the owner's Q3, "Ratio everywhere").
+ */
+export function npshRatioCell(pump: PumpResult, f: Formatter): string | string[] {
+	const cue = npshRatioCue(pump, f);
+	return cue ? ['—', cue] : f.plain(pump.npshMarginRatio);
+}
+
+/**
+ * The sort keys of a row whose NPSH margin ratio cell is `npshRatioCell`'s: −∞ under `key` for a
+ * pump that cavitates with no ratio, so a sort smallest first puts it first and largest first last
+ * among the values (equal keys keep the table's order); none otherwise (review E-0-1, E-1-1).
+ */
+export function npshRatioSortKeys(
+	pump: PumpResult,
+	key = 'npshMarginRatio'
+): { sortKeys?: Readonly<Record<string, number>> } {
+	return cavitatesWithoutRatio(pump) ? { sortKeys: { [key]: Number.NEGATIVE_INFINITY } } : {};
+}
+
+/**
  * Pumps: operating point, power and NPSH. An off pump has no speed ("—"). A Control column is
  * shown only when a pump of the solve is speed-controlled (it keeps narrow tables narrow).
- * Hydraulic power, NPSHa and NPSHr are hidden until the user shows them in Fields, so the table
- * opens with one NPSH reading, the margin (the owner, 2026-11-12; docs/proposals/pumps-nits.md
- * item 3); a cavitating pump's flag still states all three.
+ * Hydraulic power, NPSHa, NPSHr and the NPSH margin are hidden until the user shows them in
+ * Fields, so the table opens with one NPSH reading, the NPSH margin ratio (the owner, 2026-11-12,
+ * nits 3 and 4: "add NPSH margin as a ratio and make it a default in the results table. Don't make
+ * absolute margin a default."; docs/proposals/pumps-nits.md items 3 and 4); a cavitating pump's
+ * flag still states NPSHa, NPSHr and the margin, and one with no ratio says so in its ratio cell
+ * (npshRatioCue).
  */
 export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPreferences): Table {
 	const f = new Formatter(prefs);
@@ -1025,12 +1091,14 @@ export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPref
 		f.column('shaftPower', 'Shaft power', 'power'),
 		hiddenByDefault(f.column('npshAvailable', 'NPSHa', 'head')),
 		hiddenByDefault(f.column('npshRequired', 'NPSHr', 'head')),
-		f.column('npshMargin', 'NPSH margin', 'head')
+		hiddenByDefault(f.column('npshMargin', 'NPSH margin', 'head')),
+		// NPSHa ÷ NPSHr from the API (PumpResult.npshMarginRatio): a pure number, no unit.
+		f.column('npshMarginRatio', 'NPSH margin ratio', 'dimensionless')
 	];
 	const rows = orderedIds(project, Object.keys(results)).map((id) => {
 		const pump = results[id] as PumpResult;
 		const flags = flagsForElement(solved.flags, { kind: 'component', id });
-		return componentRow(project, solved.flags, id, {
+		const row = componentRow(project, solved.flags, id, {
 			status: pumpStatusLabel(pump, flags),
 			...(controlled ? { control: pumpControlText(pump, prefs) } : {}),
 			flow: f.num(pump.operatingFlow, 'flow'),
@@ -1041,8 +1109,10 @@ export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPref
 			shaftPower: f.num(pump.shaftPower, 'power'),
 			npshAvailable: f.num(pump.npshAvailable, 'head'),
 			npshRequired: f.num(pump.npshRequired, 'head'),
-			npshMargin: f.num(pump.npshMargin, 'head')
+			npshMargin: f.num(pump.npshMargin, 'head'),
+			npshMarginRatio: npshRatioCell(pump, f)
 		});
+		return { ...row, ...npshRatioSortKeys(pump) };
 	});
 	return { columns, rows };
 }
@@ -1622,7 +1692,9 @@ export interface ElementSummary {
  */
 const SUMMARY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
 	'Pipe connection': ['flow', 'velocity', 'headLoss'],
-	Pump: ['status', 'flow', 'head', 'npshMargin'],
+	// A pump's NPSH reading is its margin ratio, as Results per pump's default (the owner's Q3,
+	// 2026-11-12: "Ratio everywhere"; docs/proposals/pumps-nits.md item 4).
+	Pump: ['status', 'flow', 'head', 'npshMarginRatio'],
 	Valve: ['state', 'flow', 'pressureDrop'],
 	// Δp ÷ set says how close a closed valve is to opening, or how far an open one relieves past it
 	// (a locked-closed valve stays closed above 100 %: its state says so).
@@ -1859,33 +1931,42 @@ export function sortValue(cell: Cell | undefined): number | string | null {
 	return text === '—' || text === '' ? null : text;
 }
 
+/** What a row sorts by in a column: its sort key there (Row.sortKeys), else its cell's sortValue. */
+function rowSortValue(row: Row, key: string): number | string | null {
+	if (key === NAME_SORT_KEY) return row.name;
+	return row.sortKeys?.[key] ?? sortValue(row.cells[key]);
+}
+
 /**
  * Rows in a table's sort order: by the values shown in that column (numbers as numbers, text in
- * natural order), rows without a value last, ties in the table's own order. Null keeps the order.
+ * natural order), or a row's sort key there (a pump that cavitates with no NPSH margin ratio, −∞),
+ * rows without a value last, ties (equal keys, −∞ among them) in the table's own order. Null keeps
+ * the order.
  */
 export function sortRows(rows: readonly Row[], sort: TableSort | null): Row[] {
 	if (!sort) return [...rows];
 	const sign = sort.direction === 'ascending' ? 1 : -1;
-	const keyOf = (row: Row) =>
-		sort.key === NAME_SORT_KEY ? row.name : sortValue(row.cells[sort.key]);
 	return rows
-		.map((row, index) => ({ row, index, value: keyOf(row) }))
+		.map((row, index) => ({ row, index, value: rowSortValue(row, sort.key) }))
 		.sort((a, b) => {
 			if (a.value === null || b.value === null) {
 				return a.value === b.value ? a.index - b.index : a.value === null ? 1 : -1;
 			}
+			// Equal first, so two infinite keys tie rather than give NaN.
 			const order =
-				typeof a.value === 'number' && typeof b.value === 'number'
-					? a.value - b.value
-					: String(a.value).localeCompare(String(b.value), undefined, { numeric: true });
+				a.value === b.value
+					? 0
+					: typeof a.value === 'number' && typeof b.value === 'number'
+						? a.value - b.value
+						: String(a.value).localeCompare(String(b.value), undefined, { numeric: true });
 			return order === 0 ? a.index - b.index : sign * order;
 		})
 		.map((entry) => entry.row);
 }
 
-/** Whether a column can be sorted: some row shows a value in it. */
+/** Whether a column can be sorted: some row shows a value in it, or has a sort key there. */
 export function sortableColumn(rows: readonly Row[], key: string): boolean {
-	return key === NAME_SORT_KEY || rows.some((row) => sortValue(row.cells[key]) !== null);
+	return key === NAME_SORT_KEY || rows.some((row) => rowSortValue(row, key) !== null);
 }
 
 /** The port with the highest static pressure, if any. */
@@ -1897,13 +1978,26 @@ export function highestPressureNode(solved: SolvedState): NodeResult | null {
 	return highest;
 }
 
-/** The pump with the smallest NPSH margin (only pumps with one: a fluid with a vapor pressure). */
-export function smallestNpshMargin(solved: SolvedState): { id: string; margin: number } | null {
-	let smallest: { id: string; margin: number } | null = null;
-	for (const [id, pump] of Object.entries(solved.pumpResults)) {
-		const margin = pump.npshMargin;
-		if (margin === null || margin === undefined) continue;
-		if (!smallest || margin < smallest.margin) smallest = { id, margin };
+/**
+ * The pump with the smallest NPSH margin ratio, NPSHa ÷ NPSHr (the Summary's extreme; the owner's
+ * Q3, 2026-11-12: "Ratio everywhere"; docs/proposals/pumps-nits.md item 4), as Results per pump
+ * sorted by it, smallest first, puts first: a pump that cavitates with no ratio (npshRatioCue)
+ * ranks below every ratio, its NPSHa ÷ NPSHr tending to −∞, and is returned with a null ratio, the
+ * first of several in the table's order (review E-0-1, E-1-1: a null ratio is no sign of a safe
+ * margin); else the smallest ratio given, the first in the table's order on equal ones. A pump with
+ * no ratio and no negative margin is not ranked; null when no pump is.
+ */
+export function smallestNpshMarginRatio(
+	solved: SolvedState,
+	project: Project
+): { id: string; ratio: number | null } | null {
+	let smallest: { id: string; ratio: number } | null = null;
+	for (const id of orderedIds(project, Object.keys(solved.pumpResults))) {
+		const pump = solved.pumpResults[id]!;
+		if (cavitatesWithoutRatio(pump)) return { id, ratio: null };
+		const ratio = pump.npshMarginRatio;
+		if (ratio === null || ratio === undefined) continue;
+		if (!smallest || ratio < smallest.ratio) smallest = { id, ratio };
 	}
 	return smallest;
 }

@@ -44,6 +44,7 @@ import {
 	DUTY_CLAIM_WORDS,
 	dutyClaim,
 	groupCurveDrawn,
+	INVALID_MARKED,
 	insideOf,
 	LEAD_MARK_NAMES,
 	MAX_GROUP_CASES,
@@ -592,6 +593,7 @@ describe('Running combinations', () => {
 			'head',
 			'shaftPower',
 			'npshMargin',
+			'npshMarginRatio',
 			'inCurve',
 			'checks'
 		]);
@@ -606,9 +608,20 @@ describe('Running combinations', () => {
 		for (const [i, row] of shown.rows.entries()) {
 			const expected = group.rows[i]!;
 			expect(row.id).toBe(expected.id);
-			for (const key of ['state', 'speed', 'flow', 'head', 'shaftPower', 'npshMargin', 'inCurve']) {
-				expect(row.cells[key], key).toBe(expected.cells[key]);
+			for (const key of [
+				'state',
+				'speed',
+				'flow',
+				'head',
+				'shaftPower',
+				'npshMargin',
+				'npshMarginRatio',
+				'inCurve'
+			]) {
+				expect(row.cells[key], key).toEqual(expected.cells[key]);
+				expect(row.cells[key], key).toBeDefined();
 			}
+			expect(row.sortKeys).toEqual(expected.sortKeys);
 			expect(row.flags).toEqual(expected.flags);
 			expect(row.style).toEqual(expected.style);
 		}
@@ -1256,7 +1269,10 @@ describe('the extremes over the cases', () => {
 		project: oneOff.project
 	});
 
-	it('gives each pump’s largest flow and shaft power and smallest NPSH margin, with its case', () => {
+	// The NPSH reading is the margin ratio since the owner's nit 4 and Q3 ("Ratio everywhere";
+	// docs/proposals/pumps-nits.md item 4, review E-1-4): moved from the smallest margin, at the
+	// same strictness, the ratio the API's (NPSHa ÷ NPSHr) to 4 significant figures.
+	it('gives each pump’s largest flow and shaft power and smallest NPSH margin ratio, with its case', () => {
 		const { lines, notCounted } = combinationExtremes(all());
 		expect(notCounted).toEqual([]);
 		const line = (term: string) => lines.find((l) => l.term === term)!.value;
@@ -1266,16 +1282,18 @@ describe('the extremes over the cases', () => {
 		expect(line('Pump PA, largest shaft power')).toMatch(
 			/^15\.02 kW in Base case \(over 3 of 5 cases; no value in 2\)$/
 		);
-		expect(line('Pump PA, smallest NPSH margin')).toBe(
-			'6.806 m in Pump PB off; beyond its curve data (over 3 of 5 cases; no value in 2)'
+		const ratio = scenarioCase('S2').solve.solvedState.pumpResults.PA!.npshMarginRatio!;
+		expect(String(Number(ratio.toPrecision(4)))).toBe('2.49');
+		expect(line('Pump PA, smallest NPSH margin ratio')).toBe(
+			'2.49 in Pump PB off; beyond its curve data (over 3 of 5 cases; no value in 2)'
 		);
 		expect(lines.map((l) => l.term)).toEqual([
 			'Pump PA, largest flow',
 			'Pump PA, largest shaft power',
-			'Pump PA, smallest NPSH margin',
+			'Pump PA, smallest NPSH margin ratio',
 			'Pump PB, largest flow',
 			'Pump PB, largest shaft power',
-			'Pump PB, smallest NPSH margin'
+			'Pump PB, smallest NPSH margin ratio'
 		]);
 	});
 
@@ -1299,18 +1317,18 @@ describe('the extremes over the cases', () => {
 		expect(lines.map((l) => l.key)).toEqual([
 			'PA:operatingFlow',
 			'PA:shaftPower',
-			'PA:npshMargin',
+			'PA:npshMarginRatio',
 			'PB:operatingFlow',
 			'PB:shaftPower',
-			'PB:npshMargin'
+			'PB:npshMarginRatio'
 		]);
 		expect(lines.map((l) => l.term)).toEqual([
 			'Booster pump (PA), largest flow',
 			'Booster pump (PA), largest shaft power',
-			'Booster pump (PA), smallest NPSH margin',
+			'Booster pump (PA), smallest NPSH margin ratio',
 			'Booster pump (PB), largest flow',
 			'Booster pump (PB), largest shaft power',
-			'Booster pump (PB), smallest NPSH margin'
+			'Booster pump (PB), smallest NPSH margin ratio'
 		]);
 		// Names of their own: the plain words.
 		expect(combinationExtremes(all()).lines[0]!.term).toBe('Pump PA, largest flow');
@@ -1369,7 +1387,7 @@ describe('the extremes over the cases', () => {
 			prefs,
 			project: dead.project
 		});
-		const pbHead = invalid.lines.find((l) => l.term === 'Pump PB, smallest NPSH margin')!;
+		const pbHead = invalid.lines.find((l) => l.term === 'Pump PB, smallest NPSH margin ratio')!;
 		expect(pbHead.value).toBe('no case gives one');
 		const pbFlow = invalid.lines.find((l) => l.term === 'Pump PB, largest flow')!;
 		expect(pbFlow.value).toMatch(/ in Pump PA off \(over 2 of 2 cases\)$/);
@@ -1444,7 +1462,7 @@ describe('the extremes as a table (pumps-results-layout.md §5.3, §9 S5)', () =
 		expect(table.columns).toEqual([
 			{ key: 'operatingFlow', label: 'Largest flow' },
 			{ key: 'shaftPower', label: 'Largest shaft power' },
-			{ key: 'npshMargin', label: 'Smallest NPSH margin' }
+			{ key: 'npshMarginRatio', label: 'Smallest NPSH margin ratio' }
 		]);
 		expect(table.rows.map((r) => [r.id, r.name])).toEqual([
 			['PA', 'Pump PA'],
@@ -1481,7 +1499,7 @@ describe('the extremes as a table (pumps-results-layout.md §5.3, §9 S5)', () =
 			cases: [held.cases[0]!, { ...held.cases[1]!, response: dead.scenarioCases!.S1!.solve }]
 		});
 		expect(none.rows[1]!.cells[2]).toEqual({
-			key: 'PB:npshMargin',
+			key: 'PB:npshMarginRatio',
 			amount: null,
 			rest: 'no case gives one',
 			invalid: false
@@ -1527,8 +1545,11 @@ describe('the extremes as a table (pumps-results-layout.md §5.3, §9 S5)', () =
 						expect(cell.invalid, what).toBe(false);
 						empty++;
 					} else {
-						// The amount is the value with its unit, the rest starts with its case.
-						expect(cell.amount, what).toMatch(/^-?[\d.]+ \S+$/);
+						// The amount is the value with its unit, the ratio's a plain number with none
+						// (pumps-nits.md item 4); the rest starts with its case.
+						expect(cell.amount, what).toMatch(
+							table.columns[j]!.key === 'npshMarginRatio' ? /^-?[\d.]+$/ : /^-?[\d.]+ \S+$/
+						);
 						expect(cell.rest, what).toMatch(/^in /);
 					}
 					if (cell.invalid) marked++;
@@ -1547,7 +1568,7 @@ describe('the extremes as a table (pumps-results-layout.md §5.3, §9 S5)', () =
 		expect(one.table.columns.map((c) => c.label)).toEqual([
 			'Largest flow',
 			'Largest shaft power',
-			'Smallest NPSH margin'
+			'Smallest NPSH margin ratio'
 		]);
 	});
 });
@@ -1905,6 +1926,149 @@ describe('the station inside, and the other cases’ own group curves (D24 slice
 		expect(runningWords(2, true)).toBe('as last solved: 2 running');
 		expect(OTHER_CURVE_WORDS.through(runningWords(2, true))).toBe(
 			'drawn (as last solved: 2 running): it passes through the ring'
+		);
+	});
+});
+
+describe('the card’s NPSH reading is the margin ratio, the margin hidden by default (the owner’s nit 4 and Q3, "Ratio everywhere"; docs/proposals/pumps-nits.md item 4; review E-1-4)', () => {
+	const prefs = oneOff.project.settings.units;
+	const members = [
+		{ id: 'PA', name: 'Pump PA', slot: 0 },
+		{ id: 'PB', name: 'Pump PB', slot: 1 }
+	];
+	const sig4 = (v: number) => String(Number(v.toPrecision(4)));
+	const ratioOf = (response: SolveResponse, id: string) =>
+		response.solvedState.pumpResults[id]!.npshMarginRatio;
+	/**
+	 * A case's solve with Pump PA made to cavitate with no ratio (synthetic, as corpus unit_rich1090
+	 * PU2): NPSHr 0 at its flow and NPSHa `margin` (below zero), so its margin is `margin`, the API
+	 * gives no ratio, and CAVITATION is raised for it.
+	 */
+	function cavitating(response: SolveResponse, margin = -2.521): SolveResponse {
+		const copy = structuredClone(response);
+		Object.assign(copy.solvedState.pumpResults.PA!, {
+			npshAvailable: margin,
+			npshRequired: 0,
+			npshMargin: margin,
+			npshMarginRatio: null
+		});
+		copy.solvedState.flags = [
+			...copy.solvedState.flags,
+			{
+				code: 'CAVITATION',
+				severity: 'invalid',
+				message: 'made-up',
+				componentId: 'PA',
+				connectionId: null,
+				portId: 'suction',
+				details: {}
+			} as Flag
+		];
+		return copy;
+	}
+	/** Every `one-off` case, the base shown; `edit` changes a case's solve by its key. */
+	const all = (edit: (key: string, r: SolveResponse) => SolveResponse = (_k, r) => r) =>
+		({
+			members,
+			cases: [null, 'S1', 'S2', 'S3', 'S4'].map((id) => ({
+				key: id ?? '',
+				name: id ? oneOff.project.scenarios!.find((s) => s.id === id)!.name : 'Base case',
+				shown: id === null,
+				status: 'solved' as const,
+				response: edit(id ?? '', id ? scenarioCase(id).solve : oneOff.solve),
+				stale: false,
+				station: null,
+				tag: caseTagOf(oneOffTags, id ?? '')
+			})),
+			prefs,
+			project: oneOff.project
+		}) satisfies CombinationsInput;
+
+	it('Running combinations: "NPSH margin ratio" after NPSH margin, shown, a plain number; the margin hidden by default; a ratio marked where the pump is invalid', () => {
+		const table = runningCombinations(all());
+		const keys = table.columns.map((c) => c.key);
+		expect(keys.indexOf('npshMarginRatio')).toBe(keys.indexOf('npshMargin') + 1);
+		expect(table.columns.find((c) => c.key === 'npshMarginRatio')).toEqual({
+			key: 'npshMarginRatio',
+			label: 'NPSH margin ratio',
+			numeric: true
+		});
+		expect(table.columns.find((c) => c.key === 'npshMargin')?.hiddenByDefault).toBe(true);
+		expect(table.columns.filter((c) => c.hiddenByDefault).map((c) => c.key)).toEqual([
+			'npshMargin'
+		]);
+		const base = table.groups[0]!;
+		expect(base.rows.map((r) => r.cells.npshMarginRatio)).toEqual([
+			sig4(ratioOf(oneOff.solve, 'PA')!),
+			sig4(ratioOf(oneOff.solve, 'PB')!)
+		]);
+		// An off pump has none: a bare "—".
+		expect(table.groups[1]!.rows[0]!.cells.npshMarginRatio).toBe('—');
+		expect(INVALID_MARKED).toContain('npshMarginRatio');
+	});
+
+	it('Running combinations: a pump that cavitates with no ratio reads "—" and the cavitation with its margin, and sorts below every ratio', () => {
+		const table = runningCombinations(all((k, r) => (k === 'S3' ? cavitating(r) : r)));
+		const s3 = table.groups.find((g) => g.key === 'S3')!;
+		const pa = s3.rows.find((r) => r.id === 'PA')!;
+		expect(pa.cells.npshMarginRatio).toEqual(['—', 'Cavitates (NPSHr 0): NPSH margin -2.521 m']);
+		expect(pa.invalid).toBe(true);
+		expect(pa.sortKeys).toEqual({ npshMarginRatio: Number.NEGATIVE_INFINITY });
+		// Every other row: no sort key.
+		expect(
+			table.groups
+				.flatMap((g) => g.rows)
+				.filter((r) => r.sortKeys)
+				.map((r) => r.id)
+		).toEqual(['PA']);
+	});
+
+	it('the extremes: each pump’s smallest NPSH margin ratio, a plain number with its case', () => {
+		const { lines, table } = combinationExtremes(all());
+		expect(table.columns[2]).toEqual({
+			key: 'npshMarginRatio',
+			label: 'Smallest NPSH margin ratio'
+		});
+		const line = (term: string) => lines.find((l) => l.term === term)!.value;
+		// Pump PA's smallest, the API's 2.490… with Pump PB off (S2); Pump PB's with Pump PA off (S1).
+		const pa = ratioOf(scenarioCase('S2').solve, 'PA')!;
+		expect([oneOff.solve, scenarioCase('S3').solve].every((r) => ratioOf(r, 'PA')! > pa)).toBe(
+			true
+		);
+		expect(line('Pump PA, smallest NPSH margin ratio')).toBe(
+			`${sig4(pa)} in Pump PB off; beyond its curve data (over 3 of 5 cases; no value in 2)`
+		);
+		const pb = ratioOf(scenarioCase('S1').solve, 'PB')!;
+		expect(line('Pump PB, smallest NPSH margin ratio')).toBe(
+			`${sig4(pb)} in Pump PA off (over 3 of 5 cases; no value in 2)`
+		);
+		expect(lines.map((l) => l.term).filter((t) => /NPSH/.test(t))).toEqual([
+			'Pump PA, smallest NPSH margin ratio',
+			'Pump PB, smallest NPSH margin ratio'
+		]);
+	});
+
+	it('the extremes: a case where the pump cavitates with no ratio is its smallest, named in words with its margin; of several, the most negative margin', () => {
+		const one = combinationExtremes(all((k, r) => (k === 'S3' ? cavitating(r) : r)));
+		const cell = one.table.rows[0]!.cells[2]!;
+		expect(cell).toEqual({
+			key: 'PA:npshMarginRatio',
+			amount: 'Cavitates (NPSHr 0): NPSH margin -2.521 m',
+			rest: 'in Delivery tank 5 m higher; physically invalid (over 3 of 5 cases; no value in 2)',
+			invalid: true
+		});
+		// Two such cases: the more negative margin, whatever their order.
+		const two = combinationExtremes(
+			all((k, r) => (k === '' ? cavitating(r, -1.5) : k === 'S3' ? cavitating(r, -4) : r))
+		);
+		expect(two.table.rows[0]!.cells[2]!.amount).toBe('Cavitates (NPSHr 0): NPSH margin -4 m');
+		expect(two.table.rows[0]!.cells[2]!.rest).toMatch(/^in Delivery tank 5 m higher;/);
+		// The same margin in both: "and 1 other case".
+		const same = combinationExtremes(all((k, r) => (k === '' || k === 'S3' ? cavitating(r) : r)));
+		expect(same.table.rows[0]!.cells[2]!.rest).toMatch(/^in Base case and 1 other case;/);
+		// Pump PB's is untouched.
+		expect(one.table.rows[1]!.cells[2]!.amount).toBe(
+			sig4(ratioOf(scenarioCase('S1').solve, 'PB')!)
 		);
 	});
 });

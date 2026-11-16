@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page, type Request, type Route } from '@playwright/test';
-import type { SolveRequest } from '../src/lib/api/types';
+import type { SolveRequest, SolveResponse } from '../src/lib/api/types';
 import {
 	buildPane,
 	caseGroup,
@@ -14,6 +14,7 @@ import {
 	resultsView,
 	setNumber,
 	showPane,
+	sig4,
 	solveAll,
 	solveAllButton
 } from './support';
@@ -114,6 +115,33 @@ function solveRequests(page: Page): SolveRequest[] {
 	return sent;
 }
 
+/**
+ * Each case's NPSH margin ratio for one pump, as the API answered its solve (the base case's
+ * under ''), from the responses the page receives.
+ */
+function npshRatios(page: Page, pumpId: string): Map<string, number | null> {
+	const ratios = new Map<string, number | null>();
+	page.on('response', async (r) => {
+		if (!r.url().endsWith('/api/v1/solve') || r.request().method() !== 'POST' || !r.ok()) return;
+		const request = r.request().postDataJSON() as SolveRequest;
+		const body = (await r.json()) as SolveResponse;
+		ratios.set(
+			request.scenarioId ?? '',
+			body.solvedState?.pumpResults[pumpId]?.npshMarginRatio ?? null
+		);
+	});
+	return ratios;
+}
+
+/** `text` as a regular expression that matches it literally. */
+const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A Compare difference as compareCells writes it: a true minus sign or +, no percentage. */
+function difference(value: number, base: number): string {
+	const text = sig4(Math.abs(value - base));
+	return value > base ? `+${text}` : `\u2212${text}`;
+}
+
 const resultsStatus = (page: Page) =>
 	resultsPane(page)
 		.getByRole('status')
@@ -176,6 +204,7 @@ test('solve one case and all of them, read the comparison and the other cases on
 	page
 }) => {
 	const sent = solveRequests(page);
+	const ratios = npshRatios(page, 'P1');
 	await openExample(page);
 	await newScenario(page, 'Higher tank');
 	let panel = await showComponent(page, 'Discharge tank');
@@ -232,6 +261,42 @@ test('solve one case and all of them, read the comparison and the other cases on
 				() => document.documentElement.scrollWidth - document.documentElement.clientWidth
 			)
 		).toBe(0);
+	}
+
+	// The pump's NPSH reading among the default rows is its margin ratio, not its margin (the
+	// owner, 2026-11-12, nit 4 and Q3, "Ratio everywhere"; docs/proposals/pumps-nits.md item 4):
+	// each case's value is the API's NPSHa ÷ NPSHr, with no unit, and its difference from the base
+	// has no percentage (the ratio's limit is 1, not a zero).
+	await expect.poll(() => ratios.size).toBe(3);
+	const base = ratios.get('')!;
+	const caseRatios = [base, ratios.get('S1')!, ratios.get('S2')!];
+	for (const r of caseRatios) expect(r).toEqual(expect.any(Number));
+	// A regular expression is matched against the text as it is, its white space kept.
+	const expected = caseRatios.map((r, i) => {
+		if (i === 0) return new RegExp(`^\\s*${literal(sig4(r))}\\s*$`);
+		const diff = sig4(r) === sig4(base) ? 'Same' : difference(r, base);
+		return new RegExp(`^\\s*${literal(sig4(r))}\\s*difference from base\\s*${literal(diff)}\\s*$`);
+	});
+	if (wide) {
+		const table = compare.getByRole('table', { name: 'Results by case' });
+		await expect(
+			table.getByRole('rowheader', { name: 'Transfer pump · NPSH margin ratio', exact: true })
+		).toHaveCount(1);
+		await expect(
+			table.getByRole('rowheader', { name: /^Transfer pump · NPSH margin \(/ })
+		).toHaveCount(0);
+		const row = table.getByRole('row').filter({ hasText: 'Transfer pump · NPSH margin ratio' });
+		await expect(row.getByRole('cell')).toHaveText(expected);
+	} else {
+		const card = compare.getByRole('region', {
+			name: 'Transfer pump · NPSH margin ratio',
+			exact: true
+		});
+		await expect(card).toHaveCount(1);
+		await expect(
+			compare.getByRole('region', { name: /^Transfer pump · NPSH margin \(/ })
+		).toHaveCount(0);
+		await expect(card.getByRole('definition')).toHaveText(expected);
 	}
 
 	// Add a result: the pump's efficiency.

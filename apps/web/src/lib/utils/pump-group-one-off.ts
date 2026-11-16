@@ -43,6 +43,7 @@ import type {
 	PumpGroupCurvePoint,
 	PumpGroupCurveResponse,
 	PumpGroupStation,
+	PumpResult,
 	SolveResponse,
 	UnitPreferences
 } from '../api/types';
@@ -63,7 +64,16 @@ import {
 import { caseTagOf, inCaseOrder, type CaseNumber } from './pump-chart';
 import { MAX_GROUP_PUMPS, pressureControlOnly, refusalWords, wordsText } from './pump-groups';
 import { carriesFlow, lineupChartPriority, memberLabels } from './pump-lineups';
-import { Formatter, flagsForElement, pumpStatusLabel, type Column } from './results';
+import {
+	Formatter,
+	flagsForElement,
+	hiddenByDefault,
+	npshRatioCell,
+	npshRatioCue,
+	npshRatioSortKeys,
+	pumpStatusLabel,
+	type Column
+} from './results';
 import type { CaseId } from './scenarios';
 
 export { DUTY_CLAIM_RULE, runningWords } from './pump-group-chart';
@@ -644,10 +654,13 @@ export interface CombinationRow {
 	/** The row header: the member's name, with its id where another member has it (memberLabels). */
 	name: string;
 	style: GroupSlot;
-	cells: Record<string, string>;
+	/** Text, or lines: a pump that cavitates with no NPSH margin ratio (npshRatioCell). */
+	cells: Record<string, string | string[]>;
 	/** The member has a flag of severity `invalid` in this case: its values are marked. */
 	invalid: boolean;
 	flags: readonly Flag[];
+	/** Its NPSH margin ratio's sort key where its text does not carry it (npshRatioSortKeys). */
+	sortKeys?: Readonly<Record<string, number>>;
 }
 
 export interface CombinationGroup {
@@ -679,8 +692,18 @@ export interface CombinationsTable {
 	groups: CombinationGroup[];
 }
 
-/** The columns whose values Running combinations marks as physically invalid. */
-export const INVALID_MARKED = ['flow', 'head', 'shaftPower', 'npshMargin'] as const;
+/**
+ * The columns whose values Running combinations marks as physically invalid: the NPSH margin
+ * ratio's too, its default NPSH reading (docs/proposals/pumps-nits.md item 4, review E-1-4), where
+ * the words of a pump that cavitates with no ratio take the mark (PumpGroupCombinations).
+ */
+export const INVALID_MARKED = [
+	'flow',
+	'head',
+	'shaftPower',
+	'npshMargin',
+	'npshMarginRatio'
+] as const;
 
 /** A case's response has values (a converged solve). */
 const hasValues = (response: SolveResponse | null): response is SolveResponse =>
@@ -732,7 +755,9 @@ function checksWords(response: SolveResponse, pumpId: string): string {
  * pumps-results-layout.md §5.3), one row per member in the stored project's component order, its
  * row header the member's name with its id where another member has that name (memberLabels: a
  * pump is its name, with no slot symbol since nit 5, so two members of one name would otherwise
- * give two rows the same header); the group table's cell rules on that case's own solve.
+ * give two rows the same header); the group table's cell rules on that case's own solve, its NPSH
+ * reading the margin ratio and the margin hidden by default (the owner's nit 4 and Q3, "Ratio
+ * everywhere"; docs/proposals/pumps-nits.md item 4, review E-1-4).
  */
 export function runningCombinations(input: CombinationsInput): CombinationsTable {
 	const f = new Formatter(input.prefs);
@@ -760,7 +785,8 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 		f.column('flow', 'Flow', 'flow'),
 		f.column('head', 'Head', 'head'),
 		f.column('shaftPower', 'Shaft power', 'power'),
-		f.column('npshMargin', 'NPSH margin', 'head'),
+		hiddenByDefault(f.column('npshMargin', 'NPSH margin', 'head')),
+		f.column('npshMarginRatio', 'NPSH margin ratio', 'dimensionless'),
 		{ key: 'inCurve', label: 'Inside curve data' },
 		...(checks ? [{ key: 'checks', label: 'Design checks' }] : [])
 	];
@@ -796,13 +822,14 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 				return { id: m.id, name: nameOf(m), style, cells, invalid: false, flags: [] };
 			}
 			const flags = flagsForElement(response.solvedState.flags, { kind: 'component', id: m.id });
-			const cells: Record<string, string> = {
+			const cells: Record<string, string | string[]> = {
 				state: pumpStatusLabel(r, flags),
 				...(speed ? { speed: r.status === 'off' ? '—' : f.num(r.speed, 'fraction') } : {}),
 				flow: f.num(r.operatingFlow, 'flow'),
 				head: f.num(r.operatingHead, 'head'),
 				shaftPower: f.num(r.shaftPower, 'power'),
 				npshMargin: f.num(r.npshMargin, 'head'),
+				npshMarginRatio: npshRatioCell(r, f),
 				inCurve: r.status === 'running' ? (r.inCurveRange ? 'Yes' : 'No: beyond its data') : '—',
 				...(checks ? { checks: checksWords(response, m.id) } : {})
 			};
@@ -812,7 +839,8 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 				style,
 				cells,
 				invalid: flags.some((flag) => flag.severity === 'invalid'),
-				flags
+				flags,
+				...npshRatioSortKeys(r)
 			};
 		});
 		return {
@@ -937,7 +965,7 @@ export interface ExtremeCell {
  * `term`.
  */
 export interface ExtremesTable {
-	/** "Largest flow", "Largest shaft power", "Smallest NPSH margin" (each measure's `what`). */
+	/** "Largest flow", "Largest shaft power", "Smallest NPSH margin ratio" (each measure's `what`). */
 	columns: { key: string; label: string }[];
 	rows: { id: string; name: string; cells: ExtremeCell[] }[];
 }
@@ -949,16 +977,64 @@ export interface CombinationExtremes {
 	notCounted: string[];
 }
 
-/** The extremes' measures, in their columns' order. */
-const EXTREME_MEASURES = [
-	{ what: 'largest flow', key: 'operatingFlow', category: 'flow', largest: true },
-	{ what: 'largest shaft power', key: 'shaftPower', category: 'power', largest: true },
-	{ what: 'smallest NPSH margin', key: 'npshMargin', category: 'head', largest: false }
-] as const;
+/**
+ * A member's reading of a measure in one case: the number it ranks by, a second number that breaks
+ * a tie, and its amount as shown; null where the case gives none.
+ */
+interface MeasureReading {
+	v: number;
+	tie: number;
+	amount: string;
+}
 
 /**
- * Per member, its largest flow, its largest shaft power and its smallest NPSH margin over the
- * cases with current values (at least two; none otherwise), each with its case (the first in
+ * The extremes' measures, in their columns' order. The NPSH reading is the margin ratio, NPSHa ÷
+ * NPSHr, a plain number, as Results per pump's (the owner's nit 4 and Q3, "Ratio everywhere";
+ * docs/proposals/pumps-nits.md item 4, review E-1-4): a case where the pump cavitates with no ratio
+ * (npshRatioCue: NPSHa below zero over an NPSHr of 0, tending to −∞) ranks below every ratio, the
+ * most negative margin first, its amount those words.
+ */
+const EXTREME_MEASURES: readonly {
+	what: string;
+	key: 'operatingFlow' | 'shaftPower' | 'npshMarginRatio';
+	largest: boolean;
+	read: (r: PumpResult, f: Formatter) => MeasureReading | null;
+}[] = [
+	{
+		what: 'largest flow',
+		key: 'operatingFlow',
+		largest: true,
+		read: (r, f) => finiteReading(r.operatingFlow, (v) => f.value(v, 'flow'))
+	},
+	{
+		what: 'largest shaft power',
+		key: 'shaftPower',
+		largest: true,
+		read: (r, f) => finiteReading(r.shaftPower, (v) => f.value(v, 'power'))
+	},
+	{
+		what: 'smallest NPSH margin ratio',
+		key: 'npshMarginRatio',
+		largest: false,
+		read: (r, f) => {
+			const cue = npshRatioCue(r, f);
+			if (cue) return { v: Number.NEGATIVE_INFINITY, tie: r.npshMargin!, amount: cue };
+			return finiteReading(r.npshMarginRatio, (v) => f.plain(v));
+		}
+	}
+];
+
+/** A finite number's reading, its tie 0; null for none. */
+function finiteReading(
+	v: number | null | undefined,
+	amount: (v: number) => string
+): MeasureReading | null {
+	return typeof v === 'number' && Number.isFinite(v) ? { v, tie: 0, amount: amount(v) } : null;
+}
+
+/**
+ * Per member, its largest flow, its largest shaft power and its smallest NPSH margin ratio over
+ * the cases with current values (at least two; none otherwise), each with its case (the first in
  * table order; "and k other cases" on equal doubles), "beyond its curve data" and "physically
  * invalid" where they apply there, and how many cases give a value. Out-of-date cases are not
  * counted and are named (`notCounted`). The same values as lines (term and value) and as a table
@@ -989,18 +1065,20 @@ export function combinationExtremes(input: CombinationsInput): CombinationExtrem
 			const key = `${m.id}:${measure.key}`;
 			const found = current.flatMap((c) => {
 				const r = c.response!.solvedState.pumpResults[m.id];
-				const v = r ? r[measure.key] : null;
-				return typeof v === 'number' && Number.isFinite(v) ? [{ c, r: r!, v }] : [];
+				const reading = r ? measure.read(r, f) : null;
+				return reading ? [{ c, r: r!, ...reading }] : [];
 			});
 			if (!found.length) {
 				cells.push({ key, amount: null, rest: 'no case gives one', invalid: false });
 				continue;
 			}
-			const best = found.reduce(
-				(a, b) => (measure.largest ? Math.max(a, b.v) : Math.min(a, b.v)),
-				found[0]!.v
-			);
-			const at = found.filter((x) => x.v === best);
+			// The extreme by its number, then its tie (the smaller first, for either measure:
+			// a ratio's tie is 0, a pump cavitating with no ratio's its margin).
+			const sign = measure.largest ? -1 : 1;
+			const rank = (x: MeasureReading, y: MeasureReading) =>
+				x.v === y.v ? x.tie - y.tie : sign * (x.v - y.v);
+			const best = found.reduce((a, b) => (rank(b, a) < 0 ? b : a), found[0]!);
+			const at = found.filter((x) => rank(x, best) === 0);
 			const first = at[0]!;
 			const others = at.length - 1;
 			const where = others
@@ -1018,7 +1096,7 @@ export function combinationExtremes(input: CombinationsInput): CombinationExtrem
 			const missing = total - found.length;
 			cells.push({
 				key,
-				amount: f.value(best, measure.category),
+				amount: first.amount,
 				rest: `in ${where}${qualifiers.length ? `; ${qualifiers.join('; ')}` : ''} (over ${found.length} of ${total} cases${missing ? `; no value in ${missing}` : ''})`,
 				invalid
 			});

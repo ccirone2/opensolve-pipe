@@ -695,7 +695,9 @@ describe('the card', () => {
 			'Discharge pressure psig',
 			'η %',
 			'Shaft power hp',
-			'NPSH margin ft',
+			// The ratio in the margin's place, the margin hidden by default (the owner's nit 4 and
+			// Q3; docs/proposals/pumps-nits.md item 4, review E-1-4).
+			'NPSH margin ratio',
 			'Shutoff head ft',
 			'Inside curve data'
 		]);
@@ -3194,7 +3196,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			['Pump', 'col'],
 			['Largest flow', 'col'],
 			['Largest shaft power', 'col'],
-			['Smallest NPSH margin', 'col']
+			['Smallest NPSH margin ratio', 'col']
 		]);
 		const rows = within(table)
 			.getAllByRole('row')
@@ -3221,7 +3223,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		}
 		// Cell by cell, its line: the column's words its data-label, its text the line's value,
 		// with the row's name and the column's words the line's term (§9 S5).
-		const labels = ['Largest flow', 'Largest shaft power', 'Smallest NPSH margin'];
+		const labels = ['Largest flow', 'Largest shaft power', 'Smallest NPSH margin ratio'];
 		let invalid = 0;
 		let none = 0;
 		for (const [i, r] of rows.entries()) {
@@ -3548,8 +3550,9 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 	const sortBy = (name: RegExp) => fireEvent.click(within(combosColumn(name)).getByRole('button'));
 	/**
 	 * The body as drawn: each row group, its heading's first line (null in the flat form) and its
-	 * rows, each pump's as "{name} | {case, flat only} | {npsh margin}", each flag line as "flags
-	 * of {id}" after the row it follows. A heading's and a Case cell's words beside their case's
+	 * rows, each pump's as "{name} | {case, flat only} | {npsh margin ratio}" (its NPSH reading
+	 * since nit 4, the margin hidden by default: pumps-nits.md item 4, review E-1-4), each flag
+	 * line as "flags of {id}" after the row it follows. A heading's and a Case cell's words beside their case's
 	 * number (nit 5, slice 5b: the box, checked by `caseTags` below).
 	 */
 	const drawnGroups = () =>
@@ -3569,7 +3572,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 							return `flags of ${r.querySelector('[data-row-notes]')!.getAttribute('data-row-notes')}`;
 						}
 						const kase = r.querySelector('td[data-label="Case"]');
-						const margin = r.querySelector('td[data-label="NPSH margin (m)"]');
+						const margin = r.querySelector('td[data-label="NPSH margin ratio"]');
 						return [
 							squashed(name.textContent),
 							kase && besideCaseTag(kase),
@@ -3580,7 +3583,9 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					})
 			}));
 
-	it('Running combinations: a sort by NPSH margin makes one flat table with a Case column, its first row the smallest margin; clearing the sort brings the case groups back in S5’s order (pumps-results-layout.md §9 S6b, §10 S6b)', async () => {
+	// Moved from the NPSH margin to the ratio, its NPSH reading since nit 4 (the margin hidden by
+	// default: pumps-nits.md item 4, review E-1-4), at the same strictness.
+	it('Running combinations: a sort by NPSH margin ratio makes one flat table with a Case column, its first row the smallest ratio; clearing the sort brings the case groups back in S5’s order (pumps-results-layout.md §9 S6b, §10 S6b)', async () => {
 		const input = s6bInput();
 		const table = runningCombinations(input);
 		const flagText = (flag: Flag) => `${flag.code}: ${flag.message}`;
@@ -3593,8 +3598,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				.getAllByRole('columnheader')
 				.map((h) => squashed(h.textContent))
 		).not.toContain('Case');
-		await sortBy(/^NPSH margin/);
-		expect(combosColumn(/^NPSH margin/)).toHaveAttribute('aria-sort', 'ascending');
+		await sortBy(/^NPSH margin ratio/);
+		expect(combosColumn(/^NPSH margin ratio/)).toHaveAttribute('aria-sort', 'ascending');
 		// One row group, the Case column after the pump's name.
 		const flat = drawnGroups();
 		expect(flat).toHaveLength(1);
@@ -3603,14 +3608,18 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			.getAllByRole('columnheader')
 			.map((h) => squashed(h.textContent));
 		expect(headings.slice(0, 2)).toEqual(['Pump', 'Case']);
-		expect(headings).toHaveLength(table.columns.length + 2);
-		// Every member of every case with values, by its margin, those without one last in the
+		// Every column but the NPSH margin, hidden by default (pumps-nits.md item 4, E-1-4).
+		expect(table.columns.filter((col) => col.hiddenByDefault).map((col) => col.key)).toEqual([
+			'npshMargin'
+		]);
+		expect(headings).toHaveLength(table.columns.length - 1 + 2);
+		// Every member of every case with values, by its ratio, those without one last in the
 		// table's order; each flag line still under its own pump.
 		const rows = table.groups.flatMap((g) =>
 			g.rows.map((r) => ({
 				name: r.name,
 				case: g.heading,
-				margin: r.cells.npshMargin!,
+				margin: r.cells.npshMarginRatio as string,
 				flagged: r.flags.length > 0,
 				id: r.id
 			}))
@@ -3629,12 +3638,14 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				...(r.flagged ? [`flags of ${r.id}`] : [])
 			])
 		);
-		// Its first row the smallest margin of all: Pump PA with Pump PB off.
+		// Its first row the smallest ratio of all: Pump PA with Pump PB off. No pump here cavitates
+		// with no ratio: every cell is a number or a bare "—".
+		expect(rows.every((r) => typeof r.margin === 'string')).toBe(true);
 		const margins = rows.map((r) => value(r.margin)).filter((m): m is number => m !== null);
 		expect(flat[0]!.rows[0]).toBe(
-			`Pump PA | Pump PB off | ${table.groups[1]!.rows[0]!.cells.npshMargin}`
+			`Pump PA | Pump PB off | ${table.groups[1]!.rows[0]!.cells.npshMarginRatio}`
 		);
-		expect(Number(table.groups[1]!.rows[0]!.cells.npshMargin)).toBe(Math.min(...margins));
+		expect(Number(table.groups[1]!.rows[0]!.cells.npshMarginRatio)).toBe(Math.min(...margins));
 		// Each Case cell wraps at 12 rem, an unbroken name too, anywhere on a phone.
 		for (const cell of combosRegion().querySelectorAll('td[data-label="Case"]')) {
 			expect(cell.firstElementChild).toHaveClass(
@@ -3655,10 +3666,10 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			expect(notes.closest('td')).toHaveAttribute('colspan', String(headings.length));
 		}
 		// Descending, then cleared: the case groups again, in S5's order, each as before.
-		await sortBy(/^NPSH margin/);
-		expect(combosColumn(/^NPSH margin/)).toHaveAttribute('aria-sort', 'descending');
-		await sortBy(/^NPSH margin/);
-		expect(combosColumn(/^NPSH margin/)).not.toHaveAttribute('aria-sort');
+		await sortBy(/^NPSH margin ratio/);
+		expect(combosColumn(/^NPSH margin ratio/)).toHaveAttribute('aria-sort', 'descending');
+		await sortBy(/^NPSH margin ratio/);
+		expect(combosColumn(/^NPSH margin ratio/)).not.toHaveAttribute('aria-sort');
 		expect(drawnGroups()).toEqual(before);
 		expect(within(combosRegion()).queryByRole('columnheader', { name: 'Case' })).toBeNull();
 	});
@@ -3685,12 +3696,17 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			}
 			return n;
 		};
-		// Grouped: no Head heading or cell in any case.
+		// Grouped: no Head heading or cell in any case. The NPSH margin is hidden by default too,
+		// its ratio shown (pumps-nits.md item 4, review E-1-4): the Pump heading and the columns
+		// but those two.
+		expect(table.columns.filter((c) => c.hiddenByDefault).map((c) => c.key)).toEqual([
+			'npshMargin'
+		]);
 		expect(within(combosRegion()).queryByRole('columnheader', { name: /^Head/ })).toBeNull();
 		expect(combosRegion().querySelectorAll('td[data-label="Head (m)"]')).toHaveLength(0);
-		expect(spans()).toBe(table.columns.length);
+		expect(spans()).toBe(table.columns.length - 1);
 		expect(within(section).getByRole('button', { name: /^Fields/ })).toHaveTextContent(
-			`(${table.columns.length - 1} of ${table.columns.length})`
+			`(${table.columns.length - 2} of ${table.columns.length})`
 		);
 		// Flat: the same.
 		await sortBy(/^Flow/);
@@ -3699,7 +3715,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(combosRegion().querySelectorAll('td[data-label="Flow (L/s)"]').length).toBeGreaterThan(
 			0
 		);
-		expect(spans()).toBe(table.columns.length + 1);
+		expect(spans()).toBe(table.columns.length);
 		expect(localStorage.getItem('opensolve-pipe:results-fields:Running combinations')).toBe(
 			'["head"]'
 		);
@@ -3727,7 +3743,10 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			table.groups.filter((g) => g.rows.some((r) => r.flags.length)).map((g) => g.heading)
 		);
 		expect(grouped.flatMap((g) => g.rows)).toEqual(
-			flagged.flatMap(({ r }) => [`${r.name} | ${r.cells.npshMargin}`, `flags of ${r.id}`])
+			flagged.flatMap(({ r }) => [
+				`${r.name} | ${r.cells.npshMarginRatio as string}`,
+				`flags of ${r.id}`
+			])
 		);
 		const sentences = () => {
 			const said = [...combosRegion().querySelectorAll('[data-flag-text]')];
@@ -3753,6 +3772,93 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(drawnGroups()[0]!.rows.filter((r) => !r.startsWith('flags of'))).toHaveLength(
 			all.length
 		);
+	});
+
+	it('the card’s NPSH reading is the ratio, the margin hidden by default: a pump that cavitates with no ratio reads "—" and the cavitation with its margin, the octagon before those words, in the group table, Running combinations and the extremes, and sorts first (the owner’s nit 4 and Q3; docs/proposals/pumps-nits.md item 4; review E-1-4)', async () => {
+		/** Synthetic: Pump PA's NPSHr 0 at its flow, NPSHa −2.521 m and CAVITATION (as corpus PU2). */
+		const cavitate = (response: SolveResponse): SolveResponse => {
+			const copy = structuredClone(response);
+			Object.assign(copy.solvedState.pumpResults.PA!, {
+				npshAvailable: -2.521,
+				npshRequired: 0,
+				npshMargin: -2.521,
+				npshMarginRatio: null
+			});
+			copy.solvedState.flags = [
+				...copy.solvedState.flags,
+				{
+					code: 'CAVITATION',
+					severity: 'invalid',
+					message: 'made-up',
+					componentId: 'PA',
+					connectionId: null,
+					portId: 'suction',
+					details: {}
+				} as Flag
+			];
+			return copy;
+		};
+		const cue = 'Cavitates (NPSHr 0): NPSH margin -2.521 m';
+		const shown = { ...c, solve: cavitate(c.solve) };
+		const input = combinationsOf([
+			solvedCase('', 'Base case', shown.solve),
+			solvedCase('S2', 'Pump PB off', c.scenarioCases.S2!.solve)
+		]);
+		render(
+			PumpGroupChart,
+			base({
+				pumps: pumpsOf(shown),
+				combinations: runningCombinations(input),
+				extremes: combinationExtremes(input),
+				oninspect: () => {}
+			})
+		);
+		/** A cell's lines as drawn, each squashed. */
+		const lines = (cell: Element) =>
+			[...cell.querySelectorAll(':scope > span.block')].map((l) => squashed(l.textContent));
+		for (const name of [/^The pumps in the group/, 'Running combinations']) {
+			const box = boxOf(name);
+			expect(
+				within(box).getByRole('columnheader', { name: /^NPSH margin ratio/ }),
+				String(name)
+			).toBeInTheDocument();
+			expect(
+				within(box).queryByRole('columnheader', { name: /^NPSH margin(?! ratio)/ }),
+				String(name)
+			).toBeNull();
+			expect(box.querySelectorAll('td[data-label="NPSH margin (m)"]'), String(name)).toHaveLength(
+				0
+			);
+		}
+		// The group table, the case shown: Pump PA's cell, two lines.
+		const group = boxOf(/^The pumps in the group/);
+		const pa = within(group).getByRole('rowheader', { name: 'Pump PA' }).closest('tr')!;
+		expect(lines(pa.querySelector('td[data-label="NPSH margin ratio"]')!)).toEqual(['—', cue]);
+		// Running combinations: the base case's Pump PA, the octagon before the words.
+		const combos = combosRegion();
+		const cells = [...combos.querySelectorAll<HTMLElement>('td[data-label="NPSH margin ratio"]')];
+		const cavitating = cells.filter((cell) => cell.textContent!.includes('Cavitates'));
+		expect(cavitating).toHaveLength(1);
+		expect(lines(cavitating[0]!)).toEqual(['—', `physically invalid:${cue}`]);
+		expect(shapes(cavitating[0]!)).toEqual([OCTAGON]);
+		// The mark is the words' own: the octagon, then "physically invalid:", then the words.
+		const words = within(cavitating[0]!).getByText(cue);
+		expect(shapes(words)).toEqual([OCTAGON]);
+		expect(words.querySelector('.sr-only')).toHaveTextContent('physically invalid:');
+		expect(words.closest('span.block')?.previousElementSibling).toHaveTextContent(/^—$/);
+		// Sorted by the ratio, smallest first: that pump first, below every ratio.
+		await sortBy(/^NPSH margin ratio/);
+		expect(drawnGroups()[0]!.rows[0]).toMatch(
+			/^Pump PA \| Base case \(shown\) \| —physically invalid:Cavitates/
+		);
+		// The extremes: its smallest ratio in words, marked invalid.
+		const extremes = screen.getByRole('table', { name: 'Extremes over these cases' });
+		const paRow = within(extremes).getByRole('rowheader', { name: 'Pump PA' }).closest('tr')!;
+		const smallest = paRow.querySelector('td[data-label="Smallest NPSH margin ratio"]')!;
+		expect(squashed(smallest.textContent)).toBe(
+			`${cue} in Base case; physically invalid (over 2 of 2 cases)`
+		);
+		expect(shapes(smallest)).toEqual([OCTAGON]);
 	});
 
 	it('Running combinations: trace buttons in the shown case’s rows only, in both forms, a scenario shown (§5.3 Pump names, §9 S6b; S5 review MUT-02)', async () => {

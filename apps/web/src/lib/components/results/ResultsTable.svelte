@@ -32,8 +32,10 @@
 	Fields (owner, 2026-10-31; proposal build-density.md §15): a menu of the table's columns, each a
 	checkbox, chooses which are shown, in the table and in the phone's list; the element's name
 	always is. A column may be hidden by default (`Column.hiddenByDefault`: Results per pump's
-	hydraulic power, NPSHa and NPSHr; owner, 2026-11-12, docs/proposals/pumps-nits.md item 3), and
-	the count in Fields' name counts it: "Fields (7 of 10)". What is remembered in this browser per
+	hydraulic power, NPSHa, NPSHr and NPSH margin, its ratio shown, and the NPSH margin in the Pumps
+	together card's group table and Running combinations; owner, 2026-11-12, nits 3 and 4,
+	docs/proposals/pumps-nits.md items 3 and 4), and the count in Fields' name counts it: "Fields (7
+	of 11)". What is remembered in this browser per
 	table (localStorage: a per-viewer convenience, never project data, never in the link) is the
 	user's departure from the defaults; "Show all" shows every column, and "Default fields",
 	offered on a table with defaults once the choice differs from them, forgets it. A sort asked for
@@ -224,9 +226,9 @@
 	/**
 	 * Fields' count, and its name: its words, then its table's (an aria-label, since a browser puts
 	 * a space before a visually hidden suffix in a flex button), so two tables' Fields have names of
-	 * their own (the Pumps tab has three; S6 review A11Y-S6-3; ui-guide): "Fields (7 of 10), Results
-	 * per pump", three of that table's ten fields hidden by default (eleven with a speed-controlled
-	 * pump). It counts the table's own columns hidden, so a remembered Control in a solve with no
+	 * their own (the Pumps tab has three; S6 review A11Y-S6-3; ui-guide): "Fields (7 of 11), Results
+	 * per pump", four of that table's eleven fields hidden by default (twelve with a
+	 * speed-controlled pump; docs/proposals/pumps-nits.md items 3 and 4). It counts the table's own columns hidden, so a remembered Control in a solve with no
 	 * speed-controlled pump is not one (docs/roadmap.md, "Fields (10 of 10)").
 	 */
 	const fieldsCount = $derived(
@@ -297,7 +299,8 @@
 		appliedRequest = request.id;
 		// A column it names that is hidden is shown first, stored as if its box were checked, so the
 		// sort is not dropped as one on a hidden column (below): the Summary's "Pumps, smallest
-		// first" sorts by NPSH margin whatever Fields hid (docs/proposals/pumps-nits.md item 3).
+		// first" sorts by NPSH margin ratio whatever Fields hid (docs/proposals/pumps-nits.md items 3
+		// and 4).
 		untrack(() => {
 			const column = table.columns.find((c) => c.key === request.key);
 			if (column && hidden.includes(column.key)) setShown(column, true);

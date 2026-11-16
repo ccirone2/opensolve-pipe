@@ -188,6 +188,8 @@ const pumpFields: Field<Pump>[] = [
 	['NPSHa', (p) => p.npshAvailable, 'head'],
 	['NPSHr', (p) => p.npshRequired, 'head'],
 	['NPSH margin', (p) => p.npshMargin, 'head'],
+	// NPSHa ÷ NPSHr, a pure number (docs/proposals/pumps-nits.md item 4: the screen's fields, D17).
+	['NPSH margin ratio', (p) => p.npshMarginRatio],
 	['Suction absolute pressure', (p) => p.suctionAbsolutePressure, 'pressure']
 ];
 
@@ -655,6 +657,11 @@ describe('the screen and the file read one field in one category (item 3)', () =
 					expect(screenText(row.cells.shaftPower)).toBe(f.num(p.shaftPower, 'power'));
 					expect(screenText(row.cells.hydraulicPower)).toBe(f.num(p.hydraulicPower, 'power'));
 					expect(screenText(row.cells.npshAvailable)).toBe(f.num(p.npshAvailable, 'head'));
+					// The ratio's plain text, or "—" without one (no pump of the fixture cavitates
+					// without a ratio, whose cell names the cavitation: results.test.ts).
+					if (p.npshMarginRatio !== null || p.npshMargin === null || p.npshMargin >= 0) {
+						expect(row.cells.npshMarginRatio).toBe(f.plain(p.npshMarginRatio));
+					}
 				}
 			}
 			if (ids.has('valves')) {
@@ -779,6 +786,39 @@ describe('the screen and the file read one field in one category (item 3)', () =
 		expect(f.num(123.456, 'head')).toBe('123.46');
 		expect(valueText(f.diff(5e-8, 'head', HEAD_NOISE))).toBe('≈ 0');
 	});
+});
+
+describe('the Pumps sheet’s NPSH margin ratio (docs/proposals/pumps-nits.md item 4)', () => {
+	/**
+	 * The pump-transfer case with a made-up NPSHr of 4 m on its pump: margin NPSHa − 4 m and ratio
+	 * NPSHa ÷ 4 m, written out here (the fixture's pumps have no NPSHr curve, so no ratio).
+	 */
+	function withRatio(units: 'si' | 'display') {
+		const input = fixtureInput('pump-transfer', { units });
+		const pump = input.cases[0]!.response!.solvedState.pumpResults.P1!;
+		const npsha = pump.npshAvailable!;
+		pump.npshRequired = 4;
+		pump.npshMargin = npsha - 4;
+		pump.npshMarginRatio = npsha / 4;
+		return { input, ratio: npsha / 4 };
+	}
+
+	it.each(['si', 'display'] as const)(
+		'follows NPSH margin, a pure number with no unit, the API’s double in %s units; the screen shows it to 4 significant figures',
+		(units) => {
+			const { input, ratio } = withRatio(units);
+			const t = readSheet(exportOf(input), 'pumps');
+			expect(t.labels.indexOf('NPSH margin ratio')).toBe(t.labels.indexOf('NPSH margin') + 1);
+			const column = t.sheet.columns[t.labels.indexOf('NPSH margin ratio')]!;
+			expect(column.kind).toBe('number');
+			expect(column.unit ?? '').toBe('');
+			const [cell] = t.column('NPSH margin ratio');
+			expect(Object.is(cell, ratio), `${String(cell)} vs ${ratio}`).toBe(true);
+			const screen = pumpTable(input.project, input.cases[0]!.response!.solvedState, input.prefs);
+			expect(screen.rows[0]!.cells.npshMarginRatio).toBe(new Formatter(input.prefs).plain(ratio));
+			expect(screen.rows[0]!.cells.npshMarginRatio).toBe(String(Number(ratio.toPrecision(4))));
+		}
+	);
 });
 
 describe('branch K is on the combined-flow velocity (item 13, decision 29)', () => {

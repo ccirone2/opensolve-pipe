@@ -722,6 +722,8 @@ describe('the group table', () => {
 			['η', '%'],
 			['Shaft power', 'kW'],
 			['NPSH margin', 'm'],
+			// The ratio after it, shown; the margin hidden by default (pumps-nits.md item 4, E-1-4).
+			['NPSH margin ratio', ''],
 			['Shutoff head', 'm'],
 			['Inside curve data', '']
 		]);
@@ -745,6 +747,57 @@ describe('the group table', () => {
 				value: `${f4(response.duty!.head)} m`
 			}
 		]);
+	});
+
+	it('its NPSH reading the margin ratio, the margin hidden by default; a pump that cavitates with no ratio says so with its margin and sorts below every ratio (the owner’s nit 4 and Q3; docs/proposals/pumps-nits.md item 4; review E-1-4)', () => {
+		const c = named('one-off');
+		const sig4 = (v: number) => String(Number(v.toPrecision(4)));
+		const results = c.solve.solvedState.pumpResults;
+		const table = groupTable(
+			membersOf(c),
+			c.solve.solvedState.nodeResults,
+			responseOf(c),
+			prefsOf(c),
+			c.project
+		);
+		const keys = table.columns.map((col) => col.key);
+		expect(keys.indexOf('npshMarginRatio')).toBe(keys.indexOf('npshMargin') + 1);
+		expect(table.columns.find((col) => col.key === 'npshMarginRatio')).toEqual({
+			key: 'npshMarginRatio',
+			label: 'NPSH margin ratio',
+			numeric: true
+		});
+		expect(table.columns.filter((col) => col.hiddenByDefault).map((col) => col.key)).toEqual([
+			'npshMargin'
+		]);
+		// The API's NPSHa ÷ NPSHr to 4 significant figures.
+		expect(table.rows.map((r) => r.cells.npshMarginRatio)).toEqual([
+			sig4(results.PA!.npshMarginRatio!),
+			sig4(results.PB!.npshMarginRatio!)
+		]);
+		expect(table.rows.every((r) => r.sortKeys === undefined)).toBe(true);
+		// Synthetic: Pump PA's NPSHr 0 at its flow and its NPSHa −2.521 m (corpus unit_rich1090 PU2).
+		const members = membersOf(c).map((m) =>
+			m.id === 'PA'
+				? {
+						...m,
+						result: {
+							...m.result,
+							npshAvailable: -2.521,
+							npshRequired: 0,
+							npshMargin: -2.521,
+							npshMarginRatio: null
+						}
+					}
+				: m
+		);
+		const cue = groupTable(members, c.solve.solvedState.nodeResults, null, prefsOf(c), c.project);
+		expect(cue.rows[0]!.cells.npshMarginRatio).toEqual([
+			'—',
+			'Cavitates (NPSHr 0): NPSH margin -2.521 m'
+		]);
+		expect(cue.rows[0]!.sortKeys).toEqual({ npshMarginRatio: Number.NEGATIVE_INFINITY });
+		expect(cue.rows[1]!.sortKeys).toBeUndefined();
 	});
 
 	it('series: inlet and discharge pressures (gauge) and the interstage loss; before the curve, no share', () => {

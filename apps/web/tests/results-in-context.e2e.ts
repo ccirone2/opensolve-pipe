@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { buildPane, cellText, resultsView, showPane, solveConverged } from './support';
+import { buildPane, cellText, resultsView, showPane, sig4, solveConverged } from './support';
 
 /**
  * Results in context (proposal ui-ux-refinement.md item 6), against the real app and API, on
@@ -31,10 +31,15 @@ test('the element shown in Build has its key results, as the tables show them', 
 	await page.goto('/');
 	await page.getByRole('link', { name: /Pump transfer/ }).click();
 	await expect(page).toHaveURL(/\/p#[A-Za-z0-9_-]+$/);
-	await solveConverged(page);
+	const solved = await solveConverged(page);
 
 	const flow = await tableValue(page, 'Pumps', 'Transfer pump', 'Flow L/s');
 	const head = await tableValue(page, 'Pumps', 'Transfer pump', 'Head m');
+	// A pump's NPSH reading, in the table and the strip, is its margin ratio: the API's NPSHa ÷
+	// NPSHr, 4 significant figures, no unit (the owner, 2026-11-12, nit 4 and Q3, "Ratio
+	// everywhere"; docs/proposals/pumps-nits.md item 4).
+	const ratio = await tableValue(page, 'Pumps', 'Transfer pump', 'NPSH margin ratio');
+	expect(ratio).toBe(sig4(solved.pumpResults.P1!.npshMarginRatio!));
 	const velocity = await tableValue(
 		page,
 		'Links',
@@ -47,6 +52,9 @@ test('the element shown in Build has its key results, as the tables show them', 
 	const pump = strips(page).first();
 	expect(await stripValue(pump, 'Flow (L/s)')).toBe(flow);
 	expect(await stripValue(pump, 'Head (m)')).toBe(head);
+	expect(await stripValue(pump, 'NPSH margin ratio')).toBe(ratio);
+	// The ratio in the margin's place: no NPSH margin of its own.
+	await expect(pump.locator('dt').filter({ hasText: /^NPSH margin\s\(m\)$/ })).toHaveCount(0);
 	await expect(pump.getByText('Out of date: solve again')).toHaveCount(0);
 
 	// The discharge connection, in Piping.

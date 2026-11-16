@@ -32,7 +32,8 @@
 	Fields (owner, 2026-10-31; proposal build-density.md §15): a menu of the table's columns, each a
 	checkbox, chooses which are shown, in the table and in the phone's list; the element's name
 	always is. A column may be hidden by default (`Column.hiddenByDefault`: Results per pump's
-	hydraulic power, NPSHa, NPSHr and NPSH margin, its ratio shown; owner, 2026-11-12, nits 3 and 4,
+	hydraulic power, NPSHa, NPSHr and NPSH margin, its ratio shown, and the NPSH margin in the Pumps
+	together card's group table and Running combinations; owner, 2026-11-12, nits 3 and 4,
 	docs/proposals/pumps-nits.md items 3 and 4), and the count in Fields' name counts it: "Fields (7
 	of 11)". What is remembered in this browser per
 	table (localStorage: a per-viewer convenience, never project data, never in the link) is the

@@ -752,7 +752,12 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 			shows(await cell('Flow (L/s)'), r.operatingFlow * 1000);
 			shows(await cell('Head (m)'), r.operatingHead);
 			if (r.shaftPower !== null) shows(await cell('Shaft power (kW)'), r.shaftPower / 1000);
-			if (r.npshMargin !== null) shows(await cell('NPSH margin (m)'), r.npshMargin);
+			// Its NPSH reading the margin ratio, the margin hidden by default (the owner's nit 4 and
+			// Q3; docs/proposals/pumps-nits.md item 4, review E-1-4).
+			// Wherever the margin was checked, a ratio is (no pump here has an NPSHr of 0).
+			if (r.npshMargin !== null) expect(r.npshMarginRatio, `${pump}'s ratio`).not.toBeNull();
+			if (r.npshMarginRatio !== null) shows(await cell('NPSH margin ratio'), r.npshMarginRatio);
+			await expect(row.locator('[data-label="NPSH margin (m)"]')).toHaveCount(0);
 		}
 	}
 	const paWithoutPb = group(/^Case 2: Pump PB off/)
@@ -1047,7 +1052,11 @@ test('add cases by number running: the stop order moved, three cases added and s
 			shows(await cell('Flow (L/s)'), r.operatingFlow * 1000);
 			shows(await cell('Head (m)'), r.operatingHead);
 			if (r.shaftPower !== null) shows(await cell('Shaft power (kW)'), r.shaftPower / 1000);
-			if (r.npshMargin !== null) shows(await cell('NPSH margin (m)'), r.npshMargin);
+			// Its NPSH reading the margin ratio, the margin hidden by default (pumps-nits.md item 4).
+			// Wherever the margin was checked, a ratio is (no pump here has an NPSHr of 0).
+			if (r.npshMargin !== null) expect(r.npshMarginRatio, `${pump}'s ratio`).not.toBeNull();
+			if (r.npshMarginRatio !== null) shows(await cell('NPSH margin ratio'), r.npshMarginRatio);
+			await expect(row.locator('[data-label="NPSH margin (m)"]')).toHaveCount(0);
 		}
 	}
 	const legend = card.getByRole('figure').getByRole('list', { name: 'Legend' });

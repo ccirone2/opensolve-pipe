@@ -2602,7 +2602,14 @@ const COMBINATIONS_LEAD: Readonly<Record<string, { text: string; mark: string | 
 		mark: 'Physically invalid'
 	}
 };
-const EXTREMES_COLUMNS = ['Pump', 'Largest flow', 'Largest shaft power', 'Smallest NPSH margin'];
+// The NPSH reading the margin ratio since nit 4 (the owner's Q3, "Ratio everywhere";
+// docs/proposals/pumps-nits.md item 4, review E-1-4).
+const EXTREMES_COLUMNS = [
+	'Pump',
+	'Largest flow',
+	'Largest shaft power',
+	'Smallest NPSH margin ratio'
+];
 /**
  * A list line's header ending in a space as drawn: its column's words and a space, as ::before
  * content (the mock's `attr(data-label) " "`; S5 review EXT-1, LAYOUT-1), as getComputedStyle
@@ -3259,7 +3266,8 @@ async function combinationsPart(
  * Running combinations as a ResultsTable (§9 S6b; the owner's answer 3, §12) in either form, as
  * laid out (viewport px): its controls (Fields, Flagged only, a phone's "Sort by" with its room for
  * its longest field, the headings' sort buttons); its form, a row group per case or one flat table
- * with a Case column; each pump's row (its name, its case, its NPSH margin, a trace button or not,
+ * with a Case column; each pump's row (its name, its case, its NPSH margin ratio, its NPSH reading
+ * since nit 4 (pumps-nits.md item 4), a trace button or not,
  * in sight and shown to its end) and the flag line under it; and every element inside the box
  * that paints a fill over its right edge, where the sideways shadow is drawn (§15 item 157), with
  * the box scrolled to show more on its right and read screen by screen down it. A stale case's
@@ -3403,7 +3411,9 @@ function readCombinationsTable() {
 						}
 					: null,
 				// Its words as drawn: a marked value's "physically invalid:" is for screen readers.
-				margin: drawn(r.querySelector('td[data-label="NPSH margin (m)"]')),
+				ratio: drawn(r.querySelector('td[data-label="NPSH margin ratio"]')),
+				// The margin hidden by default (pumps-nits.md item 4, review E-1-4).
+				marginCell: r.querySelector('td[data-label="NPSH margin (m)"]') !== null,
 				head: r.querySelector('td[data-label^="Head"]') !== null,
 				button: !!r.querySelector('th[scope="row"] button'),
 				flags: notes
@@ -3516,6 +3526,10 @@ function readCombinationsTable() {
 		headings,
 		select: select ? { seen: seen(select), top: select.getBoundingClientRect().top } : null,
 		sortRoom,
+		// A count in Fields' name (a field hidden), drawn while no sort is on (review A2).
+		counted:
+			/\(\d+ of \d+\)/.test(fields?.getAttribute('aria-label') ?? '') &&
+			select?.selectedOptions[0]?.text === 'Table order',
 		fields: fields ? { seen: seen(fields), top: fields.getBoundingClientRect().top } : null,
 		flagged: flagged ? { seen: seen(flagged), text: squash(flagged.textContent) } : null,
 		rows,
@@ -3526,6 +3540,34 @@ function readCombinationsTable() {
 		tagLines: [...new Set(tagLines)],
 		covers: [...new Set(covers)]
 	};
+}
+
+/**
+ * A phone's "Sort by" in `block` with field `name` chosen: its text's width and the room the field
+ * gives it then (MENULIST_INNER is the caller's), and the table's own order again after. A table
+ * with a field hidden by default has a count in Fields' name, drawn beside Sort while no sort is
+ * on and for screen readers only while one is, so the field chosen shows whole (review
+ * PUMPS-NITS-A2, Results per pump; the card's two tables since nit 4 hid their NPSH margin by
+ * default, pumps-nits.md item 4, review E-1-4): their longest field is measured chosen, as it is
+ * seen (S6 review TBL-4, §15 item 17), rather than in the room the count leaves while unsorted.
+ */
+async function chosenRoom(block: Locator, name: string): Promise<{ room: number; text: number }> {
+	const select = block.getByRole('combobox', { name: /^Sort by, / });
+	await select.selectOption({ label: name });
+	await expect(block.getByRole('button', { name: /lowest first|highest first/ })).toHaveCount(1);
+	const m = await select.evaluate((el) => {
+		const s = el as HTMLSelectElement;
+		const css = getComputedStyle(s);
+		const context = document.createElement('canvas').getContext('2d')!;
+		context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+		return {
+			text: Math.ceil(context.measureText(s.selectedOptions[0]?.text ?? '').width),
+			room: Math.floor(s.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight))
+		};
+	});
+	await select.selectOption({ label: 'Table order' });
+	await expect(block.getByRole('button', { name: /lowest first|highest first/ })).toHaveCount(0);
+	return m;
 }
 
 /**
@@ -3570,10 +3612,16 @@ async function combinationsTablePart(page: Page, where: string, form: 'grouped' 
 			`its "Sort by" and Fields on one line, ${where}`
 		).toBe(true);
 		if (m.sortRoom && form === 'grouped') {
+			const room = m.counted
+				? await chosenRoom(
+						page.locator('[data-pumps-together] [data-running-combinations]'),
+						m.sortRoom.name
+					)
+				: { room: m.sortRoom.room, text: m.sortRoom.text };
 			soft(
-				m.sortRoom.room - MENULIST_INNER,
-				`room in its "Sort by" for "${m.sortRoom.name}", ${where}`
-			).toBeGreaterThanOrEqual(m.sortRoom.text);
+				room.room - MENULIST_INNER,
+				`room in its "Sort by" for "${m.sortRoom.name}"${m.counted ? ' chosen' : ''}, ${where}`
+			).toBeGreaterThanOrEqual(room.text);
 		}
 		// Sorted, the field it shows whole beside its direction button (S6 review TBL-4).
 		if (m.sortRoom && form === 'flat') {
@@ -3738,6 +3786,10 @@ function readGroupTable() {
 		}),
 		select: select ? { seen: seen(select), top: rect(select).top } : null,
 		sortRoom,
+		// A count in Fields' name (a field hidden), drawn while no sort is on (review A2).
+		counted:
+			/\(\d+ of \d+\)/.test(fields?.getAttribute('aria-label') ?? '') &&
+			select?.selectedOptions[0]?.text === 'Table order',
 		fields: fields ? { seen: seen(fields), top: rect(fields).top } : null,
 		flagged: flagged ? { seen: seen(flagged), top: rect(flagged).top } : null,
 		group: !!group,
@@ -3834,10 +3886,16 @@ async function groupTablePart(page: Page, where: string) {
 			`"Sort by" and Fields on one line, ${where}`
 		).toBe(true);
 		if (m.sortRoom) {
+			const room = m.counted
+				? await chosenRoom(
+						page.locator('[data-pumps-together] [data-group-table]'),
+						m.sortRoom.name
+					)
+				: { room: m.sortRoom.room, text: m.sortRoom.text };
 			soft(
-				m.sortRoom.room - MENULIST_INNER,
-				`room in "Sort by" for "${m.sortRoom.name}", ${where}`
-			).toBeGreaterThanOrEqual(m.sortRoom.text);
+				room.room - MENULIST_INNER,
+				`room in "Sort by" for "${m.sortRoom.name}"${m.counted ? ' chosen' : ''}, ${where}`
+			).toBeGreaterThanOrEqual(room.text);
 		}
 	} else {
 		soft(m.select?.seen ?? false, `"Sort by" out of sight from 640 px, ${where}`).toBe(false);
@@ -4826,7 +4884,7 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 			.toBe(true);
 		// Sorted (§9 S6b): one table with a Case column, the long case name in its Case cells and
 		// the long pump name in its rows, each shown to its end; then the cases back.
-		await sortCombinations(page, /^NPSH margin/, 'npshMargin');
+		await sortCombinations(page, /^NPSH margin ratio/, 'npshMarginRatio');
 		const flat = await combinationsTablePart(page, `${where}, sorted`, 'flat');
 		expect
 			.soft(
@@ -4837,7 +4895,7 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		expect
 			.soft(flat?.rows.filter((r) => r.name === LONG_PUMP).length, `the long pump's rows, ${where}`)
 			.toBe(named?.atStart.filter((g) => g.members.length).length);
-		await sortCombinations(page, /^NPSH margin/, 'npshMargin', true);
+		await sortCombinations(page, /^NPSH margin ratio/, 'npshMarginRatio', true);
 		// Each line of a long name ends inside the card, outside a box that scrolls (the data
 		// tables, and the group table at 640 px and over, whose name column wraps at 12 rem).
 		const past = await card.evaluate(namesPast, [LONG_PUMP, LONG_CASE]);
@@ -5102,7 +5160,7 @@ async function sortCombinations(page: Page, column: RegExp, key: string, clear =
 	else await expect(heading).toHaveAttribute('aria-sort', 'ascending');
 }
 
-test('Running combinations sorts into one table with a Case column, its first row the smallest NPSH margin, and back into its cases in S5’s order; Fields and Flagged only in both forms; trace buttons in the shown case’s rows only; its shadow unbroken (§9 S6b, §10 S6b; the owner’s answer 3)', async ({
+test('Running combinations sorts into one table with a Case column, its first row the smallest NPSH margin ratio, and back into its cases in S5’s order; Fields and Flagged only in both forms; trace buttons in the shown case’s rows only; its shadow unbroken (§9 S6b, §10 S6b; the owner’s answer 3)', async ({
 	page
 }, info) => {
 	test.setTimeout(420_000);
@@ -5152,18 +5210,26 @@ test('Running combinations sorts into one table with a Case column, its first ro
 		console.log(`${where}: the open card ${await cardHeight()} px, unsorted`);
 		await shot('unsorted');
 
-		// Sorted by NPSH margin: one table, every case's pumps, by margin, those without one last,
-		// the smallest first; the same rows as the cases held.
-		await sortCombinations(page, /^NPSH margin/, 'npshMargin');
+		// Sorted by NPSH margin ratio, its NPSH reading since nit 4, the margin hidden by default
+		// (pumps-nits.md item 4, review E-1-4): one table, every case's pumps, by ratio, those
+		// without one last, the smallest first; the same rows as the cases held.
+		// By default: at the first size only, since the size before ends with Show all.
+		if (size === sizes[0]) {
+			expect(
+				before.rows.some((r) => r.marginCell),
+				`a margin cell, ${where}`
+			).toBe(false);
+		}
+		await sortCombinations(page, /^NPSH margin ratio/, 'npshMarginRatio');
 		const sorted = (await combinationsTablePart(page, `${where}, sorted`, 'flat'))!;
-		const values = sorted.rows.map((r) => (/^-?[\d.]+$/.test(r.margin) ? Number(r.margin) : null));
+		const values = sorted.rows.map((r) => (/^-?[\d.]+$/.test(r.ratio) ? Number(r.ratio) : null));
 		const numbers = values.filter((v): v is number => v !== null);
-		expect(numbers.length, `margins, ${where}`).toBeGreaterThan(1);
-		expect(values.slice(0, numbers.length), `the margins in order, ${where}`).toEqual(
+		expect(numbers.length, `ratios, ${where}`).toBeGreaterThan(1);
+		expect(values.slice(0, numbers.length), `the ratios in order, ${where}`).toEqual(
 			[...numbers].sort((a, b) => a - b)
 		);
 		expect(values.slice(numbers.length).every((v) => v === null)).toBe(true);
-		expect(values[0], `the smallest margin first, ${where}`).toBe(Math.min(...numbers));
+		expect(values[0], `the smallest ratio first, ${where}`).toBe(Math.min(...numbers));
 		expect(sorted.rows.map(key).sort(), `the same rows, ${where}`).toEqual(
 			before.rows.map(key).sort()
 		);
@@ -5190,7 +5256,7 @@ test('Running combinations sorts into one table with a Case column, its first ro
 		expect(flatFlagged.rows.every((r) => !!r.flags)).toBe(true);
 
 		// The sort cleared: the cases with a flagged pump, in S5's order, each such pump's row.
-		await sortCombinations(page, /^NPSH margin/, 'npshMargin', true);
+		await sortCombinations(page, /^NPSH margin ratio/, 'npshMarginRatio', true);
 		const groupedFlagged = (await combinationsTablePart(
 			page,
 			`${where}, flagged only`,
@@ -5249,6 +5315,23 @@ test('Running combinations sorts into one table with a Case column, its first ro
 // ---- S6 review: the card's tables in the browser ----------------------------------------------
 
 /**
+ * Running combinations as these S6 tests measured it, before nit 4: "NPSH margin" shown and "NPSH
+ * margin ratio" hidden, by its Fields menu (desktop: the menu under its button), closed by Escape.
+ * Nit 4 (the owner's Q3, "Ratio everywhere"; pumps-nits.md item 4, review E-1-4) swapped their
+ * defaults, and the ratio's heading is 30 px wider than the margin's, which moves the headings
+ * these tests press at the end of the box's scroll.
+ */
+async function marginForRatio(page: Page, combinations: Locator) {
+	await combinations.getByRole('button', { name: /^Fields/ }).click();
+	await combinations.getByRole('checkbox', { name: /^NPSH margin(?! ratio)/ }).check();
+	await combinations.getByRole('checkbox', { name: /^NPSH margin ratio/ }).uncheck();
+	await page.keyboard.press('Escape');
+	await expect(
+		combinations.getByRole('table').getByRole('columnheader', { name: /^NPSH margin ratio/ })
+	).toHaveCount(0);
+}
+
+/**
  * The focused element against what its table's box pins (ResultsTable: the sticky first column
  * and the sticky heading row): whether the point at its centre is its own, and whether it lies
  * whole in the box's view, right of the first column (but a name or the first heading, which are
@@ -5301,9 +5384,23 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 	// Each table's Fields and, on a phone, its "Sort by" named apart: the visible words, then the
 	// table's name, visually hidden (A11Y-S6-3; ui-guide). Results per pump's count names its
 	// fields hidden by default: hydraulic power, NPSHa, NPSHr and the NPSH margin, its ratio shown
-	// (pumps-nits.md items 3 and 4).
+	// (pumps-nits.md items 3 and 4); the card's two tables' their NPSH margin, their ratio shown
+	// (item 4, review E-1-4): every column drawn, and one more.
 	const captions = ['Results per pump', groupTitle, 'Running combinations'];
 	const counts: Record<string, string> = { 'Results per pump': ' (7 of 11)' };
+	for (const [caption, block] of [
+		[groupTitle, groupBlock],
+		['Running combinations', combos]
+	] as const) {
+		const table = block.getByRole('table');
+		await expect(table.getByRole('columnheader', { name: /^NPSH margin ratio/ })).toHaveCount(1);
+		await expect(table.getByRole('columnheader', { name: /^NPSH margin(?! ratio)/ })).toHaveCount(
+			0
+		);
+		// The headings but "Pump": the columns drawn.
+		const drawn = (await table.getByRole('columnheader').count()) - 1;
+		counts[caption] = ` (${drawn} of ${drawn + 1})`;
+	}
 	await expect(tab.getByRole('button', { name: /^Fields/ })).toHaveCount(3);
 	for (const caption of captions) {
 		await expect
@@ -5350,7 +5447,7 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 		};
 		for (const [label, box] of Object.entries(boxes)) await walk(label, box);
 		// Running combinations sorted (one table with a Case column) too.
-		await sortCombinations(page, /^NPSH margin/, 'npshMargin');
+		await sortCombinations(page, /^NPSH margin ratio/, 'npshMarginRatio');
 		await walk('Running combinations sorted', boxes['Running combinations']);
 		soft(hidden, 'focused headings under the sticky column or out of the box').toEqual([]);
 
@@ -5401,15 +5498,21 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 		}
 		soft(traced, 'trace buttons reached by Shift+Tab').toBeGreaterThan(0);
 		soft(under, 'focused trace buttons under the heading row').toEqual([]);
-		await sortCombinations(page, /^NPSH margin/, 'npshMargin', true);
+		await sortCombinations(page, /^NPSH margin ratio/, 'npshMarginRatio', true);
 
 		// A heading pressed by the pointer stays under it as the table flattens and groups again:
-		// a second press at the same point reverses, a third clears (LAYOUT-S6-2).
+		// a second press at the same point reverses, a third clears (LAYOUT-S6-2). At the box's end
+		// a numeric heading whole in view: "NPSH margin", the column measured here before nit 4,
+		// with "Inside curve data" after it. Its ratio, shown in its place by default since nit 4
+		// (pumps-nits.md item 4, review E-1-4), has a heading 30 px wider, which lies partly under
+		// the sticky first column at the box's end; so the margin is shown and its ratio hidden for
+		// this press, by Fields, the table as it was measured.
 		const jumps: string[] = [];
 		for (const [column, words, end] of [
 			[/^Flow/, 'Flow', false],
-			[/^NPSH margin/, 'NPSH margin', true]
+			[/^NPSH margin(?! ratio)/, 'NPSH margin', true]
 		] as const) {
+			if (end) await marginForRatio(page, combos);
 			const heading = box.getByRole('columnheader', { name: column });
 			await box.evaluate((el, toEnd) => {
 				el.scrollIntoView({ block: 'center' });
@@ -5835,11 +5938,16 @@ test('S6, the CI fix: a numeric heading pressed three times at one point at the 
 	// A sort that flattens Running combinations' cases adds the Case column before the heading:
 	// 208.6 px of it and 0.2 of the arrow's, together 0.8 px past a whole pixel. Its last column,
 	// "Inside curve data" (14 rem at least), hidden by Fields, so a numeric heading can lie whole
-	// at the end of the box's scroll: "Shaft power", the one before "NPSH margin".
+	// at the end of the box's scroll: "Shaft power", the one before "NPSH margin ratio" (the NPSH
+	// margin hidden by default since nit 4, pumps-nits.md item 4).
+	// The table as it was measured: "NPSH margin" shown and its ratio hidden (nit 4 swapped their
+	// defaults, pumps-nits.md item 4, review E-1-4; the ratio's heading, 30 px wider, leaves
+	// "Shaft power" short of the box's end).
 	await condenser(page);
 	const combinations = (await pumpsTab(page))
 		.getByRole('region', { name: /^Pumps together/ })
 		.locator('[data-running-combinations]');
+	await marginForRatio(page, combinations);
 	await combinations.getByRole('button', { name: /^Fields/ }).click();
 	await combinations.getByRole('checkbox', { name: 'Inside curve data' }).uncheck();
 	await page.keyboard.press('Escape');
@@ -6017,10 +6125,13 @@ test('S6, the CI fix’s review: a sort a fraction of a pixel wider than its tab
 	await nodes.evaluate(() => document.getElementById('elevation-wide')?.remove());
 
 	// Running combinations, "Shaft power" with "Inside curve data" hidden, as in the CI fix's test:
-	// a sort adds a 208 px Case column, so the table grows 208 + 13/64 px and the range 209.
+	// a sort adds a 208 px Case column, so the table grows 208 + 13/64 px and the range 209. The
+	// table as it was measured: "NPSH margin" shown and its ratio hidden (nit 4, pumps-nits.md
+	// item 4, review E-1-4).
 	await condenser(page);
 	const card = (await pumpsTab(page)).getByRole('region', { name: /^Pumps together/ });
 	const combinations = card.locator('[data-running-combinations]');
+	await marginForRatio(page, combinations);
 	await combinations.getByRole('button', { name: /^Fields/ }).click();
 	await combinations.getByRole('checkbox', { name: 'Inside curve data' }).uncheck();
 	await page.keyboard.press('Escape');
@@ -6254,7 +6365,7 @@ test.describe('a touch screen from 640 px', () => {
 /**
  * The lineups project with Pump P3 on a copy of its curve without efficiencies and Pump P4 on a
  * copy without NPSHr (synthetic), so the extremes hold "no case gives one" for P3's shaft power and
- * P4's NPSH margin (§5.3: a pump with no NPSH data, a measure no case gives).
+ * P4's NPSH margin ratio (§5.3: a pump with no NPSH data, a measure no case gives).
  */
 function lineupsWithoutData(): Project {
 	const project = projectOf('lineups');
@@ -6411,7 +6522,7 @@ test('S5 review: the extremes list’s names with a measure no case gives, each 
 	});
 	await settle(page, 2500);
 
-	// "no case gives one" in P3's shaft power and P4's NPSH margin; the extremes' names and lines
+	// "no case gives one" in P3's shaft power and P4's NPSH margin ratio; the extremes' names and lines
 	// at each size (extremesPart: in the list, each cell's name its header, a space, its words).
 	const sizes =
 		info.project.name === 'mobile'
@@ -6428,7 +6539,7 @@ test('S5 review: the extremes list’s names with a measure no case gives, each 
 		);
 		expect
 			.soft(none, `the measures no case gives, ${where}`)
-			.toEqual(['Pump P3, Largest shaft power', 'Pump P4, Smallest NPSH margin']);
+			.toEqual(['Pump P3, Largest shaft power', 'Pump P4, Smallest NPSH margin ratio']);
 		await extremesPart(page, '', where);
 		await combinationsPart(page, '', where, null);
 	}
@@ -8134,8 +8245,9 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 		await noSidewaysScroll(page, `Results per pump, ${where}`);
 		await axeClean(page, `the cavitating pump, ${where}`);
 
-		// The Summary: the words in the ratio's place in the pump's line, and no smallest ratio,
-		// since no pump has one.
+		// The Summary: the words in the ratio's place in the pump's line; and the smallest ratio
+		// that pump's, its NPSHa ÷ NPSHr tending to −∞, named with the same words in place of a
+		// number (review E-0-1, E-1-1: on main 407dbc4 "Smallest NPSH margin" named it).
 		const summary = await resultsView(page, 'Summary');
 		const line = summary.getByRole('region', { name: 'Pumps' }).getByRole('listitem');
 		await expect(line).toHaveCount(1);
@@ -8143,12 +8255,25 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 			new RegExp(`^Transfer pump [\\d.]+ L/s at [\\d.]+ m · ${literal(cue)}$`)
 		);
 		expect(await seenLine(line), `the Summary's line on screen, ${where}`).toBe(true);
+		const extremes = summary.getByRole('region', { name: 'Extremes' });
+		const npshTerm = extremes.getByRole('term').filter({ hasText: /NPSH/ });
+		await expect(npshTerm).toHaveCount(1);
+		await expect(npshTerm).toHaveText('Smallest NPSH margin ratio');
+		const npshEntry = extremes
+			.locator('dl > div')
+			.filter({ has: page.getByRole('term').filter({ hasText: /NPSH/ }) });
+		await expect(npshEntry).toHaveCount(1);
+		expect(
+			squashText(await npshEntry.getByRole('definition').innerText()),
+			`the Summary's smallest ratio, ${where}`
+		).toBe(`${cue} Transfer pump`);
+		expect(
+			await seenLine(npshEntry.getByText(cue, { exact: true })),
+			`the extreme's words on screen, ${where}`
+		).toBe(true);
 		await expect(
-			summary
-				.getByRole('region', { name: 'Extremes' })
-				.getByRole('term')
-				.filter({ hasText: /NPSH/ })
-		).toHaveCount(0);
+			npshEntry.getByRole('button', { name: 'Transfer pump', exact: true })
+		).toBeVisible();
 		await noSidewaysScroll(page, `the Summary, ${where}`);
 		await axeResults(`the Summary, ${where}`);
 

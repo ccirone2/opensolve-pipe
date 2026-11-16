@@ -144,7 +144,9 @@
 			name: row.name,
 			detail: '',
 			cells: row.cells,
-			flags: [...row.flags]
+			flags: [...row.flags],
+			// A pump that cavitates with no NPSH margin ratio sorts below every ratio (groupTable).
+			...(row.sortKeys ? { sortKeys: row.sortKeys } : {})
 		}))
 	});
 </script>

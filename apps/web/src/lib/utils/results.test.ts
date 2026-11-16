@@ -1013,7 +1013,7 @@ describe('Results per pump hides hydraulic power, NPSHa, NPSHr and the NPSH marg
 		);
 	});
 
-	it('is set by no other table: none of the other builders’ columns carries it, and outside the tests only results.ts and ResultsTable name it (a guard)', () => {
+	it('is set by no other table of the Results views: none of the other builders’ columns carries it, and outside the tests only results.ts, ResultsTable and the Pumps together card’s two tables name it (a guard)', () => {
 		const solved = pumpTransferSolved();
 		const gravity = gravityBranchExample();
 		const link = solved.linkResults.L1!;
@@ -1034,8 +1034,11 @@ describe('Results per pump hides hydraulic power, NPSHa, NPSHr and the NPSH marg
 			expect(table.columns.length, name).toBeGreaterThan(0);
 			expect(defaultHidden(table), name).toEqual([]);
 		}
-		// Every other table of the app (the card's, goal seek's, Compare's) is built elsewhere:
-		// none names the hint.
+		// Every other table of the app is built elsewhere: goal seek's and Compare's name no hint;
+		// the Pumps together card's group table and Running combinations hide the NPSH margin by
+		// default, their ratio shown, as Results per pump does (the owner's nit 4 and Q3, "Ratio
+		// everywhere"; docs/proposals/pumps-nits.md item 4, review E-1-4; pinned in
+		// pump-group-chart.test.ts and pump-group-one-off.test.ts).
 		const sources = import.meta.glob<string>(
 			[
 				'../**/*.{ts,svelte}',
@@ -1052,7 +1055,12 @@ describe('Results per pump hides hydraulic power, NPSHa, NPSHr and the NPSH marg
 				.filter(([, text]) => text.includes('hiddenByDefault'))
 				.map(([file]) => file)
 				.sort()
-		).toEqual(['../components/results/ResultsTable.svelte', './results.ts']);
+		).toEqual([
+			'../components/results/ResultsTable.svelte',
+			'./pump-group-chart.ts',
+			'./pump-group-one-off.ts',
+			'./results.ts'
+		]);
 	});
 });
 
@@ -1159,6 +1167,120 @@ describe('the NPSH margin ratio in Results per pump (docs/proposals/pumps-nits.m
 		expect(cellLines(us).join(' ')).toMatch(/[-−]8\.271/);
 		// The cue never sorts as text among the ratios' numbers.
 		expect(typeof sortValue(cell)).not.toBe('string');
+	});
+});
+
+describe('a pump that cavitates with no NPSH margin ratio ranks below every ratio, in the sort and the Summary’s extreme (docs/proposals/pumps-nits.md item 4; review E-0-1, E-1-1)', () => {
+	// Made-up results (testing/results.ts). The booster's NPSHr is 0 at its flow and its NPSHa
+	// −2.521 m, so its margin is −2.521 m, it has no ratio and it cavitates (corpus unit_rich1090
+	// PU2): NPSHa ÷ NPSHr with NPSHa < 0 and NPSHr → 0⁺ tends to −∞, below every ratio given. A null
+	// ratio is no sign of a safe margin (API review A1/B1).
+	const cavitating = (values: Partial<PumpResult> = {}) =>
+		pumpResult({
+			npshAvailable: -2.521,
+			npshRequired: 0,
+			npshMargin: -2.521,
+			npshMarginRatio: null,
+			...values
+		});
+	/** The pump transfer example with pumps after P1, in the stored project's order. */
+	function withPumps(names: string[]): { project: Project; ids: string[] } {
+		let p = pumpTransferExample();
+		const ids: string[] = [];
+		for (const name of names) {
+			const pump = createComponent('pump', p, { name });
+			p = insertComponentInConnection(p, 'L3', pump);
+			ids.push(pump.id);
+		}
+		const order = p.components.map((c) => c.id);
+		// Each new pump after P1 and after the one before it, as the table orders them.
+		expect(ids.map((id) => order.indexOf(id))).toEqual(
+			[...ids.map((id) => order.indexOf(id))].sort((a, b) => a - b)
+		);
+		expect(order.indexOf('P1')).toBeLessThan(order.indexOf(ids[0]!));
+		return { project: p, ids };
+	}
+	const sorted = (rows: readonly Row[], direction: 'ascending' | 'descending') =>
+		sortRows(rows, { key: 'npshMarginRatio', direction }).map((r) => r.key);
+
+	it('names the pump that cavitates with no ratio as the smallest, with no ratio, ahead of one with a ratio', () => {
+		const { project: two, ids } = withPumps(['Booster pump']);
+		const booster = ids[0]!;
+		const solved = pumpTransferSolved({
+			pumpResults: { P1: pumpResult(), [booster]: cavitating() }
+		});
+		expect(smallestNpshMarginRatio(solved, two)).toEqual({ id: booster, ratio: null });
+		// Whichever order the results arrive in.
+		const reversed = pumpTransferSolved({
+			pumpResults: { [booster]: cavitating(), P1: pumpResult() }
+		});
+		expect(smallestNpshMarginRatio(reversed, two)).toEqual({ id: booster, ratio: null });
+	});
+
+	it('names a lone pump that cavitates with no ratio, so the Summary keeps an NPSH extreme', () => {
+		const solved = pumpTransferSolved({ pumpResults: { P1: cavitating() } });
+		expect(smallestNpshMarginRatio(solved, project)).toEqual({ id: 'P1', ratio: null });
+	});
+
+	it('sorts that pump first, smallest first, and last among the values, largest first; a bare "—" last either way', () => {
+		// The third pump has no NPSHr curve: no margin, no ratio, nothing to say.
+		const { project: three, ids } = withPumps(['Booster pump', 'Spare pump']);
+		const [booster, spare] = ids as [string, string];
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult(),
+				[booster]: cavitating(),
+				[spare]: pumpResult({ npshRequired: null, npshMargin: null, npshMarginRatio: null })
+			}
+		});
+		const table = pumpTable(three, solved, SI_UNITS);
+		expect(cellLines(table.rows.find((r) => r.key === spare)!.cells.npshMarginRatio!)).toEqual([
+			'—'
+		]);
+		expect(sorted(table.rows, 'ascending')).toEqual([booster, 'P1', spare]);
+		expect(sorted(table.rows, 'descending')).toEqual(['P1', booster, spare]);
+		// The extreme and the sorted table's first row are one pump.
+		expect(smallestNpshMarginRatio(solved, three)?.id).toBe(sorted(table.rows, 'ascending')[0]);
+	});
+
+	it('keeps several such pumps in the table’s order, the first of them the extreme, with no NaN from equal keys', () => {
+		const { project: three, ids } = withPumps(['Booster pump', 'Second booster']);
+		const [booster, second] = ids as [string, string];
+		// The second booster's margin is the more negative: the table's order decides, as it does
+		// for every tie, so the extreme and the first row stay one pump.
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				[second]: cavitating({ npshAvailable: -4, npshMargin: -4 }),
+				P1: pumpResult({ npshAvailable: 6, npshRequired: 3.7, npshMarginRatio: 6 / 3.7 }),
+				[booster]: cavitating()
+			}
+		});
+		const table = pumpTable(three, solved, SI_UNITS);
+		expect(sorted(table.rows, 'ascending')).toEqual([booster, second, 'P1']);
+		expect(sorted(table.rows, 'descending')).toEqual(['P1', booster, second]);
+		expect(smallestNpshMarginRatio(solved, three)).toEqual({ id: booster, ratio: null });
+	});
+
+	it('makes a column of only such pumps sortable, and leaves a pump with no ratio and a margin of 0 or more unranked', () => {
+		const lone = pumpTable(
+			project,
+			pumpTransferSolved({ pumpResults: { P1: cavitating() } }),
+			SI_UNITS
+		);
+		expect(sortableColumn(lone.rows, 'npshMarginRatio')).toBe(true);
+		// NPSHr 0 with NPSHa 5 m: no ratio, a margin of 5 m, no cavitation: "—", sorted last, and
+		// no extreme of its own.
+		const safe = pumpResult({
+			npshAvailable: 5,
+			npshRequired: 0,
+			npshMargin: 5,
+			npshMarginRatio: null
+		});
+		const solved = pumpTransferSolved({ pumpResults: { P1: safe } });
+		const row = pumpTable(project, solved, SI_UNITS).rows[0]!;
+		expect(row.sortKeys).toBeUndefined();
+		expect(sortableColumn([row], 'npshMarginRatio')).toBe(false);
+		expect(smallestNpshMarginRatio(solved, project)).toBeNull();
 	});
 });
 
@@ -1713,10 +1835,11 @@ describe('sorting results tables', () => {
 		expect(highest?.pressure).toBe(
 			Math.max(...Object.values(solved.nodeResults).map((n) => n.pressure))
 		);
-		expect(smallestNpshMarginRatio(solved)).toEqual({ id: 'P1', ratio: 4 });
+		expect(smallestNpshMarginRatio(solved, project)).toEqual({ id: 'P1', ratio: 4 });
 		expect(
 			smallestNpshMarginRatio(
-				pumpTransferSolved({ pumpResults: { P1: pumpResult({ npshMarginRatio: null }) } })
+				pumpTransferSolved({ pumpResults: { P1: pumpResult({ npshMarginRatio: null }) } }),
+				project
 			)
 		).toBeNull();
 	});

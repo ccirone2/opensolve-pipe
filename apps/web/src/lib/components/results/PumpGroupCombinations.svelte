@@ -45,7 +45,7 @@
 		type CombinationRow,
 		type CombinationsTable
 	} from '$lib/utils/pump-group-one-off';
-	import type { Row, RowGroup, Table } from '$lib/utils/results';
+	import { cellLines, type Row, type RowGroup, type Table } from '$lib/utils/results';
 	import { sectionMark } from '$lib/utils/section-nav';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
 	import CaseTag from '$lib/components/ui/CaseTag.svelte';
@@ -96,7 +96,9 @@
 				name: r.name,
 				detail: '',
 				cells: r.cells,
-				flags: [...r.flags]
+				flags: [...r.flags],
+				// A pump that cavitates with no NPSH margin ratio sorts below every ratio.
+				...(r.sortKeys ? { sortKeys: r.sortKeys } : {})
 			}))
 		)
 	});
@@ -184,15 +186,30 @@
 <!-- A value, marked where the pump is physically invalid in that case (§5.2): the red octagon
 	before it, then "physically invalid:" for a screen reader. On the value's baseline by its text,
 	the octagon centred beside it, so a phone's line keeps one baseline (§15 item 157; EXT-2). -->
-{#snippet markedCell(row: Row, key: string)}
-	{@const value = row.cells[key] ?? '—'}
-	{@const text = typeof value === 'string' ? value : ''}
-	{#if members.get(rowKey(row))?.invalid && text !== '—' && (INVALID_MARKED as readonly string[]).includes(key)}<span
-			class="inline-flex items-baseline gap-1"
+{#snippet marked(text: string, mark: boolean)}
+	{#if mark}<span class="inline-flex items-baseline gap-1"
 			><FlagIcon severity="invalid" class="size-3.5 self-center" /><span class="sr-only"
 				>physically invalid:</span
 			>{text}</span
 		>{:else}{text}{/if}
+{/snippet}
+
+<!-- A cell's value, or its lines as ResultsTable draws them, a line each (CellValue): a pump that
+	cavitates with no NPSH margin ratio reads "—", then its words with its margin (npshRatioCell;
+	docs/proposals/pumps-nits.md item 4, review E-1-4). The mark goes before its first line that is
+	not "—", so before those words. -->
+{#snippet markedCell(row: Row, key: string)}
+	{@const value = row.cells[key] ?? '—'}
+	{@const lines = cellLines(value)}
+	{@const at =
+		members.get(rowKey(row))?.invalid && (INVALID_MARKED as readonly string[]).includes(key)
+			? lines.findIndex((line) => line !== '—')
+			: -1}
+	{#if lines.length === 1}{@render marked(
+			lines[0]!,
+			at === 0
+		)}{:else}{#each lines as line, i (i)}<span class="block">{@render marked(line, at === i)}</span
+			>{/each}{/if}
 {/snippet}
 
 <!-- A plain div with its heading, not a landmark (§7); tabindex −1, the section nav's target. -->

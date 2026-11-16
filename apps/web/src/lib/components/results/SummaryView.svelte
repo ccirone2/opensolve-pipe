@@ -6,8 +6,9 @@
 	The ratio, NPSHa ÷ NPSHr, stands in for the absolute margin, as in Results per pump (the owner's
 	nit 4 and Q3, 2026-11-12: "Ratio everywhere"; docs/proposals/pumps-nits.md item 4): the extreme's
 	value and its link move together, since the smallest margin and the smallest ratio can be two
-	pumps'. A pump with no ratio that cavitates says so in its line, with its margin (npshRatioCue);
-	the extreme is the smallest ratio given, as the sorted table puts a pump without one last. The
+	pumps'. A pump with no ratio that cavitates says so in its line, with its margin (npshRatioCue),
+	and ranks below every ratio, its NPSHa ÷ NPSHr tending to −∞: the extreme names it with those
+	words in place of a number, and the sorted table puts it first (review E-0-1, E-1-1). The
 	properties and atmospheric pressure the solver used, with their sources, are one disclosure
 	below (inputs, not answers). With design checks on (D19), a card counts them and lists the
 	checks not met, with a link to the Checks view. Flags come before the views, in the Results
@@ -52,7 +53,7 @@
 	const lowest = $derived(lowestPressureNode(solved));
 	const highest = $derived(highestPressureNode(solved));
 	const fastest = $derived(fastestLink(solved));
-	const npsh = $derived(smallestNpshMarginRatio(solved));
+	const npsh = $derived(smallestNpshMarginRatio(solved, ws.labelsProject));
 	const checks = $derived(solved.designChecks ?? []);
 	const failed = $derived(checks.filter((c) => c.outcome === 'fail'));
 	/** Checks not met listed on the card before "All checks". */
@@ -252,7 +253,11 @@
 					<div>
 						{@render extreme('Smallest NPSH margin ratio')}
 						<dd class="flex flex-wrap items-center gap-x-2">
-							<span class="tabular-nums">{f.plain(npsh.ratio)}</span>
+							<span class="tabular-nums"
+								>{npsh.ratio === null
+									? npshRatioCue(solved.pumpResults[npsh.id]!, f)
+									: f.plain(npsh.ratio)}</span
+							>
 							{@render link(
 								{ kind: 'component', id: npsh.id },
 								componentById(ws.project, npsh.id)?.name ?? npsh.id

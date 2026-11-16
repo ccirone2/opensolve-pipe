@@ -323,15 +323,57 @@ describe('the Summary’s NPSH reading is the margin ratio (docs/proposals/pumps
 			const line = pumpLine('Booster pump');
 			expect(line).toHaveTextContent(/cavitat/i);
 			expect(line.textContent).toMatch(/[-−]2\.521\s?m\b/);
-			// The extreme and the first row of its sorted table are one pump, whichever it names; if
-			// it names the booster, it says why it has no ratio.
+			// The extreme is the booster, whose NPSHa ÷ NPSHr tends to −∞, below the transfer pump's
+			// ratio of 4: it names the cavitation and the margin in place of a number (review E-0-1,
+			// E-1-1). On main 407dbc4 "Smallest NPSH margin" named it too.
 			const { entry, pump } = smallestRatio();
-			if (pump === 'Booster pump') expect(entry).toHaveTextContent(/cavitat/i);
-			else expect(entry).toHaveTextContent('4');
+			expect(pump).toBe('Booster pump');
+			expect(entry).toHaveTextContent(/cavitat/i);
+			expect(entry.textContent).toMatch(/[-−]2\.521\s?m\b/);
+			expect(entry).not.toHaveTextContent(/\b4\b/);
 			await fireEvent.click(results().getByRole('button', { name: 'Pumps, smallest first' }));
 			await tick();
 			expect(columnHeading(/^NPSH margin ratio/)).toHaveAttribute('aria-sort', 'ascending');
+			expect(rowNames()).toEqual(['Booster pump', 'Transfer pump']);
 			expect(rowNames()[0]).toBe(pump);
+		} finally {
+			localStorage.removeItem(KEY);
+		}
+	});
+
+	it('keeps the NPSH extreme for a lone pump that cavitates with no ratio, naming it with the cavitation and its margin', async () => {
+		// Made-up results: the transfer pump alone, NPSHr 0 at its flow and NPSHa −2.521 m (review
+		// E-0-1, E-1-1: on main 407dbc4 the Summary read "Smallest NPSH margin -2.521 m").
+		try {
+			localStorage.removeItem(KEY);
+			await solveWith(
+				pumpTransferSolved({
+					pumpResults: {
+						P1: pumpResult({
+							npshAvailable: -2.521,
+							npshRequired: 0,
+							npshMargin: -2.521,
+							npshMarginRatio: null
+						})
+					},
+					flags: [
+						flag({
+							code: 'CAVITATION',
+							severity: 'invalid',
+							message: 'made-up',
+							componentId: 'P1'
+						})
+					]
+				})
+			);
+			const { entry, pump } = smallestRatio();
+			expect(pump).toBe('Transfer pump');
+			expect(within(entry).getByRole('term')).toHaveTextContent(/^Smallest NPSH margin ratio$/);
+			expect(within(entry).getByRole('definition')).toHaveTextContent(
+				/^Cavitates \(NPSHr 0\): NPSH margin -2\.521 m\s*Transfer pump$/
+			);
+			// One pump: no sorted link, as for every lone pump.
+			expect(within(entry).queryByRole('button', { name: 'Pumps, smallest first' })).toBeNull();
 		} finally {
 			localStorage.removeItem(KEY);
 		}

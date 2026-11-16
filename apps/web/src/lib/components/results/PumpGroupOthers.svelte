@@ -7,8 +7,9 @@
 	- the switch first, "Also show the other cases' station duties", its cost kept visible (§6.4
 	  item 8); while it is off, the one line saying the duties are not on the chart;
 	- while it is on, "Cases on this chart" (at most six): the case shown a tag, then a box per
-	  other case, its ring and number in a reserved column, capped boxes greyed with their names
-	  readable;
+	  other case in number order, its case's number in a box (CaseTag) in a reserved column, drawn
+	  or not, capped boxes greyed with their names readable (owner, 2026-11-12, nit 5; Q2 "By list
+	  place"; docs/proposals/pumps-nits.md item 5, slice 5b);
 	- its own live line (§5.3 markup rules, §7 Live regions): always there, polite, never
 	  role=status, empty while idle and drawn empty before its first progress; Cancel after it, or,
 	  when some duty was not computed, "Compute them again" with its lasting reason shown and "Go to
@@ -23,14 +24,20 @@
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
-	import { GROUP_OTHER, OTHER_SYMBOL, type OtherNoteParts } from '$lib/utils/pump-group-chart';
+	import { caseTagOf, type CaseNumber } from '$lib/utils/pump-chart';
+	import type { OtherNoteParts } from '$lib/utils/pump-group-chart';
 	import { MAX_GROUP_CASES, type OtherGroupCase } from '$lib/utils/pump-group-one-off';
+	import CaseTag from '$lib/components/ui/CaseTag.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useSectionNav } from './section-nav.svelte';
 
 	interface Props {
 		/** The other cases with values, each in its state, while the card shows a station. */
 		others: readonly OtherGroupCase[];
+		/** Every case's number (pump-chart.ts caseTags): each case's box, drawn or not. */
+		tags: Readonly<Record<string, CaseNumber>>;
+		/** The case shown's number: its "(shown)" tag. */
+		caseTag: CaseNumber;
 		/** "Also show the other cases' station duties" is ticked. */
 		othersOn: boolean;
 		/** Tick or untick it (absent: the project has no scenarios, no box). */
@@ -63,6 +70,8 @@
 
 	let {
 		others,
+		tags,
+		caseTag,
 		othersOn,
 		onothers,
 		onotherstick,
@@ -164,11 +173,11 @@
 			<legend class="text-xs font-medium text-slate-700">Cases on this chart</legend>
 			<!-- An auto-fill grid, 13 rem at least, as the pump chart's (§5.3, §15 item 35). -->
 			<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-3">
-				<!-- The case shown: a tag, not a control (§5.2 Tags); its words alone, no ● before them
-					(owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5). -->
+				<!-- The case shown: a tag, not a control (§5.2 Tags); its number in a box, then its words,
+					no ● before them (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5). -->
 				<span
 					class="col-span-full mt-1 justify-self-start rounded bg-slate-100 px-1.5 text-xs text-slate-700"
-					>{caseName ?? 'This case'} (shown)</span
+					><CaseTag tag={caseTag} /> {caseName ?? 'This case'} (shown)</span
 				>
 				{#each others as other (other.key)}
 					{@const capped = !other.onChart && othersFull}
@@ -193,14 +202,10 @@
 								onotherstick?.(other.key, event.currentTarget.checked);
 							}}
 						/>
-						<!-- The ring and its number in a reserved column (2.5 rem, §5.3), so a name never
-							moves when a ring is numbered or unticked. -->
-						<span class="w-10 shrink-0 whitespace-nowrap tabular-nums"
-							>{#if other.number !== null}<span aria-hidden="true" style:color={GROUP_OTHER}
-									>{OTHER_SYMBOL}</span
-								>
-								{other.number} ·{/if}</span
-						>
+						<!-- Its case's number in a reserved column (2.5 rem, §5.3), the same drawn or not,
+							ticked or not, so a name never moves (nit 5, slice 5b); its words heard before
+							the name (CaseTag). -->
+						<span class="w-10 shrink-0"><CaseTag tag={caseTagOf(tags, other.key)} /></span>
 						<span class="min-w-0 wrap-break-word"
 							>{other.name}{other.stale ? ' (out of date)' : ''}</span
 						>
@@ -309,18 +314,16 @@
 	{/if}
 	{#if parts.rings}
 		<!-- The ring list (§5.3): a list named by its lead, so it is told apart from the legend; one
-			line per ring, its glyph and number in a reserved column so every line's words start at
-			one edge, the case's name in medium weight. Each line's text without its glyph is the
+			line per ring's case, in number order, its case's number in a box in a reserved column
+			(2.5 rem: nit 5, slice 5b) so every line's words start at one edge, the case's name in
+			medium weight. Each line as heard (the box's words, "Case 2:", then the rest) is the
 			ring's entry in the image's sentence, word for word. -->
 		<div data-group-rings>
 			<p id="{id}-rings-lead" class="text-xs text-slate-700">{parts.rings.lead}</p>
 			<ul class="mt-0.5 space-y-1 text-xs text-slate-700" aria-labelledby="{id}-rings-lead">
 				{#each parts.rings.items as item (item.number)}
 					<li class="flex gap-1">
-						<span class="w-9 shrink-0 whitespace-nowrap tabular-nums"
-							><span aria-hidden="true" style:color={GROUP_OTHER}>{OTHER_SYMBOL}</span>
-							{item.number} ·</span
-						>
+						<span class="w-10 shrink-0"><CaseTag tag={item.number} /></span>
 						<span class="min-w-0 wrap-break-word"
 							><span class="font-medium text-slate-900">{item.name}</span>, {item.at}: {item.words}</span
 						>

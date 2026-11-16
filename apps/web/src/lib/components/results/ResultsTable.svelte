@@ -116,6 +116,11 @@
 		groupHeading?: Snippet<[RowGroup]>;
 		/** The heading of the column a sort adds to a table of row groups, naming each row's. */
 		groupColumn?: string;
+		/**
+		 * A row group's name in that column, in place of its label's words (Running combinations:
+		 * the case's number in a box before them, docs/proposals/pumps-nits.md item 5, slice 5b).
+		 */
+		groupName?: Snippet<[RowGroup]>;
 		/** A cell's content, by its row and column, in place of its text (a mark before a value). */
 		cellContent?: Snippet<[Row, string]>;
 	}
@@ -135,6 +140,7 @@
 		fieldsKey,
 		groupHeading,
 		groupColumn = 'Group',
+		groupName,
 		cellContent
 	}: Props = $props();
 
@@ -650,6 +656,7 @@
 	{@const expandable = !!detail && hasDetail(row)}
 	{@const annotated = row.flags.length > 0 || expandable}
 	{@const divider = (divided || index > 0) && 'border-t border-slate-200'}
+	{@const rowGroup = groupOf.get(row.group ?? '')}
 	<!-- svelte-ignore a11y_no_redundant_roles -->
 	<tr
 		role="row"
@@ -708,7 +715,8 @@
 				]}
 				><span
 					class="block w-max max-w-48 wrap-break-word max-sm:w-auto max-sm:max-w-none max-sm:min-w-0 max-sm:wrap-anywhere"
-					>{groupOf.get(row.group ?? '')?.label ?? ''}</span
+					>{#if groupName && rowGroup}{@render groupName(rowGroup)}{:else}{rowGroup?.label ??
+							''}{/if}</span
 				></td
 			>
 		{/if}

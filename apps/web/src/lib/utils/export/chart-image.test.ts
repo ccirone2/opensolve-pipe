@@ -11,13 +11,7 @@ import type { Chart } from 'chart.js';
 import { DISCLAIMER } from '../../components/links';
 import { designators } from '../../testing/helpers';
 import { pumpResult, systemCurveResponse } from '../../testing/results';
-import {
-	chartNotes,
-	MARKER_SYMBOLS,
-	offCasesNote,
-	otherCasesData,
-	pumpChartData
-} from '../pump-chart';
+import { chartNotes, offCasesNote, otherCasesData, pumpChartData } from '../pump-chart';
 import { pumpChartConfig } from '../pump-chart-config';
 import { SI_UNITS } from '../units';
 import {
@@ -150,14 +144,18 @@ describe('the image’s notes', () => {
 		],
 		SI_UNITS,
 		null,
-		1
+		1,
+		null,
+		{ '': 'Base', S1: 1 }
 	);
 
-	it('names the other cases with their markers', () => {
-		expect(casesNote(others, MARKER_SYMBOLS)).toBe(
-			'Other cases on the chart (slate, hollow markers): △ Base case; □ Winter (out of date): off.'
+	// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5, slice 5b): each other case by
+	// its number, no marker character (was "(slate, hollow markers): △ Base case; □ Winter …").
+	it('names the other cases with their numbers', () => {
+		expect(casesNote(others)).toBe(
+			'Other cases on the chart (slate rings, each tagged with its case number): Base case; case 1: Winter (out of date): off.'
 		);
-		expect(casesNote([], MARKER_SYMBOLS)).toBeNull();
+		expect(casesNote([])).toBeNull();
 	});
 
 	it('are the figure’s sentences, pointing to where the reasons are, then the other cases', () => {
@@ -167,7 +165,7 @@ describe('the image’s notes', () => {
 		const system = { status: 'ready', curve } as const;
 		const screen = chartNotes({ data, result, system });
 		const image = chartNotes({ data, result, system, reasonsIn: IMAGE_REASONS_IN });
-		expect(imageNoteLines(image, others, MARKER_SYMBOLS)).toEqual([
+		expect(imageNoteLines(image, others)).toEqual([
 			"1 of 4 system-curve points have no head: the line has gaps there, and the app's data " +
 				'table and the System curves sheet of a results export say why for each (no steady ' +
 				'state carries the flow, its head is undetermined, its solve did not converge, or it ' +
@@ -175,7 +173,7 @@ describe('the image’s notes', () => {
 			screen.method,
 			screen.extrapolated,
 			...screen.facts,
-			casesNote(others, MARKER_SYMBOLS)
+			casesNote(others)
 		]);
 		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): the dash named in words,
 		// not "(–)".
@@ -201,14 +199,75 @@ describe('the image’s notes', () => {
 			'Shutoff head (the dash at zero flow): 30 m.'
 		]);
 		expect(image.facts).toEqual(screen.facts);
-		const footer = imageNoteLines(image, [], MARKER_SYMBOLS);
+		const footer = imageNoteLines(image, []);
 		expect(footer).toEqual(expect.arrayContaining(screen.facts));
 		for (const line of screen.facts) expect(designators(line), line).toEqual([]);
 	});
 
-	it('name the markers by the glyphs the chart draws, ✳ and ▽ among them (pumps-results-layout.md §6.2 S8)', () => {
-		const five = otherCasesData(
-			['S1', 'S2', 'S3', 'S4', 'S5'].map((key) => ({
+	// The five glyphs (△ □ ✳ × ▽) went with nit 5 (slice 5b): "names eight cases 1 to 8, each its
+	// own number, none a marker" below replaces the test that named them.
+
+	it('end with the cases in which the pump is off and that take no slot, in the screen’s words (§6.2 S8)', () => {
+		const result = pumpResult();
+		const data = pumpChartData(result, SI_UNITS, [0, 0.03]);
+		const notes = chartNotes({ data, result, system: undefined, reasonsIn: IMAGE_REASONS_IN });
+		const off = offCasesNote([
+			{ tag: 2, label: 'Pump PA off' },
+			{ tag: 4, label: 'Both pumps off' }
+		]);
+		const lines = imageNoteLines(notes, others, off);
+		// Nit 5 (slice 5b): each case off by its number (was "…: Pump PA off; Both pumps off.").
+		expect(lines.slice(-2)).toEqual([
+			casesNote(others),
+			'Off in this case (no operating point): case 2: Pump PA off; case 4: Both pumps off.'
+		]);
+		// Without such a case, the footer is as before.
+		expect(imageNoteLines(notes, others, null)).toEqual(lines.slice(0, -1));
+		expect(imageNoteLines(notes, others)).toEqual(lines.slice(0, -1));
+	});
+});
+
+// Case numbers (owner, 2026-11-12, nit 5; Q1 "Shapes go too", Q2 "By list place";
+// docs/proposals/pumps-nits.md item 5, slice 5b): the image's footer names each other case by its
+// number, the one the chart's slate ring is tagged with, the same on screen and in every list; no
+// marker character, so the symbols argument goes.
+describe('the image’s notes name each other case by its number (nit 5, slice 5b)', () => {
+	const winter = {
+		key: 'S1',
+		name: 'Winter',
+		result: pumpResult({ status: 'off', operatingFlow: 0 }),
+		stale: true,
+		system: null
+	};
+	const base = { key: '', name: 'Base case', result: pumpResult(), stale: false, system: null };
+
+	it('says the other cases are slate rings tagged with their numbers, each "case n: …", the base case by its name', () => {
+		const tagged = otherCasesData([base, winter], SI_UNITS, null, 1, null, {
+			'': 'Base',
+			S1: 2
+		});
+		expect(casesNote(tagged)).toEqual(
+			'Other cases on the chart (slate rings, each tagged with its case number): Base case; case 2: Winter (out of date): off.'
+		);
+		// Their system curves drawn: dotted, said in the same parentheses.
+		const curves = otherCasesData(
+			[{ ...winter, result: pumpResult(), stale: false, system: systemCurveResponse() }],
+			SI_UNITS,
+			null,
+			1,
+			null,
+			{ S1: 2 }
+		);
+		expect(casesNote(curves)).toEqual(
+			'Other cases on the chart (slate rings, each tagged with its case number; their system curves dotted): case 2: Winter.'
+		);
+		expect(casesNote([])).toBeNull();
+	});
+
+	it('names eight cases 1 to 8, each its own number, none a marker', () => {
+		const ids = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'];
+		const eight = otherCasesData(
+			ids.map((key) => ({
 				key,
 				name: `Case ${key}`,
 				result: pumpResult(),
@@ -217,26 +276,37 @@ describe('the image’s notes', () => {
 			})),
 			SI_UNITS,
 			null,
-			1
+			1,
+			null,
+			Object.fromEntries(ids.map((id, i) => [id, i + 1]))
 		);
-		expect(casesNote(five, MARKER_SYMBOLS)).toBe(
-			'Other cases on the chart (slate, hollow markers): △ Case S1; □ Case S2; ✳\uFE0E Case S3; × Case S4; ▽ Case S5.'
+		expect(casesNote(eight)).toEqual(
+			`Other cases on the chart (slate rings, each tagged with its case number): ${ids
+				.map((id, i) => `case ${i + 1}: Case ${id}`)
+				.join('; ')}.`
 		);
 	});
 
-	it('end with the cases in which the pump is off and that take no slot, in the screen’s words (§6.2 S8)', () => {
+	it('end with the other cases, then the cases off in this case, both by number, with no designator in the footer', () => {
 		const result = pumpResult();
 		const data = pumpChartData(result, SI_UNITS, [0, 0.03]);
 		const notes = chartNotes({ data, result, system: undefined, reasonsIn: IMAGE_REASONS_IN });
-		const off = offCasesNote(['Pump PA off', 'Both pumps off']);
-		const lines = imageNoteLines(notes, others, MARKER_SYMBOLS, off);
-		expect(lines.slice(-2)).toEqual([
-			casesNote(others, MARKER_SYMBOLS),
-			'Off in this case (no operating point): Pump PA off; Both pumps off.'
+		const tagged = otherCasesData([base, winter], SI_UNITS, null, 1, null, {
+			'': 'Base',
+			S1: 2
+		});
+		const off = offCasesNote([
+			{ tag: 1, label: 'Pump PA off' },
+			{ tag: 4, label: 'Both pumps off' }
 		]);
-		// Without such a case, the footer is as before.
-		expect(imageNoteLines(notes, others, MARKER_SYMBOLS, null)).toEqual(lines.slice(0, -1));
-		expect(imageNoteLines(notes, others, MARKER_SYMBOLS)).toEqual(lines.slice(0, -1));
+		const lines = imageNoteLines(notes, tagged, off);
+		expect(lines.slice(-2)).toEqual([
+			'Other cases on the chart (slate rings, each tagged with its case number): Base case; case 2: Winter (out of date): off.',
+			'Off in this case (no operating point): case 1: Pump PA off; case 4: Both pumps off.'
+		]);
+		expect(imageNoteLines(notes, tagged)).toEqual(lines.slice(0, -1));
+		// The guard (nit 5): no character designates a case anywhere in the pump image's footer.
+		for (const line of lines) expect(designators(line), line).toEqual([]);
 	});
 });
 
@@ -257,7 +327,6 @@ describe('downloading the image', () => {
 			}),
 			notes: chartNotes({ data, result, system: undefined, reasonsIn: IMAGE_REASONS_IN }),
 			others: [],
-			markerSymbols: MARKER_SYMBOLS,
 			pumpName: 'Transfer pump',
 			caseName: 'Winter',
 			disclaimer: DISCLAIMER,

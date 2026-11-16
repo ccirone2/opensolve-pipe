@@ -810,7 +810,7 @@ Under Each pump off the items are the same kinds. 4d's idle sentence and its "ha
 
 ### 7.9 Chart order
 
-§4.6's order and 4d's cap of 6. "Cases on this chart" lists cases in that order and keeps 4d's words. Each number running fits: N − 1 ≤ 5.
+§4.6's order and 4d's cap of 6. "Cases on this chart" lists cases in that order and keeps 4d's words. Each number running fits: N − 1 ≤ 5. *(Since `pumps-nits.md` item 5, slice 5b (the owner's answer of 2026-11-12, "By list place"): §4.6's order only chooses which cases the group chart draws, which go past its cap of six and the order of their requests. "Cases on this chart" lists the cases in number order, "Base" then 1 to n by its scenario's place in the Scenarios list (`caseTags`), each with its number in a box (`CaseTag`), ticked or not, never renumbered by an untick.)*
 
 ### 7.10 Running combinations: the lineup line
 
@@ -825,7 +825,7 @@ Under Each pump off the items are the same kinds. 4d's idle sentence and its "ha
 
 **The words.** The line never says "running": in a name, running means switched on (the owner's form), and the line answers which pumps carry flow, from the solve. A pump on behind a closed valve reads "Running" in the State column at 0 flow (`pumpStatusLabel`, `results.ts:851`) and "on, carrying no flow" here; the State column's word is outside this proposal (§12). The About sentence names the line (§7.7).
 
-**Order.** Groups keep 4d's order: the shown case first, then case order. The add appends in descending count, so the family reads top down. Since `pumps-results-layout.md` S5 the groups follow the chart's order after the shown case, `lineupChartPriority`'s, ticked or not, the cases without values last in case order (its §6.4 item 5, §15 item 147). Since its S6 they do while the table is unsorted: a sort makes one flat table with a Case column, without this line, and clearing the sort brings the groups back (its §15 items 167 to 169).
+**Order.** Groups keep 4d's order: the shown case first, then case order. The add appends in descending count, so the family reads top down. Since `pumps-results-layout.md` S5 the groups follow the chart's order after the shown case, `lineupChartPriority`'s, ticked or not, the cases without values last in case order (its §6.4 item 5, §15 item 147). Since its S6 they do while the table is unsorted: a sort makes one flat table with a Case column, without this line, and clearing the sort brings the groups back (its §15 items 167 to 169). *(Since `pumps-nits.md` item 5, slice 5b (the owner's answer of 2026-11-12, "By list place"): the case shown first, then every other case by its number, "Base" then 1 to n by the Scenarios list, with values or not (`combinationsOrder`); neither `lineupChartPriority` nor an untick moves a case, and each heading begins with its case's box. That order holds while the table is unsorted, as S6's did.)*
 
 ### 7.11 Layout
 
@@ -1211,11 +1211,13 @@ There is no colour per case. Same-count curves lie within 2.44 % (about 4 px on 
 - desktop and image: `{numbers} · {k} running`, for example "1 · 3 running";
 - phone (`compactLabels`, below 640 px): `{k} running`.
 
+*(Since `pumps-nits.md` item 5, slice 5b (the owner's nit 5 and answers of 2026-11-12): `[{tags}] {k} running`, for example "[1, 4, 5, 6] 3 running", the numbers the cases' own for the whole Pumps tab ("Base" then 1 to n by the Scenarios list), drawn in a small box (`fillLabel`), ascending with "Base" first; a phone still `{k} running`. A case number so never reads as a pump count, the risk `m2_labels.txt` found. Each label of another case is 5.9 px wider by m4's widths ("[", "]" and a space for " · "); every row and merge of m4's placements is unchanged.)*
+
 **This case's ink curve** is labelled too while any other curve is drawn: `{k} running (this case)` on desktop and image, `{k} running` on a phone, in ink.
 
 **Placement:**
 - **Anchor:** the curve's drawn point of largest flow inside the plot. The label is right-aligned 4 px left of it and 4 px above, clamped to the plot's left edge.
-- **Merging:** labels of other curves with equal k whose anchors are less than one label width apart merge into one with their numbers joined in ascending order: `1, 4, 5, 6 · 3 running` (`m4_labels.txt` listed them unsorted, "1, 5, 6, 4"). On Crane tees their ends are 3.7–6.6 px apart.
+- **Merging:** labels of other curves with equal k whose anchors are less than one label width apart merge into one with their numbers joined in ascending order: `1, 4, 5, 6 · 3 running` (`[1, 4, 5, 6] 3 running` since slice 5b) (`m4_labels.txt` listed them unsorted, "1, 5, 6, 4"). On Crane tees their ends are 3.7–6.6 px apart.
 - **Rows:** from left to right, a label that would overlap the one before, a ring's tag, a marker or a member point's label moves up one 14 px row, at most twice (three rows in all).
 - **When it still overlaps** after the third row, the label is not drawn. Its curve keeps its identity in the tooltip, the accessible name's list and the data table, and the notes add `Labels of {n} {curve|curves} are left out for space; the data table lists every curve.`
 
@@ -1228,7 +1230,7 @@ There is no colour per case. Same-count curves lie within 2.44 % (about 4 px on 
 
 These estimates checked label against label in x only. Against the plot's height, the ring tags, the markers and the member labels, the layout is measured in the browser before L3 merges (§9.4, §10.3).
 
-**Ring tags.** A ring whose cases all have their curve drawn is tagged with its numbers only, on every screen and in the image. Its name is in the legend, the notes and the tables. Lineup names are long (46–64 characters for "1 of 4/6 running (…)"), and 4d's desktop tags of three rings 5–11 m apart would overlap. Rings without a drawn curve keep 4d's tags.
+**Ring tags.** A ring whose cases all have their curve drawn is tagged with its numbers only, on every screen and in the image (since slice 5b its numbers in a box; a phone's screen draws the box alone for every ring). Its name is in the legend, the notes and the tables. Lineup names are long (46–64 characters for "1 of 4/6 running (…)"), and 4d's desktop tags of three rings 5–11 m apart would overlap. Rings without a drawn curve keep 4d's tags.
 
 ### 9.4 The axes
 
@@ -1282,7 +1284,7 @@ This parallels 4b's "Group (crossing)" for the shown case. Measured, the drawn l
 
 > `Other cases' group curves are cut at the chart's right edge, the largest flow of this case's own lines and the rings; the group system curve is cut at the top, above every pump's head; the data tables list all their points.` Each clause appears only when that cut was made.
 
-**The per-ring list** (4d's "Other cases on the chart (slate rings, numbered): …"). Each entry with a state gains `; group curve: {words}`. In the table the words start with a capital.
+**The per-ring list** (4d's "Other cases on the chart (slate rings, numbered): …"; since `pumps-nits.md` slice 5b "Other cases on the chart (slate rings, each tagged with its case number): …", each entry "Case {n}: {name}, …", the base case by its name, in number order). Each entry with a state gains `; group curve: {words}`. In the table the words start with a capital.
 
 | State | Words |
 |---|---|
@@ -1302,15 +1304,16 @@ For a stale case, `({k} running)` reads `(as last solved: {k} running)`.
 - from 640 px and in the image: `{numbers} · {name}: group curve, {k} running`, for example "1 · 3 of 4 running (Pump P4 off): group curve, 3 running";
 - below 640 px: `{numbers} · {k} running: group curve`, since a Chart.js tooltip does not wrap and names reach 93 characters;
 - for a stale case, `{k} running` reads `as last solved: {k} running`, and the name keeps 4d's "(out of date)".
+- *Since `pumps-nits.md` slice 5b: `Case {n}: {name}, group curve, {k} running`, below 640 px `Case {n}: {k} running, group curve`; the base case `Base case, group curve, {k} running` and `Base case: {k} running, group curve`.*
 
 **The accessible name** (`groupSummary`):
 - each other case's part gains the same `; group curve: …` words;
-- then `; other cases' group curves drawn: {1 (3 running), 2 (2 running) and 3 (1 running)}`.
+- then `; other cases' group curves drawn: {1 (3 running), 2 (2 running) and 3 (1 running)}` (since `pumps-nits.md` slice 5b `Base case (4 running), case 1 (3 running) and case 2 (2 running)`, in number order).
 
 **Tables** (under "Show data table"):
 - **"Other cases' station duties"** gains a column `Its group curve`, with the capitalised words. Its row header keeps "(out of date)".
 - **A new table after it,** captioned `Other cases' group curves (station's flow at each rise)`:
-  - one row group per drawn case, its header `{numbers} · {name}: {k} running` (scope rowgroup; `as last solved: {k} running` for a stale case);
+  - one row group per drawn case, its header `{numbers} · {name}: {k} running` (scope rowgroup; `as last solved: {k} running` for a stale case; since `pumps-nits.md` slice 5b its case's box (`CaseTag`), then `{name}: {k} running`, heard "Case {n}: …", the base case's box hidden beside "Base case", the groups in number order);
   - columns `Rise ({unit})` | `Flow ({unit})` | `Note`;
   - the duty's rise noted `Its duty's rise (its duty check).`, and a point without flow by its message, as `groupSampleRows` gives;
   - every point listed, those cut from the chart included;
@@ -1323,18 +1326,18 @@ For a stale case, `({k} running)` reads `(as last solved: {k} running)`.
 ### 9.7 Every new UI string, L3
 
 **On the curves:**
-- labels `{numbers} · {k} running`, `{k} running`, `{k} running (this case)`, merged `{1, 4, 5, 6} · {k} running` (numbers ascending)
+- labels `{numbers} · {k} running`, `{k} running`, `{k} running (this case)`, merged `{1, 4, 5, 6} · {k} running` (numbers ascending; since `pumps-nits.md` slice 5b `[{tags}] {k} running`, merged `[1, 4, 5, 6] {k} running`, the numbers in a box, §9.3)
 
 **Legend and tooltips:**
 - legend `Other cases' group curves (slate; dashed beyond a pump's data)`
-- dataset label `{numbers} · {name}: group curve, {k} running`, below 640 px `{numbers} · {k} running: group curve`; stale `as last solved: {k} running`
+- dataset label `{numbers} · {name}: group curve, {k} running`, below 640 px `{numbers} · {k} running: group curve`; stale `as last solved: {k} running` (since slice 5b `Case {n}: {name}, group curve, {k} running` and `Case {n}: {k} running, group curve`, §9.6)
 
 **Notes:** the frame sentence and the clip note (§9.6), the state words of §9.6 with `as last solved:`, and `Labels of {n} {curve|curves} are left out for space; the data table lists every curve.`
 
 **Tables:**
 - column `Its group curve`
 - caption `Other cases' group curves (station's flow at each rise)`
-- row-group header `{numbers} · {name}: {k} running`
+- row-group header `{numbers} · {name}: {k} running` (since slice 5b the case's box, then `{name}: {k} running`, §9.6)
 - note `Its duty's rise (its duty check).`
 
 **Accessible name:** `; other cases' group curves drawn: {…}`
@@ -1862,7 +1865,7 @@ Each slice records here, numbered, every departure of the build from this text.
 5. **Item 2 decided by the pumps, before and after the edit (§4.5 rule 2).** Item 2 compared 4d's form with the whole `lineupName`, which ends ` + n other changes` when the case has them, and only before the edit. So "Pump PB off" of PA and PB in parallel, given a tank level and then the PRV in PB's line set active (PB then on its own), kept "Pump PB off" for good, while the same changes in the other order read "Pump PB off + 1 other change". The coincidence is now decided on the pure lineup name (`lineupName` of the status changes alone), before the edit and after it, so a 4d name whose pump is on its own after the edit and whose form is its pure lineup name there takes rule 3. Unit test: both orders, then a further level edit, and a stored case already in that state.
 
 **L1b, after its review** (12 findings: the four below, which hold the build's two faults, a 4d test the slice loosened and three gaps in the API proof; and six missing tests, now written):
-6. **"Cases on this chart" and the ring numbers follow the chart's order (§7.9, §6).** The card listed the other cases, and numbered their rings, in case order; §4.6's order only chose which were ticked. The other cases now go to the list in `lineupChartPriority`'s order (an unticked case keeps its place), so the list, the legend, the image, the data table and Running combinations' "· ring {n}" all number in that order; Running combinations keeps case order (§7.10). 4d's component tests that numbered the rings of the `one-off` project in case order now follow §7.9 (1 Pump PA off, 2 Both pumps off, 3 Pump PB off, 4 Delivery tank 5 m higher), each edit naming it: a test edit outside §7.12's list (§10, "Rules for existing tests"), at the same strictness. Component test: the list's order and numbers, an unticked case in its place, Running combinations' rings.
+6. **"Cases on this chart" and the ring numbers follow the chart's order (§7.9, §6).** The card listed the other cases, and numbered their rings, in case order; §4.6's order only chose which were ticked. The other cases now go to the list in `lineupChartPriority`'s order (an unticked case keeps its place), so the list, the legend, the image, the data table and Running combinations' "· ring {n}" all number in that order; Running combinations keeps case order (§7.10). 4d's component tests that numbered the rings of the `one-off` project in case order now follow §7.9 (1 Pump PA off, 2 Both pumps off, 3 Pump PB off, 4 Delivery tank 5 m higher), each edit naming it: a test edit outside §7.12's list (§10, "Rules for existing tests"), at the same strictness. Component test: the list's order and numbers, an unticked case in its place, Running combinations' rings. *(Since `pumps-nits.md` item 5, slice 5b (the owner's answer of 2026-11-12, "By list place"): this order only chooses which cases the group chart draws, which go past its cap of six and the order of their requests. Each case's number is its own for the whole Pumps tab, "Base" then 1 to n by its scenario's place in the Scenarios list, never renumbered by an untick; the list, the ring list, the legend, the image, the data table and Running combinations run in that order, Running combinations the case shown first, with no "· ring {n}" (a box before each heading). The `one-off` project's rings are 1 Pump PA off, 2 Pump PB off, 3 Delivery tank 5 m higher and 4 Both pumps off again, the tests moved at the same strictness, each naming nit 5.)*
 7. **Default order's description (§7.5 item 3, §7.12).** "The default: the last pump in the group's list stops first." was untrue when that pump is off in the base case: the default is On reversed, so the last pump switched on stops first. It now reads `The default: the last pump switched on in the group's list stops first.`, here and in the build. Component test with P4 off in the base: the description, then "Default order: Pump P3 stops first."
 8. **4d's phone test of a long pump name (`tests/pump-groups.e2e.ts`).** The lineup line (§7.10) names every member in each case's heading, so the test's locator, a substring match taking `.first()`, found the base case's heading before PA's row header, and passed whatever became of that row. It now names PA's row header exactly (`exact: true`), as strict as it was before L1b.
 9. **The API proof (`test_pump_lineups.py`).** Proofs 3 to 6 never showed that a case's `/pump-group-curve` answer was the case's own: the base's duty, or another lineup's, also lies on the base's group system curve, so they passed with the scenario ignored, or with only its first change applied. Each case's group answer (curve 'group' in proofs 3, 4 and 6, 'system' in proof 5) now records its changes applied and equals the hand edit's bit for bit apart from `scenario`; in proof 3 the pumps it writes read off at 0.0 and every member's duty flow is its `/solve`'s within D6; proofs 4 and 6 show their duty comparison fails for a case that stops a pump carrying flow. A result only one answer gives is accepted for a closed-off component and for the ports and connections between such components only, so a port still joined to the network (PB:suction, VB:outlet) is compared; and the two duties must list the same members. These fixes were written by the fixer, who had read the web source but not `services/`, a departure from §10's independent tester; they compare only the API's own answers, with no typed number.

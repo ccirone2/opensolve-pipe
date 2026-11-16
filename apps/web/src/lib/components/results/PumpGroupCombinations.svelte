@@ -15,8 +15,10 @@
 	the same octagon (§6.4 item 15).
 
 	S5's order, lines and names (§5.3, §9 S5): the cases in the table's order (PumpsView's: the case
-	shown, then the chart's lineupChartPriority order, then the cases without values), which no
-	untick and no "Also show …" moves; the box a size container (§5.5), so each line of a group's
+	shown, then every other case in number order, owner, 2026-11-12, nit 5, Q2 "By list place";
+	docs/proposals/pumps-nits.md item 5, slice 5b), which no untick and no "Also show …" moves, each
+	group's heading and its name in the flat form's Case column led by its case's number in a box
+	(CaseTag); the box a size container (§5.5), so each line of a group's
 	heading is sticky at the box's visible width and wraps in view; a flag line under each flagged
 	pump's row in place of the Flags column, as the group table's (§15 item 92), so a phone's list
 	has no "Flags None" line; the names wrap at 12 rem, trace buttons in the shown case's group
@@ -46,6 +48,7 @@
 	import type { Row, RowGroup, Table } from '$lib/utils/results';
 	import { sectionMark } from '$lib/utils/section-nav';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
+	import CaseTag from '$lib/components/ui/CaseTag.svelte';
 	import FlagIcon from './FlagIcon.svelte';
 	import FlagLine from './FlagLine.svelte';
 	import ResultsTable from './ResultsTable.svelte';
@@ -128,13 +131,16 @@
 	);
 </script>
 
-<!-- A case's heading (§5.3 Group heading lines): its name with "(shown)", "(out of date)" and its
-	ring, its lineup line and its station line, each sticky at the box's visible width (the box a
-	size container, §5.5), so it wraps in view, an unbroken name inside it; a list's line on a
-	phone. -->
+<!-- A case's heading (§5.3 Group heading lines): its case's number in a box, then its name with
+	"(shown)" and "(out of date)" (nit 5, slice 5b: no " · ring n"), its lineup line and its station
+	line, each sticky at the box's visible width (the box a size container, §5.5), so it wraps in
+	view, an unbroken name inside it; a list's line on a phone. -->
 {#snippet caseHeading(rowGroup: RowGroup)}
 	{@const group = groups.get(rowGroup.key)}
-	<span class={[GROUP_LINE, 'font-medium']}>{rowGroup.label}</span>
+	<span class={[GROUP_LINE, 'font-medium']}
+		>{#if group}<CaseTag tag={group.tag} />{/if}
+		{rowGroup.label}</span
+	>
 	{#if group?.lineup}<span class={[GROUP_LINE, 'text-xs text-slate-700']}>{group.lineup}</span>{/if}
 	{#if group?.detail}<span class={[GROUP_LINE, 'text-xs text-slate-600']}>{group.detail}</span>{/if}
 {/snippet}
@@ -160,6 +166,14 @@
 			><span class="min-w-0">{row.name}</span></span
 		>
 	{/if}
+{/snippet}
+
+<!-- A row's case in the flat form's Case column (§9 S6b): its number in a box, then its name, as
+	its group's heading (nit 5, slice 5b). -->
+{#snippet caseName(rowGroup: RowGroup)}
+	{@const group = groups.get(rowGroup.key)}
+	{#if group}<CaseTag tag={group.tag} />{/if}
+	{rowGroup.label}
 {/snippet}
 
 <!-- A flagged member's flag line (§5.3 Flags): the pills and their text, read once (FlagLine). -->
@@ -320,6 +334,7 @@
 			name={memberName}
 			flagLine={memberFlags}
 			groupHeading={caseHeading}
+			groupName={caseName}
 			cellContent={markedCell}
 		/>
 	</div>

@@ -528,8 +528,8 @@ export interface Column {
 	wrap?: boolean;
 	/**
 	 * Left out of the table until the user shows it in its Fields menu (ResultsTable): a hint for
-	 * the screen's table only. The trace view, Build's result strip and the export read every
-	 * column (docs/proposals/pumps-nits.md item 3).
+	 * the screen's table only. The trace view and the export read every column
+	 * (docs/proposals/pumps-nits.md item 3).
 	 */
 	hiddenByDefault?: true;
 }

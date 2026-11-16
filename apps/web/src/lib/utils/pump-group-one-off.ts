@@ -730,9 +730,9 @@ function checksWords(response: SolveResponse, pumpId: string): string {
 /**
  * Every case's members, one row group per case in the input's order (the shown first,
  * pumps-results-layout.md §5.3), one row per member in the stored project's component order, its
- * row header the member's name with its id where another member has that name (memberLabels: the
- * slot's symbol is hidden from screen readers, so two members of one name would otherwise give
- * two rows the same header); the group table's cell rules on that case's own solve.
+ * row header the member's name with its id where another member has that name (memberLabels: a
+ * pump is its name, with no slot symbol since nit 5, so two members of one name would otherwise
+ * give two rows the same header); the group table's cell rules on that case's own solve.
  */
 export function runningCombinations(input: CombinationsInput): CombinationsTable {
 	const f = new Formatter(input.prefs);

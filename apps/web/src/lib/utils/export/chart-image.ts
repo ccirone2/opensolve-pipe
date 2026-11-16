@@ -283,13 +283,16 @@ export function casesNote(others: readonly OtherCaseData[]): string | null {
 
 /**
  * The image's footer notes: the figure's own sentences, in its order, then the other cases, then
- * the line naming the cases in which the pump is off and that take no slot (`off`, the screen's
- * words: pump-chart.ts offCasesNote; pumps-results-layout.md §6.2 S8).
+ * the other cases whose rings the image's drawing left unlabelled, each named with its values
+ * (`notLabelled`, point-labels.ts notLabelledNote; nit 5, rule 7), then the line naming the cases
+ * in which the pump is off and that take no slot (`off`, the screen's words: pump-chart.ts
+ * offCasesNote; pumps-results-layout.md §6.2 S8).
  */
 export function imageNoteLines(
 	notes: ChartNotes,
 	others: readonly OtherCaseData[],
-	off: string | null = null
+	off: string | null = null,
+	notLabelled: string | null = null
 ): string[] {
 	return [
 		notes.pump,
@@ -300,6 +303,7 @@ export function imageNoteLines(
 		...notes.facts,
 		...notes.checks,
 		casesNote(others),
+		notLabelled,
 		off
 	].filter((line): line is string => !!line);
 }
@@ -314,6 +318,11 @@ export interface ChartImageRequest {
 	others: readonly OtherCaseData[];
 	/** "Off in this case (no operating point): …." as the screen shows it (offCasesNote), or none. */
 	offCases?: string | null;
+	/**
+	 * The other cases whose rings the image's own drawing left unlabelled, named with their values
+	 * (point-labels.ts notLabelledNote; nit 5, rule 7), read once its chart is drawn; null: none.
+	 */
+	notLabelled?: () => string | null;
 	pumpName: string;
 	/** The case shown, in a project with scenarios. */
 	caseName?: string;
@@ -387,8 +396,14 @@ export async function downloadChartImage(
 		const lines = figure
 			? [...figure.lines]
 			: imageNoteLines(pump!.notes, pump!.others, pump!.offCases ?? null);
-		const drawnLines = figure?.drawnLines;
-		// A figure's notes that depend on its drawing are read once the image's chart is drawn.
+		// Notes that depend on the drawing are read once the image's chart is drawn: a figure's own,
+		// and a pump chart's rings left unlabelled (nit 5, rule 7).
+		const unlabelled = pump?.notLabelled;
+		const drawnLines =
+			figure?.drawnLines ??
+			(unlabelled
+				? () => imageNoteLines(pump!.notes, pump!.others, pump!.offCases ?? null, unlabelled())
+				: undefined);
 		const blob = drawnLines
 			? await render(Chart, request.config, caption(lines), () => caption([...drawnLines()]))
 			: await render(Chart, request.config, caption(lines));

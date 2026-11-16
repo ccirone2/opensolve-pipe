@@ -308,6 +308,27 @@ describe('the image’s notes name each other case by its number (nit 5, slice 5
 		// The guard (nit 5): no character designates a case anywhere in the pump image's footer.
 		for (const line of lines) expect(designators(line), line).toEqual([]);
 	});
+
+	// Nit 5, rule 7 (slice 5c): a ring whose label the image's drawing left out is named with its
+	// values, never only counted: after the other cases' line, before the cases off.
+	it('names the rings whose labels the drawing left out after the other cases, before the cases off', () => {
+		const result = pumpResult();
+		const data = pumpChartData(result, SI_UNITS, [0, 0.03]);
+		const notes = chartNotes({ data, result, system: undefined, reasonsIn: IMAGE_REASONS_IN });
+		const tagged = otherCasesData([base, winter], SI_UNITS, null, 1, null, {
+			'': 'Base',
+			S1: 2
+		});
+		const off = offCasesNote([{ tag: 1, label: 'Pump PA off' }]);
+		const unlabelled = 'Not labelled on the chart: case 2, Winter, its ring at 12 L/s and 25 m.';
+		const lines = imageNoteLines(notes, tagged, off, unlabelled);
+		expect(lines.slice(-3)).toEqual([
+			'Other cases on the chart (slate rings, each tagged with its case number): Base case; case 2: Winter (out of date): off.',
+			unlabelled,
+			'Off in this case (no operating point): case 1: Pump PA off.'
+		]);
+		expect(imageNoteLines(notes, tagged, off, null)).toEqual(lines.filter((l) => l !== unlabelled));
+	});
 });
 
 describe('downloading the image', () => {
@@ -341,6 +362,44 @@ describe('downloading the image', () => {
 			}
 		};
 	}
+
+	// Nit 5, rule 7 (slice 5c): the rings the image's own drawing left unlabelled are read once its
+	// chart is drawn, as the group figure's drawn lines are: the footer before the drawing has
+	// none, the drawn footer names them after the other cases.
+	it('names in the footer the rings the image’s own drawing left unlabelled, read once it is drawn', async () => {
+		let built = false;
+		const drawn: { caption: ChartImageCaption; drawn: ChartImageCaption | undefined }[] = [];
+		const sent = request([]);
+		const unlabelled = 'Not labelled on the chart: case 2, Winter, its ring at 12 L/s and 25 m.';
+		await downloadChartImage(
+			FakeChart,
+			{ ...sent, notLabelled: () => (built ? unlabelled : 'Read before the chart was built.') },
+			{
+				now,
+				render: async (_chart, _config, caption, drawnCaption) => {
+					built = true;
+					drawn.push({ caption, drawn: drawnCaption?.() });
+					return new Blob(['x']);
+				},
+				save: () => {}
+			}
+		);
+		const lines = imageNoteLines(sent.notes, sent.others);
+		const tail = [DISCLAIMER, 'OpenSolve Pipe · https://opensolve-pipe.app'];
+		expect(drawn[0]!.caption.footer).toEqual([...lines, ...tail]);
+		expect(drawn[0]!.drawn?.footer).toEqual([...lines, unlabelled, ...tail]);
+		// Without the reader, no drawn caption: the footer is the page's lines.
+		const plain: (ChartImageCaption | undefined)[] = [];
+		await downloadChartImage(FakeChart, sent, {
+			now,
+			render: async (_chart, _config, _caption, drawnCaption) => {
+				plain.push(drawnCaption?.());
+				return new Blob(['x']);
+			},
+			save: () => {}
+		});
+		expect(plain).toEqual([undefined]);
+	});
 
 	it('draws the chart’s configuration at a fixed size with its caption, saves it and says so', async () => {
 		const notices: { kind: string; text: string }[] = [];

@@ -35,10 +35,13 @@
  * the group system curve cut there), its words in the notes and the accessible name, and its
  * points in a table of their own. Without a curve drawn the chart is 4d's.
  *
- * Identity never rests on colour alone: each member has a colour (the dataviz palette's blue and,
- * a step darker than its slot 3 to clear 3:1 on white, aqua; orange stays the system's), a dash
- * pattern from its third slot on, a marker with a text stand-in, a direct label, a legend entry
- * and a table row. A member keeps its slot (its colour) while it stays ticked.
+ * Identity never rests on colour alone: each member's line has a colour (the dataviz palette's
+ * blue and, a step darker than its slot 3 to clear 3:1 on white, aqua; orange stays the system's),
+ * its slot's own dash pattern, a legend entry and a table row; each member's point is a dot in its
+ * line's colour named beside it on the chart (point-labels.ts placePointLabels), no shape or
+ * character standing for it (owner, 2026-11-12, nit 5; Q1 "Shapes go too";
+ * docs/proposals/pumps-nits.md item 5, rules 1 and 2; slice 5c). A member keeps its slot (its
+ * colour and dashes) while it stays ticked.
  */
 import type {
 	Flag,
@@ -65,24 +68,23 @@ import {
 	type CaseNumber,
 	type ChartPoint
 } from './pump-chart';
+import { notLabelledNote, type NotLabelledPoint } from './point-labels';
 import { pressureControlOnly } from './pump-groups';
 import { Formatter, pumpStatusLabel, type Column } from './results';
 import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
 import { displayUnit, formatNumber, fromSI, unitLabel, type UnitId } from './units';
 
-/** Chart.js point styles of the members' points (a held pump: 'rectRot', the pump chart's diamond). */
-export type GroupMarker = 'triangle' | 'rect' | 'star' | 'crossRot' | 'cross' | 'rectRounded';
-
-/** A member's look: colour, dash patterns (inside its data and beyond it) and marker. */
+/**
+ * A member's look: its line's colour and dash patterns, inside its data and beyond it. Its point is
+ * a dot in its line's colour (chart-marks.ts memberMark), named on the chart: no shape or
+ * character stands for a pump (nit 5, rule 2; slice 5c).
+ */
 export interface GroupSlot {
 	color: string;
 	/** Inside the curve's data: [] is solid. */
 	dash: number[];
 	/** Beyond it (extrapolated). */
 	beyondDash: number[];
-	marker: GroupMarker;
-	/** The marker as text (the checkboxes, the tables, the image's notes). */
-	symbol: string;
 }
 
 /** Blue, the dataviz palette's slot 1 (4.4:1 on white). */
@@ -105,19 +107,25 @@ export const GROUP_SYSTEM = '#eb6834';
 export const GROUP_SYSTEM_LABEL =
 	"Group system curve (the rest of the network between the station's inlet and outlet, station's flow)";
 
-/** The six slots: blue and aqua in turn, each pair with its own dashes, every one its marker. */
+/**
+ * The six slots: blue and aqua in turn, each with a line pattern of its own (nit 5, rule 2; slice
+ * 5c), so slots 1 and 2, blue against aqua at only 1.30:1, differ by more than hue: solid, long
+ * dash, dash-dot, dash-dot-dot, short dash, long-short dash. A legend's swatch shows a pattern's
+ * first stretch only, so every two patterns differ within it, by 3 px or more: the page's 24 px
+ * line and the image's 17 px one (review DOTS-LABELS-B5: slot 4 was [12, 3, 3, 3, 3, 3], slot 3's
+ * dash-dot for its first 24 px; slot 6 [16, 3, 4, 3], solid for the image's 17). Beyond its data a
+ * slot's line is finer, each slot's colour and dashes its own (review DOTS-LABELS-A2: slots 4 and
+ * 6 were both aqua [1, 5]): blue's three patterns as before slice 5c, aqua's dotted, so no aqua
+ * line inside its data reads as one beyond it.
+ */
 export const GROUP_SLOTS: readonly GroupSlot[] = [
-	{ color: GROUP_BLUE, dash: [], beyondDash: [6, 4], marker: 'triangle', symbol: '▲' },
-	{ color: GROUP_AQUA, dash: [], beyondDash: [6, 4], marker: 'rect', symbol: '■' },
-	{ color: GROUP_BLUE, dash: [12, 3, 3, 3], beyondDash: [2, 3], marker: 'star', symbol: '★' },
-	{ color: GROUP_AQUA, dash: [12, 3, 3, 3], beyondDash: [2, 3], marker: 'crossRot', symbol: '×' },
-	{ color: GROUP_BLUE, dash: [4, 2], beyondDash: [1, 5], marker: 'cross', symbol: '+' },
-	{ color: GROUP_AQUA, dash: [4, 2], beyondDash: [1, 5], marker: 'rectRounded', symbol: '▢' }
+	{ color: GROUP_BLUE, dash: [], beyondDash: [6, 4] },
+	{ color: GROUP_AQUA, dash: [8, 3], beyondDash: [2, 3] },
+	{ color: GROUP_BLUE, dash: [12, 3, 3, 3], beyondDash: [2, 3] },
+	{ color: GROUP_AQUA, dash: [7, 2, 2, 2, 2, 2], beyondDash: [1, 5] },
+	{ color: GROUP_BLUE, dash: [4, 2], beyondDash: [1, 5] },
+	{ color: GROUP_AQUA, dash: [9, 3, 2, 3], beyondDash: [1, 2, 1, 6] }
 ];
-
-/** The station's point as text, and a held pump's (the pump chart's diamond). */
-export const STATION_SYMBOL = '●';
-export const HELD_SYMBOL = '◇';
 
 /**
  * Other cases' station duties (slice 4d): slate rings, the pump chart's colour for other cases
@@ -161,7 +169,7 @@ export interface GroupMemberInput {
 	ratedRange: [number, number] | null;
 	/** The pump's curve id as solved: members with one curve at one speed share a line. */
 	curveId: string | null;
-	/** Its slot (its place among the boxes ticked): colour, dash and marker. */
+	/** Its slot (its place among the boxes ticked): its line's colour and dashes. */
 	slot: number;
 	flags: readonly Flag[];
 }
@@ -182,9 +190,13 @@ export interface GroupLine {
 export interface GroupPoint {
 	id: string;
 	name: string;
+	/**
+	 * Its line's look (rule 2): members sharing a line share its colour, the first one's slot (the
+	 * lineups' four pumps all blue on Pump P1's line).
+	 */
 	style: GroupSlot;
 	point: ChartPoint;
-	/** Held at zero flow ('no_flow'): drawn as the pump chart's diamond. */
+	/** Held at zero flow ('no_flow'): drawn as the hollow diamond in its line's colour (rule 5). */
 	held: boolean;
 }
 
@@ -400,10 +412,18 @@ export function groupChartData(
 				);
 			}
 		}
+		// Its point in its line's colour (rule 2): a member sharing a line takes the line's look.
+		const look = lines.find((l) => l.ids.includes(member.id))?.style ?? style;
 		if (data.operating) {
-			points.push({ id: member.id, name: member.name, style, point: data.operating, held: false });
+			points.push({
+				id: member.id,
+				name: member.name,
+				style: look,
+				point: data.operating,
+				held: false
+			});
 		} else if (data.held) {
-			points.push({ id: member.id, name: member.name, style, point: data.held, held: true });
+			points.push({ id: member.id, name: member.name, style: look, point: data.held, held: true });
 		}
 	}
 	const duty = response?.duty ?? system?.duty ?? null;
@@ -738,11 +758,16 @@ function groupCurveRuns(
 export interface GroupLegendItem {
 	key: string;
 	label: string;
-	/** A line (its colour and dash), or a marker (its text stand-in in its colour). */
+	/** A line (its colour and dash), or a marker (its mark drawn as the canvas draws it). */
 	kind: 'line' | 'marker';
 	color: string;
 	dash?: number[];
-	symbol?: string;
+	/**
+	 * A marker's mark (chart-marks.ts CHART_MARKS): the Group's ink dot, another case's slate ring,
+	 * or a held pump's diamond in `color`, its line's. Drawn from the canvas's own spec, never a
+	 * character (nit 5, rules 1 and 8; slice 5c).
+	 */
+	mark?: 'group' | 'ring' | 'held';
 	/**
 	 * An other case's ring: its cases' numbers, which `label` names ("Case 1: …", as the image's
 	 * legend does); no character stands for it (nit 5, slice 5b).
@@ -750,7 +775,11 @@ export interface GroupLegendItem {
 	tags?: CaseNumber[];
 }
 
-/** The legend, in the chart's dataset order: one entry per line and per point. */
+/**
+ * The legend, in the chart's dataset order: one entry per line, then the marks that say a fact (a
+ * pump held at zero flow, the Group's duty, the other cases' rings). A running member's point has
+ * none: the chart names it beside its dot, and its line's entry names it (nit 5, rule 2; slice 5c).
+ */
 export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 	return [
 		...data.lines.map((line): GroupLegendItem => ({
@@ -806,13 +835,17 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 					}
 				]
 			: []),
-		...data.points.map((p): GroupLegendItem => ({
-			key: `point-${p.id}`,
-			label: p.held ? `${p.name}, held at zero flow` : p.name,
-			kind: 'marker',
-			color: p.style.color,
-			symbol: p.held ? HELD_SYMBOL : p.style.symbol
-		})),
+		// A pump held at zero flow: the hollow diamond in its line's colour, named in words (rule 5).
+		...data.points
+			.filter((p) => p.held)
+			.map((p): GroupLegendItem => ({
+				key: `point-${p.id}`,
+				label: `${p.name}, held at zero flow`,
+				kind: 'marker',
+				color: p.style.color,
+				mark: 'held'
+			})),
+		// The Group: the ink dot, its entry starting "Group" (rule 3).
 		...(data.station
 			? [
 					{
@@ -820,7 +853,7 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 						label: data.station.label,
 						kind: 'marker' as const,
 						color: GROUP_INK,
-						symbol: STATION_SYMBOL
+						mark: 'group' as const
 					}
 				]
 			: []),
@@ -829,6 +862,7 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 			label: ring.label,
 			kind: 'marker',
 			color: GROUP_OTHER,
+			mark: 'ring',
 			tags: ring.numbers
 		}))
 	];
@@ -1084,6 +1118,12 @@ export interface GroupNotes {
 	/** Dashed lines, when any is drawn. */
 	dashed: string | null;
 	/**
+	 * The points whose label the chart's drawing left out, each named with its values
+	 * (point-labels.ts notLabelledNote; nit 5, rule 7: never only counted); null when every point
+	 * is labelled.
+	 */
+	notLabelled: string | null;
+	/**
 	 * Other cases' station duties (slice 4d): what a ring is, when one is called a point of the
 	 * group system curve shown, the rings, and the cases without one and why; one line while
 	 * they are not asked for (empty with no other case). The image's footer lines, word for word
@@ -1155,6 +1195,11 @@ export interface GroupNotesInput {
 	 * default 0): the notes count them.
 	 */
 	labelsLeftOut?: number;
+	/**
+	 * Points whose labels placePointLabels left out where the chart was drawn (nit 5, rule 7;
+	 * default none): the notes name each with its values.
+	 */
+	notLabelled?: readonly NotLabelledPoint[];
 }
 
 /** The figure's notes, from one function the screen and the image both use. */
@@ -1167,7 +1212,8 @@ export function groupNotes({
 	solved,
 	prefs,
 	others = [],
-	labelsLeftOut = 0
+	labelsLeftOut = 0,
+	notLabelled = []
 }: GroupNotesInput): GroupNotes {
 	const headUnit = displayUnit('head', prefs);
 	const head = (m: number) => `${formatNumber(fromSI(m, headUnit), 4)} ${data.headUnit}`;
@@ -1352,6 +1398,7 @@ export function groupNotes({
 		systemCurves:
 			"Each pump's own system curve is on its pump chart above; it crosses that pump's curve, not the group curve.",
 		dashed,
+		notLabelled: notLabelledNote(notLabelled),
 		// The footer's lines are the screen's parts joined (pumps-results-layout.md §5.3).
 		others: otherNoteLines(otherParts),
 		otherParts
@@ -1773,6 +1820,7 @@ export function groupNoteLines(notes: GroupNotes, refusals: readonly string[] = 
 		...notes.others,
 		...notes.members,
 		notes.dashed,
+		notes.notLabelled,
 		notes.systemCurves
 	].filter((line): line is string => !!line);
 }

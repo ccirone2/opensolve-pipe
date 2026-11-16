@@ -28,6 +28,7 @@ import {
 } from '@playwright/test';
 import { gzip } from 'pako';
 import type { Project } from '../src/lib/api/types';
+import type { CurveLabelsDrawn, PointLabelsDrawn } from '../src/lib/utils/pump-chart-config';
 import { exampleProject, pumpTransferExample } from '../src/lib/utils/examples';
 import { canonicalJson } from '../src/lib/utils/json';
 import { IMPERIAL_UNITS } from '../src/lib/utils/units';
@@ -2024,8 +2025,16 @@ const RING_NOTES_1280: Readonly<Record<string, number>> = {
 };
 /** §5.7 row 10: Tab stops from the card's header to the group chart's Show data table. */
 const TABS_TO_GROUP_TABLE = 20;
-/** §5.7 row 4: the lineups' group legend at 390×844: measured in S3 + 10 % (332 px), and ≤ 452 px. */
-const LEGEND_390 = 365;
+/**
+ * §5.7 row 4: the lineups' group legend at 390×844, at most this, and ≤ 452 px: measured in S3 +
+ * 10 % (332 px, so 365), 364 px by nit 5's slice 5b. Tightened in slice 5c (owner, 2026-11-12, nit
+ * 5; docs/proposals/pumps-nits.md item 5, Budgets): a running pump's point has no entry since the
+ * chart names it beside its dot (the lineups' four, the condenser's six), so the legend is 339 px,
+ * though its marker rows are now as tall as their drawn swatches (the ring's 22 px). The measurement
+ * + 10 % (373) would loosen it, so the budget comes down by what 5c took away, 25 px, keeping its
+ * 1 px over the measurement.
+ */
+const LEGEND_390 = 340;
 /**
  * Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): a pump is its name, so no column
  * is kept before it for a slot symbol (§15 item 157's 1 rem, and its 4 px gap). In the card's two
@@ -2909,8 +2918,11 @@ async function extremesPart(page: Page, view: string, where: string) {
  * each flagged pump's flags visible under its row, and the names wrapping at 12 rem in 42 rows.
  * Since S6b (§9 S6b) Running combinations is a ResultsTable, its box held to ResultsTable's
  * height there (608 px, scrolling inside, its headings sticky), so the card is 5,724 px: 6,296.
+ * Nit 5's slice 5b drew it 5,741 px; slice 5c 5,693 px (owner, 2026-11-12, nit 5;
+ * docs/proposals/pumps-nits.md item 5, Budgets), the group legend 48 px shorter without its six
+ * members' points: tightened to 5,693 + 10 %.
  */
-const OPEN_CARD_1280 = 6_296;
+const OPEN_CARD_1280 = 6_262;
 
 /**
  * Running combinations as laid out (viewport px): its box and form; each case's group, its
@@ -8276,4 +8288,765 @@ test('Nit 5, slice 5b: one number per case in the one-off, the same in both char
 	// axe over the changed lists and tables, every disclosure open (the boxes' hidden words, the
 	// checkboxes' names, the tables' row headers).
 	await axeClean(page, `the one-off, every case drawn, at ${sizeOf(page)}`);
+});
+
+// ---- Nit 5, slice 5c: the guard at zero ---------------------------------------------------------
+
+/**
+ * Every text the page draws on a canvas outside the document (the images' plot and their header
+ * and footer, export/chart-image.ts renderChartImage), recorded from the page's start: the words
+ * of both images' footers and their charts (pumps-nits.md item 5, rule 1).
+ */
+async function recordImageTexts(page: Page) {
+	await page.addInitScript(() => {
+		const w = window as unknown as { __imageTexts: string[] };
+		w.__imageTexts = [];
+		const fill = CanvasRenderingContext2D.prototype.fillText;
+		CanvasRenderingContext2D.prototype.fillText = function (
+			this: CanvasRenderingContext2D,
+			text: string,
+			x: number,
+			y: number,
+			maxWidth?: number
+		) {
+			if (!this.canvas.isConnected) w.__imageTexts.push(String(text));
+			return maxWidth === undefined
+				? fill.call(this, text, x, y)
+				: fill.call(this, text, x, y, maxWidth);
+		};
+	});
+}
+
+/** Press a figure's Download image and read the texts its image drew. */
+async function imageTexts(page: Page, figure: Locator): Promise<string[]> {
+	await page.evaluate(() => {
+		(window as unknown as { __imageTexts: string[] }).__imageTexts = [];
+	});
+	const button = figure.locator('[data-chart-image]').first();
+	await expect(button).not.toHaveAttribute('aria-disabled', 'true', { timeout: 120_000 });
+	await Promise.all([page.waitForEvent('download'), button.click()]);
+	return page.evaluate(() => [...(window as unknown as { __imageTexts: string[] }).__imageTexts]);
+}
+
+/**
+ * The designator characters in the Pumps tab (testing/helpers.ts designators, read in the page):
+ * every character of Unicode's Geometric Shapes, Miscellaneous Symbols and Dingbats, and
+ * Miscellaneous Symbols and Arrows blocks, a mark in parentheses ("(+)", "(–)"), and the words of
+ * an aria-hidden span that is a lone × or +; each with the words around it. Allowed (the plan's
+ * list): ✓ and ✕ in a design check's note, ▸ in a disclosure's summary; ⌘ is outside the blocks.
+ */
+function tabDesignators() {
+	const panel = document.querySelector('[role="tabpanel"][id$="-panel-pumps"]')!;
+	const block = /[\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF]/u;
+	const found: string[] = [];
+	const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
+	for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+		const text = n.textContent ?? '';
+		const at = n.parentElement!;
+		/** Where it is: its row, item or paragraph's words. */
+		const place = () =>
+			(at.closest('li, th, td, p, label, summary, legend') ?? at)
+				.textContent!.replace(/\s+/g, ' ')
+				.trim()
+				.slice(0, 60);
+		const allowed = (c: string) =>
+			(/[✓✕]/u.test(c) && !!at.closest('[data-pump-checks], [data-group-check]')) ||
+			(c === '▸' && !!at.closest('summary'));
+		for (const c of text) {
+			if (block.test(c) && !allowed(c)) found.push(`${c} in “${place()}”`);
+		}
+		for (const m of text.matchAll(
+			/\((?:[+×–-]|[\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF]\uFE0E?)\)/gu
+		))
+			found.push(`${m[0]} in “${place()}”`);
+	}
+	for (const hidden of panel.querySelectorAll('[aria-hidden="true"]')) {
+		const words = (hidden.textContent ?? '').trim();
+		if (words === '×' || words === '+')
+			found.push(
+				`${words} (aria-hidden) beside “${(hidden.parentElement?.textContent ?? '').trim().slice(0, 40)}”`
+			);
+	}
+	return found;
+}
+
+/** The designators in an image's texts (no exception: an image has no check note or summary). */
+const imageDesignators = (texts: readonly string[]) =>
+	texts.flatMap((t) => [
+		...[...t]
+			.filter((c) => /[\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF]/u.test(c))
+			.map((c) => `${c} in “${t}”`),
+		...[...t.matchAll(/\((?:[+×–-]|[\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF]\uFE0E?)\)/gu)].map(
+			(m) => `${m[0]} in “${t}”`
+		)
+	]);
+
+/**
+ * Everything the Pumps tab can show at once: the card open with the other cases' station duties
+ * drawn, the pump chart's other cases' system curves on, both data tables shown and every
+ * disclosure opened as a user would.
+ */
+async function showEverything(page: Page, tab: Locator) {
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const toggle = card.getByRole('button', { name: /^Pumps together/ });
+	if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+	await settle(page);
+	const rings = card.getByRole('checkbox', { name: "Also show the other cases' station duties" });
+	if (!(await rings.isChecked())) await rings.check();
+	const curves = tab.getByRole('checkbox', { name: "Also show the other cases' system curves" });
+	if ((await curves.count()) && !(await curves.isChecked())) await curves.check();
+	await settle(page, 2500);
+	for (let i = 0; i < 4; i++) {
+		const show = tab.getByRole('button', { name: /^Show data table/ });
+		if (!(await show.count())) break;
+		await show.first().click();
+	}
+	const panel = '[role="tabpanel"][id$="-panel-pumps"]';
+	const closed = page.locator(`${panel} details:not([open]) > summary`);
+	const firstShown = () =>
+		closed.evaluateAll((all) =>
+			all.findIndex((s) => {
+				const r = s.getBoundingClientRect();
+				return s.checkVisibility() && r.width > 1 && r.height > 1;
+			})
+		);
+	for (let round = 0; round < 60; round++) {
+		const index = await firstShown();
+		if (index < 0) break;
+		await closed.nth(index).click();
+	}
+	await settle(page, 1500);
+	return card;
+}
+
+for (const [view, setUp] of [
+	['the one-off', oneOff],
+	['lineups', lineups],
+	['the condenser', condenser]
+] as const) {
+	test(`Nit 5, slice 5c: no character designates a pump, the group, a case or a ring anywhere in the Pumps tab or either image, ${view} (pumps-nits.md item 5, rule 1: the guard at zero)`, async ({
+		page
+	}) => {
+		test.setTimeout(420_000);
+		await recordImageTexts(page);
+		await setUp(page);
+		const tab = await pumpsTab(page);
+		const card = await showEverything(page, tab);
+		const where = `${view} at ${sizeOf(page)}`;
+		// The whole tab, every part of it shown: "Pumps in the group", the Station table, Running
+		// combinations, the duty sentence, both case lists, the ring list, the legend, "Each pump's
+		// point" and every other table and note.
+		expect.soft(await page.evaluate(tabDesignators), `the Pumps tab, ${where}`).toEqual([]);
+		// Both images, each read from its own drawing: its chart's text and its footer.
+		const pump = await imageTexts(
+			page,
+			tab.getByRole('figure', { name: /^Pump and system curves/ })
+		);
+		expect(pump.length, `the pump chart's image drew its words, ${where}`).toBeGreaterThan(10);
+		expect.soft(imageDesignators(pump), `the pump chart's image, ${where}`).toEqual([]);
+		const group = await imageTexts(page, card);
+		expect(group.length, `the group chart's image drew its words, ${where}`).toBeGreaterThan(10);
+		expect.soft(imageDesignators(group), `the group chart's image, ${where}`).toEqual([]);
+	});
+}
+
+// ---- Nit 5, slice 5c: the placed point labels, read in the browser ----------------------------
+
+/** What one chart's canvas keeps of its last drawing, and the notes beside it (readPointLabels). */
+interface PlacedRead {
+	canvas: { width: number; height: number };
+	points: PointLabelsDrawn | null;
+	curves: Omit<CurveLabelsDrawn, 'points'> | null;
+	/** Each point label's words measured here in the canvas's font (12 px on screen). */
+	widths: number[];
+	/** The notes' "Not labelled on the chart: …" sentences, each with whether it is on screen. */
+	notes: { text: string; seen: boolean }[];
+}
+
+/**
+ * Both charts' point labels as their last drawing placed them (owner, 2026-11-12, nit 5;
+ * docs/proposals/pumps-nits.md item 5, rule 7; slice 5c): each canvas's `data-point-labels`
+ * (pump-chart-config.ts PointLabelsDrawn: the plot, each point with its mark's extent, the other
+ * marks kept clear of, the labels and the points left out as the notes name them), the group
+ * chart's `data-curve-labels` (D24's curve labels, placed after the points'), each point label's
+ * words measured here in the font the canvas draws them in (12 px system-ui on screen), and the
+ * chart's notes that say what is not labelled. The group chart is the card's figure; null while
+ * the card is closed.
+ */
+function readPointLabels(): { pump: PlacedRead | null; group: PlacedRead | null } {
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const panel = document.querySelector('[role="tabpanel"][id$="-panel-pumps"]')!;
+	const measure = document.createElement('canvas').getContext('2d')!;
+	measure.font = '12px system-ui, sans-serif';
+	const seen = (el: Element) => {
+		const r = el.getBoundingClientRect();
+		return el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && r.width > 1;
+	};
+	const read = (figure: Element | undefined, notesAt: string): PlacedRead | null => {
+		const canvas = figure?.querySelector('canvas');
+		if (!figure || !canvas) return null;
+		const json = (s: string | undefined) => (s ? JSON.parse(s) : null);
+		const points = json(canvas.dataset.pointLabels) as PointLabelsDrawn | null;
+		return {
+			canvas: { width: canvas.clientWidth, height: canvas.clientHeight },
+			points,
+			curves: json(canvas.dataset.curveLabels),
+			widths: (points?.labels ?? []).map((l) => measure.measureText(l.text).width),
+			notes: [...(figure.querySelector(notesAt)?.querySelectorAll('p') ?? [])]
+				.filter((p) => squash(p.textContent).startsWith('Not labelled on the chart'))
+				.map((p) => ({ text: squash(p.textContent), seen: seen(p) }))
+		};
+	};
+	const figures = [...panel.querySelectorAll('figure')];
+	const card = panel.querySelector('[data-pumps-together]');
+	return {
+		pump: read(
+			figures.find((f) =>
+				squash(f.querySelector(':scope > figcaption')?.textContent).startsWith(
+					'Pump and system curves'
+				)
+			),
+			'[data-pump-notes]'
+		),
+		group: read(
+			[...(card?.querySelectorAll('figure') ?? [])].find((f) => f.querySelector('canvas')),
+			'[data-group-notes]'
+		)
+	};
+}
+
+type Box = { left: number; right: number; top: number; bottom: number };
+const boxesOverlap = (a: Box, b: Box) =>
+	a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+/** The space between two boxes (px): 0 or less where they overlap. */
+const boxGap = (a: Box, b: Box) =>
+	Math.max(a.left - b.right, b.left - a.right, a.top - b.bottom, b.top - a.bottom);
+/** A point's distance to a box (0 inside it or on its edge). */
+const toBox = (b: Box, x: number, y: number) =>
+	Math.hypot(Math.max(b.left - x, 0, x - b.right), Math.max(b.top - y, 0, y - b.bottom));
+/** A segment passes through a box's inside (Liang–Barsky; one along an edge does not). */
+function segmentCrosses(s: { x1: number; y1: number; x2: number; y2: number }, b: Box) {
+	const e = 1e-6;
+	const dx = s.x2 - s.x1;
+	const dy = s.y2 - s.y1;
+	let t0 = 0;
+	let t1 = 1;
+	for (const [p, q] of [
+		[-dx, s.x1 - (b.left + e)],
+		[dx, b.right - e - s.x1],
+		[-dy, s.y1 - (b.top + e)],
+		[dy, b.bottom - e - s.y1]
+	] as const) {
+		if (p === 0) {
+			if (q < 0) return false;
+			continue;
+		}
+		const t = q / p;
+		if (p < 0) t0 = Math.max(t0, t);
+		else t1 = Math.min(t1, t);
+		if (t0 > t1) return false;
+	}
+	return t0 < t1;
+}
+
+/**
+ * What is wrong with one chart's point labels as drawn (rule 7), each finding in words; [] when
+ * nothing is. Every label inside the plot, its box as wide as its words measure and 1.25 times
+ * the font high (12 px on screen: the box the placer kept clear covers the words drawn); at least
+ * 4 px from every other label (POINT_LABEL_GAP, so two 3 px halos never touch); over no mark but
+ * its own and no point's centre; strictly nearer its own point than any other of its kind; a far
+ * label's leader inside the plot, from its box to its own mark's edge, crossing no other mark or
+ * label, and no label placed later across it (review DOTS-LABELS-A1: `j !== k`, either order).
+ * Each point named by one label at most. The curve labels (the group chart's) over no point
+ * label, leader or mark: point labels come first. The group system curve's tag last (rule 7;
+ * review DOTS-LABELS-B1): inside the plot, over no point label, leader, mark or curve label, and
+ * no tag among the boxes the points' labels kept clear of. The points without a label are those
+ * the notes name, in the chart's order (the Group and members, then the rings: a ring of several
+ * cases is named once per case), then a tag left out, by its curve's end, in one sentence on
+ * screen ("Not labelled on the chart: case 2, Pump PB off, its ring at 40.75 L/s and 23.68 m."),
+ * and no such sentence when every point and tag is labelled.
+ */
+function pointLabelFindings(m: PlacedRead | null): string[] {
+	if (!m) return ['the chart is not drawn'];
+	const placed = m.points;
+	if (!placed) return ['the canvas has no data-point-labels'];
+	const found: string[] = [];
+	const { plot, items, obstacles, labels } = placed;
+	const fix = (n: number) => n.toFixed(1);
+	const boxText = (b: Box) => `(${fix(b.left)}, ${fix(b.top)})–(${fix(b.right)}, ${fix(b.bottom)})`;
+	const within = (b: Box) =>
+		b.left >= plot.left - 0.01 &&
+		b.right <= plot.right + 0.01 &&
+		b.top >= plot.top - 0.01 &&
+		b.bottom <= plot.bottom + 0.01;
+	if (plot.left < 0 || plot.top < 0 || plot.right > m.canvas.width + 0.5)
+		found.push(`the plot ${boxText(plot)} outside its ${m.canvas.width} px canvas`);
+	if (plot.bottom > m.canvas.height + 0.5)
+		found.push(`the plot ${boxText(plot)} below its ${m.canvas.height} px canvas`);
+	const mark = (i: number): Box => {
+		const it = items[i]!;
+		return { left: it.x - it.r, right: it.x + it.r, top: it.y - it.r, bottom: it.y + it.r };
+	};
+	const named = new Map<number, string>();
+	labels.forEach((label, k) => {
+		const what = `"${label.text}" at ${boxText(label.box)}`;
+		if (!within(label.box)) found.push(`${what} leaves the plot ${boxText(plot)}`);
+		const width = label.box.right - label.box.left;
+		if (Math.abs(width - m.widths[k]!) > 0.5)
+			found.push(`${what} is ${fix(width)} px wide, its words ${fix(m.widths[k]!)} px`);
+		if (Math.abs(label.box.bottom - label.box.top - 15) > 0.01)
+			found.push(`${what} is ${fix(label.box.bottom - label.box.top)} px high, not 15`);
+		if (!label.items.length) found.push(`${what} names no point`);
+		for (const i of label.items) {
+			if (!items[i]) found.push(`${what} names point ${i}, which is not drawn`);
+			else if (items[i]!.kind !== label.kind)
+				found.push(`${what} is a ${label.kind} label naming a ${items[i]!.kind}`);
+			if (named.has(i)) found.push(`${what} names point ${i}, as "${named.get(i)}" does`);
+			named.set(i, label.text);
+		}
+		const own = label.items.filter((i) => items[i]);
+		items.forEach((it, i) => {
+			if (toBox(label.box, it.x, it.y) <= 0)
+				found.push(`${what} covers the centre of point ${i} (${it.kind})`);
+			if (!own.includes(i) && boxesOverlap(label.box, mark(i)))
+				found.push(`${what} is over the mark of point ${i} (${it.kind}) ${boxText(mark(i))}`);
+		});
+		for (const o of obstacles)
+			if (boxesOverlap(label.box, o)) found.push(`${what} is over the mark at ${boxText(o)}`);
+		const mine = Math.min(...own.map((i) => toBox(label.box, items[i]!.x, items[i]!.y)));
+		items.forEach((it, i) => {
+			if (it.kind === label.kind && !own.includes(i) && toBox(label.box, it.x, it.y) <= mine)
+				found.push(`${what} is as near point ${i} (${it.kind}) as its own`);
+		});
+		labels.forEach((other, j) => {
+			if (j > k && boxGap(label.box, other.box) < 4 - 0.01)
+				found.push(
+					`${what} is ${fix(boxGap(label.box, other.box))} px from "${other.text}" at ${boxText(other.box)}`
+				);
+		});
+		const leader = label.leader;
+		if (leader) {
+			const ends = [
+				[leader.x1, leader.y1],
+				[leader.x2, leader.y2]
+			] as const;
+			if (ends.some(([x, y]) => x < plot.left || x > plot.right || y < plot.top || y > plot.bottom))
+				found.push(`${what}: its leader leaves the plot`);
+			if (toBox(label.box, leader.x1, leader.y1) > 0.01)
+				found.push(`${what}: its leader does not start on its box`);
+			if (
+				!own.some(
+					(i) =>
+						Math.abs(Math.hypot(leader.x2 - items[i]!.x, leader.y2 - items[i]!.y) - items[i]!.r) <=
+						0.5
+				)
+			)
+				found.push(`${what}: its leader does not end on its own mark's edge`);
+			items.forEach((it, i) => {
+				if (!own.includes(i) && segmentCrosses(leader, mark(i)))
+					found.push(`${what}: its leader crosses the mark of point ${i} (${it.kind})`);
+			});
+			for (const o of obstacles)
+				if (segmentCrosses(leader, o))
+					found.push(`${what}: its leader crosses the mark at ${boxText(o)}`);
+			labels.forEach((other, j) => {
+				if (j !== k && segmentCrosses(leader, other.box))
+					found.push(`${what}: its leader crosses "${other.text}"`);
+			});
+		}
+	});
+	// The curve labels, placed after the points' (rule 7): over no point label, leader or mark.
+	for (const curve of m.curves?.labels ?? []) {
+		const what = `the curve label "${curve.text}" at ${boxText(curve.box)}`;
+		for (const label of labels) {
+			if (boxesOverlap(curve.box, label.box)) found.push(`${what} is over "${label.text}"`);
+			if (label.leader && segmentCrosses(label.leader, curve.box))
+				found.push(`${what} is crossed by the leader of "${label.text}"`);
+		}
+		items.forEach((it, i) => {
+			if (boxesOverlap(curve.box, mark(i)))
+				found.push(`${what} is over the mark of point ${i} (${it.kind})`);
+		});
+	}
+	// The curves' tags, placed last (rule 7): over nothing placed before them, inside the plot.
+	for (const tag of m.curves?.tags ?? []) {
+		const what = `the tag "${tag.text}" at ${boxText(tag.box)}`;
+		if (!within(tag.box)) found.push(`${what} leaves the plot ${boxText(plot)}`);
+		for (const label of labels) {
+			if (boxesOverlap(tag.box, label.box)) found.push(`${what} is over "${label.text}"`);
+			if (label.leader && segmentCrosses(label.leader, tag.box))
+				found.push(`${what} is crossed by the leader of "${label.text}"`);
+		}
+		items.forEach((it, i) => {
+			if (boxesOverlap(tag.box, mark(i)))
+				found.push(`${what} is over the mark of point ${i} (${it.kind})`);
+		});
+		for (const curve of m.curves?.labels ?? [])
+			if (boxesOverlap(tag.box, curve.box)) found.push(`${what} is over "${curve.text}"`);
+		for (const o of obstacles)
+			if (boxesOverlap(tag.box, o))
+				found.push(`${what} was in the points' labels' way at ${boxText(o)}`);
+	}
+	// The points left out (rule 7: never dropped silently): those the notes name, in order.
+	const without = items.map((it, i) => ({ ...it, i })).filter((it) => !named.has(it.i));
+	const points = without.filter((it) => it.kind !== 'ring').length;
+	const rings = without.length - points;
+	const marks = placed.leftOut.map((p) => p.mark);
+	const expected = [
+		...Array<string>(points).fill('point'),
+		...Array<string>(Math.max(0, marks.length - points)).fill('ring')
+	];
+	if (
+		marks.join() !== expected.join() ||
+		marks.length - points < rings ||
+		(rings === 0) !== (marks.length === points)
+	)
+		found.push(
+			`the points without a label (${without.map((it) => `${it.i} ${it.kind}`).join(', ') || 'none'}) are not those the notes name (${marks.join(', ') || 'none'})`
+		);
+	if (!items.some((it) => it.kind !== 'ring') && placed.leftOut.length !== rings)
+		found.push(`${rings} rings without a label, ${placed.leftOut.length} named in the notes`);
+	const notLabelled = [...placed.leftOut, ...(m.curves?.tagsLeftOut ?? [])];
+	if ((m.curves?.tagsLeftOut ?? []).some((t) => t.mark !== 'end'))
+		found.push(`a tag left out is not named by its curve's end`);
+	const sentence = notLabelled.length
+		? [
+				`Not labelled on the chart: ${notLabelled.map((p) => `${p.name}, its ${p.mark} at ${p.flow} and ${p.head}`).join('; ')}.`
+			]
+		: [];
+	const notes = m.notes.map((n) => n.text);
+	if (notes.join('\n') !== sentence.join('\n'))
+		found.push(`the notes say ${JSON.stringify(notes)}, not ${JSON.stringify(sentence)}`);
+	for (const note of m.notes) if (!note.seen) found.push(`"${note.text}" is not on screen`);
+	return found;
+}
+
+/**
+ * Each member line's swatch in the group chart's legend in greyscale, column by column along its
+ * line: its screenshot at CSS pixels decoded in the page (no image library), each pixel's luma
+ * (0.2126 R + 0.7152 G + 0.0722 B), the darkest in each column, then each column inked or not at
+ * half way between its line's grey (the darkest column's) and the paper's (the lightest pixel, the
+ * background above and below the line), so the grey of its colour plays no part: only its pattern.
+ */
+async function swatchPattern(
+	page: Page,
+	swatch: Locator
+): Promise<{ grey: number; inked: boolean[] }> {
+	const png = (await swatch.screenshot({ scale: 'css' })).toString('base64');
+	return page.evaluate(async (b64) => {
+		const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+		const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+		const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+		const context = canvas.getContext('2d')!;
+		context.drawImage(bitmap, 0, 0);
+		const { data, width, height } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+		const columns: number[] = [];
+		let paper = 0;
+		for (let x = 0; x < width; x++) {
+			let darkest = 255;
+			for (let y = 0; y < height; y++) {
+				const at = (y * width + x) * 4;
+				const luma = 0.2126 * data[at]! + 0.7152 * data[at + 1]! + 0.0722 * data[at + 2]!;
+				darkest = Math.min(darkest, luma);
+				paper = Math.max(paper, luma);
+			}
+			columns.push(darkest);
+		}
+		const ink = Math.min(...columns);
+		return { grey: Math.round(ink), inked: columns.map((c) => c < (ink + paper) / 2) };
+	}, png);
+}
+
+for (const [view, setUp] of [
+	['the one-off', oneOff],
+	['lineups', lineups],
+	['the condenser', condenser]
+] as const) {
+	test(`Nit 5, slice 5c: both charts' point labels as placed, read from data-point-labels at 1280×800, 390×844, 360×740 and 320×640, ${view}: inside the plot, apart, off every mark but their own, the group system curve's tag last, those left out named in the notes; slots 1 and 2 apart in greyscale by their pattern; nothing sideways; axe clean (pumps-nits.md item 5, rules 2 and 7)`, async ({
+		page,
+		isMobile
+	}) => {
+		test.setTimeout(420_000);
+		const soft = expect.configure({ soft: true });
+		await setUp(page);
+		const tab = await pumpsTab(page);
+		// The card open and the other cases' station duties drawn, so the group chart has its rings
+		// (the lineups' and the condenser's views have them already; the one-off opens it here).
+		const card = tab.getByRole('region', { name: /^Pumps together/ });
+		const toggle = card.getByRole('button', { name: /^Pumps together/ });
+		if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+		await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+		await settle(page);
+		const duties = card.getByRole('checkbox', {
+			name: "Also show the other cases' station duties"
+		});
+		if (!(await duties.isChecked())) await duties.check();
+		await settle(page, 2500);
+		const legend = card.getByRole('list', { name: 'Legend' });
+		const memberLines = legend
+			.getByRole('listitem')
+			.filter({ hasText: /speed \((own|each one's) flow\)$/ });
+		const viewport = page.viewportSize()!;
+		// 360×740 (review DOTS-LABELS-B1): a common phone's width, where the lineups' pumps lost
+		// their name to the group system curve's tag at 7b36d82, as at 320.
+		const sizes = isMobile
+			? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
+			: [viewport];
+		for (const size of sizes) {
+			await page.setViewportSize(size);
+			await settle(page, 1500);
+			const where = `${view} at ${sizeOf(page)}`;
+			// The last drawing's, once both charts are drawn at this width.
+			await expect
+				.poll(
+					async () => {
+						const read = await page.evaluate(readPointLabels);
+						return [read.pump, read.group].every(
+							(c) => !!c?.points && c.points.plot.right <= c.canvas.width + 0.5
+						);
+					},
+					{ timeout: 30_000 }
+				)
+				.toBe(true);
+			const m = await page.evaluate(readPointLabels);
+			for (const [chart, read] of [
+				['the pump chart', m.pump],
+				['the group chart', m.group]
+			] as const) {
+				const placed = read?.points;
+				console.log(
+					`${where}, ${chart}: ${placed?.items.length} points, labelled ${JSON.stringify(placed?.labels.map((l) => `${l.text}${l.leader ? ' (leader)' : ''}`))}; left out ${JSON.stringify(placed?.leftOut.map((p) => p.name))}${read?.curves ? `; curve labels ${JSON.stringify(read.curves.labels.map((l) => l.text))}, ${read.curves.leftOut} left out` : ''}`
+				);
+				soft(pointLabelFindings(read), `${chart}'s point labels, ${where}`).toEqual([]);
+				// Something to read: every view draws other cases' rings on both charts, and the
+				// group chart its members and the Group.
+				soft(placed?.labels.length, `${chart}'s point labels drawn, ${where}`).toBeGreaterThan(0);
+			}
+			soft(
+				[...new Set(m.group?.points?.items.map((it) => it.kind))].sort(),
+				`the group chart's points, ${where}`
+			).toEqual(['group', 'member', 'ring']);
+			const groupLeftOut = m.group?.points?.leftOut.map((p) => p.name) ?? [];
+			// Review DOTS-LABELS-B1 (rule 7: the tag comes last): the lineups' four pumps share one
+			// label at every size; at 7b36d82 the tag took its one place at 360 and 320 px.
+			if (view === 'lineups')
+				soft(
+					groupLeftOut.filter((name) => name.startsWith('Pump')),
+					`the lineups' pumps named on the group chart, ${where}`
+				).toEqual([]);
+			// Review DOTS-LABELS-B6 (rule 3): the Group named on the chart at every size, "Group"
+			// where "Group (crossing)" has no place; at 7b36d82 it was left out at 320 px.
+			if (view === 'the one-off')
+				soft(groupLeftOut, `the Group named on the group chart, ${where}`).not.toContain('Group');
+
+			// Rule 2: slots 1 and 2, blue against aqua (1.30:1), differ by more than hue: in greyscale
+			// their legend swatches differ by pattern. Only the one-off draws a second member line
+			// (Pump PB at 85 % speed); the lineups' and the condenser's members share one curve at
+			// one speed, one line in slot 1's look naming every member.
+			const lines = await memberLines.allInnerTexts();
+			if (view === 'the one-off') {
+				soft(
+					lines.map((t) => t.trim()),
+					`the member lines in the legend, ${where}`
+				).toEqual(['Pump PA, 100 % speed (own flow)', 'Pump PB, 85 % speed (own flow)']);
+				const one = await swatchPattern(page, memberLines.nth(0).locator('svg'));
+				const two = await swatchPattern(page, memberLines.nth(1).locator('svg'));
+				const apart = one.inked.filter((inked, x) => inked !== two.inked[x]).length;
+				const draw = (p: { inked: boolean[] }) => p.inked.map((i) => (i ? '█' : '·')).join('');
+				console.log(
+					`${where}: slot 1 grey ${one.grey} ${draw(one)}; slot 2 grey ${two.grey} ${draw(two)}; ${apart} columns apart`
+				);
+				// Both swatches 24 px wide in one column of the legend (read a column wider where
+				// they start part way into a pixel), so they compare column by column.
+				const [at1, at2] = [
+					await memberLines.nth(0).locator('svg').boundingBox(),
+					await memberLines.nth(1).locator('svg').boundingBox()
+				];
+				soft(at1?.width, `slot 1's swatch, ${where}`).toBe(24);
+				soft(at2?.x, `slot 2's swatch under slot 1's, ${where}`).toBe(at1?.x);
+				soft(one.inked.length, `slot 1's swatch read, ${where}`).toBeGreaterThanOrEqual(24);
+				soft(two.inked.length, `slot 2's swatch read as wide, ${where}`).toBe(one.inked.length);
+				// Slot 1 solid: no gap along its line; slot 2 dashed 8 on, 3 off: two gaps of 3 px in
+				// its 24 px (a gap is a run of paper with ink on both sides, so the swatch's ends,
+				// which may start or end part way into a pixel, play no part).
+				const gaps = (p: { inked: boolean[] }) =>
+					(
+						p.inked
+							.map((i) => (i ? '1' : '0'))
+							.join('')
+							.match(/(?<=1)0+(?=1)/g) ?? []
+					).map((g) => g.length);
+				soft(gaps(one), `slot 1's gaps, ${where}`).toEqual([]);
+				soft(gaps(two), `slot 2's gaps, ${where}`).toEqual([3, 3]);
+				soft(apart, `slots 1 and 2 apart by pattern in greyscale, ${where}`).toBeGreaterThanOrEqual(
+					3
+				);
+			} else {
+				soft(lines.length, `one member line in the legend, ${where}`).toBe(1);
+				soft(lines[0], `the one member line names each one's flow, ${where}`).toMatch(
+					/, 100 % speed \(each one's flow\)$/
+				);
+			}
+			await noSidewaysScroll(page, where);
+			await axeClean(page, `${where}, the labels read`);
+		}
+		await page.setViewportSize(viewport);
+	});
+}
+
+// Review DOTS-LABELS-B7 (rule 7; Q1: each pump "named beside it"): the placer is greedy, so in
+// the one-off-dead-headed fixture Pump PA's label, placed first, took both places Pump PB's
+// diamond has at the plot's left edge, and Pump PB, held at zero flow, was left out at 1024×768,
+// 1152×864, 390×844 and 360×740 although both labels fit there: the placer tries once more with a
+// pump left out first among the pumps.
+test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the held one too, where both labels fit, at 1024×768 and 1280×800, 390×844 and 360×740 (pumps-nits.md item 5, rule 7)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	const counter = solveCounter(page);
+	await open(page, projectOf('one-off-dead-headed'));
+	await solveAll(page, counter, 2);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const duties = card.getByRole('checkbox', { name: "Also show the other cases' station duties" });
+	if (!(await duties.isChecked())) await duties.check();
+	await settle(page, 2500);
+	const sizes = isMobile
+		? [
+				{ width: 390, height: 844 },
+				{ width: 360, height: 740 }
+			]
+		: [
+				{ width: 1024, height: 768 },
+				{ width: 1280, height: 800 }
+			];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1500);
+		const where = `the dead-headed group chart at ${sizeOf(page)}`;
+		await expect
+			.poll(
+				async () => {
+					const read = (await page.evaluate(readPointLabels)).group;
+					return !!read?.points && read.points.plot.right <= read.canvas.width + 0.5;
+				},
+				{ timeout: 30_000 }
+			)
+			.toBe(true);
+		const read = (await page.evaluate(readPointLabels)).group;
+		const placed = read?.points;
+		console.log(
+			`${where}: labelled ${JSON.stringify(placed?.labels.map((l) => l.text))}; left out ${JSON.stringify(placed?.leftOut.map((p) => p.name))}`
+		);
+		soft(pointLabelFindings(read), `the point labels, ${where}`).toEqual([]);
+		soft(
+			placed?.labels.filter((l) => l.kind === 'member').map((l) => l.text),
+			`both pumps named, ${where}`
+		).toEqual(expect.arrayContaining(['Pump PA', 'Pump PB']));
+		soft(
+			placed?.leftOut.map((p) => p.name),
+			`no pump left out, ${where}`
+		).toEqual([]);
+	}
+});
+
+/**
+ * The lineups fixture with its four pumps at 100, 95, 90 and 85 % speed and no scenarios, solved:
+ * four member lines on the group chart, slots 1 to 4 (review DOTS-LABELS-B4, B5).
+ */
+async function fourSpeeds(page: Page) {
+	const project = projectOf('lineups');
+	const speeds: Record<string, number> = { P1: 1, P2: 0.95, P3: 0.9, P4: 0.85 };
+	for (const c of project.components)
+		if (c.type === 'pump') (c as { speed?: number }).speed = speeds[c.id]!;
+	project.scenarios = [];
+	await open(page, project);
+	await solveConverged(page);
+}
+
+// Review DOTS-LABELS-B5 (rule 2: slots differ by more than hue; WCAG 1.4.1): a swatch shows its
+// pattern's first 24 px, and slot 3 ([12, 3, 3, 3]) and slot 4 ([12, 3, 3, 3, 3, 3]) first
+// differed at 24 px, so in greyscale "Pump P3, 90 % speed" and "Pump P4, 85 % speed" read alike.
+// Review DOTS-LABELS-B4: forced colours painted every legend line in the text colour though the
+// canvas, never forced, keeps its lines' colours, so the pumps' lines, the group curve and the
+// group system curve read alike in the legend; the lines keep their colours now, as drawn.
+test('Reviews DOTS-LABELS-B4 and B5: four member lines, every two swatches apart by their pattern in greyscale; under forced colours each legend line keeps the colour the canvas draws it in (pumps-nits.md item 5, rules 2 and 8)', async ({
+	page
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	await fourSpeeds(page);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	await settle(page, 2500);
+	const where = `four speeds at ${sizeOf(page)}`;
+	const legend = card.getByRole('list', { name: 'Legend' });
+	const memberLines = legend
+		.getByRole('listitem')
+		.filter({ hasText: /speed \((own|each one's) flow\)$/ });
+	await expect(memberLines).toHaveCount(4);
+	const patterns: { text: string; inked: boolean[] }[] = [];
+	for (let i = 0; i < 4; i++) {
+		const svg = memberLines.nth(i).locator('svg');
+		await svg.scrollIntoViewIfNeeded();
+		patterns.push({
+			text: (await memberLines.nth(i).innerText()).trim(),
+			inked: (await swatchPattern(page, svg)).inked
+		});
+	}
+	const draw = (p: { inked: boolean[] }) => p.inked.map((i) => (i ? '█' : '·')).join('');
+	for (const p of patterns) console.log(`${where}: ${draw(p)} ${p.text}`);
+	soft(
+		patterns.map((p) => p.text),
+		`the member lines, ${where}`
+	).toEqual([
+		'Pump P1, 100 % speed (own flow)',
+		'Pump P2, 95 % speed (own flow)',
+		'Pump P3, 90 % speed (own flow)',
+		'Pump P4, 85 % speed (own flow)'
+	]);
+	for (let a = 0; a < patterns.length; a++)
+		for (let b = a + 1; b < patterns.length; b++) {
+			const [one, two] = [patterns[a]!, patterns[b]!];
+			soft(two.inked.length, `${two.text}'s swatch read as wide as ${one.text}'s`).toBe(
+				one.inked.length
+			);
+			const apart = one.inked.filter((inked, x) => inked !== two.inked[x]).length;
+			soft(
+				apart,
+				`slots ${a + 1} and ${b + 1} apart by pattern in greyscale, ${where}`
+			).toBeGreaterThanOrEqual(3);
+		}
+	// Forced colours: each legend line as the canvas draws it, its own colour, not the text colour.
+	await page.emulateMedia({ forcedColors: 'active' });
+	expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
+	const lines = await legend.evaluate((ul) => {
+		const rgb = (hex: string) => {
+			const n = parseInt(hex.slice(1), 16);
+			return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+		};
+		return [...ul.querySelectorAll('li')].flatMap((li) => {
+			const line = li.querySelector('svg line');
+			if (!line) return [];
+			return [
+				{
+					text: (li.textContent ?? '').replace(/\s+/g, ' ').trim(),
+					authored: rgb(line.getAttribute('stroke')!),
+					stroke: getComputedStyle(line).stroke
+				}
+			];
+		});
+	});
+	await page.emulateMedia({ forcedColors: 'none' });
+	for (const line of lines)
+		soft(line.stroke, `"${line.text}" under forced colours, ${where}`).toBe(line.authored);
+	const strokeOf = (start: string) => lines.find((l) => l.text.startsWith(start))?.stroke;
+	const three = [strokeOf('Pump P1, '), strokeOf('Group curve'), strokeOf('Group system curve')];
+	soft(
+		three.every(Boolean),
+		`Pump P1's, the group curve's and the group system curve's lines, ${where}`
+	).toBe(true);
+	soft(new Set(three).size, `their colours apart under forced colours, ${where}`).toBe(3);
 });

@@ -194,6 +194,25 @@ export interface Written {
 	align: string;
 }
 
+/** A text stroked on the stand-in canvas: a label's halo (nit 5, rule 7; slice 5c). */
+export interface StrokedText {
+	text: string;
+	x: number;
+	y: number;
+	color: string;
+	lineWidth: number;
+}
+
+/** A line drawn on the stand-in canvas (moveTo, lineTo, stroke): a far label's leader. */
+export interface DrawnLine {
+	x1: number;
+	y1: number;
+	x2: number;
+	y2: number;
+	color: string;
+	lineWidth: number;
+}
+
 /** A box drawn on the stand-in canvas (a rect or roundRect path), its fill and its edge. */
 export interface DrawnBox {
 	x: number;
@@ -234,17 +253,32 @@ export function drawnChart(
 	const py = (v: number) =>
 		plot.bottom - ((v - y.min) / (y.max - y.min)) * (plot.bottom - plot.top);
 	const written: Written[] = [];
+	const halos: StrokedText[] = [];
+	const lines: DrawnLine[] = [];
 	const boxes: DrawnBox[] = [];
 	let path: DrawnBox | null = null;
+	let from: { x: number; y: number } | null = null;
+	let segment: { x1: number; y1: number; x2: number; y2: number } | null = null;
 	const ctx = {
 		fillStyle: '',
 		strokeStyle: '',
 		lineWidth: 1,
+		lineJoin: 'miter',
 		font: '',
 		textAlign: 'start',
 		textBaseline: 'alphabetic',
 		save() {},
 		restore() {},
+		setLineDash() {},
+		strokeText(text: string, tx: number, ty: number) {
+			halos.push({ text, x: tx, y: ty, color: this.strokeStyle, lineWidth: this.lineWidth });
+		},
+		moveTo(mx: number, my: number) {
+			from = { x: mx, y: my };
+		},
+		lineTo(lx: number, ly: number) {
+			if (from) segment = { x1: from.x, y1: from.y, x2: lx, y2: ly };
+		},
 		measureText: (text: string) => ({ width: text.length * charWidth }),
 		fillText(text: string, tx: number, ty: number) {
 			written.push({
@@ -258,6 +292,8 @@ export function drawnChart(
 		},
 		beginPath() {
 			path = null;
+			from = null;
+			segment = null;
 		},
 		rect(bx: number, by: number, w: number, h: number) {
 			path = { x: bx, y: by, w, h, fill: null, stroke: null, lineWidth: null };
@@ -274,6 +310,7 @@ export function drawnChart(
 				path.stroke = this.strokeStyle;
 				path.lineWidth = this.lineWidth;
 			}
+			if (segment) lines.push({ ...segment, color: this.strokeStyle, lineWidth: this.lineWidth });
 		}
 	};
 	const chart = {
@@ -294,11 +331,13 @@ export function drawnChart(
 	 * A label as fillLabel writes it, found by its text ("[1] 3 running", "Pump PA"): its left end,
 	 * its baseline, the colour and font of its words. A case tag's box must be there, `charWidth`
 	 * a character of its bracketed text wide, from the font's size above the baseline to a quarter
-	 * of it below, unfilled with a slate edge, its numbers written centred in it; else undefined.
+	 * of it below, filled with `fill` with a slate edge, its numbers written centred in it; else
+	 * undefined. `fill` is null (unfilled) for a curve's label; a point's label (nit 5, rule 7;
+	 * slice 5c), placed clear of every mark but its own, is filled with the surface, its halo.
 	 * Nit 5, slice 5b integration: moved from "white with a slate edge" (a fill of '#ffffff'): the
 	 * white box hid the mark a label fell on (the group duty's dot), so fillLabel no longer fills.
 	 */
-	const label = (text: string): Written | undefined => {
+	const label = (text: string, fill: string | null = null): Written | undefined => {
 		const tagged = /^\[([^\]]+)\](?: (.*))?$/s.exec(text);
 		if (!tagged) return written.find((w) => w.text === text);
 		const [, tag, words = ''] = tagged;
@@ -314,7 +353,7 @@ export function drawnChart(
 			const y = number.y + 1;
 			if (Math.abs(box.y - 0.5 - (y - size)) > 1e-9) continue;
 			if (Math.abs(box.h - (size * 1.25 - 1)) > 1e-9) continue;
-			if (box.fill !== null || box.stroke !== '#475569' || box.lineWidth !== 1) continue;
+			if (box.fill !== fill || box.stroke !== '#475569' || box.lineWidth !== 1) continue;
 			if (!words) return { ...number, text, x: x0, y, align: 'start' };
 			const rest = written.find(
 				(w) => w.text === words && Math.abs(w.x - (x0 + after)) < 1e-9 && w.y === y
@@ -323,5 +362,5 @@ export function drawnChart(
 		}
 		return undefined;
 	};
-	return { chart, written, boxes, label, px, py, x, y, draw };
+	return { chart, written, halos, lines, boxes, label, px, py, x, y, draw };
 }

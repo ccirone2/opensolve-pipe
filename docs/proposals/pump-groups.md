@@ -380,7 +380,7 @@ The section states:
 **Members** (exact, no request):
 - Each member's curve, from `pumpChartData` unchanged: solid over its data, dashed beyond, the start tangent dashed to the shutoff head. Its x value is the flow through that pump.
 - Members with the same curve at the same speed share one line that names them all (the once-per-speed precedent, `pump-chart.ts:783-792`).
-- Each member's solved point: a filled marker with its own shape and a direct label. A pump held at zero flow gets the pump chart's diamond.
+- Each member's solved point: a filled marker with its own shape and a direct label. A pump held at zero flow gets the pump chart's diamond. *Since `pumps-nits.md` item 5, slice 5c (the owner's answer of 2026-11-12, "Shapes go too"): a dot (r 6, a 2 px surface edge) in its line's colour, so members on one line share it, named beside it by `placePointLabels`, the one placer of both charts; the held diamond in its line's colour, r 7 with 2 px; a point with no place for its label named in the notes with its values.*
 
 **The group curve** (from the response):
 - ink, 2 px, solid;
@@ -397,9 +397,9 @@ The section states:
 **Colours** (design choice):
 - Orange keeps one meaning across the Pumps view: the system. It is reserved for the group system curve of 4b.
 - Members take the dataviz palette's slots 1 and 3 (blue `#2a78d6`, aqua `#1baf7a`) in ticking order. Together with orange, these are the three slots validated all-pairs.
-- A third or later member reuses those hues with its own dash pattern and marker. A colour follows its pump while it stays ticked.
+- A third or later member reuses those hues with its own dash pattern and marker. A colour follows its pump while it stays ticked. *Since slice 5c each of the six slots has a line pattern of its own and no marker (solid, `[8, 3]`, `[12, 3, 3, 3]`, `[7, 2, 2, 2, 2, 2]`, `[4, 2]`, `[9, 3, 2, 3]`), so slots 1 and 2 differ by more than hue.*
 - Aqua is 2.82:1 on white, below the proposal's 3:1 (pump-chart.md §7). Either a darker validated step is used, re-checked with the palette's validator, or the relief rule applies: direct labels and the table.
-- Identity never rests on colour alone: colour, dash, marker, direct label, legend and table row all carry it (WCAG 1.4.1, 1.4.11). The markers have text stand-ins, as `MARKER_SYMBOLS` did for the pump chart's other cases until `pumps-nits.md` item 5, slice 5b (2026-11-12), which numbers the cases instead; the members' marks and their stand-ins are slice 5c's.
+- Identity never rests on colour alone: colour, dash, marker, direct label, legend and table row all carry it (WCAG 1.4.1, 1.4.11). The markers have text stand-ins, as `MARKER_SYMBOLS` did for the pump chart's other cases until `pumps-nits.md` item 5, slice 5b (2026-11-12), which numbers the cases instead. Since slice 5c the members have neither markers nor stand-ins: a pump is its name, beside its dot and in the table; the legend has no entry for a running pump's point, its line's entry naming it, and draws its swatches from the canvas's mark spec (`chart-marks.ts`).
 
 ### 6.4 Notes (the `chartNotes` pattern; one function for the screen and the image footer)
 
@@ -465,7 +465,7 @@ The section states:
 - The legend under the chart.
 - The checkboxes wrap.
 - No sideways page scroll.
-- On a phone, identity relies on the legend, markers and table, because direct labels can collide (overlap avoidance covers short labels only).
+- On a phone, identity relies on the legend, markers and table, because direct labels can collide (overlap avoidance covers short labels only). *Since `pumps-nits.md` item 5, slice 5c, no label collides: `placePointLabels` keeps each one clear of the others and of every mark but its own on both charts, at every size, and names in the notes a point it cannot label (at 320×640 the condenser's six pumps and the one-off's Pump PA); the canvas keeps the placement as `data-point-labels`, which the e2e reads at 1280×800, 390×844, 360×740 and 320×640.*
 
 ## 7. Slice 4b: the group system curve (API + web)
 

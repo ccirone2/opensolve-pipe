@@ -94,6 +94,7 @@
 		OtherGroupCase
 	} from '$lib/utils/pump-group-one-off';
 	import { loadTableShown, type CaseNumber } from '$lib/utils/pump-chart';
+	import type { NotLabelledPoint } from '$lib/utils/point-labels';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import BackToSections from './BackToSections.svelte';
 	import PumpGroupCombinations from './PumpGroupCombinations.svelte';
@@ -310,7 +311,21 @@
 	 * (the group chart's canvas); the image counts its own.
 	 */
 	let labelsLeftOut = $state(0);
-	const notesWith = (leftOut: number) =>
+	/**
+	 * The points whose labels the chart on screen left out (nit 5, rule 7; slice 5c), told by its
+	 * drawing of `of`; the image names its own.
+	 */
+	let pointsLeftOut = $state.raw<{ of: unknown; points: NotLabelledPoint[] }>({
+		of: null,
+		points: []
+	});
+	/** A drawing told which points it left out: kept when it changes (a drawing per hover). */
+	function pointsDrawn(points: NotLabelledPoint[]) {
+		const same =
+			pointsLeftOut.of === data && JSON.stringify(pointsLeftOut.points) === JSON.stringify(points);
+		if (!same) pointsLeftOut = { of: data, points };
+	}
+	const notesWith = (leftOut: number, notLabelled: readonly NotLabelledPoint[] = []) =>
 		groupNotes({
 			data,
 			members,
@@ -320,10 +335,17 @@
 			solved: solvedProject ?? labels,
 			prefs,
 			others,
-			labelsLeftOut: leftOut
+			labelsLeftOut: leftOut,
+			notLabelled
 		});
-	// Only while other cases' curves are drawn: a count kept from an earlier drawing never shows.
-	const notes = $derived(notesWith(data.otherCurves.length ? labelsLeftOut : 0));
+	// Only while other cases' curves are drawn: a count kept from an earlier drawing never shows;
+	// nor do points named by a drawing of other data, until the chart is drawn again.
+	const notes = $derived(
+		notesWith(
+			data.otherCurves.length ? labelsLeftOut : 0,
+			pointsLeftOut.of === data ? pointsLeftOut.points : []
+		)
+	);
 	/** Refused only for an active PRV or PSV inside: a station, whose group curve is not defined. */
 	const undefinedThere = $derived(
 		groupCurve?.status === 'refused' && pressureControlOnly(groupCurve.issues)
@@ -539,7 +561,10 @@
 					bind:showTable
 					bind:tablesOpen
 					bind:reading
-					onlabels={(leftOut) => (labelsLeftOut = leftOut)}
+					onlabels={(leftOut, points) => {
+						labelsLeftOut = leftOut;
+						pointsDrawn(points);
+					}}
 					{members}
 					{data}
 					{shown}

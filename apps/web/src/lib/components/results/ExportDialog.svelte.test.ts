@@ -608,6 +608,28 @@ describe('the file name follows the clock; Download saves the name shown (§12 i
 		expect(entryText(parts, 'xl/sharedStrings.xml')).toContain('>2026-11-13T16:20:59+05:45<');
 	});
 
+	it('a time zone changed before the minute’s tick: the name saved is the name shown', async () => {
+		await solved();
+		clockAt('2026-11-13T16:20:30');
+		await openExport();
+		const name = fileName();
+		expect(name).toBe(`${NAME} 2026-11-13 1620.xlsx`);
+		// The system's time zone changes (the browser applies it at once, with no event): the name
+		// shown keeps the offset it was stamped with until the minute's tick.
+		process.env.TZ = 'Europe/Berlin';
+		await pass(5000);
+		expect(fileName()).toBe(name);
+		const yields = holdYields();
+		await fireEvent.click(download());
+		await pass(0);
+		await yields.release();
+		expect(saved.map((s) => s.name)).toEqual([name]);
+		expect(status()).toHaveTextContent(`“${name}” (`);
+		// At the tick the name shown takes the new zone, 11:36 in Berlin.
+		await pass(25_000);
+		expect(fileName()).toBe(`${NAME} 2026-11-13 1136.xlsx`);
+	});
+
 	it('the minute’s timer goes when the dialog closes: no update after', async () => {
 		await solved();
 		clockAt('2026-11-13T16:20:30');

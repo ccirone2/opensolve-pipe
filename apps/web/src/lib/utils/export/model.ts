@@ -152,9 +152,10 @@ export interface ExportInput {
 	/** −now.getTimezoneOffset(): every local time is computed from `now` and this. */
 	utcOffsetMinutes: number;
 	/**
-	 * The time the file name and the CSV zip's folder carry, with its own offset: the name the
-	 * dialog showed when Download was pressed (§12 item 36), a minute before `now`'s when the press
-	 * came just after a minute boundary, before the dialog's tick. Absent: `now` and
+	 * The time the file name and the CSV zip's folder carry, with the offset in force when the name
+	 * was stamped: the name the dialog showed when Download was pressed (§12 item 36), a minute
+	 * before `now`'s when the press came just after a minute boundary, before the dialog's tick, and
+	 * in the zone of its stamp when the time zone changed since. Absent: `now` and
 	 * `utcOffsetMinutes`.
 	 */
 	nameTime?: { now: Date; utcOffsetMinutes: number };

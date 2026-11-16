@@ -27,7 +27,7 @@
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import { everyMinute } from '$lib/utils/export/clock';
 	import { saveBlob, fileSizeText } from '$lib/utils/export/download';
-	import { exportInput, pageFacts } from '$lib/utils/export/input';
+	import { exportInput, nameStamp, pageFacts } from '$lib/utils/export/input';
 	import type { ExportChoices, ExportDialogProps } from '$lib/utils/export/load';
 	import { buildExport, type ExportBundle } from '$lib/utils/export/model';
 	import { writeCsvZip } from '$lib/utils/export/csv';
@@ -53,18 +53,20 @@
 	});
 
 	/**
-	 * The time the name shown carries (§12 item 36): the dialog's opening, then each local minute
-	 * boundary, so the name follows the clock while the dialog is open. The timer stops with the
-	 * dialog (Close, Esc, or the dialog removed).
+	 * The stamp the name shown carries (§12 item 36): the dialog's opening, then each local minute
+	 * boundary, so the name follows the clock while the dialog is open. Each stamp keeps the UTC
+	 * offset in force when it was taken, so a time zone changed since (which the browser applies
+	 * with no event) reaches the name at the next tick, the name shown and the name saved alike. The
+	 * timer stops with the dialog (Close, Esc, or the dialog removed).
 	 */
 	const opened = new Date();
-	let shownAt = $state(opened);
-	onDestroy(everyMinute(opened, (now) => (shownAt = now)));
+	let shownAt = $state(nameStamp(opened));
+	onDestroy(everyMinute(opened, (now) => (shownAt = nameStamp(now))));
 
 	/** What the file holds for these choices (no cells built), or why it cannot be made. */
 	const preview = $derived.by((): { bundle: ExportBundle } | { error: string } => {
 		try {
-			return { bundle: buildExport(exportInput(ws, options, shownAt)) };
+			return { bundle: buildExport(exportInput(ws, options, shownAt.now, pageFacts(), shownAt)) };
 		} catch (error) {
 			return { error: error instanceof Error ? error.message : String(error) };
 		}
@@ -127,15 +129,16 @@
 	async function download() {
 		if (building || !bundle) return;
 		// The file is saved under the name shown at the press, and says it was exported at the press
-		// (§12 item 36). Its name and the zip's folder carry the time the name shown was stamped, and
-		// everything else in it the press: About's Exported at, the workbook's created time, the zip's
-		// entry times. Just after a minute boundary, before the minute's tick has run, the name shown
-		// still names the minute before, and so does the file; refreshing the name at the press
-		// instead would save a name other than the one read before pressing. A clock set back since
-		// the name was stamped moves the name with it, so the file never says it was exported before
-		// the minute its name names.
+		// (§12 item 36). Its name and the zip's folder carry the time the name shown was stamped, with
+		// the UTC offset in force at that stamp, and everything else in it the press: About's Exported
+		// at, the workbook's created time, the zip's entry times. Just after a minute boundary, before
+		// the minute's tick has run, the name shown still names the minute before, and so does the
+		// file; refreshing the name at the press instead would save a name other than the one read
+		// before pressing. So would reading the offset at the press after a time zone change. A clock
+		// set back since the name was stamped moves the name with it, so the file never says it was
+		// exported before the minute its name names.
 		const pressed = new Date();
-		if (pressed.getTime() < shownAt.getTime()) shownAt = pressed;
+		if (pressed.getTime() < shownAt.now.getTime()) shownAt = nameStamp(pressed);
 		const named = shownAt;
 		status = '';
 		alert = '';

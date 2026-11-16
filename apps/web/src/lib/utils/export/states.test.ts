@@ -38,7 +38,7 @@ import { withScenarios } from '../scenarios';
 import { displayUnit, fromSI } from '../units';
 import { writeCsvZip } from './csv';
 import { fixtureInput, readSheet, sheetIds } from './export-testing.testing';
-import { exportInput, type PageFacts } from './input';
+import { exportInput, nameStamp, type PageFacts } from './input';
 import { buildExport, type ExportBundle, type ExportOptions } from './model';
 import { writeXlsx } from './xlsx';
 import { blobBytes, entryText, readZip } from './zip-reader.testing';
@@ -743,7 +743,9 @@ describe('the name the dialog showed, the file the press (§12 item 36)', () => 
 		// Download pressed just after 16:21, before the dialog's minute tick: it still shows 16:20.
 		const shown = new Date('2026-11-13T15:20:59.900Z');
 		const pressed = new Date('2026-11-13T15:21:00.010Z');
-		const csv = buildExport(exportInput(ws, { ...SHOWN, format: 'csv' }, pressed, PAGE, shown));
+		const csv = buildExport(
+			exportInput(ws, { ...SHOWN, format: 'csv' }, pressed, PAGE, nameStamp(shown))
+		);
 		expect(csv.fileName).toBe(
 			'Pump transfer between two tanks - results (CSV) 2026-11-13 1620.zip'
 		);
@@ -758,7 +760,7 @@ describe('the name the dialog showed, the file the press (§12 item 36)', () => 
 		// Each entry's DOS time is the press's local time, 16:21:00.
 		expect(zip.map((e) => e.time)).toEqual(zip.map(() => (16 << 11) | (21 << 5)));
 
-		const xlsx = buildExport(exportInput(ws, SHOWN, pressed, PAGE, shown));
+		const xlsx = buildExport(exportInput(ws, SHOWN, pressed, PAGE, nameStamp(shown)));
 		expect(xlsx.fileName).toBe('Pump transfer between two tanks - results 2026-11-13 1620.xlsx');
 		const parts = readZip(await blobBytes(await writeXlsx(xlsx)));
 		expect(entryText(parts, 'docProps/core.xml')).toContain(

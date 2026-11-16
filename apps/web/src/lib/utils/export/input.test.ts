@@ -18,7 +18,7 @@ import { CANONICAL_ORIGIN } from '../encoding';
 import { pumpTransferExample } from '../examples';
 import { withScenarios } from '../scenarios';
 import groupFixture from '../__fixtures__/pump-groups-input.json';
-import { exportInput, pageFacts } from './input';
+import { exportInput, nameStamp, pageFacts } from './input';
 import type { ExportOptions } from './model';
 
 const NOW = new Date('2026-10-25T12:32:05Z');
@@ -87,7 +87,7 @@ describe('the snapshot', () => {
 		await ws.store.solve();
 		const shown = new Date('2026-10-25T00:59:59.900Z');
 		const pressed = new Date('2026-10-25T01:00:00.010Z');
-		const input = exportInput(ws, SHOWN, pressed, PAGE, shown);
+		const input = exportInput(ws, SHOWN, pressed, PAGE, nameStamp(shown));
 		expect(input.now).toBe(pressed);
 		expect(input.utcOffsetMinutes).toBe(60);
 		expect(input.nameTime).toEqual({ now: shown, utcOffsetMinutes: 120 });
@@ -95,6 +95,25 @@ describe('the snapshot', () => {
 			now: pressed,
 			utcOffsetMinutes: 60
 		});
+	});
+
+	it('keeps the offset in force when the name was stamped, not the one at the build (§12 item 36)', async () => {
+		process.env.TZ = 'Asia/Kathmandu';
+		const ws = testWorkspace(pumpTransferExample(), {
+			solver: { solve: async () => response(pumpTransferSolved()) }
+		});
+		await ws.store.solve();
+		// The name shown is stamped at 16:20:30 in Kathmandu, 5 h 45 min ahead of UTC.
+		const shown = new Date('2026-11-13T10:35:30Z');
+		const stamp = nameStamp(shown);
+		expect(stamp).toEqual({ now: shown, utcOffsetMinutes: 345 });
+		// The system's time zone changes to Berlin's (UTC+01:00 in November) before the press.
+		process.env.TZ = 'Europe/Berlin';
+		const pressed = new Date('2026-11-13T10:35:35Z');
+		const input = exportInput(ws, SHOWN, pressed, PAGE, stamp);
+		expect(input.utcOffsetMinutes).toBe(60);
+		expect(input.nameTime).toEqual({ now: shown, utcOffsetMinutes: 345 });
+		expect(stamp.utcOffsetMinutes).toBe(345);
 	});
 
 	it('exports the case shown, or every case with scenarios', async () => {

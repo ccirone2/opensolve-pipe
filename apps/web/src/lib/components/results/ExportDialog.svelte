@@ -4,11 +4,13 @@
 	or without the project link. The dialog lists what the file holds, its row counts and what is
 	left out, from the same function that makes the file (buildExport, which builds no cells), and
 	the warnings of the cases it exports (did not converge, out of date, the earlier results shown
-	after a failed solve). Download, with Cancel and the status lines, is in the dialog's footer,
-	always in view: it has the focus when the dialog opens (so Enter, Enter gives the default
-	workbook) without scrolling the body, which opens at its top, warnings first; the warnings
-	describe Download, so a screen reader hears them with it. The file is made in this browser from
-	the results the page holds: nothing is sent.
+	after a failed solve). The file name shown follows the clock: it is stamped when the dialog
+	opens and again at each local minute boundary (utils/export/clock.ts), and Download saves the
+	file under the name shown at the press (§12 item 36). Download, with Cancel and the status
+	lines, is in the dialog's footer, always in view: it has the focus when the dialog opens (so
+	Enter, Enter gives the default workbook) without scrolling the body, which opens at its top,
+	warnings first; the warnings describe Download, so a screen reader hears them with it. The file
+	is made in this browser from the results the page holds: nothing is sent.
 
 	Building yields to the page every 500 rows or 64 KiB (utils/export/yield.ts); after 300 ms the
 	button shows a spinner, Cancel appears beside it and the status line names the sheet being
@@ -23,8 +25,9 @@
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { everyMinute } from '$lib/utils/export/clock';
 	import { saveBlob, fileSizeText } from '$lib/utils/export/download';
-	import { exportInput } from '$lib/utils/export/input';
+	import { exportInput, nameStamp, pageFacts } from '$lib/utils/export/input';
 	import type { ExportChoices, ExportDialogProps } from '$lib/utils/export/load';
 	import { buildExport, type ExportBundle } from '$lib/utils/export/model';
 	import { writeCsvZip } from '$lib/utils/export/csv';
@@ -49,10 +52,21 @@
 		link: choices.link
 	});
 
+	/**
+	 * The stamp the name shown carries (§12 item 36): the dialog's opening, then each local minute
+	 * boundary, so the name follows the clock while the dialog is open. Each stamp keeps the UTC
+	 * offset in force when it was taken, so a time zone changed since (which the browser applies
+	 * with no event) reaches the name at the next tick, the name shown and the name saved alike. The
+	 * timer stops with the dialog (Close, Esc, or the dialog removed).
+	 */
+	const opened = new Date();
+	let shownAt = $state(nameStamp(opened));
+	onDestroy(everyMinute(opened, (now) => (shownAt = nameStamp(now))));
+
 	/** What the file holds for these choices (no cells built), or why it cannot be made. */
 	const preview = $derived.by((): { bundle: ExportBundle } | { error: string } => {
 		try {
-			return { bundle: buildExport(exportInput(ws, options, new Date())) };
+			return { bundle: buildExport(exportInput(ws, options, shownAt.now, pageFacts(), shownAt)) };
 		} catch (error) {
 			return { error: error instanceof Error ? error.message : String(error) };
 		}
@@ -114,6 +128,18 @@
 
 	async function download() {
 		if (building || !bundle) return;
+		// The file is saved under the name shown at the press, and says it was exported at the press
+		// (§12 item 36). Its name and the zip's folder carry the time the name shown was stamped, with
+		// the UTC offset in force at that stamp, and everything else in it the press: About's Exported
+		// at, the workbook's created time, the zip's entry times. Just after a minute boundary, before
+		// the minute's tick has run, the name shown still names the minute before, and so does the
+		// file; refreshing the name at the press instead would save a name other than the one read
+		// before pressing. So would reading the offset at the press after a time zone change. A clock
+		// set back since the name was stamped moves the name with it, so the file never says it was
+		// exported before the minute its name names.
+		const pressed = new Date();
+		if (pressed.getTime() < shownAt.now.getTime()) shownAt = nameStamp(pressed);
+		const named = shownAt;
 		status = '';
 		alert = '';
 		const ownController = new AbortController();
@@ -138,7 +164,7 @@
 			ticker = setInterval(() => (status = progressText()), 1000);
 		}, 300);
 		try {
-			const made = buildExport(exportInput(ws, options, new Date()));
+			const made = buildExport(exportInput(ws, options, pressed, pageFacts(), named));
 			const write = format === 'csv' ? writeCsvZip : writeXlsx;
 			const blob = await write(made, {
 				signal: ownController.signal,

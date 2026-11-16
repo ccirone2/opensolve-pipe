@@ -4,7 +4,9 @@
  * shown, or All cases on the Compare cases tab), the warnings of the cases it exports, what the
  * file holds and its name, Download focused on open, the file made and handed to the browser,
  * progress after 300 ms, Cancel, Close and Esc, a failure, and one build at a time. The choices
- * are kept for the page session and reset when another project is loaded. Nothing is sent.
+ * are kept for the page session and reset when another project is loaded. Nothing is sent. The
+ * name shown follows the clock at each minute boundary, and Download saves the name shown at the
+ * press, with the press as its export time (§12 item 36; the test holds Date and the timers).
  *
  * The real model and writers make the file. A build's yields go through MessageChannel, which
  * the slow-build tests replace with one whose messages wait until the test delivers them. The
@@ -20,6 +22,7 @@ import type { Solver } from '$lib/state/project.svelte';
 import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { gravityBranchExample, pumpTransferExample } from '$lib/utils/examples';
+import { entryText, readZip } from '$lib/utils/export/zip-reader.testing';
 import { withScenarios } from '$lib/utils/scenarios';
 
 const results = () => within(screen.getByRole('region', { name: 'Results' }));
@@ -486,5 +489,170 @@ describe('the export dialog', () => {
 		expect(saved).toEqual([]);
 		// The dialog stays open, to try again.
 		expect(download()).not.toHaveAttribute('aria-disabled', 'true');
+	});
+});
+
+describe('the file name follows the clock; Download saves the name shown (§12 item 36)', () => {
+	const savedTz = process.env.TZ;
+	beforeEach(() => {
+		// 5 h 45 min ahead of UTC: local minutes begin with UTC's, local hours do not.
+		process.env.TZ = 'Asia/Kathmandu';
+	});
+	afterEach(() => {
+		process.env.TZ = savedTz;
+	});
+
+	const NAME = 'Pump transfer between two tanks - results';
+	const at = (local: string) => new Date(`${local}+05:45`);
+	/** From here on the test holds the clock: Date and the timers, set to `local` time. */
+	function clockAt(local: string) {
+		vi.useFakeTimers({
+			toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval']
+		});
+		vi.setSystemTime(at(local));
+	}
+	/** Let `ms` of the held clock pass, and the page catch up. */
+	async function pass(ms: number) {
+		await vi.advanceTimersByTimeAsync(ms);
+		await tick();
+	}
+
+	it('the name shown changes at each local minute boundary while the dialog is open', async () => {
+		await solved();
+		clockAt('2026-11-13T16:20:30');
+		await openExport();
+		expect(fileName()).toBe(`${NAME} 2026-11-13 1620.xlsx`);
+		await pass(29_999);
+		expect(fileName()).toBe(`${NAME} 2026-11-13 1620.xlsx`);
+		await pass(1);
+		expect(fileName()).toBe(`${NAME} 2026-11-13 1621.xlsx`);
+		await pass(60_000);
+		expect(fileName()).toBe(`${NAME} 2026-11-13 1622.xlsx`);
+		// A choice made since keeps the minute.
+		await fireEvent.click(dialog().getByRole('radio', { name: /^CSV files/ }));
+		expect(fileName()).toBe(`${NAME} (CSV) 2026-11-13 1622.zip`);
+	});
+
+	it('Download pressed just after a boundary, before the minute’s tick, saves the name shown; the file says the press', async () => {
+		await solved();
+		clockAt('2026-11-13T16:20:59.900');
+		await openExport();
+		await fireEvent.click(dialog().getByRole('radio', { name: /^CSV files/ }));
+		const name = fileName();
+		expect(name).toBe(`${NAME} (CSV) 2026-11-13 1620.zip`);
+		// The clock passes 16:21 and the press comes first: setting the clock keeps the timer's own
+		// delay, so the tick is still 100 ms away.
+		vi.setSystemTime(at('2026-11-13T16:21:00.010'));
+		const yields = holdYields();
+		await fireEvent.click(download());
+		await pass(0);
+		await yields.release();
+		expect(saved.map((s) => s.name)).toEqual([name]);
+		expect(status()).toHaveTextContent(`“${name}” (`);
+		// Then the tick: the name shown follows the clock, for the next Download.
+		await pass(100);
+		expect(fileName()).toBe(`${NAME} (CSV) 2026-11-13 1621.zip`);
+		vi.useRealTimers();
+		const zip = readZip(await bytesOf(saved[0]!.blob));
+		expect(zip.map((e) => e.name.split('/')[0])).toEqual(zip.map(() => 'results 2026-11-13 1620'));
+		expect(entryText(zip, 'results 2026-11-13 1620/README.txt')).toContain(
+			'\r\nExported at: 2026-11-13T16:21:00+05:45\r\n'
+		);
+		expect(entryText(zip, 'results 2026-11-13 1620/about.csv')).toContain(
+			'\r\nExport,Exported at,2026-11-13T16:21:00+05:45\r\n'
+		);
+	});
+
+	it('a Download pressed at 16:20:59.9 that finishes after 16:21 saves the name shown at the press', async () => {
+		await solved();
+		clockAt('2026-11-13T16:19:30');
+		await openExport();
+		expect(fileName()).toBe(`${NAME} 2026-11-13 1619.xlsx`);
+		await pass(89_900);
+		const name = fileName();
+		expect(name).toBe(`${NAME} 2026-11-13 1620.xlsx`);
+		const yields = holdYields();
+		await fireEvent.click(download());
+		await pass(200);
+		// 16:21:00.100: the build is still running, and the name shown has moved on.
+		expect(saved).toEqual([]);
+		expect(fileName()).toBe(`${NAME} 2026-11-13 1621.xlsx`);
+		await yields.release();
+		expect(saved.map((s) => s.name)).toEqual([name]);
+		expect(status()).toHaveTextContent(`“${name}” (`);
+		vi.useRealTimers();
+		const parts = readZip(await bytesOf(saved[0]!.blob));
+		// About's Exported at (a shared string) and the workbook's created time: the press.
+		expect(entryText(parts, 'xl/sharedStrings.xml')).toContain('>2026-11-13T16:20:59+05:45<');
+		expect(entryText(parts, 'docProps/core.xml')).toContain(
+			'>2026-11-13T10:35:59Z</dcterms:created>'
+		);
+	});
+
+	it('a clock set back across a minute moves the name with it at the press: never exported before the minute named', async () => {
+		await solved();
+		clockAt('2026-11-13T16:20:59.990');
+		await openExport();
+		await pass(10);
+		expect(fileName()).toBe(`${NAME} 2026-11-13 1621.xlsx`);
+		// The clock is set back 50 ms (a time synchronization, say) before the press.
+		vi.setSystemTime(at('2026-11-13T16:20:59.960'));
+		const yields = holdYields();
+		await fireEvent.click(download());
+		expect(fileName()).toBe(`${NAME} 2026-11-13 1620.xlsx`);
+		await pass(0);
+		await yields.release();
+		expect(saved.map((s) => s.name)).toEqual([`${NAME} 2026-11-13 1620.xlsx`]);
+		vi.useRealTimers();
+		const parts = readZip(await bytesOf(saved[0]!.blob));
+		expect(entryText(parts, 'xl/sharedStrings.xml')).toContain('>2026-11-13T16:20:59+05:45<');
+	});
+
+	it('a time zone changed before the minute’s tick: the name saved is the name shown', async () => {
+		await solved();
+		clockAt('2026-11-13T16:20:30');
+		await openExport();
+		const name = fileName();
+		expect(name).toBe(`${NAME} 2026-11-13 1620.xlsx`);
+		// The system's time zone changes (the browser applies it at once, with no event): the name
+		// shown keeps the offset it was stamped with until the minute's tick.
+		process.env.TZ = 'Europe/Berlin';
+		await pass(5000);
+		expect(fileName()).toBe(name);
+		const yields = holdYields();
+		await fireEvent.click(download());
+		await pass(0);
+		await yields.release();
+		expect(saved.map((s) => s.name)).toEqual([name]);
+		expect(status()).toHaveTextContent(`“${name}” (`);
+		// At the tick the name shown takes the new zone, 11:36 in Berlin.
+		await pass(25_000);
+		expect(fileName()).toBe(`${NAME} 2026-11-13 1136.xlsx`);
+	});
+
+	it('the minute’s timer goes when the dialog closes: no update after', async () => {
+		await solved();
+		clockAt('2026-11-13T16:20:30');
+		expect(vi.getTimerCount()).toBe(0);
+		await openExport();
+		// An opening's other timers (jsdom's selection events, the query's own) are gone within a
+		// second; the minute's stays.
+		await pass(1000);
+		expect(vi.getTimerCount()).toBe(1);
+		await fireEvent.click(closeButton());
+		expect(screen.queryByRole('dialog')).toBeNull();
+		await pass(1000);
+		expect(vi.getTimerCount()).toBe(0);
+		await pass(180_000);
+		expect(vi.getTimerCount()).toBe(0);
+
+		// Esc too.
+		const dialogElement = await openExport();
+		await pass(1000);
+		expect(vi.getTimerCount()).toBe(1);
+		await fireEvent(dialogElement, new Event('cancel', { cancelable: true }));
+		expect(screen.queryByRole('dialog')).toBeNull();
+		await pass(1000);
+		expect(vi.getTimerCount()).toBe(0);
 	});
 });

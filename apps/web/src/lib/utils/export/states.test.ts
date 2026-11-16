@@ -3,6 +3,7 @@
  * with the real ProjectStore and Workspace (testing/workspace.ts) and a fake solver that answers
  * with the made-up states of testing/results.ts: the snapshot (exportInput) then the model
  * (buildExport). Values follow Compare's rule and `hasValues` and `stale`, never the status alone.
+ * Also the times a file carries: its name the dialog's, the rest the press's (§12 item 36).
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { TopologyError, NetworkError, NotAStationError } from '../../api/client';
@@ -37,7 +38,7 @@ import { withScenarios } from '../scenarios';
 import { displayUnit, fromSI, IMPERIAL_UNITS, SI_UNITS } from '../units';
 import { writeCsvZip } from './csv';
 import { fixtureInput, readSheet, sheetIds } from './export-testing.testing';
-import { exportInput, type PageFacts } from './input';
+import { exportInput, nameStamp, type PageFacts } from './input';
 import { buildExport, type ExportBundle, type ExportOptions } from './model';
 import { writeXlsx } from './xlsx';
 import { blobBytes, entryText, readZip } from './zip-reader.testing';
@@ -838,6 +839,49 @@ describe('determinism (item 14)', () => {
 				(r) => r[1] === 'Web app source, at that commit'
 			)?.[2]
 		).toBe(sourceLinks('f'.repeat(40)).source);
+	});
+});
+
+describe('the name the dialog showed, the file the press (§12 item 36)', () => {
+	const savedTz = process.env.TZ;
+	afterEach(() => {
+		process.env.TZ = savedTz;
+	});
+
+	it('the file name and the zip’s folder carry the minute shown; About, README.txt, the entries’ times and the workbook’s created time the press', async () => {
+		process.env.TZ = 'Europe/Berlin'; // UTC+01:00 in November
+		const ws = workspace(pumpTransferExample(), () => converged());
+		await ws.store.solve();
+		// Download pressed just after 16:21, before the dialog's minute tick: it still shows 16:20.
+		const shown = new Date('2026-11-13T15:20:59.900Z');
+		const pressed = new Date('2026-11-13T15:21:00.010Z');
+		const csv = buildExport(
+			exportInput(ws, { ...SHOWN, format: 'csv' }, pressed, PAGE, nameStamp(shown))
+		);
+		expect(csv.fileName).toBe(
+			'Pump transfer between two tanks - results (CSV) 2026-11-13 1620.zip'
+		);
+		expect(csv.folder).toBe('results 2026-11-13 1620');
+		expect(csv.created).toBe(pressed);
+		expect(csv.readme).toContain('Exported at: 2026-11-13T16:21:00+01:00');
+		expect(readSheet(csv, 'about').rows.find((r) => r[1] === 'Exported at')?.[2]).toBe(
+			'2026-11-13T16:21:00+01:00'
+		);
+		const zip = readZip(await blobBytes(await writeCsvZip(csv)));
+		expect(zip.map((e) => e.name.split('/')[0])).toEqual(zip.map(() => 'results 2026-11-13 1620'));
+		// Each entry's DOS time is the press's local time, 16:21:00.
+		expect(zip.map((e) => e.time)).toEqual(zip.map(() => (16 << 11) | (21 << 5)));
+
+		const xlsx = buildExport(exportInput(ws, SHOWN, pressed, PAGE, nameStamp(shown)));
+		expect(xlsx.fileName).toBe('Pump transfer between two tanks - results 2026-11-13 1620.xlsx');
+		const parts = readZip(await blobBytes(await writeXlsx(xlsx)));
+		expect(entryText(parts, 'docProps/core.xml')).toContain(
+			'>2026-11-13T15:21:00Z</dcterms:created>'
+		);
+		// Without a name's time, the name is the press's (the snapshot's default).
+		expect(buildExport(exportInput(ws, SHOWN, pressed, PAGE)).fileName).toBe(
+			'Pump transfer between two tanks - results 2026-11-13 1621.xlsx'
+		);
 	});
 });
 

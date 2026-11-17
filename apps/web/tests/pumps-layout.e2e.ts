@@ -3436,18 +3436,33 @@ function readCombinationsTable() {
 	// the Case column's words (nit 5, slice 5b) is a box, not words: the words after it are read,
 	// and the box is held to a line of its cell instead: its words' first line (its middle within
 	// 1 px of theirs), or the whole line before it, where a word too long for the room left after
-	// the box starts on the next line (a 40-character unbroken name: `tagsAbove`, logged).
+	// the box starts on the next line (a 40-character unbroken name: `tagsAbove`, logged). A
+	// member's State is a status pill since pumps-nits.md §11 (leftover L22), a 20 px box of 12 px
+	// words, as Results per pump's: a box too, its words not read, the box held to its row's line
+	// instead (its middle within 1 px of the first line of the cells beside it: `pillsOffLine`).
+	// Moved: before L22 its plain words were read as a value's.
 	const offLine: string[] = [];
 	const tagsOffLine: string[] = [];
 	const tagsAbove: string[] = [];
 	const tagLines: number[] = [];
+	const pillsOffLine: string[] = [];
 	for (const tr of [...table.querySelectorAll(':scope > tbody > tr')].slice(0, 60)) {
 		const lines: { cell: string; top: number; bottom: number }[] = [];
+		const pills: { cell: string; top: number; bottom: number }[] = [];
 		for (const td of tr.querySelectorAll<HTMLElement>(':scope > td[data-label]')) {
+			const pill = td.querySelector('[data-status-pill]')?.getBoundingClientRect();
+			if (pill && pill.height > 1) {
+				pills.push({
+					cell: `${td.dataset.label}: ${squash(td.textContent)}`,
+					top: pill.top,
+					bottom: pill.bottom
+				});
+			}
 			const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
 			for (let n = walker.nextNode(); n; n = walker.nextNode()) {
 				if (!n.textContent?.trim() || n.parentElement?.closest('.sr-only')) continue;
 				if (n.parentElement?.closest('[data-case-tag]')) continue;
+				if (n.parentElement?.closest('[data-status-pill]')) continue;
 				const range = document.createRange();
 				range.selectNodeContents(n);
 				const r = range.getClientRects()[0];
@@ -3477,6 +3492,17 @@ function readCombinationsTable() {
 			for (const c of lines) {
 				if (Math.abs(a.top - c.top) < 6 && Math.abs(a.bottom - c.bottom) > 0.5) {
 					offLine.push(`"${a.cell.slice(0, 40)}" against "${c.cell.slice(0, 40)}"`);
+				}
+			}
+		}
+		for (const p of pills) {
+			for (const c of lines) {
+				if (Math.abs(p.top - c.top) >= 6) continue;
+				const delta = (p.top + p.bottom - c.top - c.bottom) / 2;
+				if (Math.abs(delta) > 1) {
+					pillsOffLine.push(
+						`"${p.cell.slice(0, 40)}" ${Math.round(delta * 10) / 10} px from "${c.cell.slice(0, 40)}"`
+					);
 				}
 			}
 		}
@@ -3534,6 +3560,7 @@ function readCombinationsTable() {
 		flagged: flagged ? { seen: seen(flagged), text: squash(flagged.textContent) } : null,
 		rows,
 		offLine: [...new Set(offLine)].slice(0, 6),
+		pillsOffLine: [...new Set(pillsOffLine)].slice(0, 6),
 		tagsOffLine: tagsOffLine.slice(0, 6),
 		tagsAbove: [...new Set(tagsAbove.map((t) => t.replace(/: its box.*/, '')))],
 		// Each Case cell's box middle from its words' middle, px (logged).
@@ -3669,6 +3696,7 @@ async function combinationsTablePart(page: Page, where: string, form: 'grouped' 
 		}
 	}
 	soft(m.offLine, `Running combinations' values off their line, ${where}`).toEqual([]);
+	soft(m.pillsOffLine, `Running combinations' status pills off their line, ${where}`).toEqual([]);
 	if (form === 'flat') {
 		console.log(
 			`${where}: each Case cell's box ${m.tagLines.join(', ')} px from its words' middle${m.tagsAbove.length ? `; on the line before its words in ${m.tagsAbove.join(', ')}` : ''}`
@@ -4841,6 +4869,43 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		await page.setViewportSize(size);
 		await settle(page, 1000);
 		const where = `the long names at ${sizeOf(page)}`;
+		// Results per pump (pumps-nits.md §11, X1): the long name's words end inside its sticky
+		// cell and, where they share a line with it, left of the Status pill.
+		const perPump = await tab
+			.getByRole('table', { name: 'Results per pump' })
+			.evaluate((table, name) => {
+				const th = [...table.querySelectorAll('tbody th[role="rowheader"]')].find((h) =>
+					(h.textContent ?? '').includes(name)
+				)!;
+				const words = th.querySelector('button > span')!;
+				const range = document.createRange();
+				range.selectNodeContents(words);
+				const rects = [...range.getClientRects()].filter((r) => r.width > 0.5);
+				const pill = th
+					.closest('tr')!
+					.querySelector('td[data-label="Status"] [data-status-pill]')!
+					.getBoundingClientRect();
+				const cell = th.getBoundingClientRect();
+				return {
+					right: Math.max(...rects.map((r) => r.right)),
+					cellRight: cell.right,
+					// The words' lines level with the pill (a table's row; a phone's list puts the
+					// pill on a line of its own below).
+					besidePill: rects
+						.filter((r) => r.bottom > pill.top + 0.5 && r.top < pill.bottom - 0.5)
+						.map((r) => r.right),
+					pillLeft: pill.left
+				};
+			}, LONG_PUMP);
+		console.log(`${where}: Results per pump's name ${JSON.stringify(perPump)}`);
+		expect
+			.soft(perPump.right, `Results per pump's long name inside its cell, ${where}`)
+			.toBeLessThanOrEqual(perPump.cellRight + 0.5);
+		for (const right of perPump.besidePill) {
+			expect
+				.soft(right, `Results per pump's long name left of the Status pill, ${where}`)
+				.toBeLessThanOrEqual(perPump.pillLeft + 0.5);
+		}
 		// The card's own checks: Results per pump's table above it is the shared ResultsTable's,
 		// outside this slice, and draws a long name of its own.
 		const cut = await cutInCard(page);
@@ -5595,13 +5660,17 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 	} else {
 		// A phone's "Sort by": "Pump" sorts by name in both card tables (STRUCT-3, TBL-1), and
 		// every field chosen shows whole beside its direction button, on one line with Fields, at
-		// 390 and 320 px (TBL-4).
+		// 390 and 320 px (TBL-4). Since pumps-nits.md §11 (leftover L5, a pin) in Results per pump
+		// too and at 360 px as well; and while no sort is on, the field shows "Table order", whole
+		// in the room Fields' count leaves it (the record said its longest field was cut there,
+		// which a closed select never shows).
 		const viewport = page.viewportSize()!;
 		const cut: string[] = [];
-		for (const size of [viewport, { width: 320, height: 640 }]) {
+		for (const size of [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]) {
 			await page.setViewportSize(size);
 			await settle(page, 1000);
 			for (const [label, block] of [
+				['Results per pump', tab.locator('[data-pump-table]')],
 				['the group table', groupBlock],
 				['Running combinations', combos]
 			] as const) {
@@ -5609,6 +5678,30 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 				const select = block.getByRole('combobox', { name: /^Sort by/ });
 				const fields = block.getByRole('button', { name: /^Fields/ });
 				const direction = block.getByRole('button', { name: /lowest first|highest first/ });
+				soft(await direction.count(), `${where}: no sort on`).toBe(0);
+				const unsorted = await select.evaluate((el) => {
+					const s = el as HTMLSelectElement;
+					const css = getComputedStyle(s);
+					const context = document.createElement('canvas').getContext('2d')!;
+					context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+					const text = s.selectedOptions[0]?.text ?? '';
+					return {
+						text,
+						width: Math.ceil(context.measureText(text).width),
+						room: Math.floor(
+							s.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+						)
+					};
+				});
+				console.log(`"Sort by" unsorted, ${where}: ${JSON.stringify(unsorted)}`);
+				soft(unsorted.text, `${where}: "Table order" shown while no sort is on`).toBe(
+					'Table order'
+				);
+				if (unsorted.room - MENULIST_INNER < unsorted.width) {
+					cut.push(
+						`${where}: "${unsorted.text}" ${unsorted.width} px in ${unsorted.room - MENULIST_INNER}`
+					);
+				}
 				await select.selectOption({ label: 'Pump' });
 				await expect
 					.soft(

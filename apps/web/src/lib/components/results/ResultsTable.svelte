@@ -706,15 +706,20 @@
 			{#if name}
 				{@render name(row)}
 			{:else if onselect}
+				<!-- Its words at most the button's width, so an unbroken name breaks inside its cell
+					rather than over the next one (docs/proposals/pumps-nits.md §11, X1). -->
 				<button
 					type="button"
 					class="flex min-h-11 w-full flex-col items-start justify-center rounded px-1 text-left hover:bg-slate-100"
 					onclick={() => onselect(row)}
 				>
-					<span class="font-medium break-words text-blue-800 underline underline-offset-2"
+					<span
+						class="max-w-full font-medium break-words text-blue-800 underline underline-offset-2"
 						>{row.name}</span
 					>
-					{#if row.detail}<span class="text-xs break-words text-slate-600">{row.detail}</span>{/if}
+					{#if row.detail}<span class="max-w-full text-xs break-words text-slate-600"
+							>{row.detail}</span
+						>{/if}
 				</button>
 			{:else}
 				<span class="block px-1 py-2">
@@ -898,7 +903,11 @@
 			{#if fieldsOpen}
 				<div class="fixed inset-0 z-40 bg-slate-900/40 sm:hidden" aria-hidden="true"></div>
 			{/if}
-			<!-- Escape inside the menu closes it (as from its button). -->
+			<!-- Escape inside the menu closes it (as from its button). Below 640 px a sheet at z 50,
+				over everything; from 640 px a menu at z 40: above the tables' sticky cells (z 10 to
+				30) and the section nav (z 35), under the pinned short header (z 45) and the trace's
+				side panel, which comes later in the page (docs/proposals/pumps-nits.md §11, leftover
+				L23; not `isolate`, which changes paint order everywhere, build-density.md §19). -->
 			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 			<div
 				bind:this={fieldsPanel}
@@ -907,7 +916,7 @@
 				role="group"
 				aria-label="Fields shown in {caption}"
 				class={[
-					'z-50 overflow-y-auto border border-slate-200 bg-white shadow-lg',
+					'z-50 overflow-y-auto border border-slate-200 bg-white shadow-lg sm:z-40',
 					'absolute left-0 mt-1 max-h-80 w-64 rounded-lg p-2',
 					'max-sm:fixed max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:mt-0 max-sm:max-h-[75dvh] max-sm:w-full max-sm:rounded-t-xl max-sm:rounded-b-none max-sm:px-3 max-sm:pt-2 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:shadow-2xl'
 				]}

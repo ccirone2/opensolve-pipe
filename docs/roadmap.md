@@ -23,6 +23,8 @@ Each ships as one verified slice with reference cases and traces. Candidates, in
 - **Export** (D17): the System curves sheet's reason data (limit and passed flows, the open-valve head and its bound, the starts tried, the ids), as the Group system curves sheet writes them (`proposals/pump-groups.md` §16 item 6).
 - **Project library** (`proposals/project-library.md` §9; TSD §12 open items 6–10): entries as scenario targets and goal-seek variables (the owner's "next slice"); a `source` on inline user values; equipment ratings from the library; sharing a library between projects; growing the cited library (the owner's call under D8).
 - **Goal seek** (PRD §3.9; `proposals/goal-seek.md` §10): saved setups, a start value, more goals, a coefficient select, more than one goal seek in the pool.
+- **Per-edit speed** (TSD §12 item 20; SDD §3.1.4): an edit in a scenario case is still over the desktop target of 100 ms of long tasks (its edit code alone 135 ms in Node on the largest network measured, mostly `scenarioEdit` and the check of the case's project, a fresh copy whose elements the store has not checked); and every edit still makes a pass in proportion to the project (about 7–10 ms in Node at 999 components), so under 4× throttling the five measured edits' medians were 50–176 ms of long tasks on a network of 999 components against 0–87 ms on one of 99 (2026-11-17).
+- **Inputs at the schema's bounds** (TSD §12 item 19): a reservoir head p/(ρg) that overflows (ρ near the smallest double) still diverges without a name, and the singular-matrix limit of an assigned flow forced through a coefficient of about 1.2·10¹⁹ or more is unchanged.
 - **Speed-controlled pumps, slices 2 and 3** (D11): discharge-pressure and differential-pressure setpoints. See *Shelved*.
 
 ## 3. Shelved (D13)
@@ -35,7 +37,7 @@ Built: every Build form laid out from the field registry, one label and unit tab
 
 ## 5. Still to do by hand
 
-Export's by-hand checks (TSD §10.3). Recorded: the workbook in Excel for Android and the chart image on Android (the owner, 2026-10-26); LibreOffice 24.2's share, the workbook and the CSV zip under a German locale (2026-11-03, in a cloud container; it corrected `README.txt`'s LibreOffice step). The rest is the owner's, since none of it can be run from a cloud container: Excel 365 (Windows, macOS, web), Numbers and Google Sheets; Ctrl+T in Excel; the CSV zip in Excel with German regional settings (and `README.txt`'s Excel wording) and on Android; Windows' Extract All; iPhone Safari; one in-app browser.
+Export's by-hand checks (TSD §10.3). Recorded: the workbook in Excel for Android and the chart image on Android (the owner, 2026-10-26); LibreOffice 24.2's share, the workbook and the CSV zip under a German locale (2026-11-03, in a cloud container; it corrected `README.txt`'s LibreOffice step). The rest is the owner's, since none of it can be run from a cloud container: Excel 365 (Windows, macOS, web), Numbers and Google Sheets; Ctrl+T in Excel; the CSV zip in Excel with German regional settings (and `README.txt`'s Excel wording) and on Android; Windows' Extract All; iPhone Safari; one in-app browser. Per-edit speed (TSD §12 item 20) on a real phone, in Firefox and in Safari: not measured.
 
 ## 6. Later, by the specs
 

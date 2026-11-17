@@ -2,7 +2,8 @@
  * Group curves in the store (CLAUDE.md D21, proposal pump-groups.md §6.1): fetched on demand for
  * the project exactly as solved, per case and set of pumps (in any order), cached with that
  * solve and dropped by the next; on the system curves' queue (one request at a time, after a
- * Solve all run and a goal seek); cancelled by a solve, a goal seek or the user; a refusal
+ * Solve all run and a goal seek); cancelled by a solve, a goal seek or the user, or withdrawn
+ * for the card (read as never asked; with `waiting`, only a request not yet sent); a refusal
  * (NOT_A_STATION) kept with its issues. The group system curve (slice 4b) beside it, by the same
  * rules, asked for only after the group curve's answer. The responses are the shared fixture's
  * (real API answers); the solver is a fake whose answers the test gives.
@@ -220,6 +221,66 @@ describe('group curves (D21: on demand, per solve and set of pumps)', () => {
 		answers[1]!.resolve(curveOf(parallel));
 		await settle();
 		expect(store.groupCurve(response, ['PA', 'PB'])).toMatchObject({ status: 'ready' });
+	});
+
+	it('withdraws for the card (forget): aborted, read as never asked, then asked without a retry', async () => {
+		const { solver, calls, answers } = groupSolver();
+		const store = setup(solver);
+		await store.solve();
+		const response = store.results.response;
+		store.loadGroupCurve(['PA', 'PB']);
+		await settle();
+		store.cancelGroupCurve(['PB', 'PA'], { forget: true });
+		expect(calls[0]!.signal?.aborted).toBe(true);
+		expect(store.groupCurve(response, ['PA', 'PB'])).toBeUndefined();
+		answers[0]!.resolve(curveOf(parallel));
+		await settle();
+		expect(store.groupCurve(response, ['PA', 'PB'])).toBeUndefined();
+		store.loadGroupCurve(['PA', 'PB']);
+		await settle();
+		expect(calls).toHaveLength(2);
+		answers[1]!.resolve(curveOf(parallel));
+		await settle();
+		expect(store.groupCurve(response, ['PA', 'PB'])).toMatchObject({ status: 'ready' });
+		// Nothing being computed: nothing withdrawn.
+		store.cancelGroupCurve(['PA', 'PB'], { forget: true });
+		expect(store.groupCurve(response, ['PA', 'PB'])).toMatchObject({ status: 'ready' });
+	});
+
+	it('with `waiting`, cancels only a request not yet sent: the one sent goes on', async () => {
+		const { solver, calls, answers } = groupSolver();
+		const project = withScenarios(structuredClone(parallel.project), [
+			{ id: 'S1', name: 'Winter', overrides: [] },
+			{ id: 'S2', name: 'Summer', overrides: [] }
+		]);
+		const store = setup(solver, project);
+		await store.solveAll();
+		const ids = ['PA', 'PB'];
+		const state = (c: string | null) => store.groupCurve(store.resultsFor(c).response, ids);
+		store.loadGroupCurve(ids);
+		store.loadGroupCurve(ids, { caseId: 'S1' });
+		store.loadGroupCurve(ids, { caseId: 'S2' });
+		await settle();
+		expect(calls).toHaveLength(1);
+		store.cancelGroupCurve(ids, { waiting: true, forget: true });
+		store.cancelGroupCurve(ids, { caseId: 'S1', waiting: true, forget: true });
+		store.cancelGroupCurve(ids, { caseId: 'S2', waiting: true });
+		expect(calls[0]!.signal?.aborted).toBe(false);
+		expect(state(null)).toEqual({ status: 'loading' });
+		expect(state('S1')).toBeUndefined();
+		expect(state('S2')).toEqual({ status: 'cancelled', by: 'user' });
+		answers[0]!.resolve(curveOf(parallel));
+		await settle();
+		// The two that waited are never sent.
+		expect(calls).toHaveLength(1);
+		expect(state(null)).toMatchObject({ status: 'ready' });
+		// The group system curve by the same rule.
+		store.loadGroupSystemCurve(ids);
+		await settle();
+		expect(calls).toHaveLength(2);
+		store.cancelGroupSystemCurve(ids, { waiting: true, forget: true });
+		expect(calls[1]!.signal?.aborted).toBe(false);
+		expect(store.groupSystemCurve(store.results.response, ids)).toEqual({ status: 'loading' });
 	});
 
 	it('a new solve cancels the curve in flight and drops it; its late answer fills nothing', async () => {
@@ -580,6 +641,49 @@ describe('group system curves (slice 4b: after the group curve’s answer, by it
 		await settle();
 		expect(calls).toHaveLength(5);
 		expect(calls[4]!.curve).toBe('system');
+	});
+});
+
+describe('each case’s group maps, read whole (the export, CLAUDE.md D21 slice 4c)', () => {
+	it('gives each case its own maps, {} for a case never asked, emptied by its next solve', async () => {
+		const { solver, answers } = groupSolver();
+		const project = withScenarios(structuredClone(parallel.project), [
+			{ id: 'S1', name: 'Winter', overrides: [] }
+		]);
+		const store = setup(solver, project);
+		await store.solve();
+		store.setCase('S1');
+		await store.solve();
+		expect(store.groupCurvesFor(null)).toEqual({});
+		expect(store.groupSystemCurvesFor('S1')).toEqual({});
+		const key = groupKey(['PA', 'PB']);
+		store.loadGroupCurve(['PA', 'PB']);
+		await settle();
+		answers[0]!.resolve(curveOf(parallel));
+		await settle();
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		answers[1]!.resolve(systemOf(parallel));
+		await settle();
+		expect(store.groupCurvesFor('S1')).toEqual({
+			[key]: { status: 'ready', response: curveOf(parallel) }
+		});
+		expect(store.groupSystemCurvesFor('S1')).toEqual({
+			[key]: { status: 'ready', response: systemOf(parallel) }
+		});
+		// The base case was never asked: its maps are its own, and empty.
+		expect(store.groupCurvesFor(null)).toEqual({});
+		expect(store.groupSystemCurvesFor(null)).toEqual({});
+		// The same entries the response-keyed readers give.
+		const response = store.resultsFor('S1').response;
+		expect(store.groupCurvesFor('S1')[key]).toBe(store.groupCurve(response, ['PA', 'PB']));
+		expect(store.groupSystemCurvesFor('S1')[key]).toBe(
+			store.groupSystemCurve(response, ['PA', 'PB'])
+		);
+		// The case's next solve empties them.
+		await store.solve();
+		expect(store.groupCurvesFor('S1')).toEqual({});
+		expect(store.groupSystemCurvesFor('S1')).toEqual({});
 	});
 });
 

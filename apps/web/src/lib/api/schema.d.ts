@@ -3256,6 +3256,11 @@ export interface components {
              */
             npshMargin: number | null;
             /**
+             * Npshmarginratio
+             * @description NPSHa / NPSHr, dimensionless; None where NPSHa or NPSHr is None or NPSHr is 0 (or the quotient is not finite). Where given, below 1 exactly where npshMargin is negative. None is no sign of a safe margin: where NPSHr is 0 (or the quotient is not finite) and NPSHa is negative, npshMargin is negative and CAVITATION is raised
+             */
+            npshMarginRatio: number | null;
+            /**
              * Npshrequired
              * @description m, if a curve is given
              */

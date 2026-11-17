@@ -2,19 +2,23 @@
  * The export's snapshot (proposal export.md §2.1): what exportInput takes from the workspace's
  * public getters, with the real ProjectStore and a fake solver (testing/workspace.ts): the cases
  * the choice exports, each response by Compare's rule, its staleness, the projects as sent and as
- * solved, its system curves, the Compare rows, the goal seek and the page's facts.
+ * solved, its system curves and group curves, the Compare rows, the goal seek, the page's facts
+ * and the time the file name carries (§12 item 36).
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { version } from '$app/environment';
 import { TopologyError } from '../../api/client';
+import type { Project, PumpGroupCurveResponse, SolveResponse } from '../../api/types';
 import { serverSourceHref } from '../../components/links';
+import { groupKey } from '../../state/project.svelte';
 import { pumpTransferSolved, response, systemCurveResponse } from '../../testing/results';
 import { testWorkspace } from '../../testing/workspace';
 import { defaultRows } from '../compare';
 import { CANONICAL_ORIGIN } from '../encoding';
 import { pumpTransferExample } from '../examples';
 import { withScenarios } from '../scenarios';
-import { exportInput, pageFacts } from './input';
+import groupFixture from '../__fixtures__/pump-groups-input.json';
+import { exportInput, nameStamp, pageFacts } from './input';
 import type { ExportOptions } from './model';
 
 const NOW = new Date('2026-10-25T12:32:05Z');
@@ -74,6 +78,44 @@ describe('the snapshot', () => {
 		expect(c!.inputs).toBe(ws.store.caseInputs(null));
 	});
 
+	it('takes the time the name shows with its own offset, or the press’s (§12 item 36)', async () => {
+		// 2026-10-25, the night summer time ends in Berlin: 02:59:59 CEST, then 02:00:00 CET.
+		process.env.TZ = 'Europe/Berlin';
+		const ws = testWorkspace(pumpTransferExample(), {
+			solver: { solve: async () => response(pumpTransferSolved()) }
+		});
+		await ws.store.solve();
+		const shown = new Date('2026-10-25T00:59:59.900Z');
+		const pressed = new Date('2026-10-25T01:00:00.010Z');
+		const input = exportInput(ws, SHOWN, pressed, PAGE, nameStamp(shown));
+		expect(input.now).toBe(pressed);
+		expect(input.utcOffsetMinutes).toBe(60);
+		expect(input.nameTime).toEqual({ now: shown, utcOffsetMinutes: 120 });
+		expect(exportInput(ws, SHOWN, pressed, PAGE).nameTime).toEqual({
+			now: pressed,
+			utcOffsetMinutes: 60
+		});
+	});
+
+	it('keeps the offset in force when the name was stamped, not the one at the build (§12 item 36)', async () => {
+		process.env.TZ = 'Asia/Kathmandu';
+		const ws = testWorkspace(pumpTransferExample(), {
+			solver: { solve: async () => response(pumpTransferSolved()) }
+		});
+		await ws.store.solve();
+		// The name shown is stamped at 16:20:30 in Kathmandu, 5 h 45 min ahead of UTC.
+		const shown = new Date('2026-11-13T10:35:30Z');
+		const stamp = nameStamp(shown);
+		expect(stamp).toEqual({ now: shown, utcOffsetMinutes: 345 });
+		// The system's time zone changes to Berlin's (UTC+01:00 in November) before the press.
+		process.env.TZ = 'Europe/Berlin';
+		const pressed = new Date('2026-11-13T10:35:35Z');
+		const input = exportInput(ws, SHOWN, pressed, PAGE, stamp);
+		expect(input.utcOffsetMinutes).toBe(60);
+		expect(input.nameTime).toEqual({ now: shown, utcOffsetMinutes: 345 });
+		expect(stamp.utcOffsetMinutes).toBe(345);
+	});
+
 	it('exports the case shown, or every case with scenarios', async () => {
 		const ws = testWorkspace(scenarioProject(), {
 			solver: { solve: async () => response(pumpTransferSolved()) }
@@ -124,7 +166,9 @@ describe('the snapshot', () => {
 			keptResponse: true,
 			sent: null,
 			inputs: null,
-			systemCurves: {}
+			systemCurves: {},
+			groupCurves: {},
+			groupSystemCurves: {}
 		});
 	});
 
@@ -142,6 +186,40 @@ describe('the snapshot', () => {
 		const input = exportInput(ws, SHOWN, NOW, PAGE);
 		expect(input.cases[0]!.systemCurves).toEqual({ P1: { status: 'ready', curve } });
 		expect(input.goalSeek).toBeNull();
+	});
+
+	it('takes the case’s group curves, as computed (CLAUDE.md D21, slice 4c)', async () => {
+		const parallel = (
+			groupFixture.cases as unknown as {
+				name: string;
+				project: Project;
+				solve: SolveResponse;
+				groupCurve: { body: unknown };
+				systemCurve: { body: unknown };
+			}[]
+		).find((c) => c.name === 'parallel-ideal')!;
+		const group = parallel.groupCurve.body as PumpGroupCurveResponse;
+		const system = parallel.systemCurve.body as PumpGroupCurveResponse;
+		const ws = testWorkspace(parallel.project, {
+			solver: {
+				solve: async () => structuredClone(parallel.solve),
+				groupCurve: async (_project, _ids, options = {}) =>
+					options.curve === 'system' ? system : group
+			}
+		});
+		const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+		await ws.store.solve();
+		expect(exportInput(ws, SHOWN, NOW, PAGE).cases[0]!.groupCurves).toEqual({});
+		ws.store.loadGroupCurve(['PA', 'PB']);
+		await settle();
+		ws.store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		const [c] = exportInput(ws, SHOWN, NOW, PAGE).cases;
+		const key = groupKey(['PA', 'PB']);
+		expect(c!.groupCurves).toBe(ws.store.groupCurvesFor(null));
+		expect(c!.groupSystemCurves).toBe(ws.store.groupSystemCurvesFor(null));
+		expect(c!.groupCurves).toEqual({ [key]: { status: 'ready', response: group } });
+		expect(c!.groupSystemCurves).toEqual({ [key]: { status: 'ready', response: system } });
 	});
 });
 

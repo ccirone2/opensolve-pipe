@@ -8,7 +8,8 @@
  * for quantities with a true zero (flows, velocities, a pump's head, head losses, a relief valve's
  * flow (never its inlet pressure, Δp ÷ set or static drop), an equipment
  * item's pressure loss, an orifice plate's permanent loss and differential pressure, power, speed),
- * never for gauge pressures, static pressure drops, grade lines, elevations or NPSH margins. "Same" means the two values
+ * never for gauge pressures, static pressure drops, grade lines, elevations, NPSH margins or NPSH
+ * margin ratios (whose limit is 1, not a zero). "Same" means the two values
  * display the same: there is no tolerance snapping (D6 and D13 are acceptance rules for solver
  * changes; differences between cases are real results of changed inputs). A case that did not
  * converge shows no values, since they are not a solution; its status row says so. A
@@ -35,6 +36,7 @@ import {
 	Formatter,
 	linkReading,
 	lowestPressureNode,
+	npshRatioCue,
 	pumpStatusLabel,
 	RELIEF_NO_RESULT,
 	valveStateLabel,
@@ -57,6 +59,7 @@ export type Quantity =
 	| 'pumpShaftPower'
 	| 'pumpNpsha'
 	| 'pumpNpshMargin'
+	| 'pumpNpshMarginRatio'
 	| 'pumpStatus'
 	| 'valveFlow'
 	| 'valveHeadLoss'
@@ -128,6 +131,11 @@ interface Spec {
 	) => number | string | null | undefined;
 	/** Where a network extreme occurs, for the cell's second line. */
 	where?: (solved: SolvedState, project: Project) => string;
+	/**
+	 * Words for a case with no value where none is no sign of a safe one, as the cell's note: a
+	 * pump with no NPSH margin ratio that cavitates (npshRatioCue). Null: nothing to say.
+	 */
+	noValueNote?: (solved: SolvedState, row: CompareRow, f: Formatter) => string | null;
 }
 
 const pump = (s: SolvedState, r: CompareRow) =>
@@ -246,6 +254,18 @@ export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 		category: 'head',
 		element: 'pump',
 		value: (s, r) => pump(s, r)?.npshMargin
+	},
+	pumpNpshMarginRatio: {
+		// NPSHa ÷ NPSHr from the API (PumpResult.npshMarginRatio; docs/proposals/pumps-nits.md item
+		// 4): a pure number whose limit is 1, not a zero, so no relative difference.
+		label: 'NPSH margin ratio',
+		category: 'dimensionless',
+		element: 'pump',
+		value: (s, r) => pump(s, r)?.npshMarginRatio,
+		noValueNote: (s, r, f) => {
+			const p = pump(s, r);
+			return p ? npshRatioCue(p, f) : null;
+		}
 	},
 	pumpStatus: {
 		label: 'Status',
@@ -466,6 +486,7 @@ export const ELEMENT_QUANTITIES: Readonly<Record<Spec['element'], readonly Quant
 		'pumpShaftPower',
 		'pumpNpsha',
 		'pumpNpshMargin',
+		'pumpNpshMarginRatio',
 		'pumpStatus'
 	],
 	valve: ['valveFlow', 'valveHeadLoss', 'valvePressureDrop', 'valveState', 'valveSetpointMet'],
@@ -562,7 +583,9 @@ export const DEFAULT_ROW_LIMIT = 40;
 
 /**
  * The default rows (proposal §6.12): the network's status; each pump's flow and head, its NPSH
- * margin where the base case has one, and its speed where a case flow-controls it or changes its
+ * margin ratio where the base case has an NPSH margin (the ratio in the margin's place, the owner's
+ * Q3, 2026-11-12: "Ratio everywhere"; docs/proposals/pumps-nits.md item 4; a case with no ratio
+ * whose pump cavitates says so in its cell), and its speed where a case flow-controls it or changes its
  * speed; each relief valve's flow, state and inlet pressure (proposal pressure-relief-valve.md
  * decision 20); each element a scenario changes (a valve's flow and state, an equipment item's flow and
  * pressure loss, an orifice plate's flow and permanent loss, a reservoir's or reference node's
@@ -583,7 +606,7 @@ export function defaultRows(
 		rows.push({ quantity: 'pumpFlow', elementId: id }, { quantity: 'pumpHead', elementId: id });
 		const margin = base?.pumpResults[id]?.npshMargin;
 		if (margin !== null && margin !== undefined)
-			rows.push({ quantity: 'pumpNpshMargin', elementId: id });
+			rows.push({ quantity: 'pumpNpshMarginRatio', elementId: id });
 		const controlled =
 			component.control ||
 			cases.some((s) => s?.pumpResults[id]?.control) ||
@@ -734,7 +757,11 @@ export interface CompareCell {
 	baseText?: string;
 	/** The element has a physically invalid flag in this case. */
 	invalid: boolean;
-	/** Why a connection's value reads otherwise in this case, or is not given (compareValue). */
+	/**
+	 * Why a connection's value reads otherwise in this case, or is not given (compareValue); or why
+	 * no value is no sign of a safe one (a pump with no NPSH margin ratio that cavitates: the
+	 * quantity's noValueNote).
+	 */
 	note?: string;
 }
 
@@ -780,7 +807,11 @@ export function compareCells(
 			!!column.solved &&
 			!!row.elementId &&
 			flagsOf(column.solved.flags, row).some((flag) => flag.severity === 'invalid');
-		const note = read[i]?.note;
+		const note =
+			read[i]?.note ??
+			(value === null && column.solved && column.converged
+				? (spec.noValueNote?.(column.solved, row, f) ?? undefined)
+				: undefined);
 		const cell: CompareCell = { text: shown(value), invalid, ...(note ? { note } : {}) };
 		if (spec.where && column.solved && column.converged && value !== null) {
 			cell.where = spec.where(column.solved, project);

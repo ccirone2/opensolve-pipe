@@ -177,11 +177,16 @@ interface Block {
 	before: number;
 }
 
-/** The PNG of a pump chart: `config` drawn at a fixed size with `caption`. */
+/**
+ * The PNG of a pump chart: `config` drawn at a fixed size with `caption`, or with `drawnCaption`'s
+ * when given, read once the chart is drawn (a figure whose notes say what its drawing left out:
+ * the curve labels of CLAUDE.md D24 §9.3).
+ */
 export async function renderChartImage(
 	Chart: typeof ChartInstance,
 	config: PumpChartConfig,
-	caption: ChartImageCaption
+	caption: ChartImageCaption,
+	drawnCaption?: () => ChartImageCaption
 ): Promise<Blob> {
 	// The chart, on a detached canvas: Chart.js reads its CSS size from these attributes when it
 	// is not responsive, and draws it synchronously without animation.
@@ -193,6 +198,7 @@ export async function renderChartImage(
 	if (!plotContext) throw new Error('this browser cannot draw the chart');
 	const chart = new Chart(plotContext, config);
 	try {
+		const words = drawnCaption?.() ?? caption;
 		const image = document.createElement('canvas');
 		const context = image.getContext('2d');
 		if (!context) throw new Error('this browser cannot draw the image');
@@ -208,12 +214,12 @@ export async function renderChartImage(
 			before
 		});
 		const header: Block[] = [
-			block(caption.title, FONTS.title, COLORS.ink, 24),
-			block(caption.subtitle, FONTS.text, COLORS.slate, 18, 4),
-			...(caption.warning ? [block(caption.warning, FONTS.text, COLORS.amber, 18, 4)] : [])
+			block(words.title, FONTS.title, COLORS.ink, 24),
+			block(words.subtitle, FONTS.text, COLORS.slate, 18, 4),
+			...(words.warning ? [block(words.warning, FONTS.text, COLORS.amber, 18, 4)] : [])
 		];
-		const footer = caption.footer.map((text, i) =>
-			block(text, FONTS.text, COLORS.slate, 18, i === 0 ? 0 : 6)
+		const footer = words.footer.map((line, i) =>
+			block(line, FONTS.text, COLORS.slate, 18, i === 0 ? 0 : 6)
 		);
 		const height = (blocks: Block[]) =>
 			blocks.reduce((sum, b) => sum + b.before + b.lines.length * b.lineHeight, 0);
@@ -258,25 +264,35 @@ export async function renderChartImage(
 export const IMAGE_REASONS_IN =
 	"the app's data table and the System curves sheet of a results export say";
 
-/** The other cases on the chart with their markers (on screen, the case checkboxes say it). */
-export function casesNote(
-	others: readonly OtherCaseData[],
-	symbols: Readonly<Record<string, string>>
-): string | null {
+/**
+ * The other cases on the chart, each by its number (owner, 2026-11-12, nit 5; Q1 "Shapes go too";
+ * docs/proposals/pumps-nits.md item 5, slice 5b): "Other cases on the chart (slate rings, each
+ * tagged with its case number[; their system curves dotted]): Base case; case 2: Winter (out of
+ * date): off." The base case by its name ("Base" adds nothing to it); on screen, the case
+ * checkboxes say the same with each case's box. No character designates a case.
+ */
+export function casesNote(others: readonly OtherCaseData[]): string | null {
 	if (!others.length) return null;
 	const dotted = others.some((o) => o.system) ? '; their system curves dotted' : '';
-	const cases = others.map(
-		(o) =>
-			`${symbols[o.marker]} ${o.label}${o.row.state === 'Running' ? '' : `: ${o.row.state.toLowerCase()}`}`
-	);
-	return `Other cases on the chart (slate, hollow markers${dotted}): ${cases.join('; ')}.`;
+	const cases = others.map((o) => {
+		const named = o.tag === 'Base' ? o.label : `case ${o.tag}: ${o.label}`;
+		return `${named}${o.row.state === 'Running' ? '' : `: ${o.row.state.toLowerCase()}`}`;
+	});
+	return `Other cases on the chart (slate rings, each tagged with its case number${dotted}): ${cases.join('; ')}.`;
 }
 
-/** The image's footer notes: the figure's own sentences, in its order, then the other cases. */
+/**
+ * The image's footer notes: the figure's own sentences, in its order, then the other cases, then
+ * the other cases whose rings the image's drawing left unlabelled, each named with its values
+ * (`notLabelled`, point-labels.ts notLabelledNote; nit 5, rule 7), then the line naming the cases
+ * in which the pump is off and that take no slot (`off`, the screen's words: pump-chart.ts
+ * offCasesNote; pumps-results-layout.md §6.2 S8).
+ */
 export function imageNoteLines(
 	notes: ChartNotes,
 	others: readonly OtherCaseData[],
-	symbols: Readonly<Record<string, string>>
+	off: string | null = null,
+	notLabelled: string | null = null
 ): string[] {
 	return [
 		notes.pump,
@@ -286,7 +302,9 @@ export function imageNoteLines(
 		...notes.panels,
 		...notes.facts,
 		...notes.checks,
-		casesNote(others, symbols)
+		casesNote(others),
+		notLabelled,
+		off
 	].filter((line): line is string => !!line);
 }
 
@@ -296,9 +314,15 @@ export interface ChartImageRequest {
 	config: PumpChartConfig;
 	/** The figure's notes (pump-chart.ts chartNotes, with `reasonsIn: IMAGE_REASONS_IN`). */
 	notes: ChartNotes;
-	/** The other cases drawn, and their markers as text (pump-chart.ts MARKER_SYMBOLS). */
+	/** The other cases drawn, each with its case's number (pump-chart.ts caseTags). */
 	others: readonly OtherCaseData[];
-	markerSymbols: Readonly<Record<string, string>>;
+	/** "Off in this case (no operating point): …." as the screen shows it (offCasesNote), or none. */
+	offCases?: string | null;
+	/**
+	 * The other cases whose rings the image's own drawing left unlabelled, named with their values
+	 * (point-labels.ts notLabelledNote; nit 5, rule 7), read once its chart is drawn; null: none.
+	 */
+	notLabelled?: () => string | null;
 	pumpName: string;
 	/** The case shown, in a project with scenarios. */
 	caseName?: string;
@@ -318,6 +342,11 @@ export interface FigureImageRequest {
 	title: string;
 	/** The figure's notes, in its order (pump-group-chart.ts groupNoteLines). */
 	lines: readonly string[];
+	/**
+	 * The notes as the image's own drawing gives them, read once its chart is drawn, in place of
+	 * `lines` (CLAUDE.md D24 §9.3: the curves whose labels that drawing left out for space).
+	 */
+	drawnLines?: () => readonly string[];
 	/** What the file holds ("Pumps together PA, PB"), for its name. */
 	content: string;
 	/** The case shown, in a project with scenarios. */
@@ -349,24 +378,35 @@ export async function downloadChartImage(
 	const pump = 'lines' in request ? null : request;
 	try {
 		const utcOffsetMinutes = -now.getTimezoneOffset();
-		const notes = figure
-			? [...figure.lines]
-			: imageNoteLines(pump!.notes, pump!.others, pump!.markerSymbols);
 		const pumpName = pump?.pumpName ?? '';
-		const caption = chartImageCaption({
-			pumpName,
-			...(figure ? { title: figure.title } : {}),
-			...(request.caseName ? { caseName: request.caseName } : {}),
-			projectName: source.projectName,
-			timestamp: source.timestamp,
-			methodVersion: source.methodVersion,
-			stale: source.stale,
-			notes,
-			disclaimer: request.disclaimer,
-			origin: source.origin,
-			utcOffsetMinutes
-		});
-		const blob = await render(Chart, request.config, caption);
+		const caption = (notes: readonly string[]) =>
+			chartImageCaption({
+				pumpName,
+				...(figure ? { title: figure.title } : {}),
+				...(request.caseName ? { caseName: request.caseName } : {}),
+				projectName: source.projectName,
+				timestamp: source.timestamp,
+				methodVersion: source.methodVersion,
+				stale: source.stale,
+				notes,
+				disclaimer: request.disclaimer,
+				origin: source.origin,
+				utcOffsetMinutes
+			});
+		const lines = figure
+			? [...figure.lines]
+			: imageNoteLines(pump!.notes, pump!.others, pump!.offCases ?? null);
+		// Notes that depend on the drawing are read once the image's chart is drawn: a figure's own,
+		// and a pump chart's rings left unlabelled (nit 5, rule 7).
+		const unlabelled = pump?.notLabelled;
+		const drawnLines =
+			figure?.drawnLines ??
+			(unlabelled
+				? () => imageNoteLines(pump!.notes, pump!.others, pump!.offCases ?? null, unlabelled())
+				: undefined);
+		const blob = drawnLines
+			? await render(Chart, request.config, caption(lines), () => caption([...drawnLines()]))
+			: await render(Chart, request.config, caption(lines));
 		const fileName = chartImageFileName({
 			projectName: source.projectName,
 			caseName: request.caseName ?? null,

@@ -27,6 +27,7 @@ def test_the_fixture_holds_the_cases_the_export_design_names() -> None:
         "tee-fallback",
         "design-checks",
         "project-library",
+        "pump-groups",
     ]
     for case in cases.values():
         assert case["utcOffsetMinutes"] != 0
@@ -75,6 +76,31 @@ def test_the_fixture_holds_the_cases_the_export_design_names() -> None:
         assert "Project library" in [s["title"] for s in sections]
     changed = library["cases"][1]["response"]["scenario"]["overrides"]
     assert changed[0]["value"] == {"kind": "library", "id": "RS3"}
+    # CLAUDE.md D21, slice 4c: the group curves the Pumps together card computed, by groupKey
+    groups = cases["pump-groups"]
+    key = "\u0000".join(sorted(["PA", "PB"]))
+    base, off = groups["cases"]
+    assert [base["id"], off["id"]] == [None, "S1"]
+    assert base["systemCurves"]["PA"]["status"] == "ready"
+    assert base["groupCurves"][key]["status"] == "ready"
+    assert base["groupSystemCurves"][key]["status"] == "ready"
+    points = base["groupSystemCurves"][key]["response"]["systemPoints"]
+    without = [p for p in points if p["head"] is None]
+    assert without, "the group system curve has points without a rise"
+    for point in without:
+        assert point["reason"] == "beyond_limit", point
+        assert point["limitFlow"] is not None, point
+        assert point["passedFlow"] is not None, point
+    assert off["groupCurves"][key]["status"] == "ready"
+    members = off["groupCurves"][key]["response"]["duty"]["members"]
+    assert [(m["pumpId"], m["status"]) for m in members] == [("PA", "running"), ("PB", "off")]
+    assert off["groupSystemCurves"] == {}
+    for name, case in cases.items():
+        if name == "pump-groups":
+            continue
+        for exported in case["cases"]:
+            assert exported["groupCurves"] == {}, name
+            assert exported["groupSystemCurves"] == {}, name
 
 
 def test_the_web_fixture_is_current() -> None:

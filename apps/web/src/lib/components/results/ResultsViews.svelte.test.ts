@@ -25,10 +25,12 @@ import {
 	SAMPLE_METHODS,
 	SAMPLE_TRACE
 } from '$lib/testing/results';
+import { outOfSight } from '$lib/testing/helpers';
 import { testWorkspace, type TestWorkspaceOptions } from '$lib/testing/workspace';
 import { insertComponentInConnection } from '$lib/utils/edit';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { createComponent } from '$lib/utils/factory';
+import { withScenarios } from '$lib/utils/scenarios';
 import { methodsText } from '$lib/utils/trace';
 import { IMPERIAL_UNITS } from '$lib/utils/units';
 
@@ -250,6 +252,122 @@ describe('tables', () => {
 		);
 	});
 
+	it('is the shared sideways row: ring room that moves no layout, the wheel, and a row-only keep-in-view (pumps-results-layout.md §5.4)', async () => {
+		await solveWith(pumpTransferSolved());
+		const row = results().getByRole('tablist', { name: 'Results view' });
+		// py-1 keeps a focused pill's ring inside the box that clips; -my-1, in a flow root, keeps
+		// the row where it was.
+		expect(row).toHaveClass('scroll-shadow-x', 'overflow-x-auto', 'py-1', '-my-1');
+		// Positioned: hidden words of a pill scrolled out of sight stay inside its clip.
+		expect(row).toHaveClass('relative');
+		expect(row.parentElement).toHaveClass('flow-root');
+		// Boxes, as a 300 px row holding pills 100 px wide, 6 px apart from its 12 px padding.
+		const tabs = within(row).getAllByRole('tab');
+		Object.defineProperty(row, 'clientWidth', { configurable: true, value: 300 });
+		Object.defineProperty(row, 'scrollWidth', {
+			configurable: true,
+			value: 12 + 106 * tabs.length
+		});
+		const at = new Map<Element, number>(tabs.map((t, i) => [t, 12 + 106 * i]));
+		const boxes = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: Element
+		) {
+			const left = this === row ? row.scrollLeft : (at.get(this) ?? 0);
+			const width = this === row ? 300 : at.has(this) ? 100 : 0;
+			return { left, right: left + width, width, top: 0, bottom: 44, height: 44 } as DOMRect;
+		});
+		row.style.paddingLeft = '12px';
+		row.style.paddingRight = '12px';
+		// The wheel scrolls it sideways while it can move, and takes the event from the pane.
+		const wheel = new WheelEvent('wheel', { deltaY: 40, bubbles: true, cancelable: true });
+		row.dispatchEvent(wheel);
+		expect(wheel.defaultPrevented).toBe(true);
+		expect(row.scrollLeft).toBe(40);
+		row.scrollLeft = 0;
+		// A view chosen far along: the row alone scrolls, to show it and the one after it, never
+		// an ancestor (scrollIntoView would move the pane).
+		const scrollTo = vi.fn();
+		row.scrollTo = scrollTo as unknown as typeof row.scrollTo;
+		const intoView = vi.fn();
+		HTMLElement.prototype.scrollIntoView = intoView;
+		try {
+			expect(tabs.length).toBeGreaterThan(4);
+			const fourth = tabs[3]!;
+			await fireEvent.click(fourth);
+			expect(fourth).toHaveAttribute('aria-selected', 'true');
+			// The fifth pill ends at 12 + 106 × 4 + 100 = 536; with the 12 px end padding in view,
+			// the row scrolls to 548 − 300 = 248.
+			expect(scrollTo).toHaveBeenLastCalledWith({ left: 248, behavior: 'smooth' });
+			expect(intoView).not.toHaveBeenCalled();
+		} finally {
+			delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+			boxes.mockRestore();
+		}
+	});
+
+	it('keeps the chosen view in view when the row is drawn again: Compare cases and back (pumps-results-layout.md §5.4 One shared component)', async () => {
+		const project = withScenarios(pumpTransferExample(), [
+			{ id: 'S1', name: 'Winter', overrides: [] }
+		]);
+		const ws = testWorkspace(project, {
+			solver: { solve: () => Promise.resolve(response(pumpTransferSolved())) }
+		});
+		render(WorkspaceView, { workspace: ws });
+		await ws.solve();
+		await results().findByRole('heading', { name: 'Converged' });
+		const isRow = (e: Element) => e.matches('[role="tablist"][aria-label="Results view"]');
+		const pillsOf = (e: Element) => [...(e.parentElement?.children ?? [])].indexOf(e);
+		// Boxes for whichever row is drawn: 300 px wide, holding pills 100 px wide, 106 px apart
+		// from 12 px (jsdom's row has no padding of its own).
+		const count = within(results().getByRole('tablist', { name: 'Results view' })).getAllByRole(
+			'tab'
+		).length;
+		expect(count).toBeGreaterThan(4);
+		const spies = [
+			vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (
+				this: Element
+			) {
+				return isRow(this) ? 300 : 0;
+			}),
+			vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(function (
+				this: Element
+			) {
+				return isRow(this) ? 12 + 106 * count : 0;
+			}),
+			vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+				this: Element
+			) {
+				const inRow = this.parentElement && isRow(this.parentElement);
+				const left = isRow(this) ? this.scrollLeft : inRow ? 12 + 106 * pillsOf(this) : 0;
+				const width = isRow(this) ? 300 : inRow ? 100 : 0;
+				return { left, right: left + width, width, top: 0, bottom: 44, height: 44 } as DOMRect;
+			})
+		];
+		const scrollTo = vi.fn();
+		(Element.prototype as { scrollTo?: unknown }).scrollTo = scrollTo;
+		try {
+			const first = results().getByRole('tablist', { name: 'Results view' });
+			await fireEvent.click(within(first).getAllByRole('tab')[3]!);
+			// The fourth and fifth pills in view: 12 + 106 × 4 + 100 = 536, less the 300 px seen.
+			expect(scrollTo).toHaveBeenLastCalledWith({ left: 236, behavior: 'smooth' });
+			expect(scrollTo.mock.contexts.at(-1)).toBe(first);
+			// Compare cases draws no view row; back on the case, the row drawn again keeps the
+			// chosen view in view, as the row it replaced did.
+			await fireEvent.click(results().getByRole('tab', { name: 'Compare cases' }));
+			expect(results().queryByRole('tablist', { name: 'Results view' })).toBeNull();
+			await fireEvent.click(results().getByRole('tab', { name: 'Base case' }));
+			await tick();
+			const again = results().getByRole('tablist', { name: 'Results view' });
+			expect(again).not.toBe(first);
+			expect(within(again).getAllByRole('tab')[3]).toHaveAttribute('aria-selected', 'true');
+			expect(scrollTo.mock.contexts.at(-1)).toBe(again);
+			expect(scrollTo).toHaveBeenLastCalledWith({ left: 236, behavior: 'smooth' });
+		} finally {
+			delete (Element.prototype as { scrollTo?: unknown }).scrollTo;
+			for (const spy of spies) spy.mockRestore();
+		}
+	});
+
 	it('summarises the fluid properties used, with absolute vapor pressure', async () => {
 		await solveWith(pumpTransferSolved());
 		expect(results().getByRole('heading', { name: 'Fluid: Water' })).toBeInTheDocument();
@@ -297,9 +415,17 @@ describe('solve status', () => {
 		ws.store.update((p) => {
 			p.connections[0]!.piping.pipes[0]!.length = 500;
 		}, 'change length');
-		expect(await results().findByText(/Results are out of date/)).toBeInTheDocument();
+		const notice = await results().findByText(/Results are out of date/);
+		// The notice names the header's Solve, the one Solve (build-density.md §19), which solves.
+		expect(notice.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+			'Results are out of date: the project changed after this solve. Press Solve, at the top (Ctrl+Enter or ⌘+Enter), to update them.'
+		);
 		expect(results().getByRole('status')).toHaveTextContent('Last solve: converged, out of date');
-		await fireEvent.click(results().getByRole('button', { name: 'Solve again' }));
+		await fireEvent.click(
+			within(screen.getByRole('toolbar', { name: 'Project' })).getByRole('button', {
+				name: 'Solve'
+			})
+		);
 		expect(solve).toHaveBeenCalledTimes(2);
 		await vi.waitFor(() => expect(results().queryByText(/Results are out of date/)).toBeNull());
 	});
@@ -496,7 +622,11 @@ describe('pump chart: the system curve on demand (D10)', () => {
 			pumpTransferExample(),
 			pumpTransferSolved()
 		);
-		expect(panel.getByText('Computing the system curve for this solve…')).toBeInTheDocument();
+		// The tab opened, the chart's line is drawn empty first, then speaks (pumps-results-layout.md
+		// §7 Live regions, F17): inserted already holding its words, it would not be announced.
+		const line = panel.getByRole('figure').querySelector('[data-pump-strip] [aria-live]')!;
+		expect(line.textContent).toBe('');
+		expect(await panel.findByText('Computing the system curve for this solve…')).toBe(line);
 		await vi.waitFor(() => expect(systemCurve).toHaveBeenCalledTimes(1));
 		const [project, pumpId] = systemCurve.mock.calls[0]!;
 		expect(project).toBe(solve.mock.calls[0]![0]);
@@ -517,6 +647,213 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		expect(ws.store.results.stale).toBe(true);
 		expect(panel.getByRole('table', { name: 'System curve' })).toBeInTheDocument();
 		expect(systemCurve).toHaveBeenCalledTimes(1);
+	});
+
+	it('heads the table "Results per pump", visibly, its caption kept (pumps-results-layout.md §5.3)', async () => {
+		const { panel } = await solveAndOpenPumps(pumpTransferExample(), pumpTransferSolved());
+		const headings = panel.getAllByRole('heading');
+		expect(headings.map((h) => [h.tagName, h.textContent!.trim()])).toEqual([
+			['H3', 'Results per pump'],
+			['H3', 'Pump chart']
+		]);
+		const heading = headings[0]!;
+		expect(heading).toBeVisible();
+		expect(heading).not.toHaveClass('sr-only');
+		expect(heading).toHaveAttribute('tabindex', '-1');
+		expect(heading).toHaveClass('text-base', 'font-semibold');
+		// The table keeps its name from its visually hidden caption, and follows its heading.
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		expect(table.querySelector('caption')).toHaveClass('sr-only');
+		expect(heading.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		// Not a landmark: the tab gains no region for it.
+		expect(heading.closest('section, [role="region"]')).toBe(
+			screen.getByRole('region', { name: 'Results' })
+		);
+	});
+
+	it('hides Hydraulic power, NPSHa, NPSHr and NPSH margin by default and shows NPSH margin ratio, counted in Fields’ name, each a box to check, every value still in the trace (docs/proposals/pumps-nits.md items 3 and 4)', async () => {
+		localStorage.removeItem('opensolve-pipe:results-fields:Results per pump');
+		const { panel } = await solveAndOpenPumps(pumpTransferExample(), pumpTransferSolved());
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		const shown = ['Status', 'Flow L/s', 'Head m', 'Speed %', 'Efficiency %', 'Shaft power kW'];
+		// The ratio has no unit: its heading is its label alone.
+		for (const name of [...shown, 'NPSH margin ratio']) {
+			expect(within(table).getByRole('columnheader', { name }), name).toBeInTheDocument();
+		}
+		// The margin's heading reads "NPSH margin m" and its box "NPSH margin (m)" (jsdom: "NPSH
+		// margin(m)"): one pattern for both, never the ratio's.
+		const hidden = [/^Hydraulic power/, /^NPSHa/, /^NPSHr/, /^NPSH margin(?! ratio)/];
+		for (const name of hidden) {
+			expect(within(table).queryByRole('columnheader', { name }), String(name)).toBeNull();
+		}
+		expect(within(table).getAllByRole('columnheader')).toHaveLength(8);
+		// Fields names its count, seven of the table's eleven shown, then the table.
+		const fields = panel.getByRole('button', { name: 'Fields (7 of 11), Results per pump' });
+		expect(fields.textContent!.replace(/\s+/g, ' ').trim()).toBe('Fields (7 of 11)');
+		await fireEvent.click(fields);
+		const menu = panel.getByRole('group', { name: 'Fields shown in Results per pump' });
+		for (const name of hidden) {
+			expect(within(menu).getByRole('checkbox', { name }), String(name)).not.toBeChecked();
+		}
+		expect(within(menu).getByRole('checkbox', { name: /^NPSH margin ratio/ })).toBeChecked();
+		expect(
+			within(menu)
+				.getAllByRole('checkbox')
+				.filter((c) => (c as HTMLInputElement).checked)
+		).toHaveLength(7);
+		expect(within(menu).getByRole('button', { name: 'Show all' })).toBeInTheDocument();
+		expect(within(menu).queryByRole('button', { name: 'Default fields' })).toBeNull();
+		await fireEvent.keyDown(fields, { key: 'Escape' });
+		// The trace keeps every value: one step away.
+		await fireEvent.click(within(table).getByRole('button', { name: /^Transfer pump/ }));
+		const dialog = within(await screen.findByRole('dialog', { name: 'Transfer pump' }));
+		const values = dialog.getByRole('region', { name: 'Result values' });
+		for (const label of [
+			'Hydraulic power (kW)',
+			'NPSHa (m)',
+			'NPSHr (m)',
+			'NPSH margin (m)',
+			'NPSH margin ratio'
+		]) {
+			expect(values, label).toHaveTextContent(label);
+		}
+	});
+
+	it('explains the NPSH margin ratio under Results per pump, and when it is not given (docs/proposals/pumps-nits.md item 4, review PUMPS-NITS-B2)', async () => {
+		const { panel } = await solveAndOpenPumps(pumpTransferExample(), pumpTransferSolved());
+		const note = panel.getByText(/^Head is the rise in the energy grade line/);
+		const words = note.textContent!.replace(/\s+/g, ' ');
+		expect(words).toMatch(/NPSH margin ratio is NPSHa [÷/] NPSHr/);
+		expect(words).toMatch(/not given where NPSHr is zero/);
+	});
+
+	it('names the cavitation and the margin in the NPSH margin ratio cell of a pump with no ratio whose margin is negative, on a phone too (docs/proposals/pumps-nits.md item 4)', async () => {
+		localStorage.removeItem('opensolve-pipe:results-fields:Results per pump');
+		// Made-up results: the booster's NPSHr is 0 at its flow and its NPSHa −2.521 m, so its margin
+		// is −2.521 m, it has no ratio and CAVITATION is raised (corpus unit_rich1090 PU2).
+		const base = pumpTransferExample();
+		const booster = createComponent('pump', base, { name: 'Booster pump' });
+		const project = insertComponentInConnection(base, 'L3', booster);
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult(),
+				[booster.id]: pumpResult({
+					npshAvailable: -2.521,
+					npshRequired: 0,
+					npshMargin: -2.521,
+					npshMarginRatio: null
+				})
+			},
+			flags: [
+				flag({
+					code: 'CAVITATION',
+					severity: 'invalid',
+					message: 'made-up',
+					componentId: booster.id
+				})
+			]
+		});
+		const { panel } = await solveAndOpenPumps(project, solved);
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		const ratio = (name: string) => {
+			const cell = rowFor(table, name).querySelector('td[data-label="NPSH margin ratio"]');
+			expect(cell, `${name}: its NPSH margin ratio cell`).toBeInstanceOf(HTMLElement);
+			return cell as HTMLElement;
+		};
+		expect(ratio('Transfer pump')).toHaveTextContent(/^4$/);
+		const cue = ratio('Booster pump');
+		expect(cue).toHaveTextContent(/cavitat/i);
+		expect(cue.textContent).toMatch(/[-−]2\.521/);
+		// Not a value the row has none of: a phone's list shows it.
+		expect(cue).not.toHaveClass('max-sm:sr-only');
+	});
+
+	it("draws each pump's status as a pill holding its state word, tinted by the state, the qualifier after it as plain text and the cell's words the label's (docs/proposals/pumps-nits.md item 2)", async () => {
+		// Made-up results: the transfer pump holds a flow setpoint (CLAUDE.md D11), booster A is
+		// off and booster B gives no flow, the system head above its shutoff head.
+		const base = pumpTransferExample();
+		const a = createComponent('pump', base, { name: 'Booster pump A' });
+		const withA = insertComponentInConnection(base, 'L3', a);
+		const b = createComponent('pump', withA, { name: 'Booster pump B' });
+		const project = insertComponentInConnection(withA, 'L4', b);
+		(project.components.find((c) => c.id === 'P1') as Pump).control = {
+			mode: 'flow',
+			setpoint: 0.02,
+			minSpeed: 0.4
+		};
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({
+					speed: 0.873214,
+					control: { mode: 'flow', setpoint: 0.02, state: 'active', setpointAchieved: true }
+				}),
+				[a.id]: pumpResult({ status: 'off', operatingFlow: 0, hydraulicPower: 0 }),
+				[b.id]: pumpResult({ status: 'no_flow', operatingFlow: 0, operatingHead: 35 })
+			},
+			flags: [
+				flag({
+					code: 'PUMP_FLOW_REVERSAL',
+					severity: 'invalid',
+					message: 'made-up',
+					componentId: b.id,
+					details: { headRise: 35, shutoffHead: 30 }
+				})
+			]
+		});
+		const { panel } = await solveAndOpenPumps(project, solved);
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		const status = (name: string) =>
+			within(rowFor(table, name))
+				.getAllByRole('cell')
+				.find((c) => c.dataset.label === 'Status')!;
+		for (const [name, word, tone, label] of [
+			[
+				'Transfer pump',
+				'Running',
+				'bg-green-200 text-green-900',
+				'Running (holding flow setpoint)'
+			],
+			['Booster pump A', 'Off', 'bg-slate-200 text-slate-700', 'Off'],
+			[
+				'Booster pump B',
+				'No flow',
+				'bg-red-200 text-red-950',
+				'No flow (system head above shutoff)'
+			]
+		] as const) {
+			const cell = status(name);
+			const pills = cell.querySelectorAll('[data-status-pill]');
+			expect(pills, name).toHaveLength(1);
+			const pill = pills[0] as HTMLElement;
+			// The state word alone in the pill; no icon, glyph or border (never a flag or a control).
+			expect(pill.textContent, name).toBe(word);
+			expect(pill.children, name).toHaveLength(0);
+			expect(pill, name).toHaveClass(...tone.split(' '));
+			expect(pill, name).toHaveClass(
+				'inline-block',
+				'align-top',
+				'rounded-full',
+				'px-2',
+				'text-xs',
+				'leading-5',
+				'font-medium',
+				'whitespace-nowrap'
+			);
+			expect(pill.className, name).not.toMatch(/\bborder\b|\bpy-/);
+			// The cell's words are the label's, word for word: the export, Compare and the trace
+			// read the same words, and a screen reader hears them as before.
+			expect(cell.textContent!.trim(), name).toBe(label);
+			// The qualifier follows the pill as plain text, inside one element with it, so a phone's
+			// row wraps it after the pill.
+			expect(pill.parentElement!.textContent, name).toBe(label);
+			expect(pill.parentElement!.parentElement, name).toBe(cell);
+			expect(pill.previousSibling, name).toBeNull();
+		}
+		// Every other cell as before: its text alone.
+		expect(cells(rowFor(table, 'Transfer pump'))).toEqual(
+			expect.arrayContaining(['Flow 20 L/s: held', '87.32'])
+		);
+		expect(table.querySelectorAll('[data-status-pill]')).toHaveLength(3);
 	});
 
 	it('cancels the curve being computed; computed again on request, it is shown', async () => {
@@ -571,6 +908,19 @@ describe('pump chart: the system curve on demand (D10)', () => {
 				.getAllByRole('option')
 				.map((o) => o.textContent)
 		).toEqual(['Transfer pump', 'Booster pump']);
+		// Named by the chart's heading, beside it; its cost sentence visible and its description
+		// (proposal pumps-results-layout.md §5.3 item 2).
+		const heading = panel.getByRole('heading', { level: 3, name: 'Pump chart' });
+		expect(heading).toHaveAttribute('tabindex', '-1');
+		expect(picker).toHaveAttribute('aria-labelledby', heading.id);
+		expect(picker.parentElement).toBe(heading.parentElement);
+		const hint = panel.getByText(
+			'The pump and system curves of one pump at a time; each system curve is computed when its pump is shown.'
+		);
+		expect(hint).toBeVisible();
+		// Visible at every width: jsdom applies no CSS, so its markup says (§5.3 item 2, §6.4 item 8).
+		expect(outOfSight(hint)).toBe(false);
+		expect(picker).toHaveAccessibleDescription(hint.textContent!.replace(/\s+/g, ' ').trim());
 		expect(panel.getAllByRole('figure')).toHaveLength(1);
 		expect(
 			panel.getByRole('figure', { name: 'Pump and system curves: Transfer pump' })
@@ -579,12 +929,15 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		answers[0]!(systemCurveResponse('P1'));
 		await panel.findByRole('table', { name: 'System curve' });
 		await fireEvent.change(picker, { target: { value: booster.id } });
-		expect(
-			panel.getByRole('figure', { name: 'Pump and system curves: Booster pump' })
-		).toBeInTheDocument();
+		const boosterFigure = panel.getByRole('figure', {
+			name: 'Pump and system curves: Booster pump'
+		});
+		// The new chart's line, too, is drawn empty before it speaks (§7 Live regions, F17).
+		const line = boosterFigure.querySelector('[data-pump-strip] [aria-live]')!;
+		expect(line.textContent).toBe('');
 		await vi.waitFor(() => expect(systemCurve).toHaveBeenCalledTimes(2));
 		expect(systemCurve.mock.calls[1]![1]).toBe(booster.id);
-		expect(panel.getByText('Computing the system curve for this solve…')).toBeInTheDocument();
+		expect(await panel.findByText('Computing the system curve for this solve…')).toBe(line);
 		// Back to the first pump: its curve is cached.
 		await fireEvent.change(picker, { target: { value: 'P1' } });
 		expect(await panel.findByRole('table', { name: 'System curve' })).toBeInTheDocument();
@@ -613,6 +966,11 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		const { answers, panel } = await solveAndOpenPumps(project, solved);
 		const table = panel.getByRole('table', { name: 'Results per pump' });
 		expect(within(table).getByRole('columnheader', { name: 'Control' })).toBeInTheDocument();
+		// Twelve fields with Control, eight shown by default (docs/proposals/pumps-nits.md items 3
+		// and 4).
+		expect(
+			panel.getByRole('button', { name: 'Fields (8 of 12), Results per pump' })
+		).toBeInTheDocument();
 		const row = rowFor(table, 'Transfer pump');
 		expect(cells(row)).toEqual(
 			expect.arrayContaining(['Running (holding flow setpoint)', 'Flow 20 L/s: held', '87.32'])

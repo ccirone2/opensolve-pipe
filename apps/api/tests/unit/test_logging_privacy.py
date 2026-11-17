@@ -94,7 +94,7 @@ def test_a_scenario_request_logs_nothing_of_its_body(caplog: pytest.LogCaptureFi
     }
     project["scenarios"] = [scenario]
     rejected = {**scenario, "id": "S8", "overrides": [{**overrides[0], "value": -9.87654}]}
-    client = TestClient(app, client=("198.51.103.7", 50000))
+    client = TestClient(app, client=("198.51.112.7", 50000))
     with caplog.at_level(logging.DEBUG):
         ok = client.post("/api/v1/solve", json={"project": project, "scenarioId": "S7"})
         project["scenarios"].append(rejected)
@@ -124,7 +124,7 @@ def test_a_goal_seek_request_logs_nothing_of_its_body(caplog: pytest.LogCaptureF
         "upper": 34.56789,
     }
     goal = {"quantity": "link_flow", "elementId": "P1", "target": 0.0234567}
-    client = TestClient(app, client=("198.51.103.8", 50000))
+    client = TestClient(app, client=("198.51.112.8", 50000))
     with caplog.at_level(logging.DEBUG):
         ok = client.post(
             "/api/v1/goal-seek",
@@ -162,7 +162,7 @@ def test_a_pump_group_request_logs_nothing_of_its_body(caplog: pytest.LogCapture
             conn["toPortId"] = "discharge"
         if conn["id"] == "LB2":
             conn["fromPortId"] = "suction"
-    client = TestClient(app, client=("198.51.103.9", 50000))
+    client = TestClient(app, client=("198.51.112.9", 50000))
     url = "/api/v1/pump-group-curve"
     with caplog.at_level(logging.DEBUG):
         ok = client.post(

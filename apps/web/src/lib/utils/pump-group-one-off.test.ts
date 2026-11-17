@@ -1,0 +1,2074 @@
+/**
+ * One pump off, drawn together (CLAUDE.md D21 slice 4d), with pump lineups (D24 slice L1b): 4d's
+ * names for one pump off (the Add cases block's plan is tested in pump-lineups.test.ts), whether
+ * two cases share the rest of the network, the duty claim, the other cases' states and the chart's cases,
+ * Running combinations with its lineup line, and its extremes; and for the curve family (D24
+ * slice L3) the station inside and each other case's curve state. The responses are the shared
+ * fixture's real API answers (the `one-off`, `one-off-dead-headed`, `lineups` and
+ * `lineups-closed-leg` cases and their scenario cases,
+ * apps/api/tests/fixtures/pump_groups_input.py); a few edits are synthetic, as named.
+ */
+import { describe, expect, it } from 'vitest';
+import type {
+	Flag,
+	PipeSpec,
+	Project,
+	PumpGroupCurveResponse,
+	PumpGroupStation,
+	PumpResult,
+	ResistanceSpec,
+	Scenario,
+	SolveResponse,
+	TopologyIssue
+} from '$lib/api/types';
+import { hydraulicFingerprint, type GroupCurveState } from '$lib/state/project.svelte';
+import {
+	lineupAnswers,
+	lineupInput,
+	lineupOn,
+	lineups,
+	lineupSolved,
+	lineupStation,
+	readyState
+} from '$lib/testing/curve-family';
+import fixture from './__fixtures__/pump-groups-input.json';
+import { caseTagOf, caseTags, ratedCurveRange } from './pump-chart';
+import { DUTY_CHECK_FLOOR, groupTable, type GroupMemberInput } from './pump-group-chart';
+import { refusalWords, wordsText } from './pump-groups';
+import {
+	chartKeys,
+	combinationExtremes,
+	combinationsOrder,
+	combinationsLead,
+	DUTY_CLAIM_RULE,
+	DUTY_CLAIM_WORDS,
+	dutyClaim,
+	groupCurveDrawn,
+	INVALID_MARKED,
+	insideOf,
+	LEAD_MARK_NAMES,
+	MAX_GROUP_CASES,
+	offName,
+	OTHER_CURVE_WORDS,
+	otherGroupCases,
+	restOf,
+	runningCombinations,
+	runningWords,
+	sameInside,
+	sameStation,
+	sharedRest,
+	type CombinationsInput,
+	type OtherCasesInput,
+	type OtherGroupCase
+} from './pump-group-one-off';
+import { pumpLineup } from './pump-lineups';
+import { applyScenario, SCENARIO_NAME_LIMIT, withScenarios } from './scenarios';
+
+interface Answer {
+	status: number;
+	body: unknown;
+}
+interface ScenarioCase {
+	solve: SolveResponse;
+	groupCurve: Answer;
+	systemCurve: Answer;
+}
+interface FixtureCase {
+	name: string;
+	project: Project;
+	memberIds: string[];
+	solve: SolveResponse;
+	groupCurve: Answer;
+	systemCurve: Answer | null;
+	scenarioCases?: Record<string, ScenarioCase>;
+}
+const cases = fixture.cases as unknown as FixtureCase[];
+const named = (name: string) => cases.find((c) => c.name === name)!;
+
+const oneOff = named('one-off');
+const body = (a: Answer) => a.body as PumpGroupCurveResponse;
+const station = body(oneOff.groupCurve).station;
+const baseSystem = body(oneOff.systemCurve!);
+const scenarioCase = (id: string) => oneOff.scenarioCases![id]!;
+/** The `one-off` cases' numbers (caseTags): the base "Base", S1 to S4 1 to 4. */
+const oneOffTags = caseTags(oneOff.project);
+
+describe("4d's names for one pump off", () => {
+	// 4d's block and its shape are gone: the Add cases block (PumpLineupsBlock) draws
+	// lineupPlan, whose Each pump off tests (4d's plan tests, moved) are in pump-lineups.test.ts.
+	it('cuts a long pump name to the scenario name limit, as copyName cuts', () => {
+		const long = 'P'.repeat(98);
+		expect(offName(long)).toBe(`${'P'.repeat(96)} off`);
+		expect(offName(long)).toHaveLength(SCENARIO_NAME_LIMIT);
+		expect(offName('Pump PA')).toBe('Pump PA off');
+		// With the id that tells it apart: the name is cut, never the id.
+		expect(offName(long, 'PA')).toBe(`${'P'.repeat(91)} (PA) off`);
+		expect(offName(long, 'PA')).toHaveLength(SCENARIO_NAME_LIMIT);
+	});
+});
+
+describe('the rest of the network and the duty claim', () => {
+	/** A case as solved: the project as sent with its scenario applied (store.caseInputs). */
+	const solvedAs = (project: Project, caseId: string | null) =>
+		caseId === null ? project : applyScenario(project, caseId).project;
+	const withExtra = (overrides: Scenario['overrides']) =>
+		withScenarios(structuredClone(oneOff.project), [
+			...oneOff.project.scenarios!,
+			{ id: 'S9', name: 'Extra', overrides }
+		]);
+	const shared = (shown: Project | null, other: Project | null, s: PumpGroupStation = station) =>
+		sharedRest(shown, other, s, hydraulicFingerprint);
+	const base = oneOff.project;
+
+	it('compares each case as solved without the station inside', () => {
+		expect(restOf(base, station).components.map((c) => c.id)).toEqual(['R1', 'R2']);
+		expect(restOf(base, station).connections.map((c) => c.id)).toEqual(['L1', 'L2']);
+		expect(shared(solvedAs(base, 'S1'), solvedAs(base, null))).toBe(true);
+		expect(shared(solvedAs(base, 'S2'), solvedAs(base, 'S1'))).toBe(true);
+		expect(shared(solvedAs(base, 'S4'), solvedAs(base, null))).toBe(true);
+		expect(shared(solvedAs(base, 'S3'), solvedAs(base, null))).toBe(false);
+		expect(shared(null, solvedAs(base, null))).toBe(false);
+	});
+
+	it('counts what the solve sees outside the station, never what does not change it', () => {
+		const fluid = withExtra([{ kind: 'project', field: 'fluid.temperature', value: 313.15 }]);
+		expect(shared(solvedAs(fluid, 'S9'), solvedAs(fluid, null))).toBe(false);
+		const sameLevel = withExtra([
+			{ kind: 'component', componentId: 'R2', field: 'liquidLevel', value: 2.0 }
+		]);
+		expect(shared(solvedAs(sameLevel, 'S9'), solvedAs(sameLevel, null))).toBe(true);
+		const speed = withExtra([{ kind: 'component', componentId: 'PB', field: 'speed', value: 0.9 }]);
+		expect(shared(solvedAs(speed, 'S9'), solvedAs(speed, null))).toBe(true);
+		const spec = withExtra([
+			{
+				kind: 'pipe',
+				connectionId: 'LA1',
+				pipeIndex: 0,
+				field: 'spec',
+				value: { materialId: 'custom', innerDiameter: 0.09, roughness: 4.5e-5 }
+			}
+		]);
+		expect(solvedAs(spec, 'S9').connections.find((c) => c.id === 'LA1')).not.toEqual(
+			base.connections.find((c) => c.id === 'LA1')
+		);
+		expect(shared(solvedAs(spec, 'S9'), solvedAs(spec, null))).toBe(true);
+	});
+
+	it('tells a case solved on an earlier base: an outside pipe edited since', () => {
+		const edited = structuredClone(base);
+		edited.connections.find((c) => c.id === 'L2')!.piping.pipes[0]!.length += 10;
+		// The base solved again now; S1 solved on the base before the edit.
+		expect(shared(solvedAs(edited, null), solvedAs(base, 'S1'))).toBe(false);
+	});
+
+	it('leaves out what changes no value outside: the design checks, library entries only the inside uses', () => {
+		// The base edited since S2 was solved (synthetic edits), then solved again.
+		const checks = structuredClone(base);
+		checks.settings.designChecks!.npshMargin!.minimumMargin = 2.0;
+		expect(hydraulicFingerprint(checks)).not.toBe(hydraulicFingerprint(base));
+		expect(shared(solvedAs(checks, null), solvedAs(base, 'S2'))).toBe(true);
+		// Curve PC-A: only PA and PB, inside the station, use it.
+		const curve = structuredClone(base);
+		for (const p of curve.pumpLibrary[0]!.points) p.head *= 1.02;
+		expect(shared(solvedAs(curve, null), solvedAs(base, 'S2'))).toBe(true);
+		expect(restOf(base, station).pumpLibrary).toEqual([]);
+		// A pipe spec on an interior pipe only, added since: no library outside either way.
+		const spec: PipeSpec = {
+			id: 'PS1',
+			name: 'Bore of LA1',
+			source: 'synthetic',
+			materialId: 'custom',
+			innerDiameter: base.connections.find((c) => c.id === 'LA1')!.piping.pipes[0]!.innerDiameter!,
+			roughness: null
+		};
+		const inside = structuredClone(base);
+		inside.pipeLibrary = [spec];
+		inside.connections.find((c) => c.id === 'LA1')!.piping.pipes[0]!.specId = 'PS1';
+		expect(shared(solvedAs(inside, null), solvedAs(base, 'S2'))).toBe(true);
+		// The same spec on an outside pipe, edited: another rest.
+		const outside = structuredClone(inside);
+		outside.connections.find((c) => c.id === 'L2')!.piping.pipes[0]!.specId = 'PS1';
+		const respec = structuredClone(outside);
+		respec.pipeLibrary![0]!.innerDiameter = 0.2;
+		expect(restOf(outside, station).pipeLibrary!.map((s) => s.id)).toEqual(['PS1']);
+		expect(shared(solvedAs(respec, null), solvedAs(outside, 'S2'))).toBe(false);
+		// A resistance entry on an interior fitting, then on an outside one, edited.
+		const entry: ResistanceSpec = {
+			id: 'RS1',
+			name: 'Elbow',
+			source: 'synthetic',
+			kind: 'Cv',
+			value: 400
+		};
+		const valved = structuredClone(base);
+		valved.resistanceLibrary = [entry];
+		valved.connections.find((c) => c.id === 'LA1')!.piping.fittings[0]!.resistanceId = 'RS1';
+		const revalued = structuredClone(valved);
+		revalued.resistanceLibrary![0]!.value = 500;
+		expect(shared(solvedAs(revalued, null), solvedAs(valved, 'S2'))).toBe(true);
+		const outer = structuredClone(valved);
+		outer.connections.find((c) => c.id === 'L2')!.piping.fittings[0]!.resistanceId = 'RS1';
+		const outerRevalued = structuredClone(outer);
+		outerRevalued.resistanceLibrary![0]!.value = 500;
+		expect(shared(solvedAs(outerRevalued, null), solvedAs(outer, 'S2'))).toBe(false);
+		// A pump outside the station on the members' curve (synthetic, unconnected): its curve
+		// edited changes the rest.
+		const pa = base.components.find((c) => c.id === 'PA')!;
+		const booster = structuredClone(base);
+		booster.components.push({ ...structuredClone(pa), id: 'PX', name: 'Booster PX' });
+		const reshaped = structuredClone(booster);
+		for (const p of reshaped.pumpLibrary[0]!.points) p.head *= 1.02;
+		expect(restOf(booster, station).pumpLibrary.map((c) => c.id)).toEqual(['PC-A']);
+		expect(shared(solvedAs(reshaped, null), solvedAs(booster, 'S2'))).toBe(false);
+	});
+
+	it('takes a reservoir taken whole as an outside element (not in the interior)', () => {
+		const whole: PumpGroupStation = {
+			...station,
+			inlet: { componentId: 'R1', portId: null }
+		};
+		expect(whole.interiorComponentIds).not.toContain('R1');
+		const level = withExtra([
+			{ kind: 'component', componentId: 'R1', field: 'liquidLevel', value: 3.5 }
+		]);
+		expect(shared(solvedAs(level, 'S9'), solvedAs(level, null), whole)).toBe(false);
+	});
+
+	it('tells the same station by its ports, arrangement, members and interior', () => {
+		expect(sameStation(body(scenarioCase('S1').groupCurve).station, station)).toBe(true);
+		expect(
+			sameStation(
+				{ ...station, interiorConnectionIds: station.interiorConnectionIds.slice(1) },
+				station
+			)
+		).toBe(false);
+		expect(sameStation({ ...station, inlet: station.outlet, outlet: station.inlet }, station)).toBe(
+			false
+		);
+	});
+
+	it('calls a duty a point of the curve shown only on the same rest, above zero flow, between risen points, the shown duty on it', () => {
+		const duty = (id: string) => body(scenarioCase(id).groupCurve).duty!;
+		expect(dutyClaim({ shared: true, duty: duty('S1'), system: baseSystem })).toBe('on');
+		expect(dutyClaim({ shared: true, duty: duty('S2'), system: baseSystem })).toBe('on');
+		expect(dutyClaim({ shared: false, duty: duty('S3'), system: baseSystem })).toBe('rest_differs');
+		expect(dutyClaim({ shared: true, duty: duty('S4'), system: baseSystem })).toBe('zero_flow');
+		// With "Pump PA off" shown, the base's flow lies beyond that case's own curve.
+		const s1System = body(scenarioCase('S1').systemCurve);
+		const baseDuty = body(oneOff.groupCurve).duty!;
+		expect(s1System.flowRange!.max).toBeLessThan(baseDuty.flow);
+		expect(dutyClaim({ shared: true, duty: baseDuty, system: s1System })).toBe('beyond_range');
+		expect(dutyClaim({ shared: true, duty: duty('S1'), system: null })).toBe('no_curve');
+		// Synthetic: a point next to the flow without a rise; the shown duty off its curve.
+		const gap = structuredClone(baseSystem);
+		const q = duty('S1').flow;
+		const next = [...gap.systemPoints].sort((a, b) => a.flow - b.flow).find((p) => p.flow >= q)!;
+		next.head = null;
+		expect(dutyClaim({ shared: true, duty: duty('S1'), system: gap })).toBe('gap');
+		const off = structuredClone(baseSystem);
+		off.systemDutyCheck!.agrees = false;
+		expect(dutyClaim({ shared: true, duty: duty('S1'), system: off })).toBe('shown_duty');
+	});
+
+	it('words a different rest as the two cases’ difference, whichever is shown', () => {
+		// "Delivery tank 5 m higher" shown: the base and "Pump PA off" change nothing outside, yet
+		// their rests differ from the case shown's, so neither is said to change it.
+		const s3 = solvedAs(base, 'S3');
+		const s3System = body(scenarioCase('S3').systemCurve);
+		const baseDuty = body(oneOff.groupCurve).duty!;
+		const claim = dutyClaim({
+			shared: shared(s3, solvedAs(base, null)),
+			duty: baseDuty,
+			system: s3System
+		});
+		expect(claim).toBe('rest_differs');
+		expect(DUTY_CLAIM_WORDS[claim]).toBe(
+			"No: the rest of the network differs from this case's; its own group system curve is not drawn"
+		);
+		expect(DUTY_CLAIM_WORDS[claim]).not.toMatch(/it changes/);
+		expect(shared(s3, solvedAs(base, 'S1'))).toBe(false);
+	});
+
+	it('words each claim and the rule', () => {
+		expect(DUTY_CLAIM_WORDS).toEqual({
+			on: 'Yes: the same rest of the network',
+			rest_differs:
+				"No: the rest of the network differs from this case's; its own group system curve is not drawn",
+			no_curve: 'Not said: no group system curve is drawn for this case',
+			zero_flow: 'Not said: at zero station flow the rest can hold more than one state',
+			beyond_range: 'Not said: its flow is beyond the flows this curve was computed for',
+			gap: 'Not said: the curve has no rise next to its flow',
+			shown_duty:
+				"Not said: this case's own duty is not on the curve (several steady states can exist; the duty is the one the solve found)"
+		});
+		expect(DUTY_CLAIM_RULE).toBe(
+			"A ring is called a point of the group system curve shown only when its case, as solved, is the same as this one outside the station, its station flow is above zero, the curve has a rise at the computed flows on both sides of it, and this case's own duty is on the curve. Its duty is then a steady state of the same rest of the network, so it lies on the curve wherever the rest has one state at its flow; the curve is drawn through sampled points, each the state the system curve's starts find."
+		);
+	});
+});
+
+describe('the other cases on the chart', () => {
+	const ready = (a: Answer): GroupCurveState => ({ status: 'ready', response: body(a) });
+	/** The four scenario cases of `one-off`, every curve answered, each sharing the rest but S3. */
+	function input(values: Partial<OtherCasesInput> = {}): OtherCasesInput {
+		return {
+			valued: ['S1', 'S2', 'S3', 'S4'].map((id) => ({
+				key: id,
+				caseId: id,
+				name: oneOff.project.scenarios!.find((s) => s.id === id)!.name,
+				stale: false,
+				group: ready(scenarioCase(id).groupCurve),
+				system: undefined,
+				shared: id !== 'S3',
+				solved: applyScenario(oneOff.project, id).project
+			})),
+			tags: oneOffTags,
+			shownKeys: new Set(['S1', 'S2', 'S3', 'S4']),
+			othersOn: true,
+			shownSettled: true,
+			station,
+			systemShown: baseSystem,
+			memberIds: ['PA', 'PB'],
+			project: oneOff.project,
+			boxes: ['PA', 'PB'],
+			...values
+		};
+	}
+
+	it('takes at most six cases in the lineups’ order; an unticked case lets the next in', () => {
+		const scenario = (id: string) => oneOff.project.scenarios!.find((s) => s.id === id)!;
+		const level = (id: string, value: number): Scenario => ({
+			id,
+			name: `Delivery tank at ${value} m`,
+			overrides: [{ kind: 'component', componentId: 'R2', field: 'liquidLevel', value }]
+		});
+		// Seven cases with values in case order: the base (2 running, another case here), the
+		// two with one pump off (1 running) third and fifth, both off (0) sixth. The chart's order
+		// is lineupChartPriority's (D24 §4.6, which replaces 4d's): one lineup of each number
+		// running first, most running first, then the other lineups, then the rest.
+		const project = withScenarios(structuredClone(oneOff.project), [
+			scenario('S3'),
+			scenario('S1'),
+			level('S5', 3),
+			scenario('S2'),
+			scenario('S4'),
+			level('S6', 4)
+		]);
+		const valued = ['', 'S3', 'S1', 'S5', 'S2', 'S4', 'S6'].map((key) => ({
+			key,
+			caseId: key || null
+		}));
+		const members = ['PA', 'PB'];
+		expect(MAX_GROUP_CASES).toBe(6);
+		expect(chartKeys(valued, project, members, [])).toEqual(['', 'S1', 'S4', 'S2', 'S3', 'S5']);
+		// One unticked: the next case in that order comes in.
+		expect(chartKeys(valued, project, members, ['S3'])).toEqual(['', 'S1', 'S4', 'S2', 'S5', 'S6']);
+		expect(chartKeys(valued, project, members, ['S1'])).toEqual(['', 'S4', 'S2', 'S3', 'S5', 'S6']);
+		// Six or fewer: every case ticked.
+		expect(chartKeys(valued.slice(0, 4), project, members, [''])).toEqual(['S1', 'S3', 'S5']);
+	});
+
+	// Nit 5 (owner, 2026-11-12; Q2 "By list place"; docs/proposals/pumps-nits.md item 5, slice
+	// 5b): each ring its case's number (caseTags), never its place among the rings drawn.
+	it('numbers each ring by its case, each with its duty and claim', () => {
+		const others = otherGroupCases(input());
+		expect(others.map((o) => [o.key, o.state, o.number, o.claim])).toEqual([
+			['S1', 'ready', 1, 'on'],
+			['S2', 'ready', 2, 'on'],
+			['S3', 'ready', 3, 'rest_differs'],
+			['S4', 'ready', 4, 'zero_flow']
+		]);
+		expect(others[0]!.duty).toEqual({
+			flow: body(scenarioCase('S1').groupCurve).duty!.flow,
+			head: body(scenarioCase('S1').groupCurve).duty!.head
+		});
+		expect(others[0]!.words).toBe('Yes: the same rest of the network');
+		// Unticked: no ring, and every other ring keeps its case's number (it was numbered on).
+		const unticked = otherGroupCases(input({ shownKeys: new Set(['S2', 'S3', 'S4']) }));
+		expect(unticked.map((o) => [o.state, o.number])).toEqual([
+			['unticked', null],
+			['ready', 2],
+			['ready', 3],
+			['ready', 4]
+		]);
+	});
+
+	it('words every state', () => {
+		const one = (
+			group: GroupCurveState | undefined,
+			values: Partial<OtherCasesInput> = {},
+			system?: GroupCurveState
+		) => {
+			const base = input(values);
+			const [first] = base.valued;
+			return otherGroupCases({ ...base, valued: [{ ...first!, group, system }] })[0]!;
+		};
+		const words = (o: ReturnType<typeof one>) => [o.state, o.words, o.retry];
+		expect(words(one(undefined, { shownKeys: new Set() }))).toEqual([
+			'unticked',
+			'not on the chart (unticked under Cases on this chart)',
+			false
+		]);
+		expect(words(one(undefined, { othersOn: false }))).toEqual([
+			'off',
+			"not computed: tick “Also show the other cases' station duties”",
+			false
+		]);
+		// With the box off, "Cases on this chart" is not shown: an unticked case is off too.
+		expect(words(one(undefined, { othersOn: false, shownKeys: new Set() }))).toEqual([
+			'off',
+			"not computed: tick “Also show the other cases' station duties”",
+			false
+		]);
+		expect(words(one(undefined, { shownSettled: false }))).toEqual([
+			'waiting',
+			"waits for this case's curves",
+			false
+		]);
+		// Not asked yet while a calculation runs: no other case is asked then, so it waits for it
+		// (then for the case shown's curves, while those are still to answer).
+		expect(words(one(undefined, { calculating: 'solveAll' }))).toEqual([
+			'waiting',
+			'waits for Solve all to end',
+			false
+		]);
+		expect(words(one(undefined, { calculating: 'solve', shownSettled: false }))).toEqual([
+			'waiting',
+			"waits for the solve to end, then for this case's curves",
+			false
+		]);
+		expect(words(one(undefined, { calculating: 'goalSeek' }))).toEqual([
+			'waiting',
+			'waits for the goal seek to end',
+			false
+		]);
+		// Not asked yet with no calculation and the case shown's curves answered: asked this turn.
+		expect(words(one(undefined, { calculating: null }))).toEqual([
+			'loading',
+			'being computed',
+			false
+		]);
+		expect(words(one({ status: 'loading' }))).toEqual(['loading', 'being computed', false]);
+		// Asked while a calculation runs: the store sends it only once that ends.
+		expect(words(one({ status: 'loading' }, { calculating: 'solveAll' }))).toEqual([
+			'waiting',
+			'waits for Solve all to end',
+			false
+		]);
+		expect(words(one({ status: 'cancelled', by: 'user' }))).toEqual([
+			'cancelled',
+			'cancelled: you cancelled it',
+			true
+		]);
+		expect(words(one({ status: 'cancelled', by: 'solve' }))).toEqual([
+			'cancelled',
+			'cancelled by a solve; asked again when it ends',
+			false
+		]);
+		expect(words(one({ status: 'cancelled', by: 'goalSeek' }))).toEqual([
+			'cancelled',
+			'cancelled by a goal seek; asked again when it ends',
+			false
+		]);
+		expect(
+			words(one({ status: 'error', message: 'Too many requests; try again in a minute.' }))
+		).toEqual(['error', 'failed: Too many requests; try again in a minute.', true]);
+		const noDuty = structuredClone(body(scenarioCase('S1').groupCurve));
+		noDuty.duty = null;
+		noDuty.message = "the station's outlet is closed off in this case";
+		expect(words(one({ status: 'ready', response: noDuty }))).toEqual([
+			'no_duty',
+			"no duty: the station's outlet is closed off in this case.",
+			false
+		]);
+		const elsewhere = structuredClone(body(scenarioCase('S1').groupCurve));
+		elsewhere.station = { ...elsewhere.station, inlet: { componentId: 'R1', portId: null } };
+		expect(words(one({ status: 'ready', response: elsewhere }))).toEqual([
+			'other_station',
+			'another station in this case: from Reservoir R1 to Tee T2 (run outlet) there',
+			false
+		]);
+	});
+
+	it('words a refusal as the card does, and takes a PRV-refused case’s duty from its system curve', () => {
+		const refused = named('refused');
+		const issues = (refused.groupCurve.body as { issues: TopologyIssue[] }).issues;
+		const base = input();
+		const [first] = base.valued;
+		const [o] = otherGroupCases({
+			...base,
+			project: refused.project,
+			valued: [
+				{
+					...first!,
+					solved: refused.project,
+					group: { status: 'refused', message: 'Not a station.', issues }
+				}
+			]
+		});
+		expect(o!.state).toBe('refused');
+		// The card's own words for the first issue, with that case's topology.
+		const words = wordsText(
+			refusalWords(issues[0]!, ['PA', 'PB'], refused.project, {
+				solved: refused.project,
+				boxes: ['PA', 'PB']
+			})
+		);
+		expect(o!.words).toBe(`not a station in this case: ${words}`);
+		expect(words).toMatch(/^The pumps meet the fixed heads of Reservoir R2 and Tank R4,/);
+		const prv = named('prv-inside');
+		const prvIssues = (prv.groupCurve.body as { issues: TopologyIssue[] }).issues;
+		const prvGroup: GroupCurveState = { status: 'refused', message: 'PRV', issues: prvIssues };
+		const prvStation = body(prv.systemCurve!).station;
+		const answered = otherGroupCases({
+			...base,
+			station: prvStation,
+			valued: [
+				{ ...first!, group: prvGroup, system: undefined },
+				{ ...first!, key: 'S2', caseId: 'S2', group: prvGroup, system: ready(prv.systemCurve!) }
+			]
+		});
+		// Its ring numbered by its case, S2's 2 (nit 5, slice 5b; it was 1, its place among the rings).
+		expect(answered.map((x) => [x.state, x.number])).toEqual([
+			['loading', null],
+			['ready', 2]
+		]);
+		expect(answered[1]!.duty!.flow).toBe(body(prv.systemCurve!).duty!.flow);
+	});
+});
+
+describe('Running combinations', () => {
+	const prefs = oneOff.project.settings.units;
+	const members = [
+		{ id: 'PA', name: 'Pump PA', slot: 0 },
+		{ id: 'PB', name: 'Pump PB', slot: 1 }
+	];
+	/** Every case of `one-off`, the base shown, each with its fixture solve. */
+	function combinationsInput(values: Partial<CombinationsInput> = {}): CombinationsInput {
+		return {
+			members,
+			cases: [null, 'S1', 'S2', 'S3', 'S4'].map((id) => ({
+				key: id ?? '',
+				name: id ? oneOff.project.scenarios!.find((s) => s.id === id)!.name : 'Base case',
+				shown: id === null,
+				status: 'solved' as const,
+				response: id ? scenarioCase(id).solve : oneOff.solve,
+				stale: false,
+				station: null,
+				tag: caseTagOf(oneOffTags, id ?? '')
+			})),
+			prefs,
+			project: oneOff.project,
+			...values
+		};
+	}
+	const groupMembers = (c: FixtureCase): GroupMemberInput[] =>
+		c.memberIds.map((id, slot) => {
+			const pump = c.project.components.find((x) => x.id === id)!;
+			return {
+				id,
+				name: pump.name,
+				result: c.solve.solvedState.pumpResults[id] as PumpResult,
+				ratedRange: ratedCurveRange(c.project, id),
+				curveId: pump.type === 'pump' ? pump.curveId : null,
+				slot,
+				flags: (c.solve.solvedState.flags as Flag[]).filter((f) => f.componentId === id)
+			};
+		});
+
+	it('lists every case, the shown first, with the group table’s cells for the case shown', () => {
+		const table = runningCombinations(combinationsInput());
+		expect(table.groups.map((g) => g.heading)).toEqual([
+			'Base case (shown)',
+			'Pump PA off',
+			'Pump PB off',
+			'Delivery tank 5 m higher',
+			'Both pumps off'
+		]);
+		// Pump PB runs at 0.85 in the base: the speed column, as the group table has it.
+		expect(table.columns.map((c) => c.key)).toEqual([
+			'state',
+			'speed',
+			'flow',
+			'head',
+			'shaftPower',
+			'npshMargin',
+			'npshMarginRatio',
+			'inCurve',
+			'checks'
+		]);
+		const group = groupTable(
+			groupMembers(oneOff),
+			oneOff.solve.solvedState.nodeResults,
+			null,
+			prefs,
+			oneOff.project
+		);
+		const shown = table.groups[0]!;
+		for (const [i, row] of shown.rows.entries()) {
+			const expected = group.rows[i]!;
+			expect(row.id).toBe(expected.id);
+			for (const key of [
+				'state',
+				'speed',
+				'flow',
+				'head',
+				'shaftPower',
+				'npshMargin',
+				'npshMarginRatio',
+				'inCurve'
+			]) {
+				expect(row.cells[key], key).toEqual(expected.cells[key]);
+				expect(row.cells[key], key).toBeDefined();
+			}
+			expect(row.sortKeys).toEqual(expected.sortKeys);
+			expect(row.flags).toEqual(expected.flags);
+			expect(row.style).toEqual(expected.style);
+		}
+		expect(shown.rows[0]!.cells.checks).toBe(
+			'Not met: Operating region, Motor power · Met: NPSH margin'
+		);
+		const pbOff = table.groups[2]!;
+		expect(pbOff.rows[0]!.cells.inCurve).toBe('No: beyond its data');
+		expect(pbOff.rows[0]!.flags.map((f) => [f.code, f.severity])).toContainEqual([
+			'PUMP_OUTSIDE_CURVE',
+			'warning'
+		]);
+		expect(pbOff.rows[1]!.cells.state).toBe('Off');
+		expect(table.groups[4]!.rows.map((r) => r.cells.state)).toEqual(['Off', 'Off']);
+	});
+
+	it('marks a pump held at zero flow as physically invalid, with its words', () => {
+		const c = named('one-off-dead-headed');
+		const table = runningCombinations({
+			members,
+			cases: [
+				{
+					key: '',
+					name: 'Base case',
+					shown: true,
+					status: 'solved',
+					response: c.solve,
+					stale: false,
+					station: null,
+					tag: 'Base'
+				}
+			],
+			prefs,
+			project: c.project
+		});
+		const pb = table.groups[0]!.rows[1]!;
+		expect(pb.cells.state).toBe('No flow (system head above shutoff)');
+		expect(pb.invalid).toBe(true);
+		expect(pb.flags.map((f) => f.code)).toContain('PUMP_FLOW_REVERSAL');
+		expect(table.groups[0]!.rows[0]!.invalid).toBe(false);
+		// No design checks in that project: no column.
+		expect(table.columns.map((col) => col.key)).not.toContain('checks');
+	});
+
+	it('gives a case without values Compare’s words, and no rows', () => {
+		const notConverged = structuredClone(scenarioCase('S1').solve);
+		notConverged.solvedState.converged = false;
+		const base = combinationsInput();
+		const table = runningCombinations({
+			...base,
+			cases: [
+				base.cases[0]!,
+				{ ...base.cases[1]!, status: 'not_converged', response: notConverged },
+				{ ...base.cases[2]!, status: 'failed', response: null },
+				{ ...base.cases[3]!, status: 'not_solved', response: null }
+			]
+		});
+		expect(table.groups.slice(1).map((g) => [g.detail, g.values, g.rows.length])).toEqual([
+			['Did not converge: no values shown', false, 0],
+			['Failed', false, 0],
+			['Not solved', false, 0]
+		]);
+	});
+
+	it('adds the speed column when a pump that is on runs at another speed or under a control', () => {
+		const only = (c: FixtureCase) =>
+			runningCombinations({
+				members,
+				cases: [
+					{
+						key: '',
+						name: 'Base case',
+						shown: true,
+						status: 'solved',
+						response: c.solve,
+						stale: false,
+						station: null,
+						tag: 'Base'
+					}
+				],
+				prefs: c.project.settings.units,
+				project: c.project
+			});
+		expect(only(named('controlled')).columns.map((col) => col.key)).toContain('speed');
+		// Pump PB at a fixed 0.85 in every case of `one-off`; off in "Pump PB off".
+		const table = runningCombinations(combinationsInput());
+		expect(table.columns.map((col) => col.key)).toContain('speed');
+		// In % as the group table gives it (its cells for the case shown are compared above).
+		expect(table.columns.find((col) => col.key === 'speed')!.unit).toBe('%');
+		expect(table.groups[0]!.rows.map((r) => r.cells.speed)).toEqual(['100', '85']);
+		expect(table.groups[2]!.rows.map((r) => r.cells.speed)).toEqual(['100', '—']);
+		// Both pumps at speed 1 without a control: no column.
+		const plain = named('refused-own-loops');
+		expect(
+			Object.values(plain.solve.solvedState.pumpResults).map((r) => [r.speed, r.control])
+		).toEqual([
+			[1, null],
+			[1, null]
+		]);
+		expect(only(plain).columns.map((col) => col.key)).not.toContain('speed');
+		// Off at another speed: its speed is never shown, so no column for it alone.
+		const off = named('off');
+		expect(off.solve.solvedState.pumpResults.PB).toMatchObject({ status: 'off', speed: 0.85 });
+		expect(only(off).columns.map((col) => col.key)).not.toContain('speed');
+	});
+
+	it('says per case which members carry flow, are on and carry none, are off or have no result (D24 §7.10)', () => {
+		const only = (
+			c: FixtureCase,
+			ids: string[],
+			cases: { key: string; response: SolveResponse }[]
+		) =>
+			runningCombinations({
+				members: ids.map((id, slot) => ({
+					id,
+					name: c.project.components.find((x) => x.id === id)!.name,
+					slot
+				})),
+				cases: cases.map((x, i) => ({
+					key: x.key,
+					name: x.key || 'Base case',
+					shown: i === 0,
+					status: 'solved' as const,
+					response: x.response,
+					stale: false,
+					station: null,
+					tag: caseTagOf(caseTags(c.project), x.key)
+				})),
+				prefs,
+				project: c.project
+			}).groups.map((g) => g.lineup);
+		// The one-off project: both, one off, both off.
+		expect(runningCombinations(combinationsInput()).groups.map((g) => g.lineup)).toEqual([
+			'2 of 2 carrying flow: Pump PA and Pump PB',
+			'1 of 2 carrying flow: Pump PB; off: Pump PA',
+			'1 of 2 carrying flow: Pump PA; off: Pump PB',
+			'2 of 2 carrying flow: Pump PA and Pump PB',
+			'0 of 2 carrying flow; off: Pump PA and Pump PB'
+		]);
+		// On and held at no flow (no_flow), and on behind a closed valve (running at 0.0 m³/s): both
+		// on, carrying no flow; with PB off too its leg is closed off, and PB has no result.
+		const dead = named('one-off-dead-headed');
+		expect(dead.solve.solvedState.pumpResults.PB!.status).toBe('no_flow');
+		expect(only(dead, ['PA', 'PB'], [{ key: '', response: dead.solve }])).toEqual([
+			'1 of 2 carrying flow: Pump PA; on, carrying no flow: Pump PB'
+		]);
+		const closed = named('lineups-closed-leg');
+		const pb = closed.solve.solvedState.pumpResults.PB!;
+		expect([pb.status, pb.operatingFlow]).toEqual(['running', 0]);
+		expect(closed.scenarioCases!.S1!.solve.solvedState.pumpResults.PB).toBeUndefined();
+		expect(
+			only(
+				closed,
+				['PA', 'PB'],
+				[
+					{ key: '', response: closed.solve },
+					{ key: 'S1', response: closed.scenarioCases!.S1!.solve }
+				]
+			)
+		).toEqual([
+			'1 of 2 carrying flow: Pump PA; on, carrying no flow: Pump PB',
+			'1 of 2 carrying flow: Pump PA; no result: Pump PB'
+		]);
+		// The lineups project's cases (the proposal's example is S2's).
+		const lineups = named('lineups');
+		const ids = ['P1', 'P2', 'P3', 'P4'];
+		const lines = only(lineups, ids, [
+			{ key: '', response: lineups.solve },
+			...['S1', 'S2', 'S3', 'S5'].map((key) => ({
+				key,
+				response: lineups.scenarioCases![key]!.solve
+			}))
+		]);
+		expect(lines).toEqual([
+			'4 of 4 carrying flow: Pump P1, Pump P2, Pump P3 and Pump P4',
+			'3 of 4 carrying flow: Pump P1, Pump P2 and Pump P3; off: Pump P4',
+			'2 of 4 carrying flow: Pump P1 and Pump P2; off: Pump P3 and Pump P4',
+			'1 of 4 carrying flow: Pump P1; off: Pump P2, Pump P3 and Pump P4',
+			'3 of 4 carrying flow: Pump P1, Pump P3 and Pump P4; off: Pump P2'
+		]);
+		// Every part at once, on a synthetic edit: P2 on behind a closed valve, P3 off, P4 closed off.
+		const all = structuredClone(lineups.solve);
+		all.solvedState.pumpResults.P2!.operatingFlow = 0;
+		all.solvedState.pumpResults.P3!.status = 'off';
+		delete all.solvedState.pumpResults.P4;
+		const every = only(lineups, ids, [{ key: '', response: all }])[0]!;
+		expect(every).toBe(
+			'1 of 4 carrying flow: Pump P1; on, carrying no flow: Pump P2; off: Pump P3; no result: Pump P4'
+		);
+		// The line never says "running", which in a lineup's name means switched on.
+		for (const line of [...lines, every]) expect(line).not.toMatch(/running/i);
+		// Two members of one name: told apart by their ids, as the rows are.
+		const twins = runningCombinations({
+			...combinationsInput(),
+			members: members.map((m) => ({ ...m, name: 'Booster pump' }))
+		});
+		expect(twins.groups[2]!.lineup).toBe(
+			'1 of 2 carrying flow: Booster pump (PA); off: Booster pump (PB)'
+		);
+		// No values: no line.
+		const base = combinationsInput();
+		const none = runningCombinations({
+			...base,
+			cases: [base.cases[0]!, { ...base.cases[1]!, status: 'failed', response: null }]
+		});
+		expect(none.groups.map((g) => g.lineup)).toEqual([
+			'2 of 2 carrying flow: Pump PA and Pump PB',
+			null
+		]);
+	});
+
+	it('marks the group of the case shown, a scenario as the base, never the base case for being the base (§5.3 Pump names)', () => {
+		const base = combinationsInput();
+		// Scenario S3 shown: its group alone is the shown one (its names the trace buttons).
+		const table = runningCombinations({
+			...base,
+			cases: base.cases.map((c) => ({ ...c, shown: c.key === 'S3' }))
+		});
+		expect(table.groups.map((g) => [g.key, g.shown])).toEqual([
+			['', false],
+			['S1', false],
+			['S2', false],
+			['S3', true],
+			['S4', false]
+		]);
+		expect(table.groups.find((g) => g.shown)!.heading).toBe('Delivery tank 5 m higher (shown)');
+		expect(table.groups[0]!.heading).toBe('Base case');
+	});
+
+	// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5, slice 5b): its case's number
+	// beside the heading, in a box (`tag`), in place of " · ring 1" in the words.
+	it('heads each group with its state and its case’s number, an out-of-date one tinted', () => {
+		const base = combinationsInput();
+		const table = runningCombinations({
+			...base,
+			cases: [
+				{ ...base.cases[0]!, station: 'Station 55.15 L/s at a rise of 27.38 m' },
+				{ ...base.cases[1]!, stale: true, station: 'line' }
+			]
+		});
+		expect(table.groups[0]!.detail).toBe('Station 55.15 L/s at a rise of 27.38 m');
+		expect([table.groups[1]!.tag, table.groups[1]!.heading]).toEqual([
+			1,
+			'Pump PA off (out of date)'
+		]);
+		expect(table.groups[1]!.stale).toBe(true);
+	});
+});
+
+// Case numbers (owner, 2026-11-12, nit 5; Q2 "By list place"; docs/proposals/pumps-nits.md item
+// 5, slice 5b): a ring's number is its case's (caseTags: "Base", then 1 to n by the Scenarios
+// list), never its place among the rings drawn, so an untick, a tick or the chart's order moves
+// none; D24's lineup priority only chooses which cases are drawn and which go past the cap.
+// Running combinations heads each case with its tag in place of " · ring n".
+describe('case numbers on the group chart and in Running combinations (nit 5, slice 5b)', () => {
+	const ready = (a: Answer): GroupCurveState => ({ status: 'ready', response: body(a) });
+	/**
+	 * The tags of `one-off` (caseTags, checked in the first test): S1 Pump PA off 1, S2 Pump PB off
+	 * 2, S3 the tank 3, S4 both off 4.
+	 */
+	const TAGS = { '': 'Base', S1: 1, S2: 2, S3: 3, S4: 4 } as const;
+	const tags = (): Readonly<Record<string, 'Base' | number>> => TAGS;
+	/** The four scenario cases in the chart's order (lineupChartPriority: S1, S4, S2, S3). */
+	function input(values: Partial<OtherCasesInput> = {}): OtherCasesInput {
+		return {
+			valued: ['S1', 'S4', 'S2', 'S3'].map((id) => ({
+				key: id,
+				caseId: id,
+				name: oneOff.project.scenarios!.find((s) => s.id === id)!.name,
+				stale: false,
+				group: ready(scenarioCase(id).groupCurve),
+				system: undefined,
+				shared: id !== 'S3',
+				solved: applyScenario(oneOff.project, id).project
+			})),
+			tags: tags(),
+			shownKeys: new Set(['S1', 'S2', 'S3', 'S4']),
+			othersOn: true,
+			shownSettled: true,
+			station,
+			systemShown: baseSystem,
+			memberIds: ['PA', 'PB'],
+			project: oneOff.project,
+			boxes: ['PA', 'PB'],
+			...values
+		};
+	}
+
+	it('numbers each ring by its case, whatever order the cases come in', () => {
+		// In the chart's order: Pump PA off 1, Both pumps off 4, Pump PB off 2, the tank 3 (today
+		// numbered 1 to 4 in that order, so Both pumps off was ring 2 here and × on the pump chart).
+		expect(otherGroupCases(input()).map((o) => [o.key, o.number])).toEqual([
+			['S1', 1],
+			['S4', 4],
+			['S2', 2],
+			['S3', 3]
+		]);
+		// The tags given are the project's own.
+		expect(caseTags(oneOff.project)).toEqual(TAGS);
+	});
+
+	it('keeps every other ring’s number when case 1 is unticked (no ring renumbered)', () => {
+		const unticked = otherGroupCases(input({ shownKeys: new Set(['S2', 'S3', 'S4']) }));
+		expect(unticked.map((o) => [o.key, o.state, o.number])).toEqual([
+			['S1', 'unticked', null],
+			['S4', 'ready', 4],
+			['S2', 'ready', 2],
+			['S3', 'ready', 3]
+		]);
+		// And past the cap or not on the chart for any reason: the others keep theirs.
+		const two = otherGroupCases(input({ shownKeys: new Set(['S3', 'S4']) }));
+		expect(two.filter((o) => o.number !== null).map((o) => [o.key, o.number])).toEqual([
+			['S4', 4],
+			['S3', 3]
+		]);
+	});
+
+	it('gives the base case its tag when it is another case (a scenario shown)', () => {
+		const shownS2 = otherGroupCases(
+			input({
+				valued: [
+					{
+						key: '',
+						caseId: null,
+						name: 'Base case',
+						stale: false,
+						group: ready(oneOff.groupCurve),
+						system: undefined,
+						shared: true,
+						solved: oneOff.project
+					},
+					...input().valued.filter((v) => v.key !== 'S2')
+				],
+				shownKeys: new Set(['', 'S1', 'S3', 'S4'])
+			})
+		);
+		expect(shownS2.map((o) => [o.key, o.number])).toEqual([
+			['', 'Base'],
+			['S1', 1],
+			['S4', 4],
+			['S3', 3]
+		]);
+	});
+
+	const members = [
+		{ id: 'PA', name: 'Pump PA', slot: 0 },
+		{ id: 'PB', name: 'Pump PB', slot: 1 }
+	];
+	/** Every case of `one-off` in number order, the base shown, each with its fixture solve and tag. */
+	const combinations = (): CombinationsInput => ({
+		members,
+		cases: [null, 'S1', 'S2', 'S3', 'S4'].map((id) => ({
+			key: id ?? '',
+			name: id ? oneOff.project.scenarios!.find((s) => s.id === id)!.name : 'Base case',
+			shown: id === null,
+			status: 'solved' as const,
+			response: id ? scenarioCase(id).solve : oneOff.solve,
+			stale: false,
+			station: null,
+			tag: tags()[id ?? '']!
+		})),
+		prefs: oneOff.project.settings.units,
+		project: oneOff.project
+	});
+
+	it('heads each case of Running combinations with its tag, never " · ring n"', () => {
+		const table = runningCombinations(combinations());
+		expect(table.groups.map((g) => [g.tag, g.heading])).toEqual([
+			['Base', 'Base case (shown)'],
+			[1, 'Pump PA off'],
+			[2, 'Pump PB off'],
+			[3, 'Delivery tank 5 m higher'],
+			[4, 'Both pumps off']
+		]);
+		// Out of date, and a scenario shown: the words without a ring, the tag beside them.
+		const base = combinations();
+		const stale = runningCombinations({
+			...base,
+			cases: [
+				{ ...base.cases[3]!, shown: true },
+				{ ...base.cases[0]!, shown: false },
+				{ ...base.cases[4]!, stale: true, station: 'line' }
+			]
+		});
+		expect(stale.groups.map((g) => [g.tag, g.heading])).toEqual([
+			[3, 'Delivery tank 5 m higher (shown)'],
+			['Base', 'Base case'],
+			[4, 'Both pumps off (out of date)']
+		]);
+		for (const g of [...table.groups, ...stale.groups]) expect(g.heading).not.toMatch(/ring/);
+	});
+});
+
+describe('Running combinations’ order (nit 5, slice 5b)', () => {
+	it('puts the case shown first, then every other case in number order, whatever order they come in', () => {
+		// The base shown: 1 to 4.
+		expect(combinationsOrder([null, 'S1', 'S2', 'S3', 'S4'], null, oneOffTags)).toEqual([
+			null,
+			'S1',
+			'S2',
+			'S3',
+			'S4'
+		]);
+		// A scenario shown: it first, then the base and the rest by number, from any order given.
+		expect(combinationsOrder(['S4', 'S2', null, 'S3', 'S1'], 'S3', oneOffTags)).toEqual([
+			'S3',
+			null,
+			'S1',
+			'S2',
+			'S4'
+		]);
+		// The Scenarios list reordered (S3, S1, S2, S4): its numbers, not the ids, set the order.
+		const project = withScenarios(structuredClone(oneOff.project), [
+			...['S3', 'S1', 'S2', 'S4'].map((id) => oneOff.project.scenarios!.find((s) => s.id === id)!)
+		]);
+		expect(combinationsOrder([null, 'S1', 'S2', 'S3', 'S4'], 'S2', caseTags(project))).toEqual([
+			'S2',
+			null,
+			'S3',
+			'S1',
+			'S4'
+		]);
+	});
+});
+
+describe('Running combinations’ lead (pumps-results-layout.md §5.3, §9 S5)', () => {
+	const members = [
+		{ id: 'PA', name: 'Pump PA', slot: 0 },
+		{ id: 'PB', name: 'Pump PB', slot: 1 }
+	];
+	/** Every case of a fixture project, the base shown, each with its fixture solve. */
+	function everyCase(c: FixtureCase, ids: readonly string[] = c.memberIds): CombinationsInput {
+		const scenarios = Object.keys(c.scenarioCases ?? {});
+		return {
+			members: ids.map((id, slot) => ({
+				id,
+				name: c.project.components.find((x) => x.id === id)!.name,
+				slot
+			})),
+			cases: [null, ...scenarios].map((id) => ({
+				key: id ?? '',
+				name: id ? c.project.scenarios!.find((x) => x.id === id)!.name : 'Base case',
+				shown: id === null,
+				status: 'solved' as const,
+				response: id ? c.scenarioCases![id]!.solve : c.solve,
+				stale: false,
+				station: null,
+				tag: caseTagOf(caseTags(c.project), id ?? '')
+			})),
+			prefs: c.project.settings.units,
+			project: c.project
+		};
+	}
+	/** The severities of a solve's flags on the members, read from the solve (not the table). */
+	const severities = (response: SolveResponse, ids: readonly string[]) =>
+		new Set(
+			(response.solvedState.flags as Flag[])
+				.filter((f) => f.componentId && ids.includes(f.componentId))
+				.map((f) => f.severity)
+		);
+
+	it('words the lineups fixture as the proposal does: 9 current, 1 with warnings, its mark the warning', () => {
+		const lineupsCase = named('lineups');
+		const lead = combinationsLead(runningCombinations(everyCase(lineupsCase)));
+		expect(lead.text).toBe(
+			'9 cases: 9 with current results (none physically invalid, 1 with warnings), none out of date, none without results.'
+		);
+		expect(lead.mark).toBe('warning');
+		expect(LEAD_MARK_NAMES[lead.mark!]).toBe('Warning');
+	});
+
+	it('counts each case once: current, then of those invalid or else with warnings; out of date; without results; v + m + f = n', () => {
+		const dead = named('one-off-dead-headed');
+		const base = everyCase(oneOff);
+		const notConverged = structuredClone(scenarioCase('S3').solve);
+		notConverged.solvedState.converged = false;
+		const input: CombinationsInput = {
+			...base,
+			cases: [
+				// Current: no member flag.
+				base.cases[0]!,
+				// Current: PA has warnings (PUMP_OUTSIDE_CURVE), none invalid.
+				base.cases[2]!,
+				// Current: PB invalid (PUMP_FLOW_REVERSAL) and PA warnings: counted as invalid only.
+				{ ...base.cases[1]!, key: 'X1', name: 'Held', response: dead.solve },
+				// Out of date: its warnings are not counted (the extremes' rule, §5.3).
+				{ ...base.cases[2]!, key: 'X2', name: 'Stale', stale: true },
+				// Without results: failed, not solved, and a solve that did not converge.
+				{ ...base.cases[3]!, status: 'failed', response: null },
+				{ ...base.cases[4]!, status: 'not_solved', response: null },
+				{ ...base.cases[3]!, key: 'X3', status: 'not_converged', response: notConverged }
+			]
+		};
+		// What each case holds, read from its solve: the table's groups count the same.
+		expect([...severities(oneOff.solve, ['PA', 'PB'])]).toEqual([]);
+		expect([...severities(scenarioCase('S2').solve, ['PA', 'PB'])]).toEqual(['warning']);
+		expect(severities(dead.solve, ['PA', 'PB'])).toEqual(new Set(['warning', 'invalid']));
+		const lead = combinationsLead(runningCombinations(input));
+		expect(lead).toEqual({
+			cases: 7,
+			current: 3,
+			invalid: 1,
+			warnings: 1,
+			outOfDate: 1,
+			without: 3,
+			mark: 'invalid',
+			text: '7 cases: 3 with current results (1 physically invalid, 1 with warnings), 1 out of date, 3 without results.'
+		});
+		expect(lead.current + lead.outOfDate + lead.without).toBe(lead.cases);
+		expect(LEAD_MARK_NAMES[lead.mark!]).toBe('Physically invalid');
+	});
+
+	it('says "none" for each count at zero, and has no mark without an invalid or a warning flag', () => {
+		const base = everyCase(oneOff);
+		// The cases with no member flag: the base, Pump PA off, the tank and both off.
+		const clean = { ...base, cases: base.cases.filter((c) => c.key !== 'S2') };
+		const lead = combinationsLead(runningCombinations(clean));
+		expect(lead.text).toBe(
+			'4 cases: 4 with current results (none physically invalid, none with warnings), none out of date, none without results.'
+		);
+		expect(lead.mark).toBeNull();
+		// No current case at all: v is a number, never "none" (§6.2).
+		const failed = combinationsLead(
+			runningCombinations({
+				...base,
+				cases: base.cases.slice(0, 2).map((c) => ({ ...c, status: 'failed', response: null }))
+			})
+		);
+		expect(failed.text).toBe(
+			'2 cases: 0 with current results (none physically invalid, none with warnings), none out of date, 2 without results.'
+		);
+		expect(failed.mark).toBeNull();
+	});
+
+	it('counts an info flag in neither, and marks a warning when no current case is invalid', () => {
+		const base = everyCase(oneOff);
+		const info = structuredClone(oneOff.solve);
+		info.solvedState.flags = [
+			...info.solvedState.flags,
+			// Synthetic: an info flag on a member.
+			{
+				code: 'PUMP_OUTSIDE_CURVE',
+				severity: 'info',
+				message: 'synthetic info',
+				componentId: 'PA'
+			} as Flag
+		];
+		const lead = combinationsLead(
+			runningCombinations({
+				...base,
+				cases: [{ ...base.cases[0]!, response: info }, base.cases[2]!]
+			})
+		);
+		expect(lead.invalid).toBe(0);
+		expect(lead.warnings).toBe(1);
+		expect(lead.mark).toBe('warning');
+		expect(lead.text).toBe(
+			'2 cases: 2 with current results (none physically invalid, 1 with warnings), none out of date, none without results.'
+		);
+		// An invalid flag only in a case out of date: neither counted nor marked.
+		const dead = named('one-off-dead-headed');
+		const stale = combinationsLead(
+			runningCombinations({
+				...base,
+				members,
+				cases: [base.cases[0]!, { ...base.cases[1]!, response: dead.solve, stale: true }]
+			})
+		);
+		expect([stale.invalid, stale.warnings, stale.outOfDate, stale.mark]).toEqual([0, 0, 1, null]);
+	});
+
+	it('counts a case out of date by its heading’s rule, values or not: a stale solve that did not converge is out of date, a stale failure without results (§5.3)', () => {
+		const base = everyCase(oneOff);
+		const notConverged = structuredClone(scenarioCase('S1').solve);
+		notConverged.solvedState.converged = false;
+		// The review's case: S1's solve did not converge, S2's failed, every case solved, then an
+		// edit. Every case's status is then 'stale'; PumpsView passes a stale case's response on.
+		const table = runningCombinations({
+			...base,
+			cases: base.cases.map((c) =>
+				c.key === 'S1'
+					? { ...c, status: 'stale', response: notConverged, stale: true }
+					: c.key === 'S2'
+						? { ...c, status: 'stale', response: null, stale: true }
+						: { ...c, status: 'stale', stale: true }
+			)
+		});
+		const headed = table.groups.filter((g) => g.heading.includes('(out of date)'));
+		expect(table.groups.map((g) => [g.heading, g.detail])).toEqual([
+			['Base case (shown) (out of date)', null],
+			['Pump PA off (out of date)', 'Out of date'],
+			['Pump PB off', 'Out of date'],
+			['Delivery tank 5 m higher (out of date)', null],
+			['Both pumps off (out of date)', null]
+		]);
+		const lead = combinationsLead(table);
+		// m is the number of groups headed "(out of date)"; the failure has no results (f).
+		expect(lead.outOfDate).toBe(headed.length);
+		expect(lead).toMatchObject({ cases: 5, current: 0, outOfDate: 4, without: 1 });
+		expect(lead.text).toBe(
+			'5 cases: 0 with current results (none physically invalid, none with warnings), 4 out of date, 1 without results.'
+		);
+		expect(lead.current + lead.outOfDate + lead.without).toBe(lead.cases);
+		// The same not-converged solve while current has no values and no "(out of date)": f.
+		const current = combinationsLead(
+			runningCombinations({
+				...base,
+				cases: [
+					base.cases[0]!,
+					{ ...base.cases[1]!, status: 'not_converged', response: notConverged }
+				]
+			})
+		);
+		expect([current.current, current.outOfDate, current.without]).toEqual([1, 0, 1]);
+	});
+
+	it('says "1 case" for one', () => {
+		const base = everyCase(oneOff);
+		const lead = combinationsLead(runningCombinations({ ...base, cases: [base.cases[0]!] }));
+		expect(lead.text).toBe(
+			'1 case: 1 with current results (none physically invalid, none with warnings), none out of date, none without results.'
+		);
+	});
+});
+
+describe('the extremes over the cases', () => {
+	const prefs = oneOff.project.settings.units;
+	const members = [
+		{ id: 'PA', name: 'Pump PA', slot: 0 },
+		{ id: 'PB', name: 'Pump PB', slot: 1 }
+	];
+	const all = (ids: (string | null)[] = [null, 'S1', 'S2', 'S3', 'S4']): CombinationsInput => ({
+		members,
+		cases: ids.map((id) => ({
+			key: id ?? '',
+			name: id ? oneOff.project.scenarios!.find((s) => s.id === id)!.name : 'Base case',
+			shown: id === null,
+			status: 'solved' as const,
+			response: id ? scenarioCase(id).solve : oneOff.solve,
+			stale: false,
+			station: null,
+			tag: caseTagOf(oneOffTags, id ?? '')
+		})),
+		prefs,
+		project: oneOff.project
+	});
+
+	// The NPSH reading is the margin ratio since the owner's nit 4 and Q3 ("Ratio everywhere";
+	// docs/proposals/pumps-nits.md item 4, review E-1-4): moved from the smallest margin, at the
+	// same strictness, the ratio the API's (NPSHa ÷ NPSHr) to 4 significant figures.
+	it('gives each pump’s largest flow and shaft power and smallest NPSH margin ratio, with its case', () => {
+		const { lines, notCounted } = combinationExtremes(all());
+		expect(notCounted).toEqual([]);
+		const line = (term: string) => lines.find((l) => l.term === term)!.value;
+		expect(line('Pump PA, largest flow')).toBe(
+			'40.75 L/s in Pump PB off; beyond its curve data (over 5 of 5 cases)'
+		);
+		expect(line('Pump PA, largest shaft power')).toMatch(
+			/^15\.02 kW in Base case \(over 3 of 5 cases; no value in 2\)$/
+		);
+		const ratio = scenarioCase('S2').solve.solvedState.pumpResults.PA!.npshMarginRatio!;
+		expect(String(Number(ratio.toPrecision(4)))).toBe('2.49');
+		expect(line('Pump PA, smallest NPSH margin ratio')).toBe(
+			'2.49 in Pump PB off; beyond its curve data (over 3 of 5 cases; no value in 2)'
+		);
+		expect(lines.map((l) => l.term)).toEqual([
+			'Pump PA, largest flow',
+			'Pump PA, largest shaft power',
+			'Pump PA, smallest NPSH margin ratio',
+			'Pump PB, largest flow',
+			'Pump PB, largest shaft power',
+			'Pump PB, smallest NPSH margin ratio'
+		]);
+	});
+
+	it('keys each line by the pump and the measure, and tells two pumps of the same name apart', () => {
+		// Synthetic: both members named "Booster pump" (names need not be unique).
+		const twins = { ...all(), members: members.map((m) => ({ ...m, name: 'Booster pump' })) };
+		// Running combinations' row headers too (the slot's symbol is hidden from screen readers).
+		const rows = runningCombinations(twins).groups.map((g) => g.rows.map((r) => [r.id, r.name]));
+		expect(rows).toHaveLength(5);
+		for (const group of rows) {
+			expect(group).toEqual([
+				['PA', 'Booster pump (PA)'],
+				['PB', 'Booster pump (PB)']
+			]);
+		}
+		expect(runningCombinations(all()).groups[0]!.rows.map((r) => r.name)).toEqual([
+			'Pump PA',
+			'Pump PB'
+		]);
+		const { lines } = combinationExtremes(twins);
+		expect(lines.map((l) => l.key)).toEqual([
+			'PA:operatingFlow',
+			'PA:shaftPower',
+			'PA:npshMarginRatio',
+			'PB:operatingFlow',
+			'PB:shaftPower',
+			'PB:npshMarginRatio'
+		]);
+		expect(lines.map((l) => l.term)).toEqual([
+			'Booster pump (PA), largest flow',
+			'Booster pump (PA), largest shaft power',
+			'Booster pump (PA), smallest NPSH margin ratio',
+			'Booster pump (PB), largest flow',
+			'Booster pump (PB), largest shaft power',
+			'Booster pump (PB), smallest NPSH margin ratio'
+		]);
+		// Names of their own: the plain words.
+		expect(combinationExtremes(all()).lines[0]!.term).toBe('Pump PA, largest flow');
+	});
+
+	it('names the other cases on equal doubles', () => {
+		const input = all();
+		const copy = { ...input.cases[2]!, key: 'S5', name: 'Copy of Pump PB off', shown: false };
+		const { lines } = combinationExtremes({ ...input, cases: [...input.cases, copy] });
+		expect(lines.find((l) => l.term === 'Pump PA, largest flow')!.value).toBe(
+			'40.75 L/s in Pump PB off and 1 other case; beyond its curve data (over 6 of 6 cases)'
+		);
+	});
+
+	it('counts current cases only, names those out of date, and needs two', () => {
+		const input = all();
+		const stale = { ...input.cases[2]!, stale: true };
+		const { lines, notCounted } = combinationExtremes({
+			...input,
+			cases: [input.cases[0]!, input.cases[1]!, stale, input.cases[3]!]
+		});
+		expect(notCounted).toEqual(['Pump PB off']);
+		expect(lines.find((l) => l.term === 'Pump PA, largest flow')!.value).toBe(
+			'37.37 L/s in Base case (over 3 of 3 cases)'
+		);
+		expect(combinationExtremes(all([null])).lines).toEqual([]);
+		const none = combinationExtremes(all([null, 'S4']));
+		expect(none.lines.find((l) => l.term === 'Pump PA, largest shaft power')!.value).toBe(
+			'15.02 kW in Base case (over 1 of 2 cases; no value in 1)'
+		);
+		const dead = named('one-off-dead-headed');
+		const invalid = combinationExtremes({
+			members,
+			cases: [
+				{
+					key: '',
+					name: 'Base case',
+					shown: true,
+					status: 'solved',
+					response: dead.solve,
+					stale: false,
+					station: null,
+					tag: 'Base'
+				},
+				{
+					key: 'S1',
+					name: 'Pump PA off',
+					shown: false,
+					status: 'solved',
+					response: dead.scenarioCases!.S1!.solve,
+					stale: false,
+					station: null,
+					tag: 1
+				}
+			],
+			prefs,
+			project: dead.project
+		});
+		const pbHead = invalid.lines.find((l) => l.term === 'Pump PB, smallest NPSH margin ratio')!;
+		expect(pbHead.value).toBe('no case gives one');
+		const pbFlow = invalid.lines.find((l) => l.term === 'Pump PB, largest flow')!;
+		expect(pbFlow.value).toMatch(/ in Pump PA off \(over 2 of 2 cases\)$/);
+		expect(pbFlow.invalid).toBe(false);
+		// Held at zero flow in both (synthetic: the base twice): physically invalid where it is.
+		const held = combinationExtremes({
+			members,
+			cases: ['Base case', 'Copy'].map((name, i) => ({
+				key: String(i),
+				name,
+				shown: i === 0,
+				status: 'solved' as const,
+				response: dead.solve,
+				stale: false,
+				station: null,
+				tag: i === 0 ? ('Base' as const) : i
+			})),
+			prefs,
+			project: dead.project
+		});
+		const pbHeld = held.lines.find((l) => l.term === 'Pump PB, largest flow')!;
+		expect(pbHeld.value).toBe(
+			'0 L/s in Base case and 1 other case; physically invalid (over 2 of 2 cases)'
+		);
+		expect(pbHeld.invalid).toBe(true);
+	});
+});
+
+describe('the extremes as a table (pumps-results-layout.md §5.3, §9 S5)', () => {
+	const prefs = oneOff.project.settings.units;
+	const members = [
+		{ id: 'PA', name: 'Pump PA', slot: 0 },
+		{ id: 'PB', name: 'Pump PB', slot: 1 }
+	];
+	const all = (ids: (string | null)[] = [null, 'S1', 'S2', 'S3', 'S4']): CombinationsInput => ({
+		members,
+		cases: ids.map((id) => ({
+			key: id ?? '',
+			name: id ? oneOff.project.scenarios!.find((s) => s.id === id)!.name : 'Base case',
+			shown: id === null,
+			status: 'solved' as const,
+			response: id ? scenarioCase(id).solve : oneOff.solve,
+			stale: false,
+			station: null,
+			tag: caseTagOf(oneOffTags, id ?? '')
+		})),
+		prefs,
+		project: oneOff.project
+	});
+	const dead = named('one-off-dead-headed');
+	/** The dead-headed base twice (synthetic): Pump PB held at zero flow, physically invalid. */
+	const held: CombinationsInput = {
+		members,
+		cases: ['Base case', 'Copy'].map((name, i) => ({
+			key: String(i),
+			name,
+			shown: i === 0,
+			status: 'solved' as const,
+			response: dead.solve,
+			stale: false,
+			station: null,
+			tag: i === 0 ? ('Base' as const) : i
+		})),
+		prefs,
+		project: dead.project
+	};
+	const twins = { ...all(), members: members.map((m) => ({ ...m, name: 'Booster pump' })) };
+	const lower = (label: string) => `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+
+	it('has a column per measure, its words the measure’s, and a row per member in component order', () => {
+		const { table } = combinationExtremes(all());
+		expect(table.columns).toEqual([
+			{ key: 'operatingFlow', label: 'Largest flow' },
+			{ key: 'shaftPower', label: 'Largest shaft power' },
+			{ key: 'npshMarginRatio', label: 'Smallest NPSH margin ratio' }
+		]);
+		expect(table.rows.map((r) => [r.id, r.name])).toEqual([
+			['PA', 'Pump PA'],
+			['PB', 'Pump PB']
+		]);
+		// Named as the lines name them: the twins told apart by their ids.
+		expect(combinationExtremes(twins).table.rows.map((r) => r.name)).toEqual([
+			'Booster pump (PA)',
+			'Booster pump (PB)'
+		]);
+		// Component order, whatever the members' order.
+		const reversed = combinationExtremes({ ...all(), members: [...members].reverse() });
+		expect(reversed.table.rows.map((r) => r.id)).toEqual(['PA', 'PB']);
+	});
+
+	it('splits each value after its amount: the value on its own, then the rest', () => {
+		const { table } = combinationExtremes(all());
+		expect(table.rows[0]!.cells[0]).toEqual({
+			key: 'PA:operatingFlow',
+			amount: '40.75 L/s',
+			rest: 'in Pump PB off; beyond its curve data (over 5 of 5 cases)',
+			invalid: false
+		});
+		const { table: invalid } = combinationExtremes(held);
+		expect(invalid.rows[1]!.cells[0]).toEqual({
+			key: 'PB:operatingFlow',
+			amount: '0 L/s',
+			rest: 'in Base case and 1 other case; physically invalid (over 2 of 2 cases)',
+			invalid: true
+		});
+		// "no case gives one" fills its cell alone, with no amount.
+		const { table: none } = combinationExtremes({
+			...held,
+			cases: [held.cases[0]!, { ...held.cases[1]!, response: dead.scenarioCases!.S1!.solve }]
+		});
+		expect(none.rows[1]!.cells[2]).toEqual({
+			key: 'PB:npshMarginRatio',
+			amount: null,
+			rest: 'no case gives one',
+			invalid: false
+		});
+	});
+
+	it('is its lines cell by cell: each row’s name and column’s words the term, `${amount} ${rest}` the value', () => {
+		const inputs: [string, CombinationsInput][] = [
+			['every case', all()],
+			['two of one name', twins],
+			['held at zero flow', held],
+			[
+				'no case gives one',
+				{
+					...held,
+					cases: [held.cases[0]!, { ...held.cases[1]!, response: dead.scenarioCases!.S1!.solve }]
+				}
+			],
+			[
+				'one out of date',
+				{ ...all(), cases: all().cases.map((c, i) => ({ ...c, stale: i === 2 })) }
+			]
+		];
+		let cells = 0;
+		let empty = 0;
+		let marked = 0;
+		for (const [what, input] of inputs) {
+			const { lines, table } = combinationExtremes(input);
+			expect(lines, what).toHaveLength(table.rows.length * table.columns.length);
+			for (const [i, row] of table.rows.entries()) {
+				expect(row.cells, what).toHaveLength(table.columns.length);
+				for (const [j, cell] of row.cells.entries()) {
+					const line = lines[i * table.columns.length + j]!;
+					expect(cell.key, what).toBe(line.key);
+					expect(cell.key, what).toBe(`${row.id}:${table.columns[j]!.key}`);
+					expect(`${row.name}, ${lower(table.columns[j]!.label)}`, what).toBe(line.term);
+					expect(cell.amount === null ? cell.rest : `${cell.amount} ${cell.rest}`, what).toBe(
+						line.value
+					);
+					expect(cell.invalid, what).toBe(line.invalid);
+					if (cell.amount === null) {
+						expect(cell.rest, what).toBe('no case gives one');
+						expect(cell.invalid, what).toBe(false);
+						empty++;
+					} else {
+						// The amount is the value with its unit, the ratio's a plain number with none
+						// (pumps-nits.md item 4); the rest starts with its case.
+						expect(cell.amount, what).toMatch(
+							table.columns[j]!.key === 'npshMarginRatio' ? /^-?[\d.]+$/ : /^-?[\d.]+ \S+$/
+						);
+						expect(cell.rest, what).toMatch(/^in /);
+					}
+					if (cell.invalid) marked++;
+					cells++;
+				}
+			}
+		}
+		// Every kind of cell was compared: with an amount, without one, and marked invalid.
+		expect([cells > 0, empty > 0, marked > 0]).toEqual([true, true, true]);
+	});
+
+	it('has no rows with fewer than two current cases, its columns kept', () => {
+		const one = combinationExtremes(all([null]));
+		expect(one.lines).toEqual([]);
+		expect(one.table.rows).toEqual([]);
+		expect(one.table.columns.map((c) => c.label)).toEqual([
+			'Largest flow',
+			'Largest shaft power',
+			'Smallest NPSH margin ratio'
+		]);
+	});
+});
+
+describe('the station inside, and the other cases’ own group curves (D24 slice L3)', () => {
+	const shownSolved = lineupSolved('');
+	const inside = (shown: Project | null, other: Project | null, s = lineupStation) =>
+		sameInside(shown, other, s, hydraulicFingerprint);
+	const byKey = (list: OtherGroupCase[]) => Object.fromEntries(list.map((o) => [o.key, o]));
+
+	it('holds the station’s interior without the members’ status: its connections, the fluid, the settings without design checks, the library used inside', () => {
+		const project = lineups.project;
+		const interior = insideOf(project, lineupStation);
+		expect(interior.components.map((c) => c.id)).toEqual(lineupStation.interiorComponentIds);
+		expect(interior.connections.map((c) => c.id)).toEqual(lineupStation.interiorConnectionIds);
+		for (const id of lineupStation.memberIds) {
+			expect(interior.components.find((c) => c.id === id)).not.toHaveProperty('status');
+		}
+		// Everything else of a member and of each other interior component as stored.
+		const p1 = project.components.find((c) => c.id === 'P1')!;
+		expect({ ...interior.components.find((c) => c.id === 'P1'), status: 'on' }).toEqual(p1);
+		expect(interior.components.find((c) => c.id === 'CV1')).toEqual(
+			project.components.find((c) => c.id === 'CV1')
+		);
+		expect(interior.fluid).toEqual(project.fluid);
+		expect(interior.pumpLibrary.map((c) => c.id)).toEqual(['PC-A']);
+		// The design checks never change a solved value (D19); the one-off project has some.
+		const withChecks = oneOff.project;
+		expect(withChecks.settings.designChecks).toBeDefined();
+		expect(insideOf(withChecks, station).settings).not.toHaveProperty('designChecks');
+		expect(insideOf(withChecks, station).settings.solverOptions).toEqual(
+			withChecks.settings.solverOptions
+		);
+		// The input is not changed.
+		expect(project.components.find((c) => c.id === 'P1')).toHaveProperty('status', 'on');
+	});
+
+	it('compares two cases inside: the same, the same but for the members switched on, or other', () => {
+		// By number running and each pump off: only statuses differ inside, whichever is shown.
+		for (const key of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']) {
+			expect(inside(shownSolved, lineupSolved(key))).toBe('statuses');
+			expect(inside(lineupSolved(key), shownSolved)).toBe('statuses');
+		}
+		expect(inside(lineupSolved('S1'), lineupSolved('S4'))).toBe('statuses');
+		// A member's speed is inside; the delivery tank's level is not.
+		expect(inside(shownSolved, lineupSolved('S7'))).toBe('differs');
+		expect(inside(lineupSolved('S7'), shownSolved)).toBe('differs');
+		expect(inside(shownSolved, lineupSolved('S8'))).toBe('same');
+		expect(inside(lineupSolved('S8'), shownSolved)).toBe('same');
+		expect(inside(lineupSolved('S1'), lineupSolved('S1'))).toBe('same');
+		expect(inside(null, shownSolved)).toBe('differs');
+		expect(inside(shownSolved, null)).toBe('differs');
+	});
+
+	it('counts what the group curve sees inside, never what does not change it (synthetic edits)', () => {
+		const base = oneOff.project;
+		const s = station;
+		// A design check: the same inside.
+		const checks = structuredClone(base);
+		checks.settings.designChecks!.npshMargin!.minimumMargin = 2.0;
+		expect(inside(checks, base, s)).toBe('same');
+		// An interior pipe, the fluid, the members' curve: another inside.
+		const longer = structuredClone(base);
+		longer.connections.find((c) => c.id === 'LA1')!.piping.pipes[0]!.length += 1;
+		expect(inside(longer, base, s)).toBe('differs');
+		const warm = structuredClone(base);
+		warm.fluid = { ...warm.fluid, temperature: warm.fluid.temperature! + 20 };
+		expect(inside(warm, base, s)).toBe('differs');
+		const reshaped = structuredClone(base);
+		for (const p of reshaped.pumpLibrary[0]!.points) p.head *= 1.02;
+		expect(inside(reshaped, base, s)).toBe('differs');
+		// An outside pipe and the delivery tank: the same inside.
+		const outer = structuredClone(base);
+		outer.connections.find((c) => c.id === 'L2')!.piping.pipes[0]!.length += 10;
+		expect(inside(outer, base, s)).toBe('same');
+		// A resistance entry used only outside, revalued: the same inside; used inside: other.
+		const entry: ResistanceSpec = {
+			id: 'RS1',
+			name: 'K',
+			source: 'synthetic',
+			kind: 'Cv',
+			value: 400
+		};
+		const outside = structuredClone(base);
+		outside.resistanceLibrary = [entry];
+		outside.connections.find((c) => c.id === 'L2')!.piping.fittings[0]!.resistanceId = 'RS1';
+		const outsideRevalued = structuredClone(outside);
+		outsideRevalued.resistanceLibrary![0]!.value = 500;
+		expect(insideOf(outside, s)).not.toHaveProperty('resistanceLibrary');
+		expect(inside(outsideRevalued, outside, s)).toBe('same');
+		const insideUsed = structuredClone(base);
+		insideUsed.resistanceLibrary = [entry];
+		insideUsed.connections.find((c) => c.id === 'LA1')!.piping.fittings[0]!.resistanceId = 'RS1';
+		const insideRevalued = structuredClone(insideUsed);
+		insideRevalued.resistanceLibrary![0]!.value = 500;
+		expect(insideOf(insideUsed, s).resistanceLibrary!.map((e) => e.id)).toEqual(['RS1']);
+		expect(inside(insideRevalued, insideUsed, s)).toBe('differs');
+		// A pipe spec, likewise: on an outside pipe only, revalued, the same inside; on an interior
+		// pipe, another inside.
+		const spec: PipeSpec = {
+			id: 'PS1',
+			name: 'Bore',
+			source: 'synthetic',
+			materialId: 'custom',
+			innerDiameter: base.connections.find((c) => c.id === 'LA1')!.piping.pipes[0]!.innerDiameter!,
+			roughness: null
+		};
+		const specOutside = structuredClone(base);
+		specOutside.pipeLibrary = [spec];
+		specOutside.connections.find((c) => c.id === 'L2')!.piping.pipes[0]!.specId = 'PS1';
+		const specOutsideRevalued = structuredClone(specOutside);
+		specOutsideRevalued.pipeLibrary![0]!.innerDiameter = 0.2;
+		expect(insideOf(specOutside, s)).not.toHaveProperty('pipeLibrary');
+		expect(inside(specOutsideRevalued, specOutside, s)).toBe('same');
+		const specInside = structuredClone(base);
+		specInside.pipeLibrary = [spec];
+		specInside.connections.find((c) => c.id === 'LA1')!.piping.pipes[0]!.specId = 'PS1';
+		const specInsideRevalued = structuredClone(specInside);
+		specInsideRevalued.pipeLibrary![0]!.innerDiameter = 0.2;
+		expect(insideOf(specInside, s).pipeLibrary!.map((e) => e.id)).toEqual(['PS1']);
+		expect(inside(specInsideRevalued, specInside, s)).toBe('differs');
+		// Both at once: the one used inside kept, the one used only outside revalued, the same.
+		const specBoth = structuredClone(specInside);
+		specBoth.pipeLibrary!.push({ ...spec, id: 'PS2' });
+		specBoth.connections.find((c) => c.id === 'L2')!.piping.pipes[0]!.specId = 'PS2';
+		const specBothRevalued = structuredClone(specBoth);
+		specBothRevalued.pipeLibrary![1]!.innerDiameter = 0.2;
+		expect(insideOf(specBoth, s).pipeLibrary!.map((e) => e.id)).toEqual(['PS1']);
+		expect(inside(specBothRevalued, specBoth, s)).toBe('same');
+		// A pump curve only a pump outside the station uses (synthetic, unconnected), reshaped:
+		// the same inside; the members' own curve is kept, and only it.
+		const pa = base.components.find((c) => c.id === 'PA')!;
+		const booster = structuredClone(base);
+		booster.pumpLibrary.push({ ...structuredClone(base.pumpLibrary[0]!), id: 'PC-X' });
+		booster.components.push({
+			...structuredClone(pa),
+			id: 'PX',
+			name: 'Booster PX',
+			curveId: 'PC-X'
+		} as typeof pa);
+		const boosterReshaped = structuredClone(booster);
+		for (const p of boosterReshaped.pumpLibrary.find((c) => c.id === 'PC-X')!.points)
+			p.head *= 1.02;
+		expect(insideOf(booster, s).pumpLibrary.map((c) => c.id)).toEqual(['PC-A']);
+		expect(inside(boosterReshaped, booster, s)).toBe('same');
+	});
+
+	it('draws a lineup sibling’s curve, the base’s with a lineup shown, a stale one’s; never the same inside, another inside, unticked or past the cap', () => {
+		// The base shown: by number running and each pump off on the chart (the cap of six), S7
+		// and S8 past it.
+		const shownBase = byKey(otherGroupCases(lineupInput('')));
+		for (const key of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']) {
+			const o = shownBase[key]!;
+			expect(o.curveState).toBe('crossing');
+			expect(o.curve).toEqual({
+				points: body(lineupAnswers(key).groupCurve).points,
+				on: lineupOn(key),
+				of: 4
+			});
+		}
+		expect([1, 2, 3].map((n) => lineupOn(`S${n}`))).toEqual([3, 2, 1]);
+		for (const key of ['S7', 'S8']) {
+			expect(shownBase[key]).toMatchObject({ state: 'unticked', curve: null, curveState: null });
+		}
+		// S4 and S5 unticked: S7 (a speed inside) and S8 (the tank) come in, neither drawn.
+		const swapped = byKey(otherGroupCases(lineupInput('', { unticked: ['S4', 'S5'] })));
+		expect(swapped.S4).toMatchObject({ state: 'unticked', curve: null, curveState: null });
+		expect(swapped.S7).toMatchObject({
+			state: 'ready',
+			claim: 'on',
+			curve: null,
+			curveState: 'inside_differs',
+			curveWords: 'not drawn: the station differs inside in more than which pumps are switched on'
+		});
+		expect(swapped.S8).toMatchObject({
+			state: 'ready',
+			claim: 'rest_differs',
+			curve: null,
+			curveState: 'same_inside',
+			curveWords: "the same as this case's: the station is the same inside"
+		});
+		// A lineup shown: the base is another case, four running (its duty within the flows of
+		// "3 of 4 running"'s own group system curve, which crosses its curve there).
+		const shownS1 = byKey(otherGroupCases(lineupInput('S1')));
+		expect(shownS1['']).toMatchObject({ state: 'ready', claim: 'on', curveState: 'crossing' });
+		expect(shownS1['']!.curve!.on).toBe(4);
+		// Out of date: drawn as its ring is, its k as last solved.
+		const stale = byKey(otherGroupCases(lineupInput('', { stale: ['S1'] })));
+		expect(stale.S1).toMatchObject({ stale: true, curveState: 'crossing' });
+		expect(stale.S1!.curveWords).toBe(
+			'drawn (as last solved: 3 running): it crosses the group system curve at the ring'
+		);
+	});
+
+	it('draws none while this case’s own group curve is not drawn, or without 4d’s inputs widened', () => {
+		const flat = (list: OtherGroupCase[]) =>
+			list.map((o) => [o.key, o.state, o.curve, o.curveState, o.curveWords]);
+		const none = otherGroupCases({ ...lineupInput(''), curveDrawn: false });
+		expect(none.filter((o) => o.state === 'ready')).toHaveLength(6);
+		expect(none.every((o) => o.curve === null && o.curveState === null)).toBe(true);
+		// The default: not drawn.
+		const { curveDrawn: _drawn, ...noFlag } = lineupInput('');
+		void _drawn;
+		expect(flat(otherGroupCases(noFlag))).toEqual(flat(none));
+		// 4d's inputs (no `inside`, no `on`): 4d's chart, rings only.
+		expect(flat(otherGroupCases(lineupInput('', { without: true })))).toEqual(flat(none));
+		// This case's curve without a flow at any point: not drawn.
+		const flowless = structuredClone(body(lineups.groupCurve));
+		flowless.points = flowless.points.map((p) => ({ ...p, flow: null }));
+		expect(groupCurveDrawn({ status: 'ready', response: flowless })).toBe(false);
+		expect(groupCurveDrawn(readyState(lineups.groupCurve))).toBe(true);
+		expect(groupCurveDrawn({ status: 'loading' })).toBe(false);
+		expect(groupCurveDrawn(undefined)).toBe(false);
+	});
+
+	it('draws none for a PRV- or PSV-refused case (its ring from its group system curve) or one without flow', () => {
+		// S2 refused for an active PRV inside (synthetic: prv-inside's issues), its duty from S2's
+		// own group system answer.
+		const prvIssues = (named('prv-inside').groupCurve.body as { issues: TopologyIssue[] }).issues;
+		const refused = otherGroupCases(
+			lineupInput('', {
+				edit: (v) =>
+					v.key === 'S2'
+						? {
+								...v,
+								group: { status: 'refused', message: 'PRV', issues: prvIssues },
+								system: readyState(lineupAnswers('S2').systemCurve),
+								inside: 'differs'
+							}
+						: v
+			})
+		);
+		expect(byKey(refused).S2).toMatchObject({
+			state: 'ready',
+			curve: null,
+			curveState: 'no_group_curve',
+			curveWords: 'none: an active PRV or PSV inside'
+		});
+		// One-off's both pumps off: a curve of no flow at every rise (the API's own answer).
+		const oneOffInput = (id: string) => ({
+			key: id,
+			caseId: id,
+			name: oneOff.project.scenarios!.find((s) => s.id === id)!.name,
+			stale: false,
+			group: { status: 'ready' as const, response: body(scenarioCase(id).groupCurve) },
+			system: undefined,
+			shared: id !== 'S3',
+			solved: applyScenario(oneOff.project, id).project,
+			inside: sameInside(
+				oneOff.project,
+				applyScenario(oneOff.project, id).project,
+				station,
+				hydraulicFingerprint
+			),
+			on: pumpLineup(undefined, applyScenario(oneOff.project, id).project, ['PA', 'PB']).on.length
+		});
+		const flows = body(scenarioCase('S4').groupCurve).points.map((p) => p.flow);
+		expect(flows.every((q) => q !== null && Math.abs(q) <= DUTY_CHECK_FLOOR)).toBe(true);
+		const states = otherGroupCases({
+			valued: ['S1', 'S2', 'S3', 'S4'].map(oneOffInput),
+			tags: oneOffTags,
+			shownKeys: new Set(['S1', 'S2', 'S3', 'S4']),
+			othersOn: true,
+			shownSettled: true,
+			station,
+			systemShown: baseSystem,
+			memberIds: ['PA', 'PB'],
+			project: oneOff.project,
+			boxes: ['PA', 'PB'],
+			curveDrawn: true
+		});
+		expect(states.map((o) => [o.key, o.curveState, o.curve?.on ?? null])).toEqual([
+			['S1', 'crossing', 1],
+			['S2', 'crossing', 1],
+			['S3', 'same_inside', null],
+			['S4', 'no_flow', null]
+		]);
+		expect(states[3]!.curveWords).toBe('not drawn: no flow at any rise');
+		// Synthetic: S1's flows all positive round-off (the base's own shutoff point carries
+		// +5.99e-15 m³/s), then all at the floor itself: no flow above DUTY_CHECK_FLOOR, not drawn.
+		// One point a little above the floor: drawn.
+		const flowsOf = (q: (i: number) => number | null) =>
+			otherGroupCases(
+				lineupInput('', {
+					edit: (v) => {
+						if (v.key !== 'S1' || v.group?.status !== 'ready') return v;
+						const response = structuredClone(v.group.response);
+						response.points.forEach((p, i) => (p.flow = q(i)));
+						return { ...v, group: { status: 'ready', response } };
+					}
+				})
+			)[0]!;
+		const baseFlows = body(lineupAnswers('').groupCurve).points.map((p) => p.flow);
+		expect(baseFlows.some((q) => q !== null && q > 0 && q < 1e-14)).toBe(true);
+		for (const q of [5e-15, DUTY_CHECK_FLOOR]) {
+			const roundOff = flowsOf(() => q);
+			expect([q, roundOff.key, roundOff.curveState, roundOff.curve]).toEqual([
+				q,
+				'S1',
+				'no_flow',
+				null
+			]);
+			expect(roundOff.curveWords).toBe('not drawn: no flow at any rise');
+		}
+		const above = flowsOf((i) => (i === 0 ? 2 * DUTY_CHECK_FLOOR : 5e-15));
+		expect(above.curveState).toBe('crossing');
+		expect(above.curve).not.toBeNull();
+	});
+
+	it('calls a ring the crossing only with its duty check agreeing, the claim on and its curve drawn', () => {
+		// Crossing: every lineup with the base shown (its system duty check agrees).
+		expect(otherGroupCases(lineupInput(''))[0]).toMatchObject({
+			key: 'S1',
+			claim: 'on',
+			curveState: 'crossing'
+		});
+		// Through: its duty on its drawn curve, the claim not on (no group system curve shown;
+		// with "1 of 4 running" shown, flows beyond that case's own curve).
+		const noSystem = otherGroupCases({ ...lineupInput(''), systemShown: null })[0]!;
+		expect(noSystem).toMatchObject({ claim: 'no_curve', curveState: 'through' });
+		expect(noSystem.curveWords).toBe('drawn (3 running): it passes through the ring');
+		const lowShown = byKey(otherGroupCases(lineupInput('S3')));
+		expect(lowShown['']).toMatchObject({ claim: 'beyond_range', curveState: 'through' });
+		expect(lowShown.S2).toMatchObject({ claim: 'on', curveState: 'crossing' });
+		// Not through (synthetic: S1's duty check disagreeing), whatever the claim.
+		const disagree = structuredClone(body(lineupAnswers('S1').groupCurve));
+		disagree.dutyCheck = { ...disagree.dutyCheck!, agrees: false };
+		const notThrough = otherGroupCases(
+			lineupInput('', {
+				edit: (v) => (v.key === 'S1' ? { ...v, group: { status: 'ready', response: disagree } } : v)
+			})
+		)[0]!;
+		expect(notThrough).toMatchObject({ claim: 'on', curveState: 'not_through' });
+		expect(notThrough.curve).not.toBeNull();
+		expect(notThrough.curveWords).toBe(
+			'drawn (3 running): it does not pass through the ring (several steady states can exist; the ring is the one the solve found)'
+		);
+	});
+
+	it('words every curve state as the proposal’s table, with a stale case’s k as last solved', () => {
+		const words = Object.fromEntries(
+			Object.entries(OTHER_CURVE_WORDS).map(([state, w]) => [state, w(runningWords(3, false))])
+		);
+		expect(words).toEqual({
+			crossing: 'drawn (3 running): it crosses the group system curve at the ring',
+			through: 'drawn (3 running): it passes through the ring',
+			not_through:
+				'drawn (3 running): it does not pass through the ring (several steady states can exist; the ring is the one the solve found)',
+			same_inside: "the same as this case's: the station is the same inside",
+			inside_differs:
+				'not drawn: the station differs inside in more than which pumps are switched on',
+			no_group_curve: 'none: an active PRV or PSV inside',
+			no_flow: 'not drawn: no flow at any rise'
+		});
+		expect(runningWords(2, true)).toBe('as last solved: 2 running');
+		expect(OTHER_CURVE_WORDS.through(runningWords(2, true))).toBe(
+			'drawn (as last solved: 2 running): it passes through the ring'
+		);
+	});
+});
+
+describe('the card’s NPSH reading is the margin ratio, the margin hidden by default (the owner’s nit 4 and Q3, "Ratio everywhere"; docs/proposals/pumps-nits.md item 4; review E-1-4)', () => {
+	const prefs = oneOff.project.settings.units;
+	const members = [
+		{ id: 'PA', name: 'Pump PA', slot: 0 },
+		{ id: 'PB', name: 'Pump PB', slot: 1 }
+	];
+	const sig4 = (v: number) => String(Number(v.toPrecision(4)));
+	const ratioOf = (response: SolveResponse, id: string) =>
+		response.solvedState.pumpResults[id]!.npshMarginRatio;
+	/**
+	 * A case's solve with Pump PA made to cavitate with no ratio (synthetic, as corpus unit_rich1090
+	 * PU2): NPSHr 0 at its flow and NPSHa `margin` (below zero), so its margin is `margin`, the API
+	 * gives no ratio, and CAVITATION is raised for it.
+	 */
+	function cavitating(response: SolveResponse, margin = -2.521): SolveResponse {
+		const copy = structuredClone(response);
+		Object.assign(copy.solvedState.pumpResults.PA!, {
+			npshAvailable: margin,
+			npshRequired: 0,
+			npshMargin: margin,
+			npshMarginRatio: null
+		});
+		copy.solvedState.flags = [
+			...copy.solvedState.flags,
+			{
+				code: 'CAVITATION',
+				severity: 'invalid',
+				message: 'made-up',
+				componentId: 'PA',
+				connectionId: null,
+				portId: 'suction',
+				details: {}
+			} as Flag
+		];
+		return copy;
+	}
+	/** Every `one-off` case, the base shown; `edit` changes a case's solve by its key. */
+	const all = (edit: (key: string, r: SolveResponse) => SolveResponse = (_k, r) => r) =>
+		({
+			members,
+			cases: [null, 'S1', 'S2', 'S3', 'S4'].map((id) => ({
+				key: id ?? '',
+				name: id ? oneOff.project.scenarios!.find((s) => s.id === id)!.name : 'Base case',
+				shown: id === null,
+				status: 'solved' as const,
+				response: edit(id ?? '', id ? scenarioCase(id).solve : oneOff.solve),
+				stale: false,
+				station: null,
+				tag: caseTagOf(oneOffTags, id ?? '')
+			})),
+			prefs,
+			project: oneOff.project
+		}) satisfies CombinationsInput;
+
+	it('Running combinations: "NPSH margin ratio" after NPSH margin, shown, a plain number; the margin hidden by default; a ratio marked where the pump is invalid', () => {
+		const table = runningCombinations(all());
+		const keys = table.columns.map((c) => c.key);
+		expect(keys.indexOf('npshMarginRatio')).toBe(keys.indexOf('npshMargin') + 1);
+		expect(table.columns.find((c) => c.key === 'npshMarginRatio')).toEqual({
+			key: 'npshMarginRatio',
+			label: 'NPSH margin ratio',
+			numeric: true
+		});
+		expect(table.columns.find((c) => c.key === 'npshMargin')?.hiddenByDefault).toBe(true);
+		expect(table.columns.filter((c) => c.hiddenByDefault).map((c) => c.key)).toEqual([
+			'npshMargin'
+		]);
+		const base = table.groups[0]!;
+		expect(base.rows.map((r) => r.cells.npshMarginRatio)).toEqual([
+			sig4(ratioOf(oneOff.solve, 'PA')!),
+			sig4(ratioOf(oneOff.solve, 'PB')!)
+		]);
+		// An off pump has none: a bare "—".
+		expect(table.groups[1]!.rows[0]!.cells.npshMarginRatio).toBe('—');
+		expect(INVALID_MARKED).toContain('npshMarginRatio');
+	});
+
+	it('Running combinations: a pump that cavitates with no ratio reads "—" and the cavitation with its margin, and sorts below every ratio', () => {
+		const table = runningCombinations(all((k, r) => (k === 'S3' ? cavitating(r) : r)));
+		const s3 = table.groups.find((g) => g.key === 'S3')!;
+		const pa = s3.rows.find((r) => r.id === 'PA')!;
+		expect(pa.cells.npshMarginRatio).toEqual(['—', 'Cavitates (NPSHr 0): NPSH margin -2.521 m']);
+		expect(pa.invalid).toBe(true);
+		expect(pa.sortKeys).toEqual({ npshMarginRatio: Number.NEGATIVE_INFINITY });
+		// Every other row: no sort key.
+		expect(
+			table.groups
+				.flatMap((g) => g.rows)
+				.filter((r) => r.sortKeys)
+				.map((r) => r.id)
+		).toEqual(['PA']);
+	});
+
+	it('the extremes: each pump’s smallest NPSH margin ratio, a plain number with its case', () => {
+		const { lines, table } = combinationExtremes(all());
+		expect(table.columns[2]).toEqual({
+			key: 'npshMarginRatio',
+			label: 'Smallest NPSH margin ratio'
+		});
+		const line = (term: string) => lines.find((l) => l.term === term)!.value;
+		// Pump PA's smallest, the API's 2.490… with Pump PB off (S2); Pump PB's with Pump PA off (S1).
+		const pa = ratioOf(scenarioCase('S2').solve, 'PA')!;
+		expect([oneOff.solve, scenarioCase('S3').solve].every((r) => ratioOf(r, 'PA')! > pa)).toBe(
+			true
+		);
+		expect(line('Pump PA, smallest NPSH margin ratio')).toBe(
+			`${sig4(pa)} in Pump PB off; beyond its curve data (over 3 of 5 cases; no value in 2)`
+		);
+		const pb = ratioOf(scenarioCase('S1').solve, 'PB')!;
+		expect(line('Pump PB, smallest NPSH margin ratio')).toBe(
+			`${sig4(pb)} in Pump PA off (over 3 of 5 cases; no value in 2)`
+		);
+		expect(lines.map((l) => l.term).filter((t) => /NPSH/.test(t))).toEqual([
+			'Pump PA, smallest NPSH margin ratio',
+			'Pump PB, smallest NPSH margin ratio'
+		]);
+	});
+
+	it('the extremes: a case where the pump cavitates with no ratio is its smallest, named in words with its margin; of several, the most negative margin', () => {
+		const one = combinationExtremes(all((k, r) => (k === 'S3' ? cavitating(r) : r)));
+		const cell = one.table.rows[0]!.cells[2]!;
+		expect(cell).toEqual({
+			key: 'PA:npshMarginRatio',
+			amount: 'Cavitates (NPSHr 0): NPSH margin -2.521 m',
+			rest: 'in Delivery tank 5 m higher; physically invalid (over 3 of 5 cases; no value in 2)',
+			invalid: true
+		});
+		// Two such cases: the more negative margin, whatever their order.
+		const two = combinationExtremes(
+			all((k, r) => (k === '' ? cavitating(r, -1.5) : k === 'S3' ? cavitating(r, -4) : r))
+		);
+		expect(two.table.rows[0]!.cells[2]!.amount).toBe('Cavitates (NPSHr 0): NPSH margin -4 m');
+		expect(two.table.rows[0]!.cells[2]!.rest).toMatch(/^in Delivery tank 5 m higher;/);
+		// The same margin in both: "and 1 other case".
+		const same = combinationExtremes(all((k, r) => (k === '' || k === 'S3' ? cavitating(r) : r)));
+		expect(same.table.rows[0]!.cells[2]!.rest).toMatch(/^in Base case and 1 other case;/);
+		// Pump PB's is untouched.
+		expect(one.table.rows[1]!.cells[2]!.amount).toBe(
+			sig4(ratioOf(scenarioCase('S1').solve, 'PB')!)
+		);
+	});
+});

@@ -3,9 +3,34 @@
  * point is a reported value in display units. Pump results are made-up test inputs.
  */
 import { describe, expect, it } from 'vitest';
+import { designators } from '../testing/helpers';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '../testing/results';
+import { imageNoteLines } from './export/chart-image';
 import { pumpTransferExample } from './examples';
-import { chartNotes, otherCasesData, pumpChartData, ratedCurveRange } from './pump-chart';
+import {
+	caseNamed,
+	caseTagOf,
+	caseTags,
+	caseTagText,
+	caseTagWords,
+	chartNotes,
+	compareCaseTags,
+	inCaseOrder,
+	offCasesNote,
+	otherCasesData,
+	pumpChartCases,
+	pumpChartData,
+	ratedCurveRange,
+	tickCase,
+	untickCase,
+	untickedAfter,
+	valueNotes,
+	type CaseChoice,
+	type CaseList,
+	type PanelKey,
+	type PumpChecksInput
+} from './pump-chart';
+import { MAX_SCENARIOS, scenariosOf, withScenarios } from './scenarios';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
 const GPM = (231 * 0.0254 ** 3) / 60; // m³/s, US gallon = 231 in³
@@ -188,7 +213,8 @@ describe('pump chart data', () => {
 			SI_UNITS,
 			[0, 0.03],
 			1,
-			names
+			names,
+			{ S1: 1 }
 		);
 		expect(other!.systemRows[3]!.note).toContain(
 			'passes Flow limiter, which passes at most 20 L/s'
@@ -222,6 +248,45 @@ describe('pumps not running', () => {
 		);
 		expect(off.operating).toBeNull();
 		expect(off.held).toBeNull();
+	});
+
+	it('gives other cases’ table rows a bare speed, for "Speed (%)", and none for an off pump', () => {
+		// pumps-results-layout.md §5.3, the data region: bare numbers under "Speed (%)".
+		const rows = otherCasesData(
+			[
+				{
+					key: 'S1',
+					name: 'Slower',
+					result: pumpResult({ speed: 0.873214 }),
+					stale: false,
+					system: null
+				},
+				{
+					key: 'S2',
+					name: 'Off',
+					result: pumpResult({ status: 'off', operatingFlow: 0, operatingHead: 0 }),
+					stale: false,
+					system: null
+				},
+				{
+					key: 'S3',
+					name: 'Held',
+					result: pumpResult({ status: 'no_flow', operatingFlow: 0, operatingHead: 30 }),
+					stale: true,
+					system: null
+				}
+			],
+			SI_UNITS,
+			[0, 0.03],
+			1,
+			null,
+			{ S1: 1, S2: 2, S3: 3 }
+		).map((o) => o.row);
+		expect(rows).toEqual([
+			{ flow: '20', head: '22', speed: '87.32', state: 'Running' },
+			{ flow: '—', head: '—', speed: '—', state: 'Off' },
+			{ flow: '0', head: '30', speed: '100', state: 'Held at zero flow' }
+		]);
 	});
 });
 
@@ -315,5 +380,532 @@ describe('chart notes', () => {
 		).toBe(
 			'This pump is held at zero flow by its check (see its flag). The diamond marks zero flow at the head across the pump.'
 		);
+	});
+});
+
+describe('untickedAfter: unticking a case in a capped list', () => {
+	const listed = ['', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
+	it('unticks the case and every case not shown now, so the place it leaves stays free', () => {
+		// Five shown ('' to S4), S5 and S6 past the cap: both read as unticked and stay so.
+		expect(untickedAfter([], 'S2', listed, ['', 'S1', 'S2', 'S3', 'S4'])).toEqual([
+			'S2',
+			'S5',
+			'S6'
+		]);
+	});
+	it('keeps the cases unticked before, first and once each', () => {
+		expect(untickedAfter(['S1'], 'S3', listed, ['', 'S2', 'S3', 'S4', 'S5'])).toEqual([
+			'S1',
+			'S3',
+			'S6'
+		]);
+		expect(untickedAfter(['S6'], 'S6', listed, ['', 'S1', 'S2', 'S3', 'S4'])).toEqual(['S6', 'S5']);
+	});
+	it('adds only the case when every case is shown', () => {
+		expect(untickedAfter([], '', ['', 'S1'], ['', 'S1'])).toEqual(['']);
+	});
+});
+
+// One choice of cases for both charts (proposal pumps-results-layout.md §9 S8, the owner's answer
+// 2): the user's unticks one set, each chart's cases past its cap its own.
+describe('one choice of cases: untickCase and tickCase', () => {
+	const none: CaseChoice = { unticked: [], pump: [], group: [] };
+	/** The pump chart's list: five drawn of six (S6 past its cap). */
+	const pump = (shown = ['S1', 'S2', 'S3', 'S4', 'S5']): CaseList => ({
+		listed: ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'],
+		shown,
+		cap: 5
+	});
+	/** The card's list, in its own order: six drawn of seven (S7 past its cap). */
+	const group = (shown = ['S6', 'S5', 'S4', 'S3', 'S2', 'S1']): CaseList => ({
+		listed: ['S6', 'S5', 'S4', 'S3', 'S2', 'S1', 'S7'],
+		shown,
+		cap: 6
+	});
+
+	it('unticks a case under both lists, and on each chart that drew it keeps the cases past its cap off there only', () => {
+		const next = untickCase(none, 'S2', { pump: pump(), group: group() });
+		expect(next).toEqual({ unticked: ['S2'], pump: ['S6'], group: ['S7'] });
+		// From the card's list, the same: one set, each chart's own past its own cap.
+		expect(untickCase(none, 'S2', { pump: pump(), group: group() })).toEqual(
+			untickCase(none, 'S2', { group: group(), pump: pump() })
+		);
+	});
+
+	it('leaves a chart that did not draw the case as it was', () => {
+		// S6 is past the pump chart's cap: only the card frees a place.
+		expect(untickCase(none, 'S6', { pump: pump(), group: group() })).toEqual({
+			unticked: ['S6'],
+			pump: [],
+			group: ['S7']
+		});
+		// A chart with no list (the card without a station) is left alone.
+		expect(untickCase(none, 'S2', { pump: pump() })).toEqual({
+			unticked: ['S2'],
+			pump: ['S6'],
+			group: []
+		});
+	});
+
+	it('never makes a case the user unticked one of a chart’s own, and keeps each set once', () => {
+		const first = untickCase(none, 'S2', { pump: pump(), group: group() });
+		// S2 unticked: not drawn, but the user's, so not past a cap.
+		const second = untickCase(first, 'S3', {
+			pump: pump(['S1', 'S3', 'S4', 'S5']),
+			group: group(['S6', 'S5', 'S4', 'S3', 'S1'])
+		});
+		expect(second).toEqual({ unticked: ['S2', 'S3'], pump: ['S6'], group: ['S7'] });
+		// Unticked again (the card's list after the pump chart's): each set holds it once.
+		expect(untickCase(second, 'S3', { group: group(['S6', 'S5', 'S4', 'S1']) })).toEqual(second);
+	});
+
+	it('ticks a case again under both lists, where each chart has room', () => {
+		const off = untickCase(none, 'S2', { pump: pump(), group: group() });
+		const lists = {
+			pump: pump(['S1', 'S3', 'S4', 'S5']),
+			group: group(['S6', 'S5', 'S4', 'S3', 'S1'])
+		};
+		// Under the pump chart's list or the card's: ticked on both, each chart's own unchanged.
+		expect(tickCase(off, 'S2', 'pump', lists)).toEqual({
+			unticked: [],
+			pump: ['S6'],
+			group: ['S7']
+		});
+		expect(tickCase(off, 'S2', 'group', lists)).toEqual({
+			unticked: [],
+			pump: ['S6'],
+			group: ['S7']
+		});
+	});
+
+	it('ticks a case past its chart’s cap into the place left free, on that chart alone', () => {
+		const off = untickCase(none, 'S2', { pump: pump(), group: group() });
+		const lists = {
+			pump: pump(['S1', 'S3', 'S4', 'S5']),
+			group: group(['S6', 'S5', 'S4', 'S3', 'S1'])
+		};
+		expect(tickCase(off, 'S6', 'pump', lists)).toEqual({
+			unticked: ['S2'],
+			pump: [],
+			group: ['S7']
+		});
+	});
+
+	it('brings a case ticked under one list back on the other only into a free place: a full chart keeps every case it draws', () => {
+		// The card drew S2 and lost it; S7 was then ticked into its place, so the card is full.
+		const off = untickCase(none, 'S2', { pump: pump(), group: group() });
+		const full = tickCase(off, 'S7', 'group', {
+			pump: pump(['S1', 'S3', 'S4', 'S5']),
+			group: group(['S6', 'S5', 'S4', 'S3', 'S1'])
+		});
+		expect(full).toEqual({ unticked: ['S2'], pump: ['S6'], group: [] });
+		// S2 ticked again under the pump chart's list: drawn there, past the cap on the card.
+		expect(
+			tickCase(full, 'S2', 'pump', {
+				pump: pump(['S1', 'S3', 'S4', 'S5']),
+				group: group(['S6', 'S5', 'S4', 'S3', 'S1', 'S7'])
+			})
+		).toEqual({ unticked: [], pump: ['S6'], group: ['S2'] });
+	});
+
+	it('never holds off the other chart a case the user did not untick: a tick unticks nothing', () => {
+		// S7 past the card's cap at the untick of S1, never unticked by the user; ticked on the card
+		// into S1's place. The pump chart is full and lists S7 past its cap by order: it stays so,
+		// not one of its own, so another pump's chart with room draws it.
+		const choice: CaseChoice = { unticked: ['S1'], pump: [], group: ['S7'] };
+		const lists = {
+			pump: {
+				listed: ['S2', 'S3', 'S4', 'S5', 'S6', 'S7'],
+				shown: ['S2', 'S3', 'S4', 'S5', 'S6'],
+				cap: 5
+			},
+			group: group(['S6', 'S5', 'S4', 'S3', 'S2'])
+		};
+		expect(tickCase(choice, 'S7', 'group', lists)).toEqual({
+			unticked: ['S1'],
+			pump: [],
+			group: []
+		});
+	});
+
+	it('never holds off the other chart a case it does not list (its pump off there), though it is full', () => {
+		// S1 unticked and ticked again on the card; the pump chart, full, does not list S1 (this
+		// pump is off in it, the other cases' system curves off): another pump's chart draws it.
+		const choice: CaseChoice = { unticked: ['S1'], pump: [], group: ['S7'] };
+		const lists = {
+			pump: {
+				listed: ['S2', 'S3', 'S4', 'S5', 'S6', 'S7'],
+				shown: ['S2', 'S3', 'S4', 'S5', 'S6'],
+				cap: 5
+			},
+			group: group(['S6', 'S5', 'S4', 'S3', 'S2'])
+		};
+		expect(tickCase(choice, 'S1', 'group', lists)).toEqual({
+			unticked: [],
+			pump: [],
+			group: ['S7']
+		});
+	});
+});
+
+describe('the pump chart’s cases: slots (pumps-results-layout.md §9 S8)', () => {
+	const other = (key: string, status: 'running' | 'off' | 'no_flow' = 'running') => ({
+		key,
+		result: { status }
+	});
+	const others = [
+		other('A', 'off'),
+		other('B'),
+		other('C', 'no_flow'),
+		other('D'),
+		other('E'),
+		other('F'),
+		other('G', 'off')
+	];
+	const keys = (list: readonly { key: string }[]) => list.map((o) => o.key);
+
+	it('gives a case in which the pump is off no slot while the other cases’ system curves are off', () => {
+		const cases = pumpChartCases(others, [], false);
+		expect(keys(cases.listed)).toEqual(['B', 'C', 'D', 'E', 'F']);
+		expect(keys(cases.shown)).toEqual(['B', 'C', 'D', 'E', 'F']);
+		expect(keys(cases.off)).toEqual(['A', 'G']);
+		// A pump held at zero flow has its point drawn: it keeps its slot.
+		expect(keys(cases.listed)).toContain('C');
+	});
+
+	it('gives it its slot while they are on, which can put a case drawn before past the cap', () => {
+		const cases = pumpChartCases(others, [], true);
+		expect(keys(cases.listed)).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G']);
+		expect(keys(cases.shown)).toEqual(['A', 'B', 'C', 'D', 'E']);
+		expect(keys(cases.off)).toEqual([]);
+	});
+
+	it('draws the first listed the choice leaves ticked, five at most', () => {
+		expect(keys(pumpChartCases(others, ['B', 'A'], false).shown)).toEqual(['C', 'D', 'E', 'F']);
+		expect(keys(pumpChartCases(others, ['B'], true).shown)).toEqual(['A', 'C', 'D', 'E', 'F']);
+		// An unticked case in which the pump is off still takes no slot, and is still named.
+		expect(keys(pumpChartCases(others, ['A'], false).off)).toEqual(['A', 'G']);
+	});
+
+	// The five hollow markers (caseMarkers, MARKER_SYMBOLS) went with nit 5 (owner, 2026-11-12;
+	// Q1 "Shapes go too", Q2 "By list place"; docs/proposals/pumps-nits.md item 5, slice 5b): the
+	// tests that pinned them (S8 MARK-1/2/3, the five-case boundary, a marker kept past five, the
+	// off line by name and otherCasesData's markers) are replaced by the number tests below
+	// ("case numbers: caseTags and caseTagWords"), which hold each case's number fixed by case for
+	// any count, with no fallback.
+});
+
+// Case numbers (owner, 2026-11-12, nit 5: "I don't like the use of special characters to
+// designate pumps and groups"; Q2 "By list place"; docs/proposals/pumps-nits.md item 5, slice
+// 5b): one number per case for the whole Pumps tab, "Base" for the base case, then 1 to n by the
+// scenario's place in the Scenarios list. They replace the five hollow markers (caseMarkers,
+// MARKER_SYMBOLS, the S8 tests MARK-1/2/3 and the five-case boundary): numbers never run out, so
+// nothing falls back and nothing is remembered.
+describe('case numbers: caseTags and caseTagWords (nit 5, slice 5b)', () => {
+	const scenario = (id: string, name = `Scenario ${id}`) => ({ id, name, overrides: [] });
+	const withCases = (ids: readonly string[]) =>
+		withScenarios(
+			pumpTransferExample(),
+			ids.map((id) => scenario(id))
+		);
+
+	it('numbers the base case "Base", then each scenario 1 to n in the Scenarios list’s order', () => {
+		expect(caseTags(withCases(['S1', 'S2', 'S3', 'S4']))).toEqual({
+			'': 'Base',
+			S1: 1,
+			S2: 2,
+			S3: 3,
+			S4: 4
+		});
+		// A project without scenarios: the base case alone.
+		expect(caseTags(pumpTransferExample())).toEqual({ '': 'Base' });
+	});
+
+	it('numbers by place alone: the ids play no part', () => {
+		// S1, S3, S2 in the list: 1, 2, 3 (by id it would read 1, 3, 2).
+		expect(caseTags(withCases(['S1', 'S3', 'S2']))).toEqual({ '': 'Base', S1: 1, S3: 2, S2: 3 });
+		// Ids that are not "S" and a number (an imported project's): by place too.
+		expect(caseTags(withCases(['winter', 'X9', 'S7']))).toEqual({
+			'': 'Base',
+			winter: 1,
+			X9: 2,
+			S7: 3
+		});
+	});
+
+	it('renumbers the scenarios after a deleted one, and only those', () => {
+		const project = withCases(['S1', 'S2', 'S3', 'S4']);
+		const deleted = withScenarios(
+			project,
+			scenariosOf(project).filter((s) => s.id !== 'S2')
+		);
+		expect(caseTags(deleted)).toEqual({ '': 'Base', S1: 1, S3: 2, S4: 3 });
+		// One added at the end moves no number.
+		const added = withScenarios(project, [...scenariosOf(project), scenario('S5')]);
+		expect(caseTags(added)).toEqual({ ...caseTags(project), S5: 5 });
+	});
+
+	it('numbers eight cases 1 to 8, and the most a project holds, with no fallback: every number its own', () => {
+		const eight = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'];
+		expect(caseTags(withCases(eight))).toEqual({
+			'': 'Base',
+			...Object.fromEntries(eight.map((id, i) => [id, i + 1]))
+		});
+		const ids = Array.from({ length: MAX_SCENARIOS }, (_, i) => `S${i + 1}`);
+		const all = caseTags(withCases(ids));
+		expect(ids.map((id) => all[id])).toEqual(ids.map((_, i) => i + 1));
+		expect(new Set(Object.values(all)).size).toBe(MAX_SCENARIOS + 1);
+	});
+
+	it('reads the Scenarios list alone: no value, override, name or description changed moves a number', () => {
+		// Ticks, unticks, the case shown, the pump shown and the card's members are page state, never
+		// in the project; a solve changes no project. What a lineup or member change writes into the
+		// project (a pump's status override, a name that follows its pumps, D24 §4.5) moves none.
+		const project = withCases(['S1', 'S2', 'S3']);
+		const tags = caseTags(project);
+		const [s1, s2, s3] = scenariosOf(project);
+		const edited = withScenarios(structuredClone(project), [
+			{
+				...s1!,
+				name: 'Pump P1 off',
+				overrides: [{ kind: 'component', componentId: 'P1', field: 'status', value: 'off' }]
+			},
+			{ ...s2!, name: 'Renamed', description: 'A note' },
+			s3!
+		]);
+		const pump = edited.components.find((c) => c.id === 'P1')!;
+		edited.components = edited.components.map((c) =>
+			c === pump ? { ...c, name: 'Transfer pump, renamed' } : c
+		);
+		expect(caseTags(edited)).toEqual(tags);
+		// The same project, again: the same numbers.
+		expect(caseTags(structuredClone(project))).toEqual(tags);
+	});
+
+	it('words a tag for a screen reader: "Case 3:", "Cases 4, 5 and 6:", in number order', () => {
+		expect(caseTagWords([3])).toBe('Case 3:');
+		expect(caseTagWords([1, 5])).toBe('Cases 1 and 5:');
+		expect(caseTagWords([4, 5, 6])).toBe('Cases 4, 5 and 6:');
+		expect(caseTagWords([6, 4, 5])).toBe('Cases 4, 5 and 6:');
+	});
+
+	it('gives otherCasesData each case’s tag, fixed by case, never by its place among those given', () => {
+		const input = ['', 'S1', 'S2'].map((key) => ({
+			key,
+			name: key ? `Case ${key}` : 'Base case',
+			result: pumpResult(),
+			stale: false,
+			system: null
+		}));
+		const tags = { '': 'Base', S1: 3, S2: 1 } as const;
+		expect(otherCasesData(input, SI_UNITS, null, 1, null, tags).map((o) => o.tag)).toEqual([
+			'Base',
+			3,
+			1
+		]);
+		// One case alone: its own tag, not the first place's.
+		expect(otherCasesData(input.slice(2), SI_UNITS, null, 1, null, tags).map((o) => o.tag)).toEqual(
+			[1]
+		);
+	});
+
+	// Review CASE-NUMBERS-A2 and B3 (rule 4: a case is its number in every list and image): the
+	// pump curve another case draws at another speed names each case at that speed with its number,
+	// as its ring ("Case 2: Winter") and its system curve ("System curve, case 2") do, so the
+	// legend, the tooltips and the image's legend name one case one way. It named them by name
+	// alone, "Pump curve at 90 % speed (Winter; Summer)", beside "System curve, case 2".
+	it('names each case of a pump curve at another speed with its number, the base case by its name', () => {
+		const at = (key: string, name: string, speed: number, stale = false) => ({
+			key,
+			name,
+			result: pumpResult({ speed }),
+			stale,
+			system: null
+		});
+		const tags = { '': 'Base', S1: 1, S2: 2, S3: 3 } as const;
+		const input = [
+			at('S2', 'Winter', 0.9),
+			at('S3', 'Summer', 0.9, true),
+			at('', 'Base case', 0.8),
+			at('S1', 'Higher tank', 0.8)
+		];
+		expect(otherCasesData(input, SI_UNITS, null, 1, null, tags).map((o) => o.curveLabel)).toEqual([
+			'Pump curve at 90 % speed (case 2: Winter; case 3: Summer, out of date)',
+			'Pump curve at 90 % speed (case 2: Winter; case 3: Summer, out of date)',
+			'Pump curve at 80 % speed (Base case; case 1: Higher tank)',
+			'Pump curve at 80 % speed (Base case; case 1: Higher tank)'
+		]);
+	});
+
+	it('names the cases off in this case with their numbers, the screen’s line and the image’s', () => {
+		expect(
+			offCasesNote([
+				{ tag: 1, label: 'Pump PA off' },
+				{ tag: 4, label: 'Both pumps off (out of date)' }
+			])
+		).toEqual(
+			'Off in this case (no operating point): case 1: Pump PA off; case 4: Both pumps off (out of date).'
+		);
+		// The base case is its name: "Base" adds nothing to "Base case".
+		expect(
+			offCasesNote([
+				{ tag: 'Base', label: 'Base case' },
+				{ tag: 2, label: 'Pump PB off' }
+			])
+		).toEqual('Off in this case (no operating point): Base case; case 2: Pump PB off.');
+		expect(offCasesNote([])).toBeNull();
+		for (const line of [
+			offCasesNote([{ tag: 1, label: 'Pump PA off' }])!,
+			offCasesNote([{ tag: 'Base', label: 'Base case' }])!
+		]) {
+			expect(designators(line), line).toEqual([]);
+		}
+	});
+});
+
+// The helpers the lists, the rings and the labels share (nit 5, slice 5b): a case's number from
+// caseTags, their order ("Base" first, then ascending), the box's text and a case in words.
+describe('case numbers: order, the box and the words (nit 5, slice 5b)', () => {
+	const tags = { '': 'Base', S1: 1, S2: 2, S3: 3, S10: 10 } as const;
+
+	it('reads a case’s number from caseTags, the base case’s "Base" always, and refuses a case it has none for', () => {
+		expect(caseTagOf(tags, 'S2')).toBe(2);
+		expect(caseTagOf(tags, '')).toBe('Base');
+		expect(caseTagOf({}, '')).toBe('Base');
+		// Never a place among those given: a case without a number is a bug, not a case to number.
+		expect(() => caseTagOf(tags, 'S9')).toThrow('No case number for case S9.');
+	});
+
+	it('orders "Base" first, then ascending as numbers (10 after 3), and lists items in that order', () => {
+		const all: ('Base' | number)[] = [10, 3, 'Base', 1];
+		expect([...all].sort(compareCaseTags)).toEqual(['Base', 1, 3, 10]);
+		expect(compareCaseTags(2, 2)).toBe(0);
+		expect(compareCaseTags('Base', 'Base')).toBe(0);
+		const items = ['S10', 'S3', '', 'S1'].map((key) => ({ key }));
+		expect(inCaseOrder(items, tags).map((i) => i.key)).toEqual(['', 'S1', 'S3', 'S10']);
+		// A copy: the items given keep their order.
+		expect(items.map((i) => i.key)).toEqual(['S10', 'S3', '', 'S1']);
+	});
+
+	it('writes the box’s text in that order, and a case in words with its number, the base case by its name', () => {
+		expect(caseTagText([6, 1, 5, 4])).toBe('1, 4, 5, 6');
+		expect(caseTagText([3, 'Base'])).toBe('Base, 3');
+		expect(caseTagText(['Base'])).toBe('Base');
+		expect(caseNamed(2, 'Winter (out of date)')).toBe('case 2: Winter (out of date)');
+		expect(caseNamed(2, 'Winter', true)).toBe('Case 2: Winter');
+		expect(caseNamed('Base', 'Base case', true)).toBe('Base case');
+		for (const words of [caseNamed(2, 'Winter'), caseTagText([1, 2]), caseTagWords([1, 2])]) {
+			expect(designators(words), words).toEqual([]);
+		}
+	});
+});
+
+// The notes about the values in the screen's order (proposal pumps-results-layout.md §5.3):
+// chartNotes' own sentences, each once, the image's footer in chartNotes' order.
+describe('valueNotes: the notes about the values, in the screen’s order', () => {
+	/** Every panel, a rising stretch and an extrapolated duty (made-up test input). */
+	const result = pumpResult({
+		operatingFlow: 0.034,
+		operatingHead: 7.5,
+		inCurveRange: false,
+		efficiencyCurve: [
+			{ flow: 0.004, efficiency: 0.4 },
+			{ flow: 0.012, efficiency: 0.7 },
+			{ flow: 0.02, efficiency: 0.6 }
+		],
+		bestEfficiencyPoint: { flow: 0.012, efficiency: 0.7, head: 18, headExtrapolated: false },
+		powerCurve: [
+			{ flow: 0.004, shaftPower: 2000 },
+			{ flow: 0.02, shaftPower: 5000 }
+		],
+		npshrCurve: [
+			{ flow: 0, npshr: 1 },
+			{ flow: 0.03, npshr: 4 }
+		],
+		risingHeadRanges: [
+			{ flowMin: 0, flowMax: 0.005 },
+			{ flowMin: 0.007, flowMax: 0.009 }
+		]
+	});
+	// NPSHa 10, 8, 4, 1 m against NPSHr 1, 2, 3, 4 m at 0, 10, 20, 30 L/s: NPSHa − NPSHr is +1 m
+	// at 20 L/s and −3 m at 30 L/s, so the lines cross at 20 + 10 × 1 / (1 + 3) = 22.5 L/s.
+	const curve = systemCurveResponse();
+	[10, 8, 4, 1].forEach((npsha, i) => (curve.points[i]!.npshAvailable = npsha));
+	const limits: PumpChecksInput = {
+		checks: { operatingRegion: { preferredMin: 0.7, preferredMax: 1.2, source: { kind: 'user' } } },
+		curve: null,
+		sources: { npshMargin: null, operatingRegion: 'your values' }
+	};
+	const data = pumpChartData(result, SI_UNITS, [0, 0.03], curve, null, limits);
+	const shown: PanelKey[] = ['head', 'efficiency', 'power', 'npsh'];
+	const notes = chartNotes({
+		data,
+		result,
+		system: { status: 'ready', curve },
+		shown,
+		checksShown: true
+	});
+	const rising = [
+		'The head rises with flow from 0 to 5 L/s (amber): a system curve can cross the pump curve more than once there.',
+		'The head rises with flow from 7 to 9 L/s (amber): a system curve can cross the pump curve more than once there.'
+	];
+	const crossing =
+		'NPSHa falls below NPSHr at about 22.5 L/s (read from the drawn lines): the pump would cavitate beyond that flow.';
+
+	it('puts the facts that qualify a reading first: each rising range, then the NPSHa crossing', () => {
+		const v = valueNotes(notes, data);
+		expect(v.first).toEqual([...rising, crossing]);
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): the shutoff head's dash
+		// named in words, not "(–)"; the same 20 characters read.
+		expect(v.facts.map((n) => n.slice(0, 20))).toEqual([
+			'Best efficiency poin',
+			'Shutoff head (the da'
+		]);
+		expect(v.panels.map((n) => n.slice(0, 20))).toEqual([
+			'Efficiency: the duty',
+			'Shaft power ρgQH/η o'
+		]);
+		expect(v.extrapolated).toBe(notes.extrapolated);
+		expect(v.method).toBe(notes.method);
+		expect(v.checks).toEqual(notes.checks);
+		expect(v.checks.at(-1)).toMatch(/^These are the limits of the design checks/);
+	});
+
+	it('keeps every sentence of the figure’s notes once, in the words the image gives', () => {
+		const v = valueNotes(notes, data);
+		const screen = [
+			...v.first,
+			...v.facts,
+			...v.panels,
+			...(v.extrapolated ? [v.extrapolated] : []),
+			...(v.method ? [v.method] : []),
+			...v.checks
+		];
+		// The image's footer, less what the strip shows (the pump's and the curve's state).
+		const image = imageNoteLines(notes, []).filter(
+			(line) => line !== notes.pump && line !== notes.curve?.text
+		);
+		expect([...screen].sort()).toEqual([...image].sort());
+		expect(new Set(screen).size).toBe(screen.length);
+		// The image keeps chartNotes' order: method, extrapolation, panels, facts, checks.
+		expect(image[0]).toBe(notes.method);
+		expect(image.indexOf(crossing)).toBeLessThan(image.indexOf(rising[0]!));
+	});
+
+	it('has no first notes without a rising range or a crossing shown', () => {
+		const plain = pumpChartData(pumpResult(), SI_UNITS, null, systemCurveResponse());
+		const v = valueNotes(
+			chartNotes({ data: plain, result: pumpResult(), system: undefined }),
+			plain
+		);
+		expect(v.first).toEqual([]);
+		// The NPSH panel hidden: its crossing is not a note, so not a first one.
+		const hidden = chartNotes({
+			data,
+			result,
+			system: { status: 'ready', curve },
+			shown: ['head', 'efficiency', 'power']
+		});
+		expect(valueNotes(hidden, data).first).toEqual(rising);
 	});
 });

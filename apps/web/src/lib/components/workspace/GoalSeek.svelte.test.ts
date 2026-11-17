@@ -76,6 +76,10 @@ function mount(
 	return { ws, held };
 }
 
+/** Solve, Solve {case}, Solve now and Solve again; and Solve all (build-density.md §19). */
+const SOLVE_ONE = /^Solve($| (?!all\b))/;
+const SOLVE_ALL = /^Solve all( \(\d+\))?$/;
+
 const dialog = () => within(screen.getByRole('dialog', { name: 'Goal seek' }));
 const runButton = () => dialog().getByRole('button', { name: /^(Run goal seek|Seeking…)/ });
 const closeButton = () => dialog().getAllByRole('button', { name: 'Close' }).at(-1)!;
@@ -490,7 +494,7 @@ describe('running a goal seek', () => {
 });
 
 describe('one request at a time: every Solve control waits during a goal seek', () => {
-	it('the header Solve, the Results Solve and Solve all, Compare and the case bar', async () => {
+	it('the header Solve and the Scenarios menu’s Solve all; the Results pane and Compare have none', async () => {
 		const project = withScenarios(pumpTransferExample(), [
 			{ id: 'S1', name: 'Winter', overrides: [] }
 		]);
@@ -502,14 +506,9 @@ describe('one request at a time: every Solve control waits during a goal seek', 
 		expect(header).toHaveAttribute('aria-disabled', 'true');
 		expect(header).toHaveAccessibleDescription('A goal seek is running; Cancel stops it.');
 		await fireEvent.click(header);
+		// One Solve, the header's (build-density.md §19): the Results pane has no Solve of its own.
 		const results = within(screen.getByRole('region', { name: 'Results' }));
-		const solve = results.getByRole('button', { name: 'Solve Base case' });
-		expect(solve).not.toBe(header);
-		expect(solve).toHaveAttribute('aria-disabled', 'true');
-		expect(solve).toHaveAccessibleDescription(
-			'A goal seek is running; Cancel in the header stops it.'
-		);
-		await fireEvent.click(solve);
+		expect(results.queryAllByRole('button', { name: SOLVE_ONE })).toHaveLength(0);
 		const bar = within(await caseMenu());
 		const all = bar.getByRole('button', { name: 'Solve all' });
 		expect(all).toHaveAttribute('aria-disabled', 'true');
@@ -519,14 +518,12 @@ describe('one request at a time: every Solve control waits during a goal seek', 
 		expect(bar.getByRole('status')).toHaveTextContent('Goal seek running on the base case…');
 		await fireEvent.click(all);
 		await fireEvent.click(results.getByRole('tab', { name: 'Compare cases' }));
-		const compares = within(results.getByRole('region', { name: 'Compare cases' })).getAllByRole(
-			'button',
-			{ name: 'Solve all' }
-		);
-		for (const compare of compares) {
-			expect(compare).toHaveAttribute('aria-disabled', 'true');
-			await fireEvent.click(compare);
-		}
+		// One Solve all, the Scenarios menu's: Compare has none of its own.
+		expect(
+			within(results.getByRole('region', { name: 'Compare cases' })).queryAllByRole('button', {
+				name: SOLVE_ALL
+			})
+		).toHaveLength(0);
 		expect(held.solve).not.toHaveBeenCalled();
 		expect(ws.store.goalSeek?.status).toBe('running');
 		expect(held.pending[0]!.signal!.aborted).toBe(false);
@@ -536,19 +533,31 @@ describe('one request at a time: every Solve control waits during a goal seek', 
 		expect(ws.store.calculating).toBeNull();
 	});
 
-	it("Solve again and a link's Solve now", async () => {
+	it("the trace sheet's Solve again, and a link's words in place of Solve now", async () => {
+		// Below 1024 px: the trace is a sheet over the header, the one place that keeps Solve again
+		// (build-density.md §19).
+		screenWidth(false);
 		const project = { ...pumpTransferExample(), methodVersion: '1.2.0' };
 		const { ws, held } = mount(project);
 		await open();
 		await fireEvent.click(runButton());
 		await fireEvent.click(closeButton());
+		// A link opened without results: no Solve now; its words name the header's Solve, which
+		// waits.
 		const results = within(screen.getByRole('region', { name: 'Results' }));
-		const now = results.getByRole('button', { name: 'Solve now' });
-		expect(now).toHaveAttribute('aria-disabled', 'true');
-		expect(now).toHaveAccessibleDescription(
-			'A goal seek is running; Cancel in the header stops it.'
+		expect(results.queryAllByRole('button', { name: SOLVE_ONE })).toHaveLength(0);
+		expect(
+			results
+				.getByText(/^This project was opened without results:/)
+				.textContent?.replace(/\s+/g, ' ')
+				.trim()
+		).toBe(
+			"This project was opened without results: a link holds the project's inputs, not its results. Press Solve, at the top (Ctrl+Enter or ⌘+Enter), to calculate the flows, pressures and pump operating points (the project is sent to the calculation server, which does not keep it)."
 		);
-		await fireEvent.click(now);
+		const header = document.querySelector<HTMLButtonElement>('[data-solve-button]')!;
+		expect(header).toHaveAttribute('aria-disabled', 'true');
+		expect(header).toHaveAccessibleDescription('A goal seek is running; Cancel stops it.');
+		await fireEvent.click(header);
 		expect(held.solve).not.toHaveBeenCalled();
 		ws.store.cancelGoalSeek();
 		await ws.solve();
@@ -560,7 +569,10 @@ describe('one request at a time: every Solve control waits during a goal seek', 
 		await fireEvent.click(screen.getByRole('button', { name: 'Goal seek' }));
 		await fireEvent.click(runButton());
 		await fireEvent.click(closeButton());
-		const again = results.getByRole('button', { name: 'Solve again' });
+		ws.inspect({ kind: 'connection', id: 'L2' });
+		await tick();
+		const trace = screen.getByRole('dialog', { name: 'Transfer pump → Discharge isolation valve' });
+		const again = within(trace).getByRole('button', { name: 'Solve again' });
 		expect(again).toHaveAttribute('aria-disabled', 'true');
 		expect(again).toHaveAccessibleDescription(
 			'A goal seek is running; Cancel in the header stops it.'

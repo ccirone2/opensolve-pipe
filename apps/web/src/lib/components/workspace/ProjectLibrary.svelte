@@ -27,6 +27,7 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { fittingFallbackName, npsLabel } from '$lib/utils/labels';
 	import { CUSTOM_MATERIAL_ID } from '$lib/utils/piping';
+	import { renameNotice } from '$lib/utils/pump-lineups';
 	import {
 		entryValueText,
 		newPipeSpecId,
@@ -234,7 +235,9 @@
 			problems = [result.problems[0] ?? 'The entry is not valid.'];
 			return;
 		}
-		if (result.notes?.length) ws.notify('info', result.notes.join(' '));
+		// Carry notes, then the names that followed their pumps (CLAUDE.md D24, pump-lineups.md §4.5).
+		const said = [...(result.notes ?? []), renameNotice(result.renamed ?? [])].filter(Boolean);
+		if (said.length) ws.notify('info', said.join(' '));
 		void closeForm(entry.id);
 	}
 

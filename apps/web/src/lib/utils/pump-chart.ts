@@ -662,6 +662,37 @@ export function saveHiddenPanels(hidden: readonly ChipKey[]): void {
 	}
 }
 
+/**
+ * localStorage keys of whether each chart's data table is shown, the pump chart's and the group
+ * chart's: a per-browser choice, never project data or in the link (proposal
+ * pumps-results-layout.md §9 S7, §8: GOALS §4.5, D3).
+ */
+export const TABLE_SHOWN_KEYS = {
+	pump: 'opensolve-pipe:pump-chart-data-table',
+	group: 'opensolve-pipe:pump-group-chart-data-table'
+} as const;
+/** The charts whose data table is remembered. */
+export type TableChart = keyof typeof TABLE_SHOWN_KEYS;
+
+/** The chart's data table was shown when last left in this browser (false where storage is refused). */
+export function loadTableShown(chart: TableChart): boolean {
+	try {
+		return localStorage.getItem(TABLE_SHOWN_KEYS[chart]) === 'shown';
+	} catch {
+		return false;
+	}
+}
+
+/** Remember whether the chart's data table is shown; a refused write only loses the convenience. */
+export function saveTableShown(chart: TableChart, shown: boolean): void {
+	try {
+		if (shown) localStorage.setItem(TABLE_SHOWN_KEYS[chart], 'shown');
+		else localStorage.removeItem(TABLE_SHOWN_KEYS[chart]);
+	} catch {
+		// Private modes and blocked site data refuse storage.
+	}
+}
+
 /** One value of the readout under the chart. */
 export interface ReadoutItem {
 	key: 'pump' | 'system' | 'efficiency' | 'power' | 'npshr' | 'npsha';
@@ -712,14 +743,212 @@ export function chartReadout(
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Hollow markers that tell other cases apart (with a direct label, the legend and the table:
- * never colour alone). 'rectRot' stays "held at zero flow".
+ * A case's number on the Pumps tab (owner, 2026-11-12, nit 5; Q2 "By list place";
+ * docs/proposals/pumps-nits.md item 5, slice 5b): "Base" for the base case, else its scenario's
+ * place in the Scenarios list, 1 to n. It tells other cases apart on both charts (a slate ring
+ * tagged with it), in every list, table, heading and image, in place of the five hollow markers.
  */
-export const CASE_MARKERS = ['triangle', 'rect', 'star', 'crossRot', 'rectRounded'] as const;
-export type CaseMarker = (typeof CASE_MARKERS)[number];
+export type CaseNumber = 'Base' | number;
+
+/**
+ * Every case's number (pumps-nits.md item 5, rule 4), keyed by case key ('' is the base): the
+ * base case "Base", then each scenario 1 to n by its place in the Scenarios list. It reads the list
+ * alone, never an id, a name, a value or page state, so a tick, an untick, a solve, a member
+ * change, the case shown and the pump shown move no number; a deleted scenario renumbers the ones
+ * after it. Numbers never run out: nothing falls back and nothing is remembered.
+ */
+export function caseTags(
+	project: Pick<Project, 'scenarios'>
+): Readonly<Record<string, CaseNumber>> {
+	const tags: Record<string, CaseNumber> = { '': 'Base' };
+	(project.scenarios ?? []).forEach((s, i) => {
+		tags[s.id] = i + 1;
+	});
+	return tags;
+}
+
+/**
+ * A case's number from caseTags: the base case's is "Base" whatever is given; a scenario's must be
+ * there (the cases and the numbers come from one project, so a missing one is a bug, not a case to
+ * number by its place).
+ */
+export function caseTagOf(tags: Readonly<Record<string, CaseNumber>>, key: string): CaseNumber {
+	if (key === '') return 'Base';
+	const tag = tags[key];
+	if (tag === undefined) throw new Error(`No case number for case ${key}.`);
+	return tag;
+}
+
+/** Case numbers in order: "Base" first, then ascending (a merged ring's, a curve label's). */
+export function compareCaseTags(a: CaseNumber, b: CaseNumber): number {
+	if (a === b) return 0;
+	if (a === 'Base') return -1;
+	if (b === 'Base') return 1;
+	return a - b;
+}
+
+/** `items` in their cases' number order (the lists, the ring list and the tables: rule 4). */
+export function inCaseOrder<T extends { key: string }>(
+	items: readonly T[],
+	tags: Readonly<Record<string, CaseNumber>>
+): T[] {
+	return [...items].sort((a, b) => compareCaseTags(caseTagOf(tags, a.key), caseTagOf(tags, b.key)));
+}
+
+/** The box's text: "3", "1, 4, 5, 6", "Base, 3", in order. */
+export function caseTagText(tags: readonly CaseNumber[]): string {
+	return [...tags].sort(compareCaseTags).join(', ');
+}
+
+/**
+ * The words a screen reader hears for a box of case numbers (the box itself is hidden from it):
+ * "Case 3:", "Cases 1 and 5:", "Cases 4, 5 and 6:", in number order. The base case's box has none:
+ * "Base case" beside it says it.
+ */
+export function caseTagWords(numbers: readonly number[]): string {
+	const sorted = [...numbers].sort((a, b) => a - b).map(String);
+	if (sorted.length <= 1) return `Case ${sorted.join('')}:`;
+	return `Cases ${sorted.slice(0, -1).join(', ')} and ${sorted[sorted.length - 1]}:`;
+}
+
+/**
+ * A case named in words with its number: "case 2: Winter (out of date)" ("Case 2: …" with
+ * `capital`); the base case its name alone ("Base case"), since "Base" adds nothing to it.
+ */
+export function caseNamed(tag: CaseNumber, label: string, capital = false): string {
+	return tag === 'Base' ? label : `${capital ? 'Case' : 'case'} ${tag}: ${label}`;
+}
 
 /** At most this many cases on the chart at once (the case shown and five others). */
 export const MAX_CHART_CASES = 6;
+
+/**
+ * The cases unticked once the user unticks `key` in a list of cases shown at most so many at a
+ * time (the pump chart's "Cases on the chart", the Pumps together card's "Cases on this chart"):
+ * the cases unticked before, `key`, and every case of `listed` not in `shown` now, which already
+ * reads as unticked. So its place stays free: no case comes onto the chart by itself, `key` can be
+ * ticked again, and any other case can be ticked into its place. Ticking a case removes it alone.
+ */
+export function untickedAfter(
+	unticked: readonly string[],
+	key: string,
+	listed: readonly string[],
+	shown: readonly string[]
+): string[] {
+	const next = [...unticked];
+	for (const k of [key, ...listed.filter((k) => !shown.includes(k))]) {
+		if (!next.includes(k)) next.push(k);
+	}
+	return next;
+}
+
+/** The two lists of other cases: "Cases on the chart" (pump) and "Cases on this chart" (group). */
+export type CaseChart = 'pump' | 'group';
+
+/**
+ * One choice of cases for both charts (pumps-results-layout.md §9 S8, the owner's answer 2), page
+ * state: the cases the user unticked under either list, one set, unticked under both; and each
+ * chart's own, the cases past its cap when a case it drew was unticked (untickedAfter's), never
+ * shared, since the two lists have their own caps and orders.
+ */
+export interface CaseChoice {
+	/** The cases the user unticked, under either list (keys: '' is the base). */
+	unticked: readonly string[];
+	/** The pump chart's own: past its cap of five other cases at an untick. */
+	pump: readonly string[];
+	/** The Pumps together card's own: past its cap of six other cases at an untick. */
+	group: readonly string[];
+}
+
+/** A chart's list as a tick or an untick reads it, at that moment. */
+export interface CaseList {
+	/** The cases it can draw, in its order. */
+	listed: readonly string[];
+	/** Those it draws. */
+	shown: readonly string[];
+	/** At most this many drawn. */
+	cap: number;
+}
+
+/**
+ * The choice once the user unticks `key` under either list (§9 S8): unticked under both, and on
+ * each chart that drew it the cases then past that chart's cap stay unticked there only
+ * (untickedAfter), so its place stays free and every other case drawn stays (no case comes onto
+ * either chart by itself). A case the user unticked is never one of a chart's own: ticked again
+ * under either list, it comes back wherever there is room.
+ */
+export function untickCase(
+	choice: CaseChoice,
+	key: string,
+	lists: Partial<Record<CaseChart, CaseList>>
+): CaseChoice {
+	const unticked = choice.unticked.includes(key) ? choice.unticked : [...choice.unticked, key];
+	const own = (chart: CaseChart) => {
+		const list = lists[chart];
+		const kept = choice[chart];
+		if (!list?.shown.includes(key)) return kept;
+		const past = untickedAfter([], key, list.listed, list.shown).filter(
+			(k) => !unticked.includes(k) && !kept.includes(k)
+		);
+		return past.length ? [...kept, ...past] : kept;
+	};
+	return { unticked, pump: own('pump'), group: own('group') };
+}
+
+/**
+ * The choice once the user ticks `key` under the list of `chart` (§9 S8): ticked under both. On
+ * that chart it takes the place left free; on the other it comes back only into a free place: a
+ * chart already drawing its cap keeps every case it draws, and the case stays unticked there
+ * only, as past its cap.
+ */
+export function tickCase(
+	choice: CaseChoice,
+	key: string,
+	chart: CaseChart,
+	lists: Partial<Record<CaseChart, CaseList>>
+): CaseChoice {
+	const wasUnticked = choice.unticked.includes(key);
+	const own = (c: CaseChart) => {
+		const kept = choice[c];
+		if (c === chart) return kept.includes(key) ? kept.filter((k) => k !== key) : kept;
+		const list = lists[c];
+		const full =
+			!!list &&
+			wasUnticked &&
+			!kept.includes(key) &&
+			list.listed.includes(key) &&
+			!list.shown.includes(key) &&
+			list.shown.length >= list.cap;
+		return full ? [...kept, key] : kept;
+	};
+	return {
+		unticked: wasUnticked ? choice.unticked.filter((k) => k !== key) : choice.unticked,
+		pump: own('pump'),
+		group: own('group')
+	};
+}
+
+/**
+ * The pump chart's cases (§9 S8 Slots): `listed`, the cases with a box, in order; `shown`, those
+ * drawn, at most five, the first listed the choice leaves ticked; `off`, the cases in which this
+ * pump is off while the other cases' system curves are not asked for (`curves`). Such a case would
+ * draw nothing, so it takes no slot and has no box; the line under the list names it
+ * (offCasesNote). While the curves are asked for it is listed, since its system curve is drawn,
+ * and can then put a case drawn before past the cap.
+ */
+export function pumpChartCases<T extends { key: string; result: Pick<PumpResult, 'status'> }>(
+	others: readonly T[],
+	unticked: readonly string[],
+	curves: boolean
+): { listed: T[]; shown: T[]; off: T[] } {
+	const takesNoSlot = (o: T) => !curves && o.result.status === 'off';
+	const listed = others.filter((o) => !takesNoSlot(o));
+	return {
+		listed,
+		shown: listed.filter((o) => !unticked.includes(o.key)).slice(0, MAX_CHART_CASES - 1),
+		off: others.filter(takesNoSlot)
+	};
+}
 
 export interface OtherCaseInput {
 	/** The case's id ('' for the base case). */
@@ -737,7 +966,8 @@ export interface OtherCaseData {
 	key: string;
 	/** "Winter", or "Winter (out of date)". */
 	label: string;
-	marker: CaseMarker;
+	/** Its case's number (caseTags): its ring's tag on the chart, in the lists and the notes. */
+	tag: CaseNumber;
 	/** Its operating point (a running pump). */
 	operating: ChartPoint | null;
 	/** Its pump held at zero flow: (0, head across it). */
@@ -747,11 +977,17 @@ export interface OtherCaseData {
 	 * speed (the first case at that speed), with `curveLabel` naming every case at it.
 	 */
 	curve: ChartPoint[] | null;
-	/** "Pump curve at 100 % speed (Base case, Higher tank)". */
+	/**
+	 * "Pump curve at 100 % speed (Base case; case 1: Higher tank)": each case at that speed with its
+	 * number (caseNamed), the base case by its name (nit 5, rule 4; review CASE-NUMBERS-A2, B3).
+	 */
 	curveLabel: string;
 	/** Its system curve, when computed (a null head is a gap). */
 	system: { x: number; y: number | null }[] | null;
-	/** Table row: flow, head, speed and state, formatted. */
+	/**
+	 * Table row: flow, head, speed and state, formatted; the speed a bare number, under "Speed (%)"
+	 * (proposal pumps-results-layout.md §5.3, the data region; "—" for an off pump).
+	 */
 	row: { flow: string; head: string; speed: string; state: string };
 	systemRows: SystemRow[];
 }
@@ -763,22 +999,24 @@ const STATE_WORDS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Chart data of the other cases with a result for this pump, each with its marker (in order),
- * from their own PumpResult and system curve. `speed` is the pump's speed in the case shown: a
- * case whose pump runs at another speed also gets its pump curve. `names` as for pumpChartData
- * (names and kinds are the same in every case: scenarios change values, never topology).
+ * Chart data of the other cases with a result for this pump, each with its case's number (`tags`,
+ * caseTags: fixed by case, never by its place among those given), from their own PumpResult and
+ * system curve. `speed` is the pump's speed in the case shown: a case whose pump runs at another
+ * speed also gets its pump curve. `names` as for pumpChartData (names and kinds are the same in
+ * every case: scenarios change values, never topology).
  */
 export function otherCasesData(
 	others: readonly OtherCaseInput[],
 	prefs: UnitPreferences,
 	ratedRange: [number, number] | null,
 	speed: number,
-	names: SystemCurveNames | null = null
+	names: SystemCurveNames | null,
+	tags: Readonly<Record<string, CaseNumber>>
 ): OtherCaseData[] {
 	const fmt = (v: number) => formatNumber(v, 4);
 	const same = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
 	const running = (o: OtherCaseInput) => o.result.status === 'running';
-	return others.map((other, i) => {
+	return others.map((other) => {
 		const data = pumpChartData(other.result, prefs, ratedRange, other.system, names);
 		const atSpeed = others.filter((o) => running(o) && same(o.result.speed, other.result.speed));
 		const first = atSpeed[0] === other;
@@ -786,19 +1024,19 @@ export function otherCasesData(
 		return {
 			key: other.key,
 			label: other.stale ? `${other.name} (out of date)` : other.name,
-			marker: CASE_MARKERS[i % CASE_MARKERS.length] as CaseMarker,
+			tag: caseTagOf(tags, other.key),
 			operating: data.operating,
 			held: data.held,
 			curve: drawn ? [...data.curve, ...data.extrapolated.flat()].sort((a, b) => a.x - b.x) : null,
+			// Each case at that speed by its number, as its ring and its system curve name it (rule 4).
 			curveLabel: `Pump curve at ${formatNumber(other.result.speed * 100, 4)} % speed (${atSpeed
-				.map((o) => (o.stale ? `${o.name}, out of date` : o.name))
+				.map((o) => caseNamed(caseTagOf(tags, o.key), o.stale ? `${o.name}, out of date` : o.name))
 				.join('; ')})`,
 			system: data.system,
 			row: {
 				flow: data.operating ? fmt(data.operating.x) : data.held ? '0' : '—',
 				head: data.operating ? fmt(data.operating.y) : data.held ? fmt(data.held.y) : '—',
-				speed:
-					other.result.status === 'off' ? '—' : `${formatNumber(other.result.speed * 100, 4)} %`,
+				speed: other.result.status === 'off' ? '—' : formatNumber(other.result.speed * 100, 4),
 				state: STATE_WORDS[other.result.status] ?? other.result.status
 			},
 			systemRows: data.systemRows
@@ -811,14 +1049,20 @@ export function otherCasesData(
 // chart's configuration is in pump-chart-config.ts, in the chart's chunk.
 // ---------------------------------------------------------------------------------------------
 
-/** The other cases' markers as text (the case checkboxes, the table and the image's notes). */
-export const MARKER_SYMBOLS: Readonly<Record<CaseMarker, string>> = {
-	triangle: '△',
-	rect: '□',
-	star: '☆',
-	crossRot: '×',
-	rectRounded: '▢'
-};
+/**
+ * "Off in this case (no operating point): case 1: Pump PA off; case 4: Both pumps off.", the line
+ * under the pump chart's case list and in the image's footer while the other cases' system curves
+ * are off, naming the cases that then take no slot (pumpChartCases' `off`;
+ * pumps-results-layout.md §6.2 S8), each with its number (nit 5, slice 5b; the base case by its
+ * name). Null when none.
+ */
+export function offCasesNote(
+	entries: readonly { tag: CaseNumber; label: string }[]
+): string | null {
+	return entries.length
+		? `Off in this case (no operating point): ${entries.map((e) => caseNamed(e.tag, e.label)).join('; ')}.`
+		: null;
+}
 
 /** Why a system-curve point has no head, as the API's messages say (TSD §5.6). */
 const NO_HEAD_REASONS =
@@ -1024,14 +1268,19 @@ function checkNotes(d: PumpChartData, shown: readonly PanelKey[]): string[] {
 	return notes;
 }
 
-/** The curve facts as sentences (screen and image). */
+/**
+ * The curve facts as sentences (screen and image), each mark named in words, never by a character
+ * (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5): the best efficiency point by
+ * "BEP", its cross's label on the chart (pump-chart-config.ts factDatasets), and the shutoff head
+ * by its dash at zero flow, which has no label.
+ */
 function factNotes(d: PumpChartData, speedShown: boolean): string[] {
 	const fmt = (v: number) => formatNumber(v, 4);
 	const { bep, shutoff, rising, speedRange } = d.facts;
 	const notes: string[] = [];
 	if (bep)
 		notes.push(
-			`Best efficiency point (+): ${fmt(bep.efficiency.y)} % at ${fmt(bep.head.x)} ${d.flowUnit} and ${fmt(bep.head.y)} ${d.headUnit}${
+			`Best efficiency point (BEP): ${fmt(bep.efficiency.y)} % at ${fmt(bep.head.x)} ${d.flowUnit} and ${fmt(bep.head.y)} ${d.headUnit}${
 				bep.headExtrapolated ? ' (head extrapolated)' : ''
 			}, the efficiency curve's highest point inside its data, at this speed.`
 		);
@@ -1040,16 +1289,13 @@ function factNotes(d: PumpChartData, speedShown: boolean): string[] {
 			"No best efficiency point is marked: the efficiency data's highest point is at an end of the data, so the data do not show a maximum."
 		);
 	notes.push(
-		`Shutoff head (–): ${fmt(shutoff.point.y)} ${d.headUnit}${
+		`Shutoff head (the dash at zero flow): ${fmt(shutoff.point.y)} ${d.headUnit}${
 			shutoff.extrapolated
 				? ", extrapolated along the curve's start slope (the data start above zero flow)"
 				: ''
 		}.`
 	);
-	for (const [lo, hi] of rising.ranges)
-		notes.push(
-			`The head rises with flow from ${fmt(lo)} to ${fmt(hi)} ${d.flowUnit} (amber): a system curve can cross the pump curve more than once there.`
-		);
+	for (const [lo, hi] of rising.ranges) notes.push(risingNote(d, lo, hi));
 	if (speedShown && speedRange) {
 		const levels = speedRange.iso.filter((l) => !l.best).map((l) => l.efficiency);
 		const unique = [...new Set(levels.map((l) => fmt(l)))];
@@ -1087,12 +1333,61 @@ function panelNotes(d: PumpChartData, result: PumpResult, shown: readonly PanelK
 		);
 	}
 	if (shown.includes('npsh') && d.npsh) {
-		if (d.npsh.crossing !== null)
-			notes.push(
-				`NPSHa falls below NPSHr at about ${fmt(d.npsh.crossing)} ${d.flowUnit} (read from the drawn lines): the pump would cavitate beyond that flow.`
-			);
+		if (d.npsh.crossing !== null) notes.push(npshCrossingNote(d, d.npsh.crossing));
 		else if (!d.system && d.npsh.required)
 			notes.push('NPSHa along the system curve is drawn once the system curve is computed.');
 	}
 	return notes;
+}
+
+/** A stretch where the head rises with flow, as a fact (pump-chart.md §10: not a flag). */
+function risingNote(d: PumpChartData, lo: number, hi: number): string {
+	const fmt = (v: number) => formatNumber(v, 4);
+	return `The head rises with flow from ${fmt(lo)} to ${fmt(hi)} ${d.flowUnit} (amber): a system curve can cross the pump curve more than once there.`;
+}
+
+/** Where NPSHa falls below NPSHr along the drawn lines (pump-chart.md §4.2). */
+function npshCrossingNote(d: PumpChartData, crossing: number): string {
+	return `NPSHa falls below NPSHr at about ${formatNumber(crossing, 4)} ${d.flowUnit} (read from the drawn lines): the pump would cavitate beyond that flow.`;
+}
+
+/** The notes about the values, grouped in the order the screen shows them (valueNotes). */
+export interface ValueNotes {
+	/** Each rising-head range, then the NPSHa crossing: what qualifies a reading, first. */
+	first: string[];
+	/** The best efficiency point or why none is marked, the shutoff head, the speed range. */
+	facts: string[];
+	/** The panels' other notes (efficiency at speed or held, shaft power, NPSHa to come). */
+	panels: string[];
+	extrapolated: string | null;
+	/** How the system curve shown was computed (D10), with its link to the pump's trace. */
+	method: string | null;
+	/** The design checks' limits drawn and their closing sentence (D19), when shown. */
+	checks: string[];
+}
+
+/**
+ * The notes about the values in the order the screen shows them (proposal
+ * pumps-results-layout.md §5.3, item 2, Notes about the values), from the figure's notes: the
+ * facts that qualify a reading first (each rising-head range, then where NPSHa falls below
+ * NPSHr), then the curve facts (the best efficiency point or none, the shutoff head, the speed
+ * range), the panels' other notes, the dashed extrapolation, the method sentence, and the design
+ * checks' limits. Every sentence is chartNotes' own, each once, its words unchanged; the image's
+ * footer keeps chartNotes' order (chart-image.ts imageNoteLines). The pump's state and the system
+ * curve's state and coverage are the strip's (§5.3, The strip), not here.
+ */
+export function valueNotes(notes: ChartNotes, d: PumpChartData): ValueNotes {
+	const lead = new Set([
+		...d.facts.rising.ranges.map(([lo, hi]) => risingNote(d, lo, hi)),
+		...(d.npsh && d.npsh.crossing !== null ? [npshCrossingNote(d, d.npsh.crossing)] : [])
+	]);
+	const isLead = (note: string) => lead.has(note);
+	return {
+		first: [...notes.facts.filter(isLead), ...notes.panels.filter(isLead)],
+		facts: notes.facts.filter((note) => !isLead(note)),
+		panels: notes.panels.filter((note) => !isLead(note)),
+		extrapolated: notes.extrapolated,
+		method: notes.method,
+		checks: notes.checks
+	};
 }

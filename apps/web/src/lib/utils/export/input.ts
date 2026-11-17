@@ -4,12 +4,15 @@
  * contents). The model (model.ts) then builds the file from this alone.
  *
  * - The page: `now` and its offset from UTC (every local time in the file is computed from these
- *   two), the build commit (`version`), the calculation server's source link and the page's origin.
+ *   two, but the file name's), the time the dialog's name shows with the offset in force when it
+ *   was stamped (the name and the zip's folder carry it: §12 item 36), the build commit
+ *   (`version`), the calculation server's source link and the page's origin.
  * - The current project, the display units and the library's names (as data).
  * - Each exported case in case order (the base, then the scenarios): its name and status, its
  *   response by Compare's rule (`caseResponse`: none for a failed case or one a stopped run did not
  *   reach), whether that response is out of date, the project as sent and the case as solved, and
- *   its computed system curves (read only: the export never computes one).
+ *   its computed system curves and its computed group curves (read only: the export never
+ *   computes one).
  * - The rows chosen on the Compare tab (or its defaults, as CompareView computes them), the latest
  *   finished goal seek, and the methods version the link recorded.
  *
@@ -22,6 +25,8 @@ import {
 	finishedGoalSeek,
 	type CaseStatus,
 	type GoalSeekState,
+	type GroupCurveState,
+	type GroupSystemCurveState,
 	type ResultsState,
 	type SystemCurveState
 } from '../../state/project.svelte';
@@ -41,6 +46,8 @@ export interface ExportSource {
 		sentProjectFor(caseId: CaseId): Project | null;
 		caseInputs(caseId: CaseId): Project | null;
 		systemCurvesFor(caseId: CaseId): Readonly<Record<string, SystemCurveState>>;
+		groupCurvesFor(caseId: CaseId): Readonly<Record<string, GroupCurveState>>;
+		groupSystemCurvesFor(caseId: CaseId): Readonly<Record<string, GroupSystemCurveState>>;
 		readonly goalSeek: GoalSeekState;
 		readonly loadedMethodVersion: string;
 	};
@@ -95,16 +102,36 @@ function caseOf(ws: ExportSource, caseId: CaseId): ExportCase {
 		keptResponse: !response && !!results.response,
 		sent: response ? store.sentProjectFor(caseId) : null,
 		inputs: response ? store.caseInputs(caseId) : null,
-		systemCurves: response ? store.systemCurvesFor(caseId) : {}
+		systemCurves: response ? store.systemCurvesFor(caseId) : {},
+		groupCurves: response ? store.groupCurvesFor(caseId) : {},
+		groupSystemCurves: response ? store.groupSystemCurvesFor(caseId) : {}
 	};
 }
 
-/** The snapshot of `ws` for `options`, at `now` (§2.1). `page` defaults to the browser's. */
+/** The time a file name carries and its offset from UTC, in minutes (§12 item 36). */
+export type NameTime = { now: Date; utcOffsetMinutes: number };
+
+/**
+ * The file name's stamp at `now`: the time and the offset in force when it is stamped
+ * (−getTimezoneOffset(), read once, here). The name keeps that offset: a time zone changed since
+ * (the browser applies a system change at once, with no event) does not reach it until the next
+ * stamp (§12 item 36).
+ */
+export function nameStamp(now: Date): NameTime {
+	return { now, utcOffsetMinutes: -now.getTimezoneOffset() };
+}
+
+/**
+ * The snapshot of `ws` for `options`, at `now` (§2.1). `page` defaults to the browser's; `named`,
+ * the stamp the file name carries, to `now`'s (the dialog passes the stamp of the name it shows,
+ * with the offset in force when that name was stamped, not at the press).
+ */
 export function exportInput(
 	ws: ExportSource,
 	options: ExportOptions,
 	now: Date,
-	page: PageFacts = pageFacts()
+	page: PageFacts = pageFacts(),
+	named: NameTime = nameStamp(now)
 ): ExportInput {
 	const store = ws.store;
 	const project = store.project;
@@ -126,6 +153,7 @@ export function exportInput(
 		options,
 		now,
 		utcOffsetMinutes: -now.getTimezoneOffset(),
+		nameTime: named,
 		appVersion: page.appVersion,
 		serverSource: page.serverSource,
 		origin: page.origin.replace(/\/+$/, ''),

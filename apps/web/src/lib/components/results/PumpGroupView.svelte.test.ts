@@ -134,6 +134,46 @@ describe('the Pumps together card in the Pumps view', () => {
 		expect(calls).toHaveLength(2);
 	});
 
+	it('says the members are the group suggested for the pump on the pump chart, until the user ticks their own (pumps-results-layout.md §5.3, F29)', async () => {
+		const c = named('ladder');
+		setup(structuredClone(c.project), c);
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		const pump = results().getByRole('combobox', { name: 'Pump chart' }) as HTMLSelectElement;
+		const shown = pump.selectedOptions[0]!.textContent!.trim();
+		const line = () => within(card()).queryByText(/^Suggested for /);
+		expect(line()).toHaveTextContent(
+			`Suggested for ${shown}, the pump on the pump chart above; tick pumps to choose your own.`
+		);
+		expect(line()).toBeVisible();
+		// The user's own choice: no line.
+		const boxes = within(
+			within(card()).getByRole('group', { name: 'Pumps in the group' })
+		).getAllByRole('checkbox') as HTMLInputElement[];
+		await fireEvent.click(boxes.find((b) => b.checked)!);
+		await waitFor(() => expect(line()).toBeNull());
+	});
+
+	it('says nothing of a suggestion when no group found holds the pump on the pump chart (pumps-results-layout.md §5.3 Members, F29; S3 review MUT-05)', async () => {
+		const c = named('refused');
+		setup(structuredClone(c.project), c);
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		// Nothing is suggested here, so nothing is ticked: the user ticks the pumps.
+		await within(card()).findByText('Tick the pumps to see together.');
+		const boxes = within(
+			within(card()).getByRole('group', { name: 'Pumps in the group' })
+		).getAllByRole('checkbox') as HTMLInputElement[];
+		expect(boxes.length).toBeGreaterThanOrEqual(2);
+		expect(boxes.some((b) => b.checked)).toBe(false);
+		expect(within(card()).queryByText(/^Suggested for /)).toBeNull();
+		expect(card().querySelector('[data-group-suggested]')).toBeNull();
+	});
+
 	it('keeps the members when the case shown changes, and asks for that case', async () => {
 		const c = named('ladder');
 		const project = withScenarios(structuredClone(c.project), [
@@ -150,11 +190,16 @@ describe('the Pumps together card in the Pumps view', () => {
 		await waitFor(() =>
 			expect(groupCalls().at(-1)).toEqual({ pumpIds: ['P2', 'P3'], scenarioId: 'S1' })
 		);
-		const boxes = within(card()).getAllByRole('checkbox') as HTMLInputElement[];
+		// The members' boxes (with scenarios the card also has "Also show the other cases'…").
+		const boxes = within(
+			within(card()).getByRole('group', { name: 'Pumps in the group' })
+		).getAllByRole('checkbox') as HTMLInputElement[];
+		// Nit 5 (owner, 2026-11-12; docs/proposals/pumps-nits.md item 5): each box's label its pump's
+		// name alone, ticked or not, no slot symbol before it.
 		expect(boxes.map((b) => [b.closest('label')!.textContent!.trim(), b.checked])).toEqual([
 			['Pump P1', false],
-			['■ Pump P2', true],
-			['★ Pump P3', true]
+			['Pump P2', true],
+			['Pump P3', true]
 		]);
 		// The case is named on the figure (the fake answers with the fixture's three-pump station).
 		expect(
@@ -264,7 +309,11 @@ describe('the Pumps together card in the Pumps view', () => {
 		ws.setCase('S1');
 		await showPumps();
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
-		const boxes = () => within(card()).getAllByRole('checkbox') as HTMLInputElement[];
+		// The members' boxes (with scenarios the card also has "Also show the other cases'…").
+		const boxes = () =>
+			within(within(card()).getByRole('group', { name: 'Pumps in the group' })).getAllByRole(
+				'checkbox'
+			) as HTMLInputElement[];
 		expect(boxes().map((b) => b.checked)).toEqual([false, false]);
 		expect(within(card()).queryByRole('button', { name: /^Also found/ })).toBeNull();
 		expect(calls).toEqual([]);

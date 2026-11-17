@@ -15,13 +15,13 @@ import {
 	closeTrace,
 	currentHeading,
 	newProject,
-	openCases,
 	openScenarioManager,
 	resultsPane,
 	resultsView,
 	setNumber,
 	showPane,
 	sig4,
+	solveAll,
 	solveConverged,
 	tableTexts,
 	traceOf
@@ -350,7 +350,7 @@ test('scenarios: a bigger bore and a calibrated C; compare and export all cases'
 	).toBeVisible();
 
 	// Solve all: the base, then each scenario.
-	await (await openCases(page)).getByRole('button', { name: 'Solve all' }).click();
+	await solveAll(page);
 	await expect(caseGroup(page)).not.toContainText('Solving');
 	expect(sent.map((r) => r.scenarioId ?? 'base').sort()).toEqual(['S1', 'S2', 'base']);
 	// The bodies are read as they arrive: wait for the three.

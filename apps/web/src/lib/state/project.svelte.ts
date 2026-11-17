@@ -27,6 +27,10 @@
  *   whose results are missing or out of date, one request at a time, from a snapshot. Each undo
  *   step records the case it was made in, and undo and redo show that case again. A base edit
  *   carries the scenarios' changes with the pipes it moves (utils/scenarios.ts carryChanges).
+ * - Names that follow (CLAUDE.md D24, proposal pump-lineups.md §4.5): every update() runs the
+ *   follow rule (utils/pump-lineups.ts followLineupNames) after the carried changes, so a name the
+ *   app made follows its pumps in the same undo step as the edit, whichever path made it; the
+ *   result says what was renamed, for the caller's notice.
  * - Goal seek (PRD §3.9, proposal goal-seek.md §6.15): one run at a time, on a case, from the
  *   project exactly as sent. It never changes the project; its result (`goalSeek`) goes out of
  *   date by that case's staleness key, recomputed on every project change whether or not any case
@@ -77,6 +81,7 @@ import { canonicalJsonEqual, canonicalJsonWithout } from '../utils/json';
 import { markProjectCopy } from '../utils/identity';
 import type { Calculating } from '../utils/goal-seek';
 import { pressureControlOnly } from '../utils/pump-groups';
+import { followLineupNames, type Rename } from '../utils/pump-lineups';
 import { recordResultsProject } from '../utils/results';
 import {
 	applyScenario,
@@ -116,10 +121,20 @@ export interface HistoryEntry {
 
 /**
  * What update() did. `notes` (only when there are any) say what a base edit did to scenario
- * changes (a removed pipe's changes went with it, a valve's setpoint changes were removed, ...).
+ * changes (a removed pipe's changes went with it, a valve's setpoint changes were removed, ...);
+ * `renamed` (only when any) the scenarios whose app-made names followed their pumps (CLAUDE.md
+ * D24, proposal pump-lineups.md §4.5).
  */
 export type UpdateResult =
-	{ ok: true; changed: boolean; notes?: string[] } | { ok: false; problems: string[] };
+	| { ok: true; changed: boolean; notes?: string[]; renamed?: Rename[] }
+	| { ok: false; problems: string[] };
+
+/**
+ * An undo step's label, or how to make it from the project after the step (CLAUDE.md D24,
+ * proposal pump-lineups.md §8.6): a label that names a case names it as it is after the step,
+ * the name on screen, when the step renamed it.
+ */
+export type UpdateLabel = string | ((after: Project) => string);
 
 export type ResultsError =
 	| { kind: 'topology'; message: string; issues: readonly TopologyIssue[] }
@@ -282,6 +297,17 @@ export type GroupCurveState =
  * states: a refusal here is the API's for this solve too.
  */
 export type GroupSystemCurveState = GroupCurveState;
+
+/**
+ * How cancelGroupCurve() and cancelGroupSystemCurve() cancel: for a case (default: the active
+ * one); with `waiting`, only a request still waiting its turn (one sent goes on); with `forget`,
+ * withdrawn by the card (read as never asked) rather than cancelled by the user.
+ */
+export interface GroupCancelOptions {
+	caseId?: CaseId;
+	waiting?: boolean;
+	forget?: boolean;
+}
 
 /** The key of a group of pumps: its ids sorted, NUL-separated (the order ticked never matters). */
 export function groupKey(pumpIds: readonly string[]): string {
@@ -554,8 +580,16 @@ export class ProjectStore {
 	/** Resolves when the run in progress ends (curve requests wait for it). */
 	#runDone: Promise<void> = Promise.resolve();
 	#endRun: () => void = () => {};
-	/** The system-curve requests in flight or queued, to abort them. */
-	#curveRequests: readonly { caseKey: string; key: string; controller: AbortController }[] = [];
+	/**
+	 * The system-curve requests in flight or queued, to abort them; `sent` once its request has
+	 * gone to the server (before that it waits its turn: cancelGroupCurve()'s `waiting`).
+	 */
+	#curveRequests: readonly {
+		caseKey: string;
+		key: string;
+		controller: AbortController;
+		sent: boolean;
+	}[] = [];
 	/** The system-curve requests, one after the other. */
 	#curveQueue: Promise<unknown> = Promise.resolve();
 	/** Case projects of solved projects (for the inputs a case was solved with). */
@@ -602,6 +636,19 @@ export class ProjectStore {
 	 */
 	systemCurvesFor(caseId: CaseId): Readonly<Record<string, SystemCurveState>> {
 		return this.#case(caseId).systemCurves;
+	}
+
+	/**
+	 * A case's group curves (read only), for the solve of its latest response, by groupKey: the
+	 * export lists them as computed and never computes one (CLAUDE.md D21, slice 4c).
+	 */
+	groupCurvesFor(caseId: CaseId): Readonly<Record<string, GroupCurveState>> {
+		return this.#case(caseId).groupCurves;
+	}
+
+	/** A case's group system curves (read only), by groupKey, as `groupCurvesFor`. */
+	groupSystemCurvesFor(caseId: CaseId): Readonly<Record<string, GroupSystemCurveState>> {
+		return this.#case(caseId).groupSystemCurves;
 	}
 
 	/** The latest solved state of the active case, if any (check results.stale before relying on it). */
@@ -841,10 +888,16 @@ export class ProjectStore {
 	 *
 	 * With `merge`, a change with the same label as the previous one (and nothing undone in
 	 * between) joins its undo step, so a burst of edits to one field undoes at once.
+	 *
+	 * Then names that follow (CLAUDE.md D24, proposal pump-lineups.md §4.5): a scenario whose name
+	 * the app made takes the name of its pumps after the change, in this same undo step (`renamed`
+	 * says which). It runs on the valid project, after the carried changes, so a change carried
+	 * away no longer counts in a name. A `label` given as a function is made from the project after
+	 * the step, renames included.
 	 */
 	update(
 		change: (draft: Project) => Project | void,
-		label: string,
+		label: UpdateLabel,
 		options: { merge?: boolean } = {}
 	): UpdateResult {
 		const current = this.project;
@@ -867,17 +920,26 @@ export class ProjectStore {
 		next = { ...next, metadata: { ...next.metadata, modified: this.#now() } };
 		const problems = structuralProblems(next, validElements);
 		if (problems.length) return { ok: false, problems };
+		// A rename changes names only (each within the name limit), so the project stays valid.
+		const followed = followLineupNames(current, next);
+		next = followed.project;
+		const text = typeof label === 'string' ? label : label(next);
 
 		const previous = this.#undo[this.#undo.length - 1];
 		const sameCase = previous?.caseId === this.activeCase;
-		if (!(options.merge && this.#mergeable && previous?.label === label && sameCase)) {
-			const undo = [...this.#undo, { project: current, label, caseId: this.activeCase }];
+		if (!(options.merge && this.#mergeable && previous?.label === text && sameCase)) {
+			const undo = [...this.#undo, { project: current, label: text, caseId: this.activeCase }];
 			this.#undo = undo.slice(Math.max(0, undo.length - (this.#options.maxHistory ?? MAX_HISTORY)));
 		}
 		this.#redo = [];
 		this.#mergeable = true;
 		this.#replace(next);
-		return notes.length ? { ok: true, changed: true, notes } : { ok: true, changed: true };
+		return {
+			ok: true,
+			changed: true,
+			...(notes.length ? { notes } : {}),
+			...(followed.renamed.length ? { renamed: followed.renamed } : {})
+		};
 	}
 
 	/**
@@ -1448,7 +1510,8 @@ export class ProjectStore {
 		set({ status: 'loading' });
 		const controller = new AbortController();
 		this.#abortCurveRequests(slot(caseId), key);
-		this.#curveRequests = [...this.#curveRequests, { caseKey: slot(caseId), key, controller }];
+		const entry = { caseKey: slot(caseId), key, controller, sent: false };
+		this.#curveRequests = [...this.#curveRequests, entry];
 		const { signal } = controller;
 		const request = async () => {
 			try {
@@ -1457,6 +1520,7 @@ export class ProjectStore {
 				// And after a solve in flight (dropped unsent if it replaced the response).
 				if (this.#solvingCase !== undefined) await this.#solveDone;
 				if (signal.aborted || this.#case(caseId).results.response !== response) return;
+				entry.sent = true;
 				const curve = await solver.systemCurve!(project, pumpId, {
 					signal,
 					...(caseId === null ? {} : { scenarioId: caseId }),
@@ -1589,10 +1653,8 @@ export class ProjectStore {
 		const controller = new AbortController();
 		const requestKey = groupRequestKey(key, kind);
 		this.#abortCurveRequests(slot(caseId), requestKey);
-		this.#curveRequests = [
-			...this.#curveRequests,
-			{ caseKey: slot(caseId), key: requestKey, controller }
-		];
+		const entry = { caseKey: slot(caseId), key: requestKey, controller, sent: false };
+		this.#curveRequests = [...this.#curveRequests, entry];
 		const { signal } = controller;
 		const ids = [...pumpIds].sort();
 		const request = async () => {
@@ -1602,6 +1664,7 @@ export class ProjectStore {
 				// And after a solve in flight (dropped unsent if it replaced the response).
 				if (this.#solvingCase !== undefined) await this.#solveDone;
 				if (signal.aborted || this.#case(caseId).results.response !== response) return;
+				entry.sent = true;
 				const curve = await solver.groupCurve!(project, ids, {
 					signal,
 					...(caseId === null ? {} : { scenarioId: caseId }),
@@ -1634,29 +1697,40 @@ export class ProjectStore {
 	 * Cancel the group curve of `pumpIds` while it is computed or waits its turn (the card's
 	 * Cancel): its request is aborted, an answer that still arrives is dropped, and the curve is
 	 * marked cancelled by the user until it is asked for again (loadGroupCurve with `retry`).
+	 * With `waiting`, only while it waits its turn: a request already sent goes on. With
+	 * `forget`, the card withdraws its own request instead (CLAUDE.md D21 slice 4d: a change of
+	 * members, another case shown): the curve reads as never asked (undefined), so it is asked
+	 * for again as a first request, without `retry`, and never reads as cancelled by the user.
 	 */
-	cancelGroupCurve(pumpIds: readonly string[], options: { caseId?: CaseId } = {}): void {
+	cancelGroupCurve(pumpIds: readonly string[], options: GroupCancelOptions = {}): void {
 		this.#cancelGroup('group', pumpIds, options);
 	}
 
 	/** Cancel the group system curve of `pumpIds`, as cancelGroupCurve() its group curve. */
-	cancelGroupSystemCurve(pumpIds: readonly string[], options: { caseId?: CaseId } = {}): void {
+	cancelGroupSystemCurve(pumpIds: readonly string[], options: GroupCancelOptions = {}): void {
 		this.#cancelGroup('system', pumpIds, options);
 	}
 
 	#cancelGroup(
 		kind: GroupCurveKind,
 		pumpIds: readonly string[],
-		options: { caseId?: CaseId }
+		options: GroupCancelOptions
 	): void {
 		const caseId = options.caseId === undefined ? this.activeCase : options.caseId;
 		const map = GROUP_MAPS[kind];
 		const key = groupKey(pumpIds);
 		const state = this.#case(caseId);
 		if (state[map][key]?.status !== 'loading') return;
-		this.#abortCurveRequests(slot(caseId), groupRequestKey(key, kind));
+		const requestKey = groupRequestKey(key, kind);
+		const sent = this.#curveRequests.some(
+			(r) => r.caseKey === slot(caseId) && r.key === requestKey && r.sent
+		);
+		if (options.waiting && sent) return;
+		this.#abortCurveRequests(slot(caseId), requestKey);
 		this.#setCase(caseId, {
-			[map]: { ...state[map], [key]: { status: 'cancelled', by: 'user' } }
+			[map]: options.forget
+				? Object.fromEntries(Object.entries(state[map]).filter(([k]) => k !== key))
+				: { ...state[map], [key]: { status: 'cancelled', by: 'user' } }
 		});
 	}
 

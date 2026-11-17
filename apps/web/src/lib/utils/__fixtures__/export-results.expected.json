@@ -6832,7 +6832,7 @@
 			"sheet": "Methods",
 			"ref": "E137",
 			"type": "s",
-			"value": "- NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative."
+			"value": "- NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0."
 		},
 		{ "sheet": "Methods", "ref": "B138", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C138", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -8312,7 +8312,7 @@
 			"sheet": "Methods",
 			"ref": "E313",
 			"type": "s",
-			"value": "- NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative."
+			"value": "- NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0."
 		},
 		{ "sheet": "Methods", "ref": "A314", "type": "s", "value": "S1" },
 		{ "sheet": "Methods", "ref": "B314", "type": "s", "value": "Cv valve" },
@@ -9807,7 +9807,7 @@
 			"sheet": "Methods",
 			"ref": "E487",
 			"type": "s",
-			"value": "- NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative."
+			"value": "- NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative; margin ratio = NPSHa / NPSHr, not given where NPSHr is 0."
 		},
 		{ "sheet": "Methods", "ref": "A488", "type": "s", "value": "S2" },
 		{ "sheet": "Methods", "ref": "B488", "type": "s", "value": "Supply at AF1" },

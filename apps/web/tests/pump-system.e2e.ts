@@ -16,8 +16,10 @@ import {
 	cellText,
 	closeTrace,
 	currentHeading,
+	curveTableFold,
 	halfUlp,
 	newProject,
+	openCurveTable,
 	resultsPane,
 	resultsView,
 	setNumber,
@@ -217,11 +219,12 @@ test('build a pump system from a new project, solve, share and reopen it', async
 	await expect(chart.getByRole('img')).toHaveAccessibleName(
 		new RegExp(`operating point ${sig4(flow)} L/s at ${sig4(head)} m`)
 	);
-	await chart.getByRole('button', { name: 'Show data table' }).click();
+	await chart.getByRole('button', { name: 'Show data table of the pump chart' }).click();
 	await expect(chart.getByText(`Operating point: ${operating}`)).toBeVisible();
-	const curveTable = chart.getByRole('table', { name: 'Pump curve at 100 % speed' });
+	// Each curve table in its disclosure, opened first (proposal pumps-results-layout.md §9 S7).
+	const curveTable = await openCurveTable(chart, 'Pump curve at 100 % speed');
 	await expect(curveTable.getByRole('row').nth(1)).toHaveText(/^\s*0\s*20\s*Curve\s*$/);
-	const systemTable = chart.getByRole('table', { name: 'System curve' });
+	const systemTable = await openCurveTable(chart, 'System curve');
 	await expect(systemTable).toBeVisible();
 	await expect(systemTable.getByRole('row')).toHaveCount(1 + systemCurve.points.length);
 	await expect(systemTable.getByRole('row').nth(1)).toHaveText(
@@ -231,7 +234,7 @@ test('build a pump system from a new project, solve, share and reopen it', async
 		)
 	);
 	await expect(chart.getByText(/Computing the system curve/)).toHaveCount(0);
-	await chart.getByRole('button', { name: 'Hide data table' }).click();
+	await chart.getByRole('button', { name: 'Hide data table of the pump chart' }).click();
 	await expect(curveTable).toBeHidden();
 
 	// Where the curve is shown, how it was computed (its response has no trace), and a link to
@@ -336,7 +339,9 @@ test('a system-curve point without a head says why, with names and in the displa
 
 	const chart = pumps.getByRole('figure', { name: 'Pump and system curves: Transfer pump' });
 	await expect(chart.getByRole('img')).toHaveAccessibleName(/ and system curve; operating point /);
-	await chart.getByRole('button', { name: 'Show data table' }).click();
+	await chart.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	// Open by default: its Why no head column has an entry (proposal pumps-results-layout.md §9 S7).
+	await expect(curveTableFold(chart, 'System curve')).toHaveAttribute('open', '');
 	const table = chart.getByRole('table', { name: 'System curve' });
 	await expect(table.getByRole('columnheader')).toHaveText([
 		'Flow (gpm)',
@@ -357,7 +362,10 @@ test('a system-curve point without a head says why, with names and in the displa
 	// The API's own sentence is kept under Details, closed until asked for.
 	const server = why.getByText(`Calculation server's message: ${point.message}`);
 	await expect(server).toBeHidden();
-	await why.getByText('Details', { exact: true }).click();
+	// Named for its point by a visually hidden suffix (pumps-results-layout.md §6.2).
+	await why
+		.getByText(`Details of the point at ${sig4(point.flow / GPM)} gpm`, { exact: true })
+		.click();
 	await expect(server).toBeVisible();
 	// The words fit the screen: no sideways scroll of the page, on a phone too.
 	expect(

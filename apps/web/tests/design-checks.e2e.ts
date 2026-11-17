@@ -1,7 +1,7 @@
 import { gzipSync } from 'node:zlib';
 import { expect, test } from '@playwright/test';
 import { pumpTransferExample } from '../src/lib/utils/examples';
-import { resultsPane, resultsView, showPane, solveConverged } from './support';
+import { cellText, resultsPane, resultsView, showPane, sig4, solveConverged } from './support';
 
 /**
  * Opt-in design checks (CLAUDE.md D19; proposal design-checks.md), against the real app and API,
@@ -41,7 +41,7 @@ test('lists the checks not met first, and draws their limits on the pump chart',
 }) => {
 	const encoded = gzipSync(Buffer.from(JSON.stringify(checkedExample()))).toString('base64url');
 	await page.goto(`/p#${encoded}`);
-	await solveConverged(page);
+	const solved = await solveConverged(page);
 	await showPane(page, 'Results');
 
 	// The Summary counts them and names those not met.
@@ -73,6 +73,18 @@ test('lists the checks not met first, and draws their limits on the pump chart',
 
 	// The pump chart: the limits shown, in notes, behind a chip.
 	const pumps = await resultsView(page, 'Pumps');
+	// Results per pump's NPSH reading is the ratio the check's minimum ratio limits: the API's NPSHa
+	// ÷ NPSHr (12.74 m ÷ 3.039 m), shown by default, the absolute margin not (the owner,
+	// 2026-11-12, nit 4; docs/proposals/pumps-nits.md item 4).
+	const p1 = solved.pumpResults.P1!;
+	const perPump = pumps.getByRole('table', { name: 'Results per pump' });
+	expect(await cellText(perPump, 'Transfer pump', 'NPSH margin ratio')).toBe(
+		sig4(p1.npshMarginRatio!)
+	);
+	expect(sig4(p1.npshMarginRatio!)).toBe(sig4(p1.npshAvailable! / p1.npshRequired!));
+	await expect(perPump.getByRole('columnheader', { name: /^NPSH margin(?! ratio)/ })).toHaveCount(
+		0
+	);
 	const figure = pumps.getByRole('figure').first();
 	await expect(figure.getByText(/System curve: the network/)).toBeVisible({ timeout: 30_000 });
 	const por = figure.getByText(

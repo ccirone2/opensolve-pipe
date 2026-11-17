@@ -368,3 +368,97 @@ export function libraryProject(): Project {
 	];
 	return project;
 }
+
+/** A class that hides an element at some width: `sr-only`, `hidden` or `invisible`, any variant. */
+const HIDING_CLASS = /(^|:)(sr-only|hidden|invisible)$/;
+
+/**
+ * Out of sight by its markup, whatever the width (jsdom applies no CSS, so `sr-only` or
+ * `max-sm:hidden` changes nothing it can measure): the element or an ancestor carries a hiding
+ * class at any breakpoint, the `hidden` attribute or an inline `display: none` or
+ * `visibility: hidden`, or it is inside a closed disclosure but not its summary. The words-on-screen
+ * guards (proposal pumps-results-layout.md §10) and the "kept visible" checks read it.
+ */
+export function outOfSight(el: Element): boolean {
+	for (let e: Element | null = el; e; e = e.parentElement) {
+		if ([...e.classList].some((c) => HIDING_CLASS.test(c)) || e.hasAttribute('hidden')) {
+			return true;
+		}
+		const style = (e as HTMLElement).style;
+		if (style && (style.display === 'none' || style.visibility === 'hidden')) return true;
+	}
+	const details = el.closest('details');
+	return !!details && !details.open && !el.closest('summary');
+}
+
+/**
+ * The words of `el` in sight: its text nodes whose element is not out of sight (outOfSight),
+ * joined, so a line hidden in a child of a visible element is not read as on screen with it. The
+ * words-on-screen guards (proposal pumps-results-layout.md §10, §6.4 item 3) read it.
+ */
+export function wordsInSight(el: Element): string {
+	let words = '';
+	const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+	for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+		if (n.parentElement && !outOfSight(n.parentElement)) words += n.textContent ?? '';
+	}
+	return words;
+}
+
+/**
+ * Characters that designate a pump, the group or a case (owner, 2026-11-12, nit 5: "I don't like
+ * the use of special characters to designate pumps and groups"; docs/proposals/pumps-nits.md item
+ * 5): Unicode's Geometric Shapes (U+25A0–25FF: ▲ ■ ● ○ ◇ ▢ △ ▽), Miscellaneous Symbols and
+ * Dingbats (U+2600–27BF: ★ ✳) and Miscellaneous Symbols and Arrows (U+2B00–2BFF).
+ */
+const DESIGNATOR_CLASS = String.raw`[\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF]`;
+const DESIGNATOR = new RegExp(DESIGNATOR_CLASS, 'g');
+/**
+ * A mark named in parentheses after the words it marks, "Shutoff head (–)": a +, ×, dash or
+ * hyphen, or a designator (with its text-style selector, U+FE0E).
+ */
+const MARK_IN_PARENTHESES = new RegExp(String.raw`\((?:[+×–-]|${DESIGNATOR_CLASS}\uFE0E?)\)`, 'g');
+
+/**
+ * The designator characters in `where` (nit 5's guard), each as found: every character of those
+ * blocks, a mark in parentheses ("(+)", "(–)"), and, in an element, the words of every
+ * aria-hidden span that is a lone × or + (a mark drawn as text). Empty when there is none.
+ */
+export function designators(where: Element | string): string[] {
+	const text = typeof where === 'string' ? where : (where.textContent ?? '');
+	const found = [...(text.match(DESIGNATOR) ?? []), ...(text.match(MARK_IN_PARENTHESES) ?? [])];
+	if (typeof where !== 'string') {
+		for (const hidden of where.querySelectorAll('[aria-hidden="true"]')) {
+			const words = (hidden.textContent ?? '').trim();
+			if (words === '×' || words === '+') found.push(words);
+		}
+	}
+	return found;
+}
+
+/**
+ * The case number `el` shows in its CaseTag's box (components/ui/CaseTag.svelte; owner,
+ * 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5, slice 5b): the box's text, seen and
+ * hidden from screen readers, "3", "1, 5", "Base"; null without one.
+ */
+export function shownCaseTag(el: Element): string | null {
+	const tag = el.querySelector('[data-case-tag]');
+	if (!tag) return null;
+	const box =
+		tag.getAttribute('aria-hidden') === 'true' ? tag : tag.querySelector('[aria-hidden="true"]');
+	return box ? (box.textContent ?? '').replace(/\s+/g, ' ').trim() : null;
+}
+
+/** `el`'s words beside its CaseTags: its text without each tag's box and hidden words. */
+export function besideCaseTag(el: Element): string {
+	const copy = el.cloneNode(true) as Element;
+	for (const tag of copy.querySelectorAll('[data-case-tag]')) tag.remove();
+	return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/** What a screen reader reads of `el`'s text: its words without its aria-hidden parts. */
+export function spokenWords(el: Element): string {
+	const copy = el.cloneNode(true) as Element;
+	for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+	return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+}

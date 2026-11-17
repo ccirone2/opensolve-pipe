@@ -317,6 +317,11 @@ SYSTEM_REASONS = frozenset(
 """D10's reasons a system-curve point has no head (rise)."""
 PUMP_WORDS = re.compile(r"\bthe pump\b|\bsuction\b|\bdischarge\b|\bhead across\b")
 """A pump's words for the forced element, which a station's messages must not use."""
+D13_WORDS = ("another steady state", "more than one steady state")
+"""D13's words: each of the two messages of a system duty check whose rise disagrees holds one
+(pumps-results-layout.md §9 A1). D10's reason words ("no steady state carries this flow ...",
+"no steady state found ...") are not them, so the message of no rise beside a rise explains
+nothing."""
 REASON_FIELDS = (
     "component_ids",
     "assigned_flow_node_ids",
@@ -2049,7 +2054,9 @@ def _system_duty_check(
         why = at.reason if at is not None else "the duty's flow outside the range"
         rec.counts[f"system_disagrees: no rise ({why})"] += 1
         rec.notes.append(f"system duty check without a rise ({why}; {where}): {check.message}")
-    elif "CLAUDE.md D13" not in check.message:
+    elif not any(words in check.message for words in D13_WORDS):
+        # D13's words, not its citation (pumps-results-layout.md §9 A1): a rise that disagrees
+        # comes with one of two messages, "another steady state" or "more than one steady state".
         problems.append(f"{label} the system duty check disagrees, without D13's words: {check}")
     elif abs(duty.flow) <= DUTY_FLOOR:
         rec.counts["system_disagrees: zero station flow"] += 1

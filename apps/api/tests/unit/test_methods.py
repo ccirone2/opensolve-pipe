@@ -247,7 +247,7 @@ def test_method_1_6_0_adds_the_pressure_relief_valve() -> None:
 
 
 def test_method_1_6_1_refuses_coefficients_past_the_slope_bound() -> None:
-    """GOALS §4.3 and CLAUDE.md D9, D20 (TSD §12 item 18): refusing a loss coefficient past half
+    """GOALS §4.3 and CLAUDE.md D9, D20 (TSD §12 item 19): refusing a loss coefficient past half
     the largest double wherever the element is turns a project that solved on 1.6.0 (the element
     never evaluated, isolated) into a 422, as does D20's rule (e) for a plate whose Reynolds
     number per unit flow is not finite, so it is method 1.6.1, after 1.6.0, with a changelog

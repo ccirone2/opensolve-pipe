@@ -21,7 +21,7 @@ _addresses = itertools.count(1)
 def client() -> TestClient:
     """A client with its own address, so the rate limit (60 solves a minute per address) of
     the shared app never trips across tests."""
-    return TestClient(app, client=(f"198.51.100.{next(_addresses)}", 50000))
+    return TestClient(app, client=(f"198.51.108.{next(_addresses)}", 50000))
 
 
 def _pump_project() -> dict[str, Any]:

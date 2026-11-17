@@ -31,6 +31,8 @@ export interface TestWorkspaceOptions {
 	solver?: Solver;
 	origin?: string;
 	writeUrl?: (path: string) => void;
+	/** The clock for metadata.modified (default: the real one). */
+	now?: () => string;
 }
 
 /** A workspace over `project` that writes no URL and calls no API. */
@@ -38,7 +40,8 @@ export function testWorkspace(project: Project, options: TestWorkspaceOptions = 
 	const store = new ProjectStore(project, {
 		writeUrl: options.writeUrl ?? (() => {}),
 		origin: options.origin ?? 'https://opensolve-pipe.app',
-		solver: options.solver ?? { solve: unavailable }
+		solver: options.solver ?? { solve: unavailable },
+		...(options.now ? { now: options.now } : {})
 	});
 	return new Workspace(store, new LibraryStore(fakeLibrarySource(options.library)));
 }

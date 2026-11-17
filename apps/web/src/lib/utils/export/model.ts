@@ -15,7 +15,13 @@
  * without a response is a line in About.
  */
 import type { Project, SolveResponse, UnitPreferences } from '../../api/types';
-import type { GoalSeekFinished, CaseStatus, SystemCurveState } from '../../state/project.svelte';
+import type {
+	GoalSeekFinished,
+	CaseStatus,
+	GroupCurveState,
+	GroupSystemCurveState,
+	SystemCurveState
+} from '../../state/project.svelte';
 import type { CompareRow } from '../compare';
 import type { CaseId } from '../scenarios';
 import { aboutSheet, goalSeekSheet, methodsSheet, readmeLines } from './about';
@@ -133,6 +139,10 @@ export interface ExportCase {
 	inputs: Project | null;
 	/** Its computed system curves (the case's slot: pump id, or pump id NUL min NUL max). */
 	systemCurves: Readonly<Record<string, SystemCurveState>>;
+	/** Its group curves, by groupKey, as computed for the case's response (CLAUDE.md D21). */
+	groupCurves: Readonly<Record<string, GroupCurveState>>;
+	/** Its group system curves, by groupKey, as computed for the case's response. */
+	groupSystemCurves: Readonly<Record<string, GroupSystemCurveState>>;
 }
 
 /** Everything an export reads, taken at the click (§2.1). */
@@ -141,6 +151,14 @@ export interface ExportInput {
 	now: Date;
 	/** −now.getTimezoneOffset(): every local time is computed from `now` and this. */
 	utcOffsetMinutes: number;
+	/**
+	 * The time the file name and the CSV zip's folder carry, with the offset in force when the name
+	 * was stamped: the name the dialog showed when Download was pressed (§12 item 36), a minute
+	 * before `now`'s when the press came just after a minute boundary, before the dialog's tick, and
+	 * in the zone of its stamp when the time zone changed since. Absent: `now` and
+	 * `utcOffsetMinutes`.
+	 */
+	nameTime?: { now: Date; utcOffsetMinutes: number };
 	/** The build commit (`version` from $app/environment). */
 	appVersion: string;
 	/** The calculation server's source link (serverSourceHref()). */
@@ -203,6 +221,9 @@ export function buildExport(input: ExportInput): ExportBundle {
 	const { options } = input;
 	const project = input.project.metadata.name;
 	const shown = ctx.single ? ctx.cases[0] : undefined;
+	// The name and the zip's folder carry the name's time; About, README.txt, the workbook's
+	// created time and the zip's entry times carry `now` (§12 item 36).
+	const named = input.nameTime ?? { now: input.now, utcOffsetMinutes: input.utcOffsetMinutes };
 	return {
 		sheets,
 		omitted: [
@@ -218,11 +239,11 @@ export function buildExport(input: ExportInput): ExportBundle {
 			case: ctx.hasScenarios ? (shown ? shown.input.name : 'All cases') : null,
 			content: options.format === 'csv' ? 'results (CSV)' : 'results',
 			ext: options.format === 'csv' ? 'zip' : 'xlsx',
-			now: input.now,
-			utcOffsetMinutes: input.utcOffsetMinutes,
+			now: named.now,
+			utcOffsetMinutes: named.utcOffsetMinutes,
 			notConverged: !!shown?.response && !shown.hasValues
 		}),
-		folder: options.format === 'csv' ? zipFolderName(input.now, input.utcOffsetMinutes) : null,
+		folder: options.format === 'csv' ? zipFolderName(named.now, named.utcOffsetMinutes) : null,
 		title: project,
 		created: input.now,
 		utcOffsetMinutes: input.utcOffsetMinutes,

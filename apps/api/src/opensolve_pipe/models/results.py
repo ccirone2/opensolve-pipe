@@ -221,6 +221,15 @@ class PumpResult(OutputModel):
     )
     npsh_required: float | None = Field(description="m, if a curve is given")
     npsh_margin: float | None = Field(description="NPSHa - NPSHr, m")
+    # TSD §5.5, SDD §4.10: computed in services/solver/results.py (_npsh_margin_ratio).
+    npsh_margin_ratio: float | None = Field(
+        description=(
+            "NPSHa / NPSHr, dimensionless; None where NPSHa or NPSHr is None or NPSHr is 0 (or "
+            "the quotient is not finite). Where given, below 1 exactly where npshMargin is "
+            "negative. None is no sign of a safe margin: where NPSHr is 0 (or the quotient is not "
+            "finite) and NPSHa is negative, npshMargin is negative and CAVITATION is raised"
+        )
+    )
     suction_absolute_pressure: float | None = Field(
         description=(
             "Static, Pa absolute; None where the pressure level is undetermined "

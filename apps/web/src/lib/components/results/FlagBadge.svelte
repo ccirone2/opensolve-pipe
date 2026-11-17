@@ -5,7 +5,7 @@
 <script lang="ts">
 	import type { Flag } from '$lib/api/types';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import { SEVERITY_LABELS } from '$lib/utils/results';
+	import { flagTone, SEVERITY_LABELS } from '$lib/utils/results';
 	import FlagIcon from './FlagIcon.svelte';
 
 	let { flag }: { flag: Flag } = $props();
@@ -16,11 +16,7 @@
 <span
 	class={[
 		'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap',
-		flag.severity === 'invalid'
-			? 'border-red-300 bg-red-50 text-red-900'
-			: flag.severity === 'warning'
-				? 'border-amber-300 bg-amber-50 text-amber-900'
-				: 'border-slate-300 bg-slate-50 text-slate-700'
+		flagTone(flag.severity)
 	]}
 	title={text}
 >

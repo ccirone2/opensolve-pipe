@@ -3,9 +3,11 @@
  * topology issues, validation errors, a network error or the solve status.
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import { TopologyError, ValidationError } from '$lib/api/client';
 import type { Project, Pump, SolveResponse } from '$lib/api/types';
+import { wordsInSight } from '$lib/testing/helpers';
 import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { gravityBranchExample, pumpTransferExample } from '$lib/utils/examples';
@@ -484,7 +486,7 @@ describe('results pane', () => {
 		expect(results().getByText('Water: 273.16–373 K')).toBeInTheDocument();
 	});
 
-	it('a shared link: shows its description and says the link holds no results, with a Solve', async () => {
+	it('a shared link: shows its description and says the link holds no results, and where Solve is', async () => {
 		const project = {
 			...pumpTransferExample(),
 			methodVersion: '1.0.0',
@@ -500,8 +502,21 @@ describe('results pane', () => {
 		expect(about.querySelector('p')!.textContent).toBe(
 			'Rev A for client review.\nPump P1 duty point.'
 		);
-		expect(results().getByText(/^This project was opened without results/)).toBeInTheDocument();
-		await fireEvent.click(results().getByRole('button', { name: 'Solve now' }));
+		// No Solve now (build-density.md §19): the words name the header's Solve, which solves.
+		expect(
+			results()
+				.getByText(/^This project was opened without results/)
+				.textContent?.replace(/\s+/g, ' ')
+				.trim()
+		).toBe(
+			"This project was opened without results: a link holds the project's inputs, not its results. Press Solve, at the top (Ctrl+Enter or ⌘+Enter), to calculate the flows, pressures and pump operating points (the project is sent to the calculation server, which does not keep it)."
+		);
+		expect(results().queryByRole('button', { name: /^Solve/ })).toBeNull();
+		await fireEvent.click(
+			within(screen.getByRole('toolbar', { name: 'Project' })).getByRole('button', {
+				name: 'Solve'
+			})
+		);
 		expect(solveFn).toHaveBeenCalledTimes(1);
 		expect(await results().findByRole('heading', { name: 'Converged' })).toBeInTheDocument();
 		// With results to show, the description is one line, a click away.
@@ -519,11 +534,15 @@ describe('results pane', () => {
 		delete project.metadata.description;
 		render(WorkspaceView, { workspace: testWorkspace(project) });
 		expect(results().queryByRole('region', { name: 'About this project' })).toBeNull();
+		// The header's Solve named, with its shortcut (build-density.md §19).
 		expect(
-			results().getByText(
-				'Press Solve to calculate the flows, pressures and pump operating points of the network.'
-			)
-		).toBeInTheDocument();
+			results()
+				.getByText(/^Press/)
+				.textContent?.replace(/\s+/g, ' ')
+				.trim()
+		).toBe(
+			'Press Solve, at the top (Ctrl+Enter or ⌘+Enter), to calculate the flows, pressures and pump operating points of the network.'
+		);
 	});
 
 	describe('the Export button (proposal export.md §5.2)', () => {
@@ -667,5 +686,160 @@ describe('results pane', () => {
 			);
 			expect(screen.queryByRole('dialog', { name: 'Export results' })).toBeNull();
 		});
+	});
+});
+
+describe('the pane names Solve and Solve all at the top instead of repeating them (build-density.md §19)', () => {
+	const SOLVE_ONE = /^Solve($| (?!all\b))/;
+	const SOLVE_ALL = /^Solve all( \(\d+\))?$/;
+	const KEYS = 'Ctrl+Enter or ⌘+Enter';
+	const KEYS_ALL = 'Ctrl+Shift+Enter or ⌘+Shift+Enter';
+	const words = (text: string | null | undefined) => (text ?? '').replace(/\s+/g, ' ').trim();
+	/** The pane's paragraph whose words start with `start` (null: none). */
+	const para = (start: string) =>
+		[...screen.getByRole('region', { name: 'Results' }).querySelectorAll('p')].find((p) =>
+			words(p.textContent).startsWith(start)
+		) ?? null;
+	/** No Solve, Solve {case}, Solve now, Solve again or Solve all in the pane, hidden ones too. */
+	function noSolveButtons(what: string) {
+		const named = (name: RegExp) =>
+			results()
+				.queryAllByRole('button', { name, hidden: true })
+				.map((b) => words(b.textContent));
+		expect(named(SOLVE_ONE), what).toEqual([]);
+		expect(named(SOLVE_ALL), what).toEqual([]);
+	}
+	/** The header's own icon: Solve's play (idle), the Scenarios button's layers. */
+	const headerIcon = (word: 'Solve' | 'Scenarios') =>
+		(word === 'Solve'
+			? document.querySelector('[data-solve-button]')!
+			: screen.getByRole('button', { name: /^Scenarios/ })
+		).querySelector(':scope > svg')!.innerHTML;
+	/** A control named in words: its header icon, hidden, and its word in one unbroken span. */
+	function namesControl(p: HTMLElement, word: 'Solve' | 'Scenarios') {
+		const span = [...p.querySelectorAll('span')].find((s) => words(s.textContent) === word);
+		expect(span, word).toBeDefined();
+		expect(span, word).toHaveClass('whitespace-nowrap');
+		const svg = span!.querySelector('svg');
+		expect(svg, word).not.toBeNull();
+		expect(svg, word).toHaveAttribute('aria-hidden', 'true');
+		expect(svg!.innerHTML, word).toBe(headerIcon(word));
+	}
+	/** The shortcut, drawn on a fine pointer only. */
+	function keysHint(p: HTMLElement, keys: string) {
+		const span = [...p.querySelectorAll('span')].find((s) => words(s.textContent) === `(${keys})`);
+		expect(span, keys).toBeDefined();
+		expect(span, keys).toHaveClass('hidden', 'pointer-fine:inline');
+	}
+	const twoCases = () =>
+		withScenarios(pumpTransferExample(), [
+			{ id: 'S1', name: 'Winter', overrides: [] },
+			{ id: 'S2', name: 'Summer', overrides: [] }
+		]);
+
+	it('E1, two cases or more to solve: the case unsolved, then where Solve and Solve all are', async () => {
+		const ws = testWorkspace(twoCases());
+		render(WorkspaceView, { workspace: ws });
+		// The Results tab shown (on a phone the pane is a tab; its words are read in sight).
+		ws.pane = 'results';
+		await tick();
+		expect(words(para('Base case')?.textContent)).toBe('Base case has not been solved yet.');
+		const p = para('Press');
+		expect(words(p?.textContent)).toBe(
+			`Press Solve, at the top (${KEYS}), to solve it. Solve all, in the Scenarios menu (${KEYS_ALL}), solves the 3 cases whose results are missing or out of date.`
+		);
+		// On a touch screen the shortcuts are not drawn.
+		expect(words(wordsInSight(p!))).toBe(
+			'Press Solve, at the top, to solve it. Solve all, in the Scenarios menu, solves the 3 cases whose results are missing or out of date.'
+		);
+		namesControl(p!, 'Solve');
+		namesControl(p!, 'Scenarios');
+		keysHint(p!, KEYS);
+		keysHint(p!, KEYS_ALL);
+		noSolveButtons('E1');
+	});
+
+	it('E1, one case to solve (a cancelled one counts): Solve alone', async () => {
+		let hold = false;
+		const ws = testWorkspace(
+			withScenarios(pumpTransferExample(), [{ id: 'S1', name: 'Winter', overrides: [] }]),
+			{
+				solver: {
+					solve: () =>
+						hold
+							? new Promise<SolveResponse>(() => {})
+							: Promise.resolve(response(pumpTransferSolved()))
+				}
+			}
+		);
+		render(WorkspaceView, { workspace: ws });
+		ws.setCase('S1');
+		await ws.solve();
+		ws.setCase(null);
+		await vi.waitFor(() => expect(ws.store.casesToSolve()).toEqual([null]));
+		expect(words(para('Press')?.textContent)).toBe(
+			`Press Solve, at the top (${KEYS}), to solve it.`
+		);
+		namesControl(para('Press')!, 'Solve');
+		noSolveButtons('E1, one case');
+		// Its solve cancelled: still the one case to solve.
+		hold = true;
+		void ws.solve();
+		await vi.waitFor(() => expect(ws.store.results.solving).toBe(true));
+		ws.store.cancelSolve();
+		await vi.waitFor(() => expect(ws.store.results.cancelled).toBe(true));
+		expect(words(para('Base case')?.textContent)).toBe(
+			'Base case has not been solved yet (its solve was cancelled).'
+		);
+		expect(words(para('Press')?.textContent)).toBe(
+			`Press Solve, at the top (${KEYS}), to solve it.`
+		);
+		noSolveButtons('E1, cancelled');
+	});
+
+	it('E1 while a calculation runs: the first line only', async () => {
+		const ws = testWorkspace(twoCases(), {
+			solver: { solve: () => new Promise<SolveResponse>(() => {}) }
+		});
+		render(WorkspaceView, { workspace: ws });
+		ws.setCase('S1');
+		void ws.solve();
+		ws.setCase(null);
+		await vi.waitFor(() => expect(ws.store.calculating).toBe('solve'));
+		expect(words(para('Base case')?.textContent)).toBe('Base case has not been solved yet.');
+		expect(para('Press')).toBeNull();
+		noSolveButtons('E1, a solve of Winter running');
+	});
+
+	it('E2, no scenarios and never solved: where Solve is', async () => {
+		const project = pumpTransferExample();
+		delete project.metadata.description;
+		const ws = testWorkspace(project);
+		render(WorkspaceView, { workspace: ws });
+		ws.pane = 'results';
+		await tick();
+		const p = para('Press');
+		expect(words(p?.textContent)).toBe(
+			`Press Solve, at the top (${KEYS}), to calculate the flows, pressures and pump operating points of the network.`
+		);
+		expect(words(wordsInSight(p!))).toBe(
+			'Press Solve, at the top, to calculate the flows, pressures and pump operating points of the network.'
+		);
+		namesControl(p!, 'Solve');
+		keysHint(p!, KEYS);
+		noSolveButtons('E2');
+	});
+
+	it('E3, a link opened without results: no Solve now, the words say where Solve is', () => {
+		render(WorkspaceView, {
+			workspace: testWorkspace({ ...pumpTransferExample(), methodVersion: '1.0.0' })
+		});
+		const p = para('This project was opened without results');
+		expect(words(p?.textContent)).toBe(
+			`This project was opened without results: a link holds the project's inputs, not its results. Press Solve, at the top (${KEYS}), to calculate the flows, pressures and pump operating points (the project is sent to the calculation server, which does not keep it).`
+		);
+		namesControl(p!, 'Solve');
+		keysHint(p!, KEYS);
+		noSolveButtons('E3');
 	});
 });

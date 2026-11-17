@@ -10,11 +10,13 @@
  * left out without scenarios. Each part is sanitized (NFC; bidi controls and zero-width characters
  * removed; each run of whitespace one space; each run of characters Windows forbids, C0, DEL and
  * C1 controls one `_`, as Chromium does itself; spaces and dots trimmed at both ends) and cut by
- * grapheme to 60 (project), 40 (case) or 40 (content) characters; the whole name is at most 147
+ * grapheme to 60 (project), 40 (case) or 40 (content) characters; the whole name is at most 144
  * characters. Excel opens no file whose full path is longer than 218 characters, and Windows'
  * Extract All proposes `Downloads\{zip name}\results {time}\{file}`: with a 26-character
- * Downloads folder and the longest file, `scenario-changes.csv`, that path is
- * 26 + 1 + 143 + 1 + 23 + 1 + 20 = 215 characters at the cap, 3 below the limit (§3.1).
+ * Downloads folder and the longest file, `group-curve-members.csv` or `group-system-curves.csv`
+ * (CLAUDE.md D21, slice 4c; `scenario-changes.csv`, 20 characters, before it, at a cap of 147),
+ * that path is 26 + 1 + 140 + 1 + 23 + 1 + 23 = 215 characters at the cap, 3 below the limit
+ * (§3.1).
  */
 
 /** The local calendar fields of `now` at `utcOffsetMinutes` from UTC. */
@@ -62,7 +64,7 @@ export function fileStamp(now: Date | number, utcOffsetMinutes: number): string 
 }
 
 /** The longest name, in characters (UTF-16 code units, as Windows counts a path): see above. */
-export const MAX_NAME_LENGTH = 147;
+export const MAX_NAME_LENGTH = 144;
 export const PROJECT_PART_LENGTH = 60;
 export const CASE_PART_LENGTH = 40;
 export const CONTENT_PART_LENGTH = 40;

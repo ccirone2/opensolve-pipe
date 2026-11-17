@@ -13,6 +13,8 @@ import {
 	compareCells,
 	defaultRows,
 	DEFAULT_ROW_LIMIT,
+	ELEMENT_QUANTITIES,
+	QUANTITIES,
 	rowLabel,
 	rowUnit,
 	type CompareColumn
@@ -51,7 +53,9 @@ describe('default rows', () => {
 			['status', ''],
 			['pumpFlow', 'P1'],
 			['pumpHead', 'P1'],
-			['pumpNpshMargin', 'P1'],
+			// The ratio in the margin's place (the owner's nit 4 and Q3, 2026-11-12;
+			// docs/proposals/pumps-nits.md item 4).
+			['pumpNpshMarginRatio', 'P1'],
 			['pumpSpeed', 'P1'],
 			['valveFlow', 'V1'],
 			['valveState', 'V1'],
@@ -65,8 +69,13 @@ describe('default rows', () => {
 		]);
 	});
 
-	it('leave out a pump’s speed when no case controls or changes it, and NPSH margin without one', () => {
-		const solved = pumpTransferSolved({ pumpResults: { P1: pumpResult({ npshMargin: null }) } });
+	it('leave out a pump’s speed when no case controls or changes it, and NPSH margin ratio without an NPSH margin', () => {
+		// No NPSHr curve: no margin and no ratio.
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ npshRequired: null, npshMargin: null, npshMarginRatio: null })
+			}
+		});
 		const rows = defaultRows(project(), [solved]);
 		expect(rows.map((r) => r.quantity)).toEqual([
 			'status',
@@ -75,6 +84,28 @@ describe('default rows', () => {
 			'lowestPressure',
 			'highestVelocity'
 		]);
+	});
+
+	it('give each pump’s NPSH margin ratio, never the margin, the ratio row kept for a pump with no ratio whose margin is negative (docs/proposals/pumps-nits.md item 4, Q3)', () => {
+		const npshRows = (solved: SolvedState) =>
+			defaultRows(project(), [solved])
+				.filter((r) => r.quantity.startsWith('pumpNpsh'))
+				.map((r) => [r.quantity, r.elementId]);
+		expect(npshRows(pumpTransferSolved())).toEqual([['pumpNpshMarginRatio', 'P1']]);
+		// Made-up: NPSHr 0 at the operating flow, NPSHa −2.521 m: margin −2.521 m, no ratio,
+		// CAVITATION raised (corpus unit_rich1090 PU2). A null ratio is no sign of a safe margin.
+		const cavitating = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({
+					npshAvailable: -2.521,
+					npshRequired: 0,
+					npshMargin: -2.521,
+					npshMarginRatio: null
+				})
+			},
+			flags: [flag({ code: 'CAVITATION', severity: 'invalid', message: 'x', componentId: 'P1' })]
+		});
+		expect(npshRows(cavitating)).toEqual([['pumpNpshMarginRatio', 'P1']]);
 	});
 
 	it(`are at most ${DEFAULT_ROW_LIMIT}, each once`, () => {
@@ -166,6 +197,76 @@ describe('cells and differences', () => {
 			SI_UNITS
 		);
 		expect(pressure[1]!.diff).toMatchObject({ text: 'Same', same: true });
+	});
+
+	it('compare the NPSH margin ratio as a plain number: no unit, a difference with a true minus sign and no relative one (docs/proposals/pumps-nits.md item 4)', () => {
+		const row = { quantity: 'pumpNpshMarginRatio', elementId: 'P1' } as const;
+		expect(QUANTITIES).toHaveProperty('pumpNpshMarginRatio');
+		expect(rowLabel(project(), row)).toBe('Transfer pump · NPSH margin ratio');
+		expect(rowUnit(row, SI_UNITS)).toBe('');
+		expect(rowUnit(row, IMPERIAL_UNITS)).toBe('');
+		// Made-up: NPSHa 10.5 m against NPSHr 3 m, ratio 3.5, against the base's 12 ÷ 3 = 4.
+		const lowerNpsha = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ npshAvailable: 10.5, npshMargin: 7.5, npshMarginRatio: 10.5 / 3 })
+			}
+		});
+		for (const units of [SI_UNITS, IMPERIAL_UNITS]) {
+			const cells = compareCells(row, [column(base), column(lowerNpsha)], project(), units);
+			expect(cells.map((c) => c.text)).toEqual(['4', '3.5']);
+			expect(cells[1]!.diff).toMatchObject({ text: '−0.5', same: false });
+		}
+		const same = compareCells(row, [column(base), column(base)], project(), SI_UNITS);
+		expect(same[1]!.diff).toMatchObject({ text: 'Same', same: true });
+	});
+
+	it('name the cavitation and the margin in an NPSH margin ratio cell where the case has no ratio but a negative margin', () => {
+		// Made-up: NPSHr 0 at the operating flow, NPSHa −2.521 m: margin −2.521 m, no ratio,
+		// CAVITATION raised (corpus unit_rich1090 PU2).
+		const cavitating = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({
+					npshAvailable: -2.521,
+					npshRequired: 0,
+					npshMargin: -2.521,
+					npshMarginRatio: null
+				})
+			},
+			flags: [flag({ code: 'CAVITATION', severity: 'invalid', message: 'x', componentId: 'P1' })]
+		});
+		expect(QUANTITIES).toHaveProperty('pumpNpshMarginRatio');
+		const cells = compareCells(
+			{ quantity: 'pumpNpshMarginRatio', elementId: 'P1' },
+			[column(base), column(cavitating)],
+			project(),
+			SI_UNITS
+		);
+		const cue = cells[1]!;
+		expect(cue.invalid).toBe(true);
+		expect(cue.diff).toBeUndefined();
+		const words = `${cue.text} ${cue.note ?? ''}`;
+		expect(cue.text === '—' && !cue.note).toBe(false);
+		expect(words).toMatch(/cavitat/i);
+		expect(words).toMatch(/[-−]2\.521/);
+		// NPSHr 0 with a margin of 0 or more: no ratio, and no cavitation claimed.
+		const zero = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ npshAvailable: 5, npshRequired: 0, npshMargin: 5, npshMarginRatio: null })
+			}
+		});
+		const quiet = compareCells(
+			{ quantity: 'pumpNpshMarginRatio', elementId: 'P1' },
+			[column(zero)],
+			project(),
+			SI_UNITS
+		)[0]!;
+		expect(`${quiet.text} ${quiet.note ?? ''}`).not.toMatch(/cavitat/i);
+	});
+
+	it('offer the NPSH margin ratio among a pump’s quantities, after its NPSH margin, which stays offered', () => {
+		const pump = ELEMENT_QUANTITIES.pump;
+		expect(pump).toContain('pumpNpshMargin');
+		expect(pump.indexOf('pumpNpshMarginRatio')).toBe(pump.indexOf('pumpNpshMargin') + 1);
 	});
 
 	it('say Same only when the values display the same, with the exact difference in the title', () => {

@@ -127,14 +127,16 @@
 		const specId = spec.id;
 		const n = changed;
 		refusal = '';
+		// The notice opens with these words; a name that followed its pumps in the same step is said
+		// after them (CLAUDE.md D24, proposal pump-lineups.md §4.5).
 		if (
 			ws.edit(
 				(p) => applyPipeSpec(p, specId, target).project,
-				`use pipe spec ${name} for ${plural(n)}`
+				`use pipe spec ${name} for ${plural(n)}`,
+				`${plural(n)} now use “${name}”. Undo reverts all of them.`
 			)
 		) {
 			onclose();
-			ws.notify('info', `${plural(n)} now use “${name}”. Undo reverts all of them.`);
 			return;
 		}
 		// ws.edit reports a refusal as the workspace's notice, behind this modal dialog: it moves

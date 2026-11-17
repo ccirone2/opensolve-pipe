@@ -17,13 +17,13 @@ import {
 	closeTrace,
 	currentHeading,
 	newProject,
-	openCases,
 	openScenarioManager,
 	resultsPane,
 	resultsView,
 	setNumber,
 	showPane,
 	sig4,
+	solveAll,
 	solveConverged,
 	tableTexts,
 	traceOf
@@ -376,7 +376,7 @@ test('scenarios: a blocked discharge relieves; a smaller valve and a gagged one;
 	await expect(caseMenu(page).locator('option:checked')).toHaveText('Gagged (2 changes)');
 
 	// Solve all: the base, then each scenario.
-	await (await openCases(page)).getByRole('button', { name: 'Solve all' }).click();
+	await solveAll(page);
 	await expect(caseGroup(page)).not.toContainText('Solving');
 	await expect.poll(() => Object.keys(solves).sort()).toEqual(['S1', 'S2', 'S3', 'base']);
 	const blocked = solves.S1!.reliefValveResults.RV1!;

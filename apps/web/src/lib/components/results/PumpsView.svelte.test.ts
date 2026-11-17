@@ -7,11 +7,12 @@
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NetworkError, TopologyError } from '$lib/api/client';
 import type { Component, Project, SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
+import { besideCaseTag, shownCaseTag } from '$lib/testing/helpers';
 import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { updateComponent } from '$lib/utils/edit';
@@ -24,6 +25,12 @@ import { withScenarios } from '$lib/utils/scenarios';
 // workspace in this test runner; PumpChart.svelte.test.ts mocks it for the chart itself.)
 const getContext = HTMLCanvasElement.prototype.getContext;
 const consoleError = console.error;
+// The chart loads Chart.js on first draw (`import('./chart-setup')`). Loaded here once, so a wait
+// for the drawn chart waits for the drawing, not for the test runner's first transform of
+// Chart.js, which took over waitFor's second on a loaded 4-CPU machine (on main too).
+beforeAll(async () => {
+	await import('./chart-setup');
+});
 beforeEach(() => {
 	console.error = (...args: unknown[]) => {
 		if (String(args[0]).startsWith('Failed to create chart')) return;
@@ -89,11 +96,62 @@ describe('other cases on the pump chart (Compare’s rule)', () => {
 		]);
 		await showPumps();
 		const cases = await results().findByRole('group', { name: 'Cases on the chart' });
+		// Its case's number, its place in the Scenarios list (nit 5, slice 5b: in place of △).
 		expect(
 			within(cases)
 				.getAllByRole('checkbox')
-				.map((c) => c.closest('label')!.textContent!.trim())
-		).toEqual(['△ Converged']);
+				.map((c) => [shownCaseTag(c.closest('label')!), besideCaseTag(c.closest('label')!)])
+		).toEqual([['1', 'Converged']]);
+	});
+});
+
+describe('"Cases on the chart" past its cap of five other cases', () => {
+	it('keeps the place a case leaves free: the case unticked can be ticked again, or another into its place', async () => {
+		const ws = setup(
+			withScenarios(
+				pumpTransferExample(),
+				['S1', 'S2', 'S3', 'S4', 'S5', 'S6'].map((id) => ({
+					id,
+					name: `Case ${id}`,
+					overrides: []
+				}))
+			),
+			{ solve: async () => response(pumpTransferSolved()) }
+		);
+		await ws.solveAll();
+		await showPumps();
+		const group = await results().findByRole('group', { name: 'Cases on the chart' });
+		const box = (name: string) =>
+			within(group).getByRole('checkbox', { name: new RegExp(`${name}$`) }) as HTMLInputElement;
+		const capped = (name: string) => box(name).getAttribute('aria-disabled') === 'true';
+		const ticked = () =>
+			within(group)
+				.getAllByRole('checkbox')
+				.filter((b) => (b as HTMLInputElement).checked)
+				// Its words beside its case's number (nit 5, slice 5b: the number's box and words).
+				.map((b) => besideCaseTag(b.closest('label')!));
+		const five = ['Case S1', 'Case S2', 'Case S3', 'Case S4', 'Case S5'];
+		expect(ticked()).toEqual(five);
+		expect(capped('Case S6')).toBe(true);
+
+		// Unticked, Case S1 leaves its place free: no case comes in by itself.
+		await fireEvent.click(box('Case S1'));
+		expect(ticked()).toEqual(five.slice(1));
+		expect(capped('Case S1')).toBe(false);
+		expect(capped('Case S6')).toBe(false);
+
+		// Ticked again, it takes its place back, and the box past the cap is capped again.
+		await fireEvent.click(box('Case S1'));
+		expect(ticked()).toEqual(five);
+		expect(capped('Case S6')).toBe(true);
+
+		// Or another case is ticked into the place: then the case unticked is the one capped.
+		await fireEvent.click(box('Case S1'));
+		await fireEvent.click(box('Case S6'));
+		expect(ticked()).toEqual([...five.slice(1), 'Case S6']);
+		expect(capped('Case S1')).toBe(true);
+		await fireEvent.click(box('Case S1'));
+		expect(box('Case S1').checked).toBe(false);
 	});
 });
 

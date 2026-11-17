@@ -19,14 +19,19 @@
 	switch between its results and Compare cases, and a card at the top says which case produced
 	the results and lists the changes the server applied. Rows of elements the scenario changed say
 	so, in every table; a scenario's invalid value is shown with the change that set it, and Reset
-	to base. The case bar announces Solve all's progress; the status line here is the case shown's,
-	and a case switch replaces it (the switch is announced once, by the workspace). Switching tab
-	from a control that goes (a column header of Compare cases, the card's Compare cases) gives the
-	focus to the tab shown.
+	to base. The Scenarios menu's line, or the header's twin while it is closed, announces Solve
+	all's progress; the status line here is the case shown's, and a case switch replaces it (the
+	switch is announced once, by the workspace). Switching tab from a control that goes (a column
+	header of Compare cases, the card's Compare cases) gives the focus to the tab shown.
 
 	Goal seek (proposal goal-seek.md §6.2): the Goal seek button at the right of the header opens
-	its dialog, without a solve; its icon spins while one runs. While a goal seek runs, every Solve
-	control here is unavailable with the reason (one request at a time, store.calculating).
+	its dialog, without a solve; its icon spins while one runs.
+
+	One control per action, at the top (build-density.md §19): the pane has no Solve, Solve now or
+	Solve all of its own. Where it offered one, its words name the control, with the header's own
+	icon and, on a fine pointer, its shortcut (ControlName, KeysHint): the case shown not solved
+	(E1: Solve, and Solve all in the Scenarios menu while two cases or more are to solve; nothing
+	more while a calculation runs), never solved (E2), and a link opened without results (E3).
 
 	Export (proposal export.md §5.2): the Export button, left of Goal seek, is shown when there is
 	something to export (the case shown has results on screen, or on Compare cases any case has a
@@ -39,8 +44,11 @@
 	import { tick, untrack, type Component as SvelteComponent } from 'svelte';
 	import type { Component, ControlValve } from '$lib/api/types';
 	import SiteFooter from '$lib/components/SiteFooter.svelte';
+	import ControlName from '$lib/components/ui/ControlName.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
-	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import KeysHint from '$lib/components/ui/KeysHint.svelte';
+	import ScrollRow from '$lib/components/ui/ScrollRow.svelte';
+	import { caseNameIn, useWorkspace } from '$lib/state/workspace.svelte';
 	import { freePorts, isBoundary } from '$lib/utils/graph';
 	import { componentName, portLabel } from '$lib/utils/labels';
 	import { mediaQuery, WIDE_SCREEN } from '$lib/utils/media.svelte';
@@ -75,8 +83,10 @@
 		lapsedChanges,
 		overridesOf,
 		changeFieldLabel,
-		changeTargetLabel
+		changeTargetLabel,
+		findScenario
 	} from '$lib/utils/scenarios';
+	import { solvedCaseWords } from '$lib/utils/pump-lineups';
 	import { scenarioProblems } from '$lib/utils/scenario-problems';
 	import { calculatingReason } from '$lib/utils/goal-seek';
 	import {
@@ -110,6 +120,12 @@
 	const solved = $derived(response?.solvedState);
 	/** The project has scenarios: results name their case, and Compare cases is offered. */
 	const hasScenarios = $derived(ws.scenarios.length > 0);
+	/**
+	 * A solved scenario's name as stored (the response's when no longer stored): the Methods view
+	 * names the case as the rest of the screen does (CLAUDE.md D24, proposal pump-lineups.md §5).
+	 */
+	const storedName = (scenario: { id: string; name: string }) =>
+		findScenario(ws.store.project, scenario.id)?.name ?? scenario.name;
 	const caseId = $derived(ws.store.activeCase);
 	const caseName = $derived(ws.caseName(caseId));
 	const comparing = $derived(hasScenarios && ws.comparing);
@@ -131,7 +147,10 @@
 	let selectedView = $state<ResultsView>('summary');
 	/**
 	 * Sorts the Summary asked for, per view (a new id applies one again): its links show the table
-	 * sorted on the extreme they name.
+	 * sorted on the extreme they name. A request is for the solve it was made on, as `visited` is:
+	 * a new solve drops them, so a view drawn anew for it (its tab pressed, not a link) never takes
+	 * an old one as new, which would show again a column the user hid after the link and store that
+	 * (review PUMPS-NITS-A1; docs/proposals/pumps-nits.md item 3). A view still drawn keeps its sort.
 	 */
 	let sortRequests = $state<Partial<Record<ResultsView, TableSort & { id: number }>>>({});
 	let sortRequestId = 0;
@@ -162,6 +181,7 @@
 			if (visitedFor !== forSolve) {
 				visitedFor = forSolve;
 				visited = [current];
+				sortRequests = {};
 			} else if (!visited.includes(current)) {
 				visited = [...visited, current];
 			}
@@ -330,7 +350,9 @@
 				const own = draft.scenarios?.find((s) => s.id === scenario.id);
 				if (own) own.overrides = overridesOf(own).filter((o) => !same(o));
 			},
-			`reset ${changeFieldLabel(ws.store.project, override).toLowerCase()} in ${scenario.name}`
+			// Named as the step leaves it: an app-made name follows its pumps (CLAUDE.md D24).
+			(after) =>
+				`reset ${changeFieldLabel(ws.store.project, override).toLowerCase()} in ${caseNameIn(after, scenario.id)}`
 		);
 	}
 
@@ -412,7 +434,8 @@
 
 	/**
 	 * The live status line: short, so a solve's outcome is announced without the lists. It is the
-	 * case shown's (Solve all's progress is the case bar's to announce).
+	 * case shown's (Solve all's progress is the Scenarios menu's line's to announce, or the header's
+	 * twin's while the menu is closed).
 	 */
 	const status = $derived.by(() => {
 		if (results.solving) return 'Solving…';
@@ -445,32 +468,31 @@
 	);
 
 	/**
-	 * The views' row: a mouse wheel scrolls it sideways while it can still move that way (a
-	 * non-passive listener); at its ends the wheel scrolls the pane, and a sideways gesture is the
-	 * browser's. The chosen view is kept in view (a link from the Summary, the keyboard).
+	 * The views' row, the shared sideways row (ScrollRow; proposal pumps-results-layout.md §5.4 One
+	 * shared component): its wheel and its edge shadows. The chosen view is kept in view (a link
+	 * from the Summary, the keyboard) by scrolling the row alone, never the pane, and when the row
+	 * is drawn again (Compare cases and back): the row is tracked, only its scroll is not.
 	 */
 	let viewRow: HTMLElement | undefined = $state();
-	$effect(() => {
-		const row = viewRow;
-		if (!row) return;
-		const wheel = (event: WheelEvent) => {
-			if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-			const room = row.scrollWidth - row.clientWidth;
-			const moving =
-				(event.deltaY > 0 && row.scrollLeft < room - 1) || (event.deltaY < 0 && row.scrollLeft > 0);
-			if (room <= 0 || !moving) return;
-			event.preventDefault();
-			row.scrollLeft += event.deltaY;
-		};
-		row.addEventListener('wheel', wheel, { passive: false });
-		return () => row.removeEventListener('wheel', wheel);
-	});
+	let viewRowComponent: ScrollRow | undefined = $state();
 	$effect(() => {
 		void view;
-		viewRow
-			?.querySelector<HTMLElement>('[aria-selected="true"]')
-			?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+		const row = viewRow;
+		const component = viewRowComponent;
+		if (!row || !component) return;
+		untrack(() => component.keepInView(row.querySelector('[aria-selected="true"]')));
 	});
+
+	/** The pane's scroller: the Pumps tab's section nav pins in it (§5.4 Place). */
+	let paneScroller: HTMLElement | undefined = $state();
+	/**
+	 * The Pumps tab's section nav while pinned (its height in px), else null: while the Pumps view
+	 * is shown the scroller's scroll padding keeps a focused control clear of it (§5.4 Focus never
+	 * hidden, WCAG 2.4.11), its height and 0.5 rem, so a focus ring (4 px beyond its control) and a
+	 * scroll's pixel rounding never reach under it (PumpsView's `--pumps-nav-pad`); other views
+	 * keep none.
+	 */
+	let pumpsNavPinned = $state<number | null>(null);
 
 	/** WAI-ARIA tabs: arrow keys, Home and End move between the views. */
 	function tabKeydown(event: KeyboardEvent) {
@@ -518,9 +540,11 @@
 		(ws.project.metadata.description ?? '').trim().split('\n', 1)[0] ?? ''
 	);
 
-	/** A request in flight (a solve of any case, Solve all, a goal seek): one at a time. */
-	const busyReason = $derived(calculatingReason(ws.store.calculating, 'solve'));
-	const busy = $derived(!!busyReason);
+	/**
+	 * The cases Solve all would solve (E1's words name it while two or more are to solve): the case
+	 * shown counts while it is not solved, a cancelled one too (build-density.md §19).
+	 */
+	const toSolve = $derived(ws.store.casesToSolve().length);
 	const goalSeeking = $derived(ws.store.calculating === 'goalSeek');
 
 	/**
@@ -668,9 +692,20 @@
 		</div>
 	{/if}
 
-	<!-- A column, so the footer sits at the bottom of the pane when the results are short. -->
+	<!--
+		A column, so the footer sits at the bottom of the pane when the results are short.
+		Positioned, so whatever is absolutely placed inside it (a visually hidden word, "Back to the
+		sections" shown) has it, or an element inside it, for its containing block: it stays inside
+		the pane's clip and scroll, and the page itself never grows taller than the window, so a
+		section nav's press (scrollIntoView) or a wheel scrolls the pane alone (pumps-results-layout.md
+		§5.4 Place: only under short: does the workspace scroll as one page).
+	-->
 	<div
-		class="flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto px-3 py-4 sm:px-4"
+		bind:this={paneScroller}
+		class="relative flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto px-3 py-4 sm:px-4"
+		style:scroll-padding-top={view === 'pumps' && pumpsNavPinned !== null
+			? `calc(${pumpsNavPinned}px + 0.5rem)`
+			: undefined}
 		inert={covered}
 	>
 		{#if comparing}
@@ -840,34 +875,22 @@
 				<FlagsSummary flags={solved.flags} onskip={focusViews} />
 			{:else if !results.error && !results.solving}
 				{#if hasScenarios && ws.project.components.length}
-					<div class="flex flex-wrap items-center gap-2">
-						<p class="min-w-0 flex-1 basis-48 break-words text-slate-700">
+					<!-- E1: the words name the header's Solve and the Scenarios menu's Solve all, and say
+						nothing more while a calculation runs (build-density.md §19). -->
+					<div class="space-y-1">
+						<p class="break-words text-slate-700">
 							{caseName} has not been solved yet{results.cancelled
 								? ' (its solve was cancelled)'
 								: ''}.
 						</p>
-						<!-- The case is named before; a name of up to 100 characters would not fit a phone. -->
-						<button
-							type="button"
-							class="btn btn-primary"
-							aria-disabled={busy}
-							aria-describedby={busy ? `${id}-busy` : undefined}
-							title={busyReason || undefined}
-							onclick={() => !busy && void ws.solve()}
-						>
-							<Icon name="play" class="size-4" /> Solve <span class="sr-only">{caseName}</span>
-						</button>
-						<button
-							type="button"
-							class="btn"
-							aria-disabled={busy}
-							aria-describedby={busy ? `${id}-busy` : undefined}
-							title={busyReason || undefined}
-							onclick={() => !busy && void ws.solveAll()}
-						>
-							Solve all
-						</button>
-						{#if busy}<span id="{id}-busy" class="sr-only">{busyReason}</span>{/if}
+						{#if ws.store.calculating === null}
+							<p class="text-sm text-slate-700">
+								Press <ControlName control="solve" />, at the top<KeysHint keys="solve" />, to solve
+								it. {#if toSolve >= 2}Solve all, in the <ControlName control="scenarios" /> menu<KeysHint
+										keys="solveAll"
+									/>, solves the {toSolve} cases whose results are missing or out of date.{/if}
+							</p>
+						{/if}
 					</div>
 				{:else if !ws.project.components.length}
 					<p class="text-slate-700">
@@ -875,27 +898,17 @@
 						pressures and pump operating points.
 					</p>
 				{:else if ws.store.loadedMethodVersion}
-					<div class="space-y-2">
-						<p class="text-slate-700">
-							This project was opened without results: a link holds the project's inputs, not its
-							results. Press Solve to calculate the flows, pressures and pump operating points (the
-							project is sent to the calculation server, which does not keep it).
-						</p>
-						<button
-							type="button"
-							class="btn btn-primary"
-							aria-disabled={busy}
-							aria-describedby={busy ? `${id}-busy-now` : undefined}
-							title={busyReason || undefined}
-							onclick={() => !busy && void ws.solve()}
-						>
-							<Icon name="play" class="size-4" /> Solve now
-						</button>
-						{#if busy}<span id="{id}-busy-now" class="sr-only">{busyReason}</span>{/if}
-					</div>
+					<!-- E3: no Solve now; the words say where Solve is (build-density.md §19). -->
+					<p class="text-slate-700">
+						This project was opened without results: a link holds the project's inputs, not its
+						results. Press <ControlName control="solve" />, at the top<KeysHint keys="solve" />, to
+						calculate the flows, pressures and pump operating points (the project is sent to the
+						calculation server, which does not keep it).
+					</p>
 				{:else}
 					<p class="text-slate-700">
-						Press Solve to calculate the flows, pressures and pump operating points of the network.
+						Press <ControlName control="solve" />, at the top<KeysHint keys="solve" />, to calculate
+						the flows, pressures and pump operating points of the network.
 					</p>
 				{/if}
 			{/if}
@@ -915,10 +928,7 @@
 								<button
 									type="button"
 									class="btn btn-quiet shrink-0 px-2 text-blue-800 underline underline-offset-2"
-									onclick={() => {
-										ws.managerFocus = caseId;
-										ws.managerOpen = true;
-									}}>Review</button
+									onclick={() => ws.openManager({ focus: caseId ?? undefined })}>Review</button
 								>
 							</li>
 						{/if}
@@ -950,38 +960,40 @@
 			{#if response && solved && !previousHidden}
 				<div class="space-y-3">
 					<!-- One row that scrolls sideways at every width (owner, 2026-10-31; proposal
-						build-density.md §17): edge shadows say there is more, a mouse wheel scrolls it. -->
-					<div
-						bind:this={viewRow}
-						role="tablist"
-						aria-label="Results view"
-						tabindex="-1"
-						class="scroll-shadow-x -mx-3 flex [scrollbar-width:none] gap-1.5 overflow-x-auto px-3 sm:-mx-4 sm:px-4 [&::-webkit-scrollbar]:hidden"
-						onkeydown={tabKeydown}
-					>
-						{#each views as v (v)}
-							<button
-								type="button"
-								role="tab"
-								id="{id}-tab-{v}"
-								aria-selected={view === v}
-								aria-controls={rendered.includes(v) ? `${id}-panel-${v}` : undefined}
-								tabindex={view === v ? 0 : -1}
-								class={[
-									'min-h-11 shrink-0 rounded-full border px-3 text-sm font-medium whitespace-nowrap',
-									view === v
-										? 'border-blue-700 bg-blue-700 text-white'
-										: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
-								]}
-								onclick={(event) => {
-									selectedView = v;
-									// The views scroll sideways in one row: bring the chosen one in.
-									event.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-								}}
-							>
-								{VIEW_LABELS[v]}
-							</button>
-						{/each}
+						build-density.md §17): edge shadows say there is more, a mouse wheel scrolls it.
+						The shared row (pumps-results-layout.md §5.4): its py-1 keeps a focused pill's ring
+						whole, and -my-1 keeps the layout as it was, inside a flow root so the space-y gap
+						after it is not replaced by the negative margin. -->
+					<div class="flow-root">
+						<ScrollRow
+							bind:this={viewRowComponent}
+							bind:row={viewRow}
+							role="tablist"
+							aria-label="Results view"
+							tabindex={-1}
+							class="-mx-3 -my-1 gap-1.5 px-3 sm:-mx-4 sm:px-4"
+							onkeydown={tabKeydown}
+						>
+							{#each views as v (v)}
+								<button
+									type="button"
+									role="tab"
+									id="{id}-tab-{v}"
+									aria-selected={view === v}
+									aria-controls={rendered.includes(v) ? `${id}-panel-${v}` : undefined}
+									tabindex={view === v ? 0 : -1}
+									class={[
+										'min-h-11 shrink-0 rounded-full border px-3 text-sm font-medium whitespace-nowrap',
+										view === v
+											? 'border-blue-700 bg-blue-700 text-white'
+											: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+									]}
+									onclick={() => (selectedView = v)}
+								>
+									{VIEW_LABELS[v]}
+								</button>
+							{/each}
+						</ScrollRow>
 					</div>
 
 					{#each rendered as v (v)}
@@ -1017,7 +1029,15 @@
 							{:else if v === 'links'}
 								<LinksView {solved} {changed} sortRequest={sortRequests.links ?? null} />
 							{:else if v === 'pumps'}
-								<PumpsView {solved} {changed} sortRequest={sortRequests.pumps ?? null} />
+								<PumpsView
+									{solved}
+									{changed}
+									sortRequest={sortRequests.pumps ?? null}
+									onview={showView}
+									active={v === view}
+									scroller={paneScroller ?? null}
+									onpinned={(height) => (pumpsNavPinned = height)}
+								/>
 							{:else if v === 'valves' && valves}
 								<ResultsTable
 									table={valves}
@@ -1148,9 +1168,11 @@
 									{...hasScenarios
 										? {
 												caseName: response.scenario
-													? `scenario ${response.scenario.name} (${response.scenario.id})`
+													? solvedCaseWords(storedName(response.scenario), response.scenario)
 													: 'base case',
-												...(response.scenario ? { scenarioName: response.scenario.name } : {})
+												...(response.scenario
+													? { scenarioName: storedName(response.scenario) }
+													: {})
 											}
 										: {}}
 								/>

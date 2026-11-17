@@ -412,6 +412,47 @@ describe('the workspace: Apply, notices, page state and reserved ids', () => {
 		expect(ws.notice?.text).toMatch(/Winter sets its own Transfer pump speed, so it keeps it\.$/);
 	});
 
+	it('names a lineup case it applies to by its pumps and its other changes (CLAUDE.md D24)', async () => {
+		// A template name follows its other changes' count (proposal pump-lineups.md §4.4, §6): the
+		// value found is one more change of the case, its pumps' words unchanged.
+		const pumpOff: Override = {
+			kind: 'component',
+			componentId: 'P1',
+			field: 'status',
+			value: 'off'
+		};
+		const level: Override = {
+			kind: 'component',
+			componentId: 'R2',
+			field: 'liquidLevel',
+			value: 6
+		};
+		const { ws, held } = workspace(
+			withScenarios(pumpTransferExample(), [
+				{ id: 'S1', name: 'Transfer pump off + 1 other change', overrides: [pumpOff, level] }
+			])
+		);
+		ws.setCase('S1');
+		ws.goalSeekOpen = true;
+		const running = ws.runGoalSeek();
+		held.answer();
+		await running;
+		expect(ws.applyGoalSeek('case')).toBe(true);
+		expect(ws.scenarios[0]!.name).toBe('Transfer pump off + 2 other changes');
+		expect(ws.store.undoLabel).toBe(
+			'apply goal seek values in Transfer pump off + 2 other changes'
+		);
+		expect(ws.notice?.text).toBe(
+			'Applied to scenario Transfer pump off + 2 other changes: Transfer pump speed 86.1174 %. Undo restores the values before. «Transfer pump off + 1 other change» is now «Transfer pump off + 2 other changes»: a name the app made follows its pumps until you rename it.'
+		);
+		ws.undo();
+		expect(ws.scenarios[0]).toEqual({
+			id: 'S1',
+			name: 'Transfer pump off + 1 other change',
+			overrides: [pumpOff, level]
+		});
+	});
+
 	it('applies as a new scenario holding the run case changes, Undo going back to that case', async () => {
 		const level: Override = {
 			kind: 'component',

@@ -3,10 +3,17 @@
  * with the real ProjectStore and Workspace (testing/workspace.ts) and a fake solver that answers
  * with the made-up states of testing/results.ts: the snapshot (exportInput) then the model
  * (buildExport). Values follow Compare's rule and `hasValues` and `stale`, never the status alone.
+ * Also the times a file carries: its name the dialog's, the rest the press's (§12 item 36).
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { TopologyError, NetworkError } from '../../api/client';
-import type { Project, SolvedState, SolveResponse } from '../../api/types';
+import { TopologyError, NetworkError, NotAStationError } from '../../api/client';
+import type {
+	Project,
+	PumpGroupCurveResponse,
+	SolvedState,
+	SolveResponse,
+	TopologyIssue
+} from '../../api/types';
 import { sourceLinks } from '../../components/links';
 import {
 	flag,
@@ -24,12 +31,14 @@ import { reversePiping } from '../edit';
 import { pumpTransferExample } from '../examples';
 import { addPipe } from '../piping';
 import { pumpChartData } from '../pump-chart';
+import { refusalWords, wordsText } from '../pump-groups';
+import groupFixture from '../__fixtures__/pump-groups-input.json';
 import { Formatter } from '../results';
 import { withScenarios } from '../scenarios';
-import { displayUnit, fromSI } from '../units';
+import { displayUnit, fromSI, IMPERIAL_UNITS, SI_UNITS } from '../units';
 import { writeCsvZip } from './csv';
 import { fixtureInput, readSheet, sheetIds } from './export-testing.testing';
-import { exportInput, type PageFacts } from './input';
+import { exportInput, nameStamp, type PageFacts } from './input';
 import { buildExport, type ExportBundle, type ExportOptions } from './model';
 import { writeXlsx } from './xlsx';
 import { blobBytes, entryText, readZip } from './zip-reader.testing';
@@ -586,6 +595,118 @@ describe('Compare cases reads a connection on it as it is now (rows name its end
 	});
 });
 
+describe('Compare cases: a pump that cavitates with no NPSH margin ratio (docs/proposals/pumps-nits.md item 4; review E-0-2, E-1-2)', () => {
+	// Made-up results (testing/results.ts). The base case's pump: NPSHr 0 at its flow and NPSHa
+	// −2.521 m, so its margin is −2.521 m, it has no ratio and CAVITATION is raised (corpus
+	// unit_rich1090 PU2). Winter's: a ratio, 6 ÷ 3.7. Peak's: NPSHr 0 and NPSHa 5 m, no ratio and
+	// no cavitation, nothing to say. Compare's default row for the pump is its ratio (the owner's
+	// Q3, "Ratio everywhere"): the base case's cell is empty, and an empty cell there is no sign of
+	// a safe value, so About says why, in the screen's words (compareCells' note).
+	const cavitating = pumpResult({
+		npshAvailable: -2.521,
+		npshRequired: 0,
+		npshMargin: -2.521,
+		npshMarginRatio: null
+	});
+	const answer: Answer = (id) =>
+		id === null
+			? converged({
+					pumpResults: { P1: cavitating },
+					flags: [
+						flag({
+							code: 'CAVITATION',
+							severity: 'invalid',
+							message: 'made-up',
+							componentId: 'P1'
+						})
+					]
+				})
+			: id === 'S1'
+				? converged({
+						pumpResults: {
+							P1: pumpResult({
+								npshAvailable: 6,
+								npshRequired: 3.7,
+								npshMargin: 2.3,
+								npshMarginRatio: 6 / 3.7
+							})
+						}
+					})
+				: converged({
+						pumpResults: {
+							P1: pumpResult({
+								npshAvailable: 5,
+								npshRequired: 0,
+								npshMargin: 5,
+								npshMarginRatio: null
+							})
+						}
+					});
+	const ROW = 'Transfer pump · NPSH margin ratio';
+	/** The two scenarios, shown in US customary units. */
+	const imperial = () => {
+		const p = twoScenarios();
+		p.settings.units = { ...IMPERIAL_UNITS };
+		return p;
+	};
+
+	for (const [units, head] of [
+		['display', '-8.271 ft'],
+		['si', '-2.521 m']
+	] as const) {
+		it(`says in About why the base case's ratio cell is empty, in the file's units (${units}: ${head})`, async () => {
+			const ws = workspace(imperial(), answer);
+			await ws.store.solveAll();
+			// The defaults: the ratio's row, since the base case has a margin.
+			expect(ws.compareRows).toBeNull();
+			const bundle = bundleOf(ws, { ...ALL, units });
+			const t = readSheet(bundle, 'compare-cases');
+			const row = t.rows.find((r) => t.get(r, 'Row') === ROW)!;
+			expect(row).toBeDefined();
+			expect(t.get(row, 'Base case')).toBeNull();
+			expect(t.get(row, 'Winter (S1)')).toBe(6 / 3.7);
+			expect(t.get(row, 'Peak (S2)')).toBeNull();
+			// The screen's words for that cell, in the file's units: −2.521 m, or ÷ 0.3048 m/ft.
+			expect(String(Number((-2.521 / 0.3048).toPrecision(4)))).toBe('-8.271');
+			const prefs = units === 'si' ? SI_UNITS : ws.displayUnits;
+			expect(prefs.head).toBe(units === 'si' ? 'm' : 'ft');
+			const columns: CompareColumn[] = ws.store.caseIds.map((c) => {
+				const solved = ws.store.resultsFor(c).response!.solvedState;
+				return { solved, converged: true, sent: null, inputs: null };
+			});
+			const cells = compareCells(
+				{ quantity: 'pumpNpshMarginRatio', elementId: 'P1' },
+				columns,
+				ws.labelsProject,
+				prefs
+			);
+			expect(new Formatter(prefs).value(-2.521, 'head')).toBe(head);
+			expect(cells[0]!.note).toBe(`Cavitates (NPSHr 0): NPSH margin ${head}`);
+			expect(cells[1]!.note).toBeUndefined();
+			expect(cells[2]!.note).toBeUndefined();
+			const about = readSheet(bundle, 'about').rows.filter((r) =>
+				String(r[1]).startsWith(`Compare cases: ${ROW}`)
+			);
+			// One row, for the base case only: Winter has a ratio and Peak does not cavitate.
+			expect(about).toEqual([
+				['Export', `Compare cases: ${ROW} (Base case)`, `No value: ${cells[0]!.note}`]
+			]);
+			// Nothing is left out: the API gives no value.
+			expect(bundle.omitted.map((o) => o.what).join(' ')).not.toContain(ROW);
+		});
+	}
+
+	it('says nothing where every case has a ratio, or none cavitates', async () => {
+		const ws = workspace(twoScenarios(), (id) =>
+			id === null ? converged() : answer(id === 'S1' ? 'S1' : 'S2', pumpTransferExample())
+		);
+		await ws.store.solveAll();
+		const about = readSheet(bundleOf(ws, ALL), 'about').rows;
+		expect(about.filter((r) => String(r[1]).startsWith('Compare cases: '))).toEqual([]);
+		expect(about.flat().join(' ')).not.toMatch(/cavitat/i);
+	});
+});
+
 describe('system curves (item 12)', () => {
 	it("give the chart table's reason for a point without a head; About lists those not computed", async () => {
 		const curve = systemCurveResponse('P1', [1, 3]);
@@ -718,5 +839,225 @@ describe('determinism (item 14)', () => {
 				(r) => r[1] === 'Web app source, at that commit'
 			)?.[2]
 		).toBe(sourceLinks('f'.repeat(40)).source);
+	});
+});
+
+describe('the name the dialog showed, the file the press (§12 item 36)', () => {
+	const savedTz = process.env.TZ;
+	afterEach(() => {
+		process.env.TZ = savedTz;
+	});
+
+	it('the file name and the zip’s folder carry the minute shown; About, README.txt, the entries’ times and the workbook’s created time the press', async () => {
+		process.env.TZ = 'Europe/Berlin'; // UTC+01:00 in November
+		const ws = workspace(pumpTransferExample(), () => converged());
+		await ws.store.solve();
+		// Download pressed just after 16:21, before the dialog's minute tick: it still shows 16:20.
+		const shown = new Date('2026-11-13T15:20:59.900Z');
+		const pressed = new Date('2026-11-13T15:21:00.010Z');
+		const csv = buildExport(
+			exportInput(ws, { ...SHOWN, format: 'csv' }, pressed, PAGE, nameStamp(shown))
+		);
+		expect(csv.fileName).toBe(
+			'Pump transfer between two tanks - results (CSV) 2026-11-13 1620.zip'
+		);
+		expect(csv.folder).toBe('results 2026-11-13 1620');
+		expect(csv.created).toBe(pressed);
+		expect(csv.readme).toContain('Exported at: 2026-11-13T16:21:00+01:00');
+		expect(readSheet(csv, 'about').rows.find((r) => r[1] === 'Exported at')?.[2]).toBe(
+			'2026-11-13T16:21:00+01:00'
+		);
+		const zip = readZip(await blobBytes(await writeCsvZip(csv)));
+		expect(zip.map((e) => e.name.split('/')[0])).toEqual(zip.map(() => 'results 2026-11-13 1620'));
+		// Each entry's DOS time is the press's local time, 16:21:00.
+		expect(zip.map((e) => e.time)).toEqual(zip.map(() => (16 << 11) | (21 << 5)));
+
+		const xlsx = buildExport(exportInput(ws, SHOWN, pressed, PAGE, nameStamp(shown)));
+		expect(xlsx.fileName).toBe('Pump transfer between two tanks - results 2026-11-13 1620.xlsx');
+		const parts = readZip(await blobBytes(await writeXlsx(xlsx)));
+		expect(entryText(parts, 'docProps/core.xml')).toContain(
+			'>2026-11-13T15:21:00Z</dcterms:created>'
+		);
+		// Without a name's time, the name is the press's (the snapshot's default).
+		expect(buildExport(exportInput(ws, SHOWN, pressed, PAGE)).fileName).toBe(
+			'Pump transfer between two tanks - results 2026-11-13 1621.xlsx'
+		);
+	});
+});
+
+describe('pump groups (D21, slice 4c)', () => {
+	interface GroupCase {
+		name: string;
+		project: Project;
+		solve: SolveResponse;
+		groupCurve: { status: number; body: unknown };
+		systemCurve: { status: number; body: unknown } | null;
+	}
+	const named = (name: string) =>
+		(groupFixture.cases as unknown as GroupCase[]).find((c) => c.name === name)!;
+	const parallel = named('parallel-ideal');
+	const group = parallel.groupCurve.body as PumpGroupCurveResponse;
+	const PUMPS = ['PA', 'PB'];
+
+	function deferred<T>() {
+		let resolve!: (value: T) => void;
+		let reject!: (error: unknown) => void;
+		const promise = new Promise<T>((res, rej) => {
+			resolve = res;
+			reject = rej;
+		});
+		return { promise, resolve, reject };
+	}
+	const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+	/** A real store over parallel-ideal whose group curves answer when told; a solve can fail. */
+	function groupWorkspace() {
+		const answers: ReturnType<typeof deferred<PumpGroupCurveResponse>>[] = [];
+		const control = { fail: false };
+		const ws = testWorkspace(parallel.project, {
+			solver: {
+				solve: async () => {
+					if (control.fail) throw new TopologyError('No fixed head', []);
+					return structuredClone(parallel.solve);
+				},
+				groupCurve: (_project, _ids, options = {}) => {
+					const answer = deferred<PumpGroupCurveResponse>();
+					options.signal?.addEventListener('abort', () =>
+						answer.reject(new DOMException('The operation was aborted.', 'AbortError'))
+					);
+					answers.push(answer);
+					return answer.promise;
+				}
+			}
+		});
+		return { ws, answers, control };
+	}
+
+	const groupLines = (bundle: ExportBundle) =>
+		bundle.omitted.filter((o) => o.what.startsWith('Pump group'));
+
+	it('a group curve being computed, failed or cancelled: left out with its state', async () => {
+		const { ws, answers } = groupWorkspace();
+		await ws.store.solve();
+		ws.store.loadGroupCurve(PUMPS);
+		await settle();
+		expect(groupLines(bundleOf(ws))).toEqual([
+			{ what: 'Pump group PA+PB', reason: 'group curve being computed when exported' }
+		]);
+		expect(sheetIds(bundleOf(ws))).not.toContain('pump-groups');
+		answers[0]!.reject(new Error('boom'));
+		await settle();
+		expect(groupLines(bundleOf(ws))).toEqual([
+			{ what: 'Pump group PA+PB', reason: 'group curve failed: boom' }
+		]);
+		expect(readSheet(bundleOf(ws), 'about').rows).toContainEqual([
+			'Not in this file',
+			'Pump group PA+PB',
+			'group curve failed: boom'
+		]);
+		ws.store.loadGroupCurve(PUMPS, { retry: true });
+		await settle();
+		ws.store.cancelGroupCurve(PUMPS);
+		await settle();
+		expect(groupLines(bundleOf(ws))).toEqual([
+			{ what: 'Pump group PA+PB', reason: 'group curve cancelled' }
+		]);
+	});
+
+	it('refused for a PRV inside, its group system curve being computed: both said', async () => {
+		const { ws, answers } = groupWorkspace();
+		await ws.store.solve();
+		ws.store.loadGroupCurve(PUMPS);
+		await settle();
+		const refused = named('prv-inside').groupCurve.body as {
+			message: string;
+			issues: TopologyIssue[];
+		};
+		answers[0]!.reject(new NotAStationError(refused.message, [refused.message], refused.issues));
+		await settle();
+		ws.store.loadGroupSystemCurve(PUMPS);
+		await settle();
+		expect(answers).toHaveLength(2);
+		const words = refused.issues
+			.map((issue) =>
+				wordsText(
+					refusalWords(issue, PUMPS, ws.store.project, {
+						solved: ws.store.caseInputs(null)!,
+						boxes: PUMPS
+					})
+				)
+			)
+			.join(' ');
+		expect(groupLines(bundleOf(ws))).toEqual([
+			{
+				what: 'Pump group PA+PB',
+				reason: `group system curve being computed when exported; group curve not defined: ${words}`
+			}
+		]);
+	});
+
+	it('ready, then the next solve fails: no values, so no group sheet and no group line', async () => {
+		const { ws, answers, control } = groupWorkspace();
+		await ws.store.solve();
+		ws.store.loadGroupCurve(PUMPS);
+		await settle();
+		answers[0]!.resolve(group);
+		await settle();
+		expect(readSheet(bundleOf(ws), 'pump-groups').rows).toHaveLength(1);
+		// An edit, then a solve that fails: the kept response is not used (Compare's rule).
+		ws.store.update((d) => {
+			d.connections[0]!.piping.pipes[0]!.length += 1;
+		}, 'lengthen');
+		control.fail = true;
+		await ws.store.solve();
+		expect(ws.store.caseStatus(null)).toBe('failed');
+		// The store keeps the curves with the kept response; the export does not use them.
+		expect(Object.keys(ws.store.groupCurvesFor(null))).toHaveLength(1);
+		const bundle = bundleOf(ws);
+		expect(bundle.sheets.find((s) => s.id === 'about')).toBeDefined();
+		expect(sheetIds(bundle)).not.toContain('pump-groups');
+		expect(groupLines(bundle)).toEqual([]);
+	});
+
+	it('ready, then solved again: the curves are forgotten, so none is computed', async () => {
+		const { ws, answers } = groupWorkspace();
+		await ws.store.solve();
+		ws.store.loadGroupCurve(PUMPS);
+		await settle();
+		answers[0]!.resolve(group);
+		await settle();
+		expect(groupLines(bundleOf(ws))).toEqual([]);
+		await ws.store.solve();
+		const bundle = bundleOf(ws);
+		expect(sheetIds(bundle)).not.toContain('pump-groups');
+		expect(groupLines(bundle)).toEqual([
+			{
+				what: 'Pump groups',
+				reason:
+					'not computed: the Pumps together card under the pump chart computes them on request'
+			}
+		]);
+	});
+
+	it('ready, then a hydraulic edit: written and labelled out of date', async () => {
+		const { ws, answers } = groupWorkspace();
+		await ws.store.solve();
+		ws.store.loadGroupCurve(PUMPS);
+		await settle();
+		answers[0]!.resolve(group);
+		await settle();
+		const result = ws.store.update((d) => {
+			d.connections[0]!.piping.pipes[0]!.length += 1;
+		}, 'lengthen');
+		expect(result.ok).toBe(true);
+		const bundle = bundleOf(ws);
+		for (const id of ['pump-groups', 'pump-group-members', 'group-curves', 'group-curve-members']) {
+			const t = readSheet(bundle, id);
+			expect(t.rows.length, id).toBeGreaterThan(0);
+			expect(new Set(t.column('Results')), id).toEqual(new Set(['Out of date']));
+		}
+		expect(readSheet(bundle, 'pump-groups').column('Group system curve')).toEqual([
+			'Not computed: open the Pumps together card on this case, with these pumps ticked'
+		]);
 	});
 });

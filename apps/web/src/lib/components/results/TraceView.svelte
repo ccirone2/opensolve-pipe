@@ -7,13 +7,14 @@
 	to, utils/results.ts resultsProject), as the Links table names it: its flow's sign, its pipe
 	numbers and its trace refer to those ends, even after a reversal since the solve. A side panel
 	over the results on wide screens (the results under it are inert while it is open); a dialog
-	(bottom sheet) on narrow ones. In a project with scenarios it names the case solved and, for a
-	scenario, lists the element's values the scenario changed, with their base values, from the
-	server's record (proposal scenario-manager.md §6.11). Use in goal seek, on the Result values
-	heading, opens the goal-seek dialog with a new goal on this element (proposal goal-seek.md
-	§6.2); on narrow screens the trace, a sheet itself, closes first. A note or data source that
-	names a project library entry (CLAUDE.md D22: 'project library pipe spec "…" (PS1)') links to
-	it: the library opens with that entry in view (proposal project-library.md §6.4).
+	(bottom sheet) on narrow ones, whose results notice alone keeps Solve again, since the header is
+	inert behind it (build-density.md §19). In a project with scenarios it names the case solved
+	and, for a scenario, lists the element's values the scenario changed, with their base values,
+	from the server's record (proposal scenario-manager.md §6.11). Use in goal seek, on the Result
+	values heading, opens the goal-seek dialog with a new goal on this element (proposal
+	goal-seek.md §6.2); on narrow screens the trace, a sheet itself, closes first. A note or data
+	source that names a project library entry (CLAUDE.md D22: 'project library pipe spec "…" (PS1)')
+	links to it: the library opens with that entry in view (proposal project-library.md §6.4).
 -->
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
@@ -41,7 +42,7 @@
 		rowKey,
 		type CompareRow
 	} from '$lib/utils/compare';
-	import { changeFieldLabel, changeValueText } from '$lib/utils/scenarios';
+	import { changeFieldLabel, changeValueText, findScenario } from '$lib/utils/scenarios';
 	import { libraryMentions, type LibraryMention } from '$lib/utils/project-library';
 	import CellValue from './CellValue.svelte';
 	import FlagIcon from './FlagIcon.svelte';
@@ -96,6 +97,19 @@
 			? (ws.store.results.response?.scenario ?? null)
 			: null
 	);
+	/**
+	 * The chip's words for that scenario: its stored name, and the name it was solved under when a
+	 * rename came after the solve, as the ScenarioCard's heading names it (CLAUDE.md D24, proposal
+	 * pump-lineups.md §5): a rename leaves the case current, and a name the app made follows its
+	 * pumps without the user's hand.
+	 */
+	const scenarioWords = $derived.by(() => {
+		if (!scenario) return '';
+		const stored = findScenario(ws.store.project, scenario.id)?.name ?? scenario.name;
+		return stored === scenario.name
+			? `Scenario ${stored}`
+			: `Scenario ${stored} (solved as «${scenario.name}»)`;
+	});
 	/** The element's values the scenario changed, as the server applied them. */
 	const changes = $derived(
 		(scenario?.overrides ?? []).filter(
@@ -209,14 +223,22 @@
 		void focusCurrentHeading();
 	}
 
-	// Side panel: focus its heading when it opens, give focus back when it closes.
+	// Side panel: focus its heading when it opens, give focus back when it closes. The results
+	// under the panel are inert until the flush that removes it has run (ResultsPanel's
+	// `inert={covered}`, set after this cleanup), and an inert opener takes no focus: so the focus
+	// goes back after that flush, and only where it fell to the page, so a close that moves it on
+	// (Show in Build) keeps its own (WCAG 2.4.3; S5 review A11Y-S5-1).
 	let heading: HTMLHeadingElement | undefined = $state();
 	onMount(() => {
 		if (!wide.current) return;
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		heading?.focus();
 		return () => {
-			if (opener?.isConnected && opener.checkVisibility?.() !== false) opener.focus();
+			void tick().then(() => {
+				const active = document.activeElement;
+				if (active && active !== document.body) return;
+				if (opener?.isConnected && opener.checkVisibility?.() !== false) opener.focus();
+			});
 		};
 	});
 
@@ -272,7 +294,7 @@
 			class={[
 				'ml-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium',
 				scenario ? 'bg-teal-700 text-white' : 'bg-slate-200 text-slate-800'
-			]}>{scenario ? `Scenario ${scenario.name}` : 'Base case'}</span
+			]}>{scenario ? scenarioWords : 'Base case'}</span
 		>
 	{/if}
 {/snippet}
@@ -315,7 +337,10 @@
 						</span>
 					</p>
 				{/if}
-				<ResultsStateNotice values />
+				<!-- Below 1024 px the trace is a sheet over the header (inert behind it, Ctrl+Enter
+					ignored there), so its notice keeps Solve again; from 1024 px the header is live and
+					the notice says where Solve is (build-density.md §19). -->
+				<ResultsStateNotice values solve={!wide.current} />
 			</div>
 		{/if}
 

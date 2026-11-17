@@ -165,10 +165,9 @@
 						type="button"
 						class="btn btn-quiet btn-tight text-red-800"
 						onclick={() => {
+							// One notice: these words, then the step's carry notes and renames (D24).
 							const removed = connection.id;
-							if (ws.disconnect(removed)) {
-								ws.notify('info', `Connection ${removed} removed. Undo restores it.`);
-							}
+							ws.disconnect(removed, `Connection ${removed} removed. Undo restores it.`);
 						}}
 					>
 						<Icon name="trash" class="size-4" /> Disconnect

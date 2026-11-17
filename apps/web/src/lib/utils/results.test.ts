@@ -49,14 +49,17 @@ import {
 	connectionName,
 	elementName,
 	elementSummary,
+	equipmentTable,
 	displayedNumber,
 	highestPressureNode,
 	NAME_SORT_KEY,
-	smallestNpshMargin,
+	smallestNpshMarginRatio,
 	sortableColumn,
 	sortRows,
+	sortValue,
 	type Cell,
 	type Row,
+	type Table,
 	type TableSort,
 	type ElementRef,
 	fastestLink,
@@ -72,12 +75,13 @@ import {
 	outOfDateProject,
 	readsAsSolved,
 	nodeTable,
-	pumpControlText,
-	pumpStatusLabel,
 	orificeTable,
+	pumpControlText,
+	PUMP_STATUS_TONES,
+	pumpStatusLabel,
+	pumpStatusParts,
 	pumpTable,
 	reliefTable,
-	equipmentTable,
 	rowsForElement,
 	segmentFlags,
 	segmentTable,
@@ -957,6 +961,477 @@ describe('speed-controlled pumps (CLAUDE.md D11)', () => {
 	});
 });
 
+describe('Results per pump hides hydraulic power, NPSHa, NPSHr and the NPSH margin by default (docs/proposals/pumps-nits.md items 3 and 4)', () => {
+	const defaultHidden = (table: Table) =>
+		table.columns.filter((c) => c.hiddenByDefault).map((c) => c.key);
+	/** The four columns hidden by default: item 3's three, and the margin once its ratio is shown (item 4, Q3). */
+	const HIDDEN = ['hydraulicPower', 'npshAvailable', 'npshRequired', 'npshMargin'];
+
+	it('marks exactly those four columns, with a Control column or without; every cell still holds its value', () => {
+		const fixed = pumpTable(project, pumpTransferSolved(), SI_UNITS);
+		expect(defaultHidden(fixed)).toEqual(HIDDEN);
+		expect(fixed.columns.filter((c) => !c.hiddenByDefault).map((c) => c.key)).toEqual([
+			'status',
+			'flow',
+			'head',
+			'speed',
+			'efficiency',
+			'shaftPower',
+			'npshMarginRatio'
+		]);
+		// A hint, `true` or absent: never written false.
+		for (const c of fixed.columns) expect([undefined, true]).toContain(c.hiddenByDefault);
+		// The trace view and the export read every cell, the hint not.
+		expect(fixed.rows[0]!.cells).toMatchObject({
+			hydraulicPower: '4',
+			npshAvailable: '12',
+			npshRequired: '3',
+			npshMargin: '9',
+			npshMarginRatio: '4'
+		});
+		const controlled = pumpTable(
+			project,
+			pumpTransferSolved({
+				pumpResults: {
+					P1: pumpResult({
+						speed: 0.873214,
+						control: { mode: 'flow', setpoint: 0.012, state: 'active', setpointAchieved: true }
+					})
+				}
+			}),
+			SI_UNITS
+		);
+		expect(controlled.columns.map((c) => c.key)).toContain('control');
+		expect(defaultHidden(controlled)).toEqual(HIDDEN);
+		// The trace's result values keep the four and the ratio (rowsForElement reads the table's
+		// columns).
+		const [pumpGroup] = rowsForElement(project, pumpTransferSolved(), SI_UNITS, {
+			kind: 'component',
+			id: 'P1'
+		});
+		expect(pumpGroup!.table.columns.map((c) => c.key)).toEqual(
+			expect.arrayContaining([...HIDDEN, 'npshMarginRatio'])
+		);
+	});
+
+	it('is set by no other table of the Results views: none of the other builders’ columns carries it, and outside the tests only results.ts, ResultsTable and the Pumps together card’s two tables name it (a guard)', () => {
+		const solved = pumpTransferSolved();
+		const gravity = gravityBranchExample();
+		const link = solved.linkResults.L1!;
+		const others: [string, Table][] = [
+			['nodes', nodeTable(project, solved, SI_UNITS)],
+			['links', linkTable(project, solved, SI_UNITS)],
+			['segments', segmentTable('L1', link, SI_UNITS)],
+			['fittings', fittingTable('L1', link, SI_UNITS)],
+			['valves', valveTable(project, solved, SI_UNITS)],
+			['relief valves', reliefTable(project, solved, SI_UNITS)],
+			['equipment', equipmentTable(project, solved, SI_UNITS)],
+			['orifices', orificeTable(project, solved, SI_UNITS)],
+			['branches', branchTable(gravity, solved, SI_UNITS)],
+			['boundaries', boundaryTable(project, solved, SI_UNITS)],
+			['assigned flows', assignedFlowTable(project, solved, SI_UNITS, project)]
+		];
+		for (const [name, table] of others) {
+			expect(table.columns.length, name).toBeGreaterThan(0);
+			expect(defaultHidden(table), name).toEqual([]);
+		}
+		// Every other table of the app is built elsewhere: goal seek's and Compare's name no hint;
+		// the Pumps together card's group table and Running combinations hide the NPSH margin by
+		// default, their ratio shown, as Results per pump does (the owner's nit 4 and Q3, "Ratio
+		// everywhere"; docs/proposals/pumps-nits.md item 4, review E-1-4; pinned in
+		// pump-group-chart.test.ts and pump-group-one-off.test.ts).
+		const sources = import.meta.glob<string>(
+			[
+				'../**/*.{ts,svelte}',
+				'!../**/*.test.ts',
+				'!../**/*.testing.ts',
+				'!../testing/**',
+				'!../api/**'
+			],
+			{ query: '?raw', import: 'default', eager: true }
+		);
+		expect(Object.keys(sources).length).toBeGreaterThan(100);
+		expect(
+			Object.entries(sources)
+				.filter(([, text]) => text.includes('hiddenByDefault'))
+				.map(([file]) => file)
+				.sort()
+		).toEqual([
+			'../components/results/ResultsTable.svelte',
+			'./pump-group-chart.ts',
+			'./pump-group-one-off.ts',
+			'./results.ts'
+		]);
+	});
+});
+
+describe('the NPSH margin ratio in Results per pump (docs/proposals/pumps-nits.md item 4, slice E)', () => {
+	// Made-up results (testing/results.ts). Where the API gives a ratio it is NPSHa ÷ NPSHr, written
+	// out here from the made-up NPSHa and NPSHr (PumpResult.npshMarginRatio; TSD §5.5).
+	const withNpsh = (npshAvailable: number | null, npshRequired: number | null, extra = {}) =>
+		pumpResult({
+			npshAvailable,
+			npshRequired,
+			npshMargin:
+				npshAvailable === null || npshRequired === null ? null : npshAvailable - npshRequired,
+			npshMarginRatio:
+				npshAvailable === null || npshRequired === null || npshRequired === 0
+					? null
+					: npshAvailable / npshRequired,
+			...extra
+		});
+	const p1 = (pump: PumpResult, flags: Flag[] = []) =>
+		pumpTransferSolved({ pumpResults: { P1: pump }, flags });
+	const cavitation = flag({
+		code: 'CAVITATION',
+		severity: 'invalid',
+		message: 'made-up',
+		componentId: 'P1',
+		portId: 'suction'
+	});
+
+	it('follows NPSH margin as "NPSH margin ratio", a plain number of 4 significant figures with no unit, in any units', () => {
+		const solved = p1(withNpsh(12.82347, 10));
+		for (const units of [SI_UNITS, IMPERIAL_UNITS]) {
+			const table = pumpTable(project, solved, units);
+			const keys = table.columns.map((c) => c.key);
+			expect(keys.indexOf('npshMarginRatio')).toBe(keys.indexOf('npshMargin') + 1);
+			expect(keys.at(-1)).toBe('npshMarginRatio');
+			// No unit: a ratio of two heads, the same in every unit system.
+			expect(table.columns.find((c) => c.key === 'npshMarginRatio')).toEqual({
+				key: 'npshMarginRatio',
+				label: 'NPSH margin ratio',
+				numeric: true
+			});
+			// The API's value, 12.82347 ÷ 10, to 4 significant figures: not a percentage.
+			expect(table.rows[0]!.cells.npshMarginRatio).toBe('1.282');
+			expect(table.rows[0]!.cells.npshMarginRatio).toBe(sig4(12.82347 / 10));
+		}
+	});
+
+	it('shows a ratio below 1, or a negative one, as the API gives it, and sorts by it as a number', () => {
+		// Below 1: NPSHa 8.5234 m against NPSHr 10 m. Negative: NPSHa −1.5 m against NPSHr 3 m.
+		for (const [a, r, shown] of [
+			[8.5234, 10, '0.8523'],
+			[-1.5, 3, '-0.5']
+		] as const) {
+			const cell = pumpTable(project, p1(withNpsh(a, r), [cavitation]), SI_UNITS).rows[0]!.cells
+				.npshMarginRatio;
+			expect(cell).toBe(shown);
+			expect(cell).toBe(sig4(a / r));
+		}
+		const rows: Row[] = [4, 0.8523, 1.282].map((ratio, i) => ({
+			key: `P${i}`,
+			element: { kind: 'component', id: `P${i}` },
+			name: `P${i}`,
+			detail: '',
+			cells: { npshMarginRatio: sig4(ratio) },
+			flags: []
+		}));
+		expect(
+			sortRows(rows, { key: 'npshMarginRatio', direction: 'ascending' }).map((r) => r.key)
+		).toEqual(['P1', 'P2', 'P0']);
+	});
+
+	it('reads "—" where the API gives no ratio and the pump does not cavitate: no NPSHr curve, no vapor pressure, off, or NPSHr 0 with a margin of 0 or more', () => {
+		const cases: [string, PumpResult][] = [
+			['no NPSHr curve', withNpsh(12, null)],
+			['no vapor pressure', withNpsh(null, 3, { suctionAbsolutePressure: null })],
+			['off', withNpsh(null, null, { status: 'off', operatingFlow: 0, speed: 0 })]
+		];
+		for (const [name, pump] of cases) {
+			expect(pumpTable(project, p1(pump), SI_UNITS).rows[0]!.cells.npshMarginRatio, name).toBe('—');
+		}
+		// NPSHr 0 at the operating flow, NPSHa 5 m: a margin of 5 m and no ratio. No cavitation is
+		// claimed where there is none.
+		const zero = pumpTable(project, p1(withNpsh(5, 0)), SI_UNITS).rows[0]!;
+		expect(zero.cells.npshMargin).toBe('5');
+		const lines = cellLines(zero.cells.npshMarginRatio!);
+		expect(lines[0]).toBe('—');
+		expect(lines.join(' ')).not.toMatch(/cavitat/i);
+	});
+
+	it('names the cavitation and the margin where the API gives no ratio but the margin is negative (NPSHr 0; corpus unit_rich1090 PU2), never a bare "—"', () => {
+		// NPSHr 0 at the operating flow, NPSHa −2.521 m: the margin −2.521 m, no ratio, and
+		// CAVITATION raised (API review A1/B1). A null ratio is no sign of a safe margin.
+		const solved = p1(withNpsh(-2.521, 0), [cavitation]);
+		expect(solved.pumpResults.P1!.npshMarginRatio).toBeNull();
+		const si = pumpTable(project, solved, SI_UNITS).rows[0]!;
+		expect(si.cells).toHaveProperty('npshMarginRatio');
+		const cell = si.cells.npshMarginRatio!;
+		expect(cellLines(cell)).not.toEqual(['—']);
+		expect(cellLines(cell).join(' ')).toMatch(/cavitat/i);
+		expect(cellLines(cell).join(' ')).toMatch(/[-−]2\.521/);
+		// The margin in the display units: −2.521 m ÷ 0.3048 m/ft.
+		const us = pumpTable(project, solved, IMPERIAL_UNITS).rows[0]!.cells.npshMarginRatio!;
+		expect(sig4(-2.521 / FT)).toBe('-8.271');
+		expect(cellLines(us).join(' ')).toMatch(/[-−]8\.271/);
+		// The cue never sorts as text among the ratios' numbers.
+		expect(typeof sortValue(cell)).not.toBe('string');
+	});
+});
+
+describe('a pump that cavitates with no NPSH margin ratio ranks below every ratio, in the sort and the Summary’s extreme (docs/proposals/pumps-nits.md item 4; review E-0-1, E-1-1)', () => {
+	// Made-up results (testing/results.ts). The booster's NPSHr is 0 at its flow and its NPSHa
+	// −2.521 m, so its margin is −2.521 m, it has no ratio and it cavitates (corpus unit_rich1090
+	// PU2): NPSHa ÷ NPSHr with NPSHa < 0 and NPSHr → 0⁺ tends to −∞, below every ratio given. A null
+	// ratio is no sign of a safe margin (API review A1/B1).
+	const cavitating = (values: Partial<PumpResult> = {}) =>
+		pumpResult({
+			npshAvailable: -2.521,
+			npshRequired: 0,
+			npshMargin: -2.521,
+			npshMarginRatio: null,
+			...values
+		});
+	/** The pump transfer example with pumps after P1, in the stored project's order. */
+	function withPumps(names: string[]): { project: Project; ids: string[] } {
+		let p = pumpTransferExample();
+		const ids: string[] = [];
+		for (const name of names) {
+			const pump = createComponent('pump', p, { name });
+			p = insertComponentInConnection(p, 'L3', pump);
+			ids.push(pump.id);
+		}
+		const order = p.components.map((c) => c.id);
+		// Each new pump after P1 and after the one before it, as the table orders them.
+		expect(ids.map((id) => order.indexOf(id))).toEqual(
+			[...ids.map((id) => order.indexOf(id))].sort((a, b) => a - b)
+		);
+		expect(order.indexOf('P1')).toBeLessThan(order.indexOf(ids[0]!));
+		return { project: p, ids };
+	}
+	const sorted = (rows: readonly Row[], direction: 'ascending' | 'descending') =>
+		sortRows(rows, { key: 'npshMarginRatio', direction }).map((r) => r.key);
+
+	it('names the pump that cavitates with no ratio as the smallest, with no ratio, ahead of one with a ratio', () => {
+		const { project: two, ids } = withPumps(['Booster pump']);
+		const booster = ids[0]!;
+		const solved = pumpTransferSolved({
+			pumpResults: { P1: pumpResult(), [booster]: cavitating() }
+		});
+		expect(smallestNpshMarginRatio(solved, two)).toEqual({ id: booster, ratio: null });
+		// Whichever order the results arrive in.
+		const reversed = pumpTransferSolved({
+			pumpResults: { [booster]: cavitating(), P1: pumpResult() }
+		});
+		expect(smallestNpshMarginRatio(reversed, two)).toEqual({ id: booster, ratio: null });
+	});
+
+	it('names a lone pump that cavitates with no ratio, so the Summary keeps an NPSH extreme', () => {
+		const solved = pumpTransferSolved({ pumpResults: { P1: cavitating() } });
+		expect(smallestNpshMarginRatio(solved, project)).toEqual({ id: 'P1', ratio: null });
+	});
+
+	it('sorts that pump first, smallest first, and last among the values, largest first; a bare "—" last either way', () => {
+		// The third pump has no NPSHr curve: no margin, no ratio, nothing to say.
+		const { project: three, ids } = withPumps(['Booster pump', 'Spare pump']);
+		const [booster, spare] = ids as [string, string];
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult(),
+				[booster]: cavitating(),
+				[spare]: pumpResult({ npshRequired: null, npshMargin: null, npshMarginRatio: null })
+			}
+		});
+		const table = pumpTable(three, solved, SI_UNITS);
+		expect(cellLines(table.rows.find((r) => r.key === spare)!.cells.npshMarginRatio!)).toEqual([
+			'—'
+		]);
+		expect(sorted(table.rows, 'ascending')).toEqual([booster, 'P1', spare]);
+		expect(sorted(table.rows, 'descending')).toEqual(['P1', booster, spare]);
+		// The extreme and the sorted table's first row are one pump.
+		expect(smallestNpshMarginRatio(solved, three)?.id).toBe(sorted(table.rows, 'ascending')[0]);
+	});
+
+	it('keeps several such pumps in the table’s order, the first of them the extreme, with no NaN from equal keys', () => {
+		const { project: three, ids } = withPumps(['Booster pump', 'Second booster']);
+		const [booster, second] = ids as [string, string];
+		// The second booster's margin is the more negative: the table's order decides, as it does
+		// for every tie, so the extreme and the first row stay one pump.
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				[second]: cavitating({ npshAvailable: -4, npshMargin: -4 }),
+				P1: pumpResult({ npshAvailable: 6, npshRequired: 3.7, npshMarginRatio: 6 / 3.7 }),
+				[booster]: cavitating()
+			}
+		});
+		const table = pumpTable(three, solved, SI_UNITS);
+		expect(sorted(table.rows, 'ascending')).toEqual([booster, second, 'P1']);
+		expect(sorted(table.rows, 'descending')).toEqual(['P1', booster, second]);
+		expect(smallestNpshMarginRatio(solved, three)).toEqual({ id: booster, ratio: null });
+	});
+
+	it('makes a column of only such pumps sortable, and leaves a pump with no ratio and a margin of 0 or more unranked', () => {
+		const lone = pumpTable(
+			project,
+			pumpTransferSolved({ pumpResults: { P1: cavitating() } }),
+			SI_UNITS
+		);
+		expect(sortableColumn(lone.rows, 'npshMarginRatio')).toBe(true);
+		// NPSHr 0 with NPSHa 5 m: no ratio, a margin of 5 m, no cavitation: "—", sorted last, and
+		// no extreme of its own.
+		const safe = pumpResult({
+			npshAvailable: 5,
+			npshRequired: 0,
+			npshMargin: 5,
+			npshMarginRatio: null
+		});
+		const solved = pumpTransferSolved({ pumpResults: { P1: safe } });
+		const row = pumpTable(project, solved, SI_UNITS).rows[0]!;
+		expect(row.sortKeys).toBeUndefined();
+		expect(sortableColumn([row], 'npshMarginRatio')).toBe(false);
+		expect(smallestNpshMarginRatio(solved, project)).toBeNull();
+	});
+});
+
+describe('pump status as a pill and its qualifier (docs/proposals/pumps-nits.md item 2)', () => {
+	const reversal = (headRise: number, shutoffHead: number) =>
+		flag({
+			code: 'PUMP_FLOW_REVERSAL',
+			severity: 'invalid',
+			message: 'made-up',
+			componentId: 'P1',
+			details: { headRise, shutoffHead }
+		});
+	// Made-up control results (CLAUDE.md D11): a flow setpoint of 12 L/s.
+	const control = (
+		state: NonNullable<PumpResult['control']>['state'],
+		setpointAchieved: boolean | null = state === 'active'
+	): PumpResult['control'] => ({ mode: 'flow', setpoint: 0.012, state, setpointAchieved });
+	const noFlow = pumpResult({ status: 'no_flow', operatingFlow: 0, operatingHead: 30 });
+	// Every label pumpStatusLabel gives, by the API's status, the state word in the pill and the
+	// qualifier after it as plain text; the label written out, so a word that moves fails here.
+	const LABELS: {
+		result: PumpResult;
+		flags: Flag[];
+		parts: { state: string; word: string; detail: string };
+		label: string;
+	}[] = [
+		{
+			result: pumpResult(),
+			flags: [],
+			parts: { state: 'running', word: 'Running', detail: '' },
+			label: 'Running'
+		},
+		{
+			result: pumpResult({ control: control('active') }),
+			flags: [],
+			parts: { state: 'running', word: 'Running', detail: '(holding flow setpoint)' },
+			label: 'Running (holding flow setpoint)'
+		},
+		{
+			result: pumpResult({ control: control('max_speed') }),
+			flags: [],
+			parts: { state: 'running', word: 'Running', detail: 'at maximum speed (setpoint not met)' },
+			label: 'Running at maximum speed (setpoint not met)'
+		},
+		{
+			result: pumpResult({ control: control('max_speed', true) }),
+			flags: [],
+			parts: {
+				state: 'running',
+				word: 'Running',
+				detail: 'at maximum speed (holding flow setpoint)'
+			},
+			label: 'Running at maximum speed (holding flow setpoint)'
+		},
+		{
+			result: pumpResult({ control: control('min_speed') }),
+			flags: [],
+			parts: { state: 'running', word: 'Running', detail: 'at minimum speed (above setpoint)' },
+			label: 'Running at minimum speed (above setpoint)'
+		},
+		{
+			result: pumpResult({ control: control('min_speed', true) }),
+			flags: [],
+			parts: {
+				state: 'running',
+				word: 'Running',
+				detail: 'at minimum speed (holding flow setpoint)'
+			},
+			label: 'Running at minimum speed (holding flow setpoint)'
+		},
+		{
+			result: pumpResult({ status: 'off', operatingFlow: 0 }),
+			flags: [],
+			parts: { state: 'off', word: 'Off', detail: '' },
+			label: 'Off'
+		},
+		{
+			result: noFlow,
+			flags: [reversal(35, 30)],
+			parts: { state: 'no_flow', word: 'No flow', detail: '(system head above shutoff)' },
+			label: 'No flow (system head above shutoff)'
+		},
+		{
+			result: noFlow,
+			flags: [reversal(30, 30)],
+			parts: {
+				state: 'no_flow',
+				word: 'No flow',
+				detail: '(discharge closed off: dead-headed at shutoff head)'
+			},
+			label: 'No flow (discharge closed off: dead-headed at shutoff head)'
+		},
+		{
+			result: noFlow,
+			flags: [],
+			parts: { state: 'no_flow', word: 'No flow', detail: '(held at zero by its check)' },
+			label: 'No flow (held at zero by its check)'
+		},
+		{
+			// A status this app does not know (the API's enum has three): humanized, toned as
+			// unknown.
+			result: pumpResult({ status: 'surging_hard' as PumpResult['status'] }),
+			flags: [],
+			parts: { state: 'unknown', word: 'Surging hard', detail: '' },
+			label: 'Surging hard'
+		}
+	];
+
+	it('gives each of the 11 labels as its state word and the qualifier after it', () => {
+		expect(new Set(LABELS.map((c) => c.label)).size).toBe(11);
+		for (const { result, flags, parts, label } of LABELS) {
+			expect(pumpStatusParts(result, flags), label).toEqual(parts);
+		}
+		// A running pump whose control is in no state of a running pump reads as plain Running, as
+		// its label does.
+		expect(pumpStatusParts(pumpResult({ control: control('off', null) }))).toEqual({
+			state: 'running',
+			word: 'Running',
+			detail: ''
+		});
+	});
+
+	it('joins the word and its qualifier into the label, word for word, everywhere it is used', () => {
+		for (const { result, flags, parts, label } of LABELS) {
+			expect(pumpStatusLabel(result, flags)).toBe(label);
+			expect(parts.detail ? `${parts.word} ${parts.detail}` : parts.word).toBe(label);
+			// The per-pump table's cell is the label: its words unchanged by the pill.
+			const solved = pumpTransferSolved({ pumpResults: { P1: result }, flags });
+			expect(pumpTable(project, solved, SI_UNITS).rows[0]!.cells.status, label).toBe(label);
+		}
+	});
+
+	it("tints the pill by the state alone: green running, slate off, red no flow, slate for one it does not know; never by the row's flags", () => {
+		expect(PUMP_STATUS_TONES).toEqual({
+			running: 'bg-green-200 text-green-900',
+			off: 'bg-slate-200 text-slate-700',
+			no_flow: 'bg-red-200 text-red-950',
+			unknown: 'bg-slate-200 text-slate-700'
+		});
+		// A cavitating pump stays a running one: its flag is on the line under its row.
+		const cavitating = flag({
+			code: 'CAVITATION',
+			severity: 'invalid',
+			message: 'made-up',
+			componentId: 'P1'
+		});
+		expect(pumpStatusParts(pumpResult(), [cavitating]).state).toBe('running');
+	});
+});
+
 describe('branch velocity basis', () => {
 	const gravity = gravityBranchExample();
 	// Made-up test inputs for tee T1.
@@ -1167,7 +1642,9 @@ describe('elementSummary', () => {
 	it('shows the key values of each kind, as the results tables show them', () => {
 		const pump = summary({ kind: 'component', id: 'P1' });
 		const pumpRow = pumpTable(project, solved, SI_UNITS).rows[0]!;
-		expect(pump?.items.map((i) => i.key)).toEqual(['status', 'flow', 'head', 'npshMargin']);
+		// A pump's NPSH reading is its ratio, as the table's default (pumps-nits.md item 4, Q3).
+		expect(pump?.items.map((i) => i.key)).toEqual(['status', 'flow', 'head', 'npshMarginRatio']);
+		expect(shown({ kind: 'component', id: 'P1' })?.at(-1)).toEqual(['NPSH margin ratio', '', '4']);
 		for (const item of pump!.items) expect(item.cell).toEqual(pumpRow.cells[item.key]);
 		expect(shown({ kind: 'connection', id: 'L3' })).toEqual([
 			['Flow', 'L/s', '20'],
@@ -1185,7 +1662,12 @@ describe('elementSummary', () => {
 	it('leaves out values the solve has none of, and has none for an element it did not solve', () => {
 		const noVapor = pumpTransferSolved({
 			pumpResults: {
-				P1: pumpResult({ npshAvailable: null, npshMargin: null, suctionAbsolutePressure: null })
+				P1: pumpResult({
+					npshAvailable: null,
+					npshMargin: null,
+					npshMarginRatio: null,
+					suctionAbsolutePressure: null
+				})
 			}
 		});
 		expect(summary({ kind: 'component', id: 'P1' }, noVapor)?.items.map((i) => i.key)).toEqual([
@@ -1195,6 +1677,39 @@ describe('elementSummary', () => {
 		]);
 		expect(summary({ kind: 'component', id: 'new' })).toBeNull();
 		expect(summary({ kind: 'connection', id: 'L9' })).toBeNull();
+	});
+
+	it('names the cavitation and the margin of a pump with no ratio whose margin is negative, as its ratio cell does (pumps-nits.md item 4)', () => {
+		// Made-up: NPSHr 0 at the operating flow, NPSHa −2.521 m, so the margin −2.521 m, no ratio
+		// and CAVITATION raised (corpus unit_rich1090 PU2). Build's strip must not drop it as "—".
+		const cavitating = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({
+					npshAvailable: -2.521,
+					npshRequired: 0,
+					npshMargin: -2.521,
+					npshMarginRatio: null
+				})
+			},
+			flags: [flag({ code: 'CAVITATION', severity: 'invalid', message: 'x', componentId: 'P1' })]
+		});
+		const items = summary({ kind: 'component', id: 'P1' }, cavitating)!.items;
+		const npsh = items.map((i) => `${i.label} ${cellLines(i.cell).join(' ')}`).join(' | ');
+		expect(npsh).toMatch(/cavitat/i);
+		expect(npsh).toMatch(/[-−]2\.521/);
+		// A pump with NPSHr 0 and a positive margin has no ratio and is not said to cavitate.
+		const zero = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({
+					npshAvailable: 5,
+					npshRequired: 0,
+					npshMargin: 5,
+					npshMarginRatio: null
+				})
+			}
+		});
+		const quiet = summary({ kind: 'component', id: 'P1' }, zero)!.items;
+		expect(quiet.map((i) => cellLines(i.cell).join(' ')).join(' | ')).not.toMatch(/cavitat/i);
 	});
 
 	it('carries the flags about the element', () => {
@@ -1266,6 +1781,25 @@ describe('sorting results tables', () => {
 		expect(names(null)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
 	});
 
+	it('sorts a value with a note after it by its value: the group table’s shutoff head at maximum speed (S6 review TBL-3)', () => {
+		expect(sortValue('73.7 (79.74 at maximum speed)')).toBe(73.7);
+		expect(sortValue('-2.5 (a note)')).toBe(-2.5);
+		// Words, or a number inside words, stay text.
+		expect(sortValue('Running at maximum speed (holding flow setpoint)')).toBe(
+			'Running at maximum speed (holding flow setpoint)'
+		);
+		expect(sortValue('12 L/s: held')).toBe('12 L/s: held');
+		const rows = [
+			row('controlled', { s: '73.7 (79.74 at maximum speed)' }),
+			row('fixed', { s: '73.68' }),
+			row('none', { s: '—' })
+		];
+		const names = (direction: TableSort['direction']) =>
+			sortRows(rows, { key: 's', direction }).map((r) => r.name);
+		expect(names('ascending')).toEqual(['fixed', 'controlled', 'none']);
+		expect(names('descending')).toEqual(['controlled', 'fixed', 'none']);
+	});
+
 	it('sorts a cell of several values by its largest, and knows which columns can sort', () => {
 		const rows = [
 			row('one', {
@@ -1293,16 +1827,20 @@ describe('sorting results tables', () => {
 		expect(sorted[0]?.element.id).toBe(fastestLink(solved)?.id);
 	});
 
-	it('finds the highest pressure and the smallest NPSH margin', () => {
+	// The Summary's NPSH extreme is the margin ratio since the owner's nit 4 and Q3 (2026-11-12,
+	// "Ratio everywhere"; docs/proposals/pumps-nits.md item 4): this test moved from
+	// smallestNpshMargin to it, at the same strictness.
+	it('finds the highest pressure and the smallest NPSH margin ratio', () => {
 		const solved = pumpTransferSolved();
 		const highest = highestPressureNode(solved);
 		expect(highest?.pressure).toBe(
 			Math.max(...Object.values(solved.nodeResults).map((n) => n.pressure))
 		);
-		expect(smallestNpshMargin(solved)).toEqual({ id: 'P1', margin: 9 });
+		expect(smallestNpshMarginRatio(solved, project)).toEqual({ id: 'P1', ratio: 4 });
 		expect(
-			smallestNpshMargin(
-				pumpTransferSolved({ pumpResults: { P1: pumpResult({ npshMargin: null }) } })
+			smallestNpshMarginRatio(
+				pumpTransferSolved({ pumpResults: { P1: pumpResult({ npshMarginRatio: null }) } }),
+				project
 			)
 		).toBeNull();
 	});

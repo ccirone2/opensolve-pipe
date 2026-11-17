@@ -232,7 +232,8 @@ test('cancel a system curve: the request is aborted, the chart says so, and comp
 	const pumps = await resultsView(page, 'Pumps');
 	await sent;
 	const chart = pumps.getByRole('figure', { name: 'Pump and system curves: Transfer pump' });
-	await expect(chart).toHaveAttribute('aria-busy', 'true');
+	// Busy is the canvas's, the part redrawn (proposal pumps-results-layout.md §5.3).
+	await expect(chart.getByRole('img')).toHaveAttribute('aria-busy', 'true');
 	await expect(chart.getByText('Computing the system curve for this solve…')).toBeVisible();
 	const cancel = chart.getByRole('button', { name: 'Cancel the system curve' });
 	await expect(cancel).toHaveText('Cancel');
@@ -247,7 +248,7 @@ test('cancel a system curve: the request is aborted, the chart says so, and comp
 	await expect(again).toHaveAccessibleDescription(
 		'The system curve was not computed: you cancelled it.'
 	);
-	await expect(chart).toHaveAttribute('aria-busy', 'false');
+	await expect(chart.getByRole('img')).toHaveAttribute('aria-busy', 'false');
 	await expect(chart.getByRole('img')).not.toHaveAccessibleName(/system curve/);
 	// The results of the solve are unchanged.
 	await expect(status(page)).toHaveText('Last solve: converged');
@@ -276,7 +277,7 @@ test('the system curve: Cancel and the button that computes it again hand the fo
 	await expect(again).toBeFocused();
 	await page.keyboard.press('Enter');
 	await expect(cancel).toBeFocused();
-	await expect(chart).toHaveAttribute('aria-busy', 'true');
+	await expect(chart.getByRole('img')).toHaveAttribute('aria-busy', 'true');
 
 	// A failure (made-up server error): Try again takes the focus, and gives it back to Cancel.
 	await page.keyboard.press('Enter');

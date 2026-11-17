@@ -215,10 +215,18 @@ class Parts {
 
 /**
  * The groups suggested on `project` (the topology as solved) for the pumps with results
- * `pumpIds`: each group 2 to 6 of those pumps, in component order; the largest first, then by
- * their first pump's place in the project. The same group is suggested once.
+ * `pumpIds`: each group 2 to `limit` of those pumps, in component order; the largest first, then
+ * by their first pump's place in the project. The same group is suggested once.
+ *
+ * `limit` is the most pumps in a group (MAX_GROUP_PUMPS = 6, the API's). The pump lineups' frame
+ * passes Infinity to see a station of more than MAX_GROUP_PUMPS pumps whole, and the stations
+ * nested inside it (CLAUDE.md D24, proposal pump-lineups.md §4.2 and §15).
  */
-export function suggestGroups(project: Project, pumpIds: readonly string[]): GroupSuggestion[] {
+export function suggestGroups(
+	project: Project,
+	pumpIds: readonly string[],
+	limit: number = MAX_GROUP_PUMPS
+): GroupSuggestion[] {
 	const withResult = new Set(pumpIds);
 	const order = new Map(project.components.map((c, i) => [c.id, i]));
 	const sorted = (ids: Iterable<string>) =>
@@ -226,7 +234,7 @@ export function suggestGroups(project: Project, pumpIds: readonly string[]): Gro
 	const chains = chainsOf(project);
 	const found = new Map<string, GroupSuggestion>();
 	const add = (ids: string[], kind: GroupSuggestion['kind']) => {
-		if (ids.length < 2 || ids.length > MAX_GROUP_PUMPS) return;
+		if (ids.length < 2 || ids.length > limit) return;
 		const pumpIds = sorted(ids);
 		const key = pumpIds.join('\u0000');
 		if (!found.has(key)) found.set(key, { pumpIds, kind });
@@ -306,7 +314,7 @@ export function suggestGroups(project: Project, pumpIds: readonly string[]): Gro
 				const key = `${a}\u0000${b}`;
 				if (tried.has(key)) continue;
 				tried.add(key);
-				const members = groupBetween(byId, barriers, chains, incident, withResult, a!, b!);
+				const members = groupBetween(byId, barriers, chains, incident, withResult, a!, b!, limit);
 				if (members) add(members, 'parallel');
 			}
 		}
@@ -369,7 +377,8 @@ function groupBetween(
 	incident: ReadonlyMap<string, number[]>,
 	withResult: ReadonlySet<string>,
 	s: string,
-	d: string
+	d: string,
+	limit: number
 ): string[] | null {
 	interface Region {
 		chains: number[];
@@ -402,7 +411,7 @@ function groupBetween(
 			const chain = chains[i]!;
 			region.chains.push(i);
 			region.pumps.push(...chain.pumps.map((p) => p.id));
-			if (region.pumps.length > MAX_GROUP_PUMPS) region.outside = true;
+			if (region.pumps.length > limit) region.outside = true;
 			for (const end of chain.ends) {
 				if (end === s) region.touchesS = true;
 				else if (end === d) region.touchesD = true;
@@ -431,7 +440,7 @@ function groupBetween(
 		if (qualifies) group.push(region);
 	}
 	const members = group.flatMap((r) => r.pumps);
-	if (members.length < 2 || members.length > MAX_GROUP_PUMPS) return null;
+	if (members.length < 2 || members.length > limit) return null;
 	const inside = new Set(group.flatMap((r) => r.chains));
 	if ([...inside].some((i) => chains[i]!.pressureControls.length)) return null;
 	// A part that reaches only S or only D lies inside the station when it holds no fixed head,

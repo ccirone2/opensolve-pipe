@@ -46,6 +46,15 @@ so the fixture does not change from one run to the next.
   stated at another bore from the library, and whose fittings take a K and a Cv from it, with an
   entry of each list that nothing uses (CLAUDE.md D22); a scenario points the valve at the Cv
   entry and gives a pipe its own values. All cases, display units.
+- ``pump-groups``: ``tests/fixtures/pump_groups_input.py``'s ``fcv_outside_project`` (two pumps
+  in parallel between ideal tees, an FCV of 60 L/s on the delivery pipe outside the station) with
+  a scenario S1 "PB off" (CLAUDE.md D21, slice 4c). The base case holds PA's system curve, the
+  group curve of PA and PB and its group system curve (whose flows above the FCV's setpoint have
+  no rise: ``beyond_limit``); S1 holds the group curve only (its group system curve is absent, as
+  when the card closed before the answer). Every case has ``groupCurves`` and
+  ``groupSystemCurves`` (by the store's ``groupKey``: the ids sorted, NUL-separated), empty in
+  every other case. Exported as All cases, SI base units, with the link: the second committed
+  workbook (``export-pump-groups.xlsx``).
 """
 
 import copy
@@ -59,6 +68,7 @@ from fastapi.testclient import TestClient
 from opensolve_pipe.main import app
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.services.scenarios import apply_scenario
+from tests.fixtures.pump_groups_input import fcv_outside_project
 
 GENERATED_BY = "apps/api/tests/fixtures/export_input.py"
 
@@ -151,6 +161,8 @@ def _case(
     case_id: str | None,
     name: str,
     system_curves: dict[str, Any] | None = None,
+    group_curves: dict[str, Any] | None = None,
+    group_system_curves: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     inputs = (
         project
@@ -170,6 +182,8 @@ def _case(
         "sent": project,
         "inputs": inputs,
         "systemCurves": system_curves or {},
+        "groupCurves": group_curves or {},
+        "groupSystemCurves": group_system_curves or {},
     }
 
 
@@ -839,6 +853,67 @@ def project_library(client: TestClient, library: dict[str, Any]) -> dict[str, An
     )
 
 
+def pump_groups(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
+    """Two pumps in parallel with an FCV outside the station, and a scenario with PB off
+    (CLAUDE.md D21, slice 4c): the group curves the Pumps together card computed, as the store
+    holds them."""
+    project = fcv_outside_project()
+    project["scenarios"] = [
+        {
+            "id": "S1",
+            "name": "PB off",
+            "overrides": [
+                {"kind": "component", "componentId": "PB", "field": "status", "value": "off"}
+            ],
+        }
+    ]
+    base = _solve(client, project, None)
+    off = _solve(client, project, "S1")
+    curve = _post(client, "/api/v1/system-curve", {"project": project, "pumpId": "PA"})
+    group = _post(client, "/api/v1/pump-group-curve", {"project": project, "pumpIds": ["PA", "PB"]})
+    system = _post(
+        client,
+        "/api/v1/pump-group-curve",
+        {"project": project, "pumpIds": ["PA", "PB"], "curve": "system"},
+    )
+    off_group = _post(
+        client,
+        "/api/v1/pump-group-curve",
+        {"project": project, "scenarioId": "S1", "pumpIds": ["PA", "PB"]},
+    )
+    assert group["station"]["arrangement"] == "parallel", group["station"]
+    assert group["dutyCheck"]["agrees"], group["dutyCheck"]
+    reasons = {p["reason"] for p in system["systemPoints"] if p["head"] is None}
+    assert reasons == {"beyond_limit"}, reasons
+    assert system["systemDutyCheck"]["agrees"], system["systemDutyCheck"]
+    assert [m["status"] for m in off_group["duty"]["members"]] == ["running", "off"]
+    key = "\u0000".join(sorted(["PA", "PB"]))
+    return _input(
+        project,
+        [
+            _case(
+                project,
+                base,
+                None,
+                "Base case",
+                {"PA": {"status": "ready", "curve": curve}},
+                {key: {"status": "ready", "response": group}},
+                {key: {"status": "ready", "response": system}},
+            ),
+            _case(
+                project,
+                off,
+                "S1",
+                "PB off",
+                None,
+                {key: {"status": "ready", "response": off_group}},
+            ),
+        ],
+        library,
+        options={"cases": "all", "format": "xlsx", "units": "si", "link": True},
+    )
+
+
 def generate() -> dict[str, Any]:
     client = _client()
     library = _library(client)
@@ -850,6 +925,7 @@ def generate() -> dict[str, Any]:
             {"name": "tee-fallback", "input": tee_fallback(client, library)},
             {"name": "design-checks", "input": design_checks(client, library)},
             {"name": "project-library", "input": project_library(client, library)},
+            {"name": "pump-groups", "input": pump_groups(client, library)},
         ],
     }
 

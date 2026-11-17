@@ -1,17 +1,22 @@
 import { expect, test, type Locator, type Page, type Request, type Route } from '@playwright/test';
-import type { SolveRequest } from '../src/lib/api/types';
+import type { SolveRequest, SolveResponse } from '../src/lib/api/types';
 import {
 	buildPane,
 	caseGroup,
 	caseMenu,
+	caseTagBoxes,
 	chooseCase,
 	currentHeading,
 	openCases,
+	openCurveTable,
 	openScenarioManager,
 	resultsPane,
 	resultsView,
 	setNumber,
-	showPane
+	showPane,
+	sig4,
+	solveAll,
+	solveAllButton
 } from './support';
 
 /**
@@ -34,11 +39,44 @@ async function openExample(page: Page) {
 }
 
 const scenariosButton = (page: Page) => page.getByRole('button', { name: /^Scenarios/ });
-const solveAllButton = (page: Page) =>
-	caseGroup(page).getByRole('button', { name: 'Solve all', includeHidden: true });
-/** Press Solve all, in the Scenarios menu. */
-async function solveAll(page: Page): Promise<void> {
-	await (await openCases(page)).getByRole('button', { name: 'Solve all' }).click();
+
+/** On screen at a size of its own: not hidden, and not sr-only's 1 px box, which toBeVisible accepts. */
+async function seenBox(locator: Locator): Promise<boolean> {
+	return locator.evaluate((el) => {
+		const r = el.getBoundingClientRect();
+		return (
+			el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+			r.width > 1 &&
+			r.height > 1
+		);
+	});
+}
+
+/**
+ * The words a sighted user reads on a control: its text drawn at a size of its own, nothing
+ * hidden (`invisible`) and nothing in sr-only's 1 px box, at any depth.
+ */
+async function seenText(locator: Locator): Promise<string> {
+	return locator.evaluate((control) => {
+		const drawn = (el: Element) => {
+			const r = el.getBoundingClientRect();
+			return (
+				el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+				r.width > 1 &&
+				r.height > 1
+			);
+		};
+		let text = '';
+		const walker = document.createTreeWalker(control, NodeFilter.SHOW_TEXT);
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			let seen = true;
+			for (let el = n.parentElement; el && seen; el = el === control ? null : el.parentElement) {
+				seen = drawn(el);
+			}
+			if (seen) text += n.textContent;
+		}
+		return text.replace(/\s+/g, ' ').trim();
+	});
 }
 
 /** Create a scenario in the manager, name it, and close the manager: it is the case shown. */
@@ -77,6 +115,33 @@ function solveRequests(page: Page): SolveRequest[] {
 	return sent;
 }
 
+/**
+ * Each case's NPSH margin ratio for one pump, as the API answered its solve (the base case's
+ * under ''), from the responses the page receives.
+ */
+function npshRatios(page: Page, pumpId: string): Map<string, number | null> {
+	const ratios = new Map<string, number | null>();
+	page.on('response', async (r) => {
+		if (!r.url().endsWith('/api/v1/solve') || r.request().method() !== 'POST' || !r.ok()) return;
+		const request = r.request().postDataJSON() as SolveRequest;
+		const body = (await r.json()) as SolveResponse;
+		ratios.set(
+			request.scenarioId ?? '',
+			body.solvedState?.pumpResults[pumpId]?.npshMarginRatio ?? null
+		);
+	});
+	return ratios;
+}
+
+/** `text` as a regular expression that matches it literally. */
+const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A Compare difference as compareCells writes it: a true minus sign or +, no percentage. */
+function difference(value: number, base: number): string {
+	const text = sig4(Math.abs(value - base));
+	return value > base ? `+${text}` : `\u2212${text}`;
+}
+
 const resultsStatus = (page: Page) =>
 	resultsPane(page)
 		.getByRole('status')
@@ -92,7 +157,8 @@ test('create a scenario, change a value in it, reset it; locked values; back to 
 	await expect(scenariosButton(page)).toHaveAccessibleName('Scenarios');
 
 	await newScenario(page, 'Pump off');
-	await expect(scenariosButton(page)).toHaveAccessibleName('Scenarios (1)');
+	// Never solved: the name counts the base case and Pump off to solve (build-density.md §19).
+	await expect(scenariosButton(page)).toHaveAccessibleName('Scenarios (1), 2 cases to solve');
 	const panel = await showComponent(page, 'Transfer pump');
 	await expect(panel.getByRole('note', { name: 'Scenario' })).toContainText('Scenario: Pump off.');
 	// Topology actions are hidden in a scenario.
@@ -138,6 +204,7 @@ test('solve one case and all of them, read the comparison and the other cases on
 	page
 }) => {
 	const sent = solveRequests(page);
+	const ratios = npshRatios(page, 'P1');
 	await openExample(page);
 	await newScenario(page, 'Higher tank');
 	let panel = await showComponent(page, 'Discharge tank');
@@ -196,6 +263,42 @@ test('solve one case and all of them, read the comparison and the other cases on
 		).toBe(0);
 	}
 
+	// The pump's NPSH reading among the default rows is its margin ratio, not its margin (the
+	// owner, 2026-11-12, nit 4 and Q3, "Ratio everywhere"; docs/proposals/pumps-nits.md item 4):
+	// each case's value is the API's NPSHa ÷ NPSHr, with no unit, and its difference from the base
+	// has no percentage (the ratio's limit is 1, not a zero).
+	await expect.poll(() => ratios.size).toBe(3);
+	const base = ratios.get('')!;
+	const caseRatios = [base, ratios.get('S1')!, ratios.get('S2')!];
+	for (const r of caseRatios) expect(r).toEqual(expect.any(Number));
+	// A regular expression is matched against the text as it is, its white space kept.
+	const expected = caseRatios.map((r, i) => {
+		if (i === 0) return new RegExp(`^\\s*${literal(sig4(r))}\\s*$`);
+		const diff = sig4(r) === sig4(base) ? 'Same' : difference(r, base);
+		return new RegExp(`^\\s*${literal(sig4(r))}\\s*difference from base\\s*${literal(diff)}\\s*$`);
+	});
+	if (wide) {
+		const table = compare.getByRole('table', { name: 'Results by case' });
+		await expect(
+			table.getByRole('rowheader', { name: 'Transfer pump · NPSH margin ratio', exact: true })
+		).toHaveCount(1);
+		await expect(
+			table.getByRole('rowheader', { name: /^Transfer pump · NPSH margin \(/ })
+		).toHaveCount(0);
+		const row = table.getByRole('row').filter({ hasText: 'Transfer pump · NPSH margin ratio' });
+		await expect(row.getByRole('cell')).toHaveText(expected);
+	} else {
+		const card = compare.getByRole('region', {
+			name: 'Transfer pump · NPSH margin ratio',
+			exact: true
+		});
+		await expect(card).toHaveCount(1);
+		await expect(
+			compare.getByRole('region', { name: /^Transfer pump · NPSH margin \(/ })
+		).toHaveCount(0);
+		await expect(card.getByRole('definition')).toHaveText(expected);
+	}
+
 	// Add a result: the pump's efficiency.
 	await compare.getByRole('button', { name: 'Choose results…' }).click();
 	const choose = page.getByRole('dialog', { name: 'Choose results to compare' });
@@ -208,26 +311,33 @@ test('solve one case and all of them, read the comparison and the other cases on
 		compare.getByRole('button', { name: 'Transfer pump · Efficiency' }).filter({ visible: true })
 	).toHaveCount(1);
 
-	// The pump chart of the case shown names it, and lists the other cases' operating points.
+	// The pump chart of the case shown names it, and lists the other cases' operating points, each
+	// by the number its ring is tagged with, the base case by its name (owner, 2026-11-12, nit 5;
+	// docs/proposals/pumps-nits.md item 5, slice 5b, rule 4; was "; Higher tank ").
 	await resultsPane(page).getByRole('tab', { name: 'Slower pump' }).click();
 	const pumps = await resultsView(page, 'Pumps');
 	const figure = pumps.getByRole('figure', {
 		name: 'Pump and system curves: Transfer pump, Slower pump'
 	});
 	await expect(figure.getByRole('img')).toHaveAccessibleName(
-		/other cases' operating points: Base case .* at .*; Higher tank /
+		/other cases' operating points: Base case .* at .*; case 1: Higher tank /
 	);
 	await expect(figure.getByRole('group', { name: 'Cases on the chart' })).toBeVisible();
-	await figure.getByRole('button', { name: 'Show data table' }).click();
+	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	// Each row headed by its case's number in a box, heard before its name (owner, 2026-11-12, nit
+	// 5; docs/proposals/pumps-nits.md item 5, slice 5b): "Base", then each scenario's place in the
+	// Scenarios list, the case shown first.
 	const byCase = figure.getByRole('table', { name: 'Operating points by case' });
-	await expect(byCase.getByRole('rowheader')).toHaveText([
-		'Slower pump (shown)',
-		/Base case$/,
-		/Higher tank$/
-	]);
+	const heads = byCase.getByRole('rowheader');
+	await expect(heads).toHaveCount(3);
+	await expect(heads.nth(0)).toHaveAccessibleName('Case 2: Slower pump (shown)');
+	await expect(heads.nth(1)).toHaveAccessibleName('Base case');
+	await expect(heads.nth(2)).toHaveAccessibleName('Case 1: Higher tank');
+	await expect(caseTagBoxes(heads)).toHaveText(['2', 'Base', '1']);
 	// The shown curve is computed for this solve; the other cases' only on request, on its grid,
-	// one at a time, with Cancel.
-	await expect(figure.getByRole('table', { name: 'System curve' })).toBeVisible();
+	// one at a time, with Cancel. Each curve table in its disclosure, opened first (proposal
+	// pumps-results-layout.md §9 S7).
+	await expect(await openCurveTable(figure, 'System curve')).toBeVisible();
 	const curves: { scenarioId?: string; flowMax?: number }[] = [];
 	await page.route('**/api/v1/system-curve', (route) => {
 		curves.push(route.request().postDataJSON());
@@ -236,7 +346,9 @@ test('solve one case and all of them, read the comparison and the other cases on
 		name: "Also show the other cases' system curves"
 	});
 	await overlay.check();
-	const progress = figure.getByRole('status').filter({ hasText: 'Computing system curves' });
+	// Its always-present polite line (proposal pumps-results-layout.md §5.3, §10 S1), not a status.
+	const progress = figure.locator('[data-overlay-state]');
+	await expect(progress).toHaveAttribute('aria-live', 'polite');
 	await expect(progress).toHaveText('Computing system curves: 1 of 2…');
 	await expect.poll(() => curves.length).toBe(1);
 	expect('scenarioId' in curves[0]!).toBe(false); // the base case's
@@ -244,12 +356,16 @@ test('solve one case and all of them, read the comparison and the other cases on
 	const aborted = page.waitForEvent('requestfailed', (r) => r.url().endsWith('/system-curve'));
 	await figure.getByRole('button', { name: "Cancel the other cases' system curves" }).click();
 	await aborted;
-	await expect(progress).toHaveCount(0);
+	// The line stays, saying nothing; its Cancel is gone.
+	await expect(progress).toHaveText('');
+	await expect(
+		figure.getByRole('button', { name: "Cancel the other cases' system curves" })
+	).toHaveCount(0);
 	await page.unroute('**/api/v1/system-curve');
 	await overlay.uncheck();
 	await overlay.check();
-	await expect(figure.getByRole('table', { name: 'System curve, Base case' })).toBeVisible();
-	await expect(figure.getByRole('table', { name: 'System curve, Higher tank' })).toBeVisible();
+	await expect(await openCurveTable(figure, 'System curve, Base case')).toBeVisible();
+	await expect(await openCurveTable(figure, 'System curve, Higher tank')).toBeVisible();
 });
 
 /** Hold every solve request at the network, unanswered, until the page aborts it. */
@@ -292,9 +408,18 @@ test('cancel Solve all; then Solve all solves only the cases still missing', asy
 	await expect(bar.getByRole('status', { includeHidden: true })).toHaveText(
 		/^Solve all was cancelled/
 	);
+	// A pointer press on Cancel is not outside the menu: it stays open, its cancel line in sight
+	// (build-density.md §13 item 4, §19).
+	expect(
+		await seenBox(bar.getByRole('status', { includeHidden: true })),
+		'the cancel line seen'
+	).toBe(true);
+	// The press focused Cancel; Cancel gone, the focus goes back into the open menu, to Solve all
+	// (which resumes the run), not to the header's Solve outside it (WCAG 2.4.11).
+	await expect(solveAllButton(page)).toBeFocused();
 	await expect(
 		page.getByRole('banner').getByRole('button', { name: /^Solve Base case$/ })
-	).toBeFocused();
+	).not.toBeFocused();
 	// The base keeps its results.
 	await expect(resultsStatus(page)).toHaveText('Last solve of Base case: converged');
 
@@ -334,7 +459,8 @@ test('share and reopen: the scenarios are in the link, which opens on the base c
 	await other.goto(`/p${fragment}`);
 	await expect(currentHeading(other)).toHaveText('Suction tank');
 	await expect(caseMenu(other)).toHaveValue('');
-	await expect(scenariosButton(other)).toHaveAccessibleName('Scenarios (1)');
+	// A link holds no results: both cases to solve (build-density.md §19).
+	await expect(scenariosButton(other)).toHaveAccessibleName('Scenarios (1), 2 cases to solve');
 	await chooseCase(other, 'Higher tank (1 change)');
 	const reopened = await showComponent(other, 'Discharge tank');
 	const level = reopened.getByRole('textbox', { name: /^Liquid level/ });
@@ -434,13 +560,15 @@ test('a long case name fits: Solve, the Case menu and the case bar during Solve 
 	await openExample(page);
 	await newScenario(page, name);
 
-	// The Solve of a case without results says the case before it, not on the button.
+	// The Solve of a case without results is the header's (build-density.md §19): it names the
+	// case for screen readers only, so its visible label stays "Solve" and it stays inside the
+	// screen.
 	await showPane(page, 'Results');
-	const pane = (await resultsPane(page).boundingBox())!;
-	const solve = resultsPane(page).getByRole('button', { name: `Solve ${name}` });
+	const solve = page.getByRole('banner').getByRole('button', { name: `Solve ${name}` });
 	await expect(solve).toBeVisible();
 	const box = (await solve.boundingBox())!;
-	expect(box.x + box.width).toBeLessThanOrEqual(pane.x + pane.width);
+	expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+	expect(await seenText(solve)).toBe('Solve');
 
 	// Solve all's progress has a line of its own in the case bar: a short one never squeezes the
 	// Case menu, a long one never squeezes the sentence on where edits go.

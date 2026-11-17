@@ -10,6 +10,7 @@ import type { Override, PipeConnection, PipeSpec } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { libraryProject } from '$lib/testing/helpers';
 import { TEST_LIBRARY as LIBRARY } from '$lib/testing/library';
+import { stations } from '$lib/testing/lineups';
 import { testWorkspace } from '$lib/testing/workspace';
 import { pumpTransferExample } from '$lib/utils/examples';
 
@@ -271,5 +272,40 @@ describe('PipeSegmentForm with the project library', () => {
 				value: { specId: 'PS2' }
 			}
 		]);
+	});
+
+	it('Use for… in a case whose name the app made says both: the pipes, then the rename', async () => {
+		// The library project with a station of PA and PB; its case is named by the template
+		// (CLAUDE.md D24, proposal pump-lineups.md §4.5: every rename is said).
+		const project = libraryProject();
+		const pumps = stations({ ids: ['PA', 'PB'] });
+		project.components.push(...pumps.components);
+		project.connections.push(...pumps.connections);
+		project.scenarios = [
+			{
+				id: 'S1',
+				name: '1 of 2 running (Pump PB off)',
+				overrides: [{ kind: 'component', componentId: 'PB', field: 'status', value: 'off' }]
+			}
+		];
+		const { ws } = setupLibrary(project);
+		ws.setCase('S1');
+		await tick();
+		const pipe2 = within(screen.getByRole('region', { name: 'Pipe 2 of 2' }));
+		await fireEvent.click(pipe2.getByRole('button', { name: /^Use a pipe spec for pipe 2/ }));
+		const dialog = within(await screen.findByRole('dialog', { name: 'Use a pipe spec' }));
+		await fireEvent.change(dialog.getByRole('combobox', { name: 'Pipe spec' }), {
+			target: { value: 'PS2' }
+		});
+		await fireEvent.click(dialog.getByRole('radio', { name: /^This pipe/ }));
+		await fireEvent.click(dialog.getByRole('button', { name: 'Use for 1 pipe' }));
+		expect(ws.scenarios.map((s) => s.name)).toEqual([
+			'1 of 2 running (Pump PB off) + 1 other change'
+		]);
+		const said =
+			'1 pipe now use “Lined 80 mm”. Undo reverts all of them. «1 of 2 running (Pump PB off)» is now «1 of 2 running (Pump PB off) + 1 other change»: a name the app made follows its pumps until you rename it.';
+		expect(ws.notice).toMatchObject({ kind: 'info', text: said });
+		await tick();
+		expect(screen.getByText(said)).toBeInTheDocument();
 	});
 });

@@ -37,6 +37,12 @@ describe('pump chart without its chunk', () => {
 		expect(screen.queryByRole('img')).toBeNull();
 		expect(screen.getByRole('table', { name: 'Pump curve at 100 % speed' })).toBeInTheDocument();
 		expect(screen.getByRole('table', { name: 'System curve' })).toBeInTheDocument();
+		// Every curve table open: the chart cannot be drawn (pumps-results-layout.md §9 S7).
+		const folds = [...document.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')];
+		expect(folds.map((d) => [d.querySelector('caption')!.textContent!.trim(), d.open])).toEqual([
+			['Pump curve at 100 % speed', true],
+			['System curve', true]
+		]);
 		// No image can be made without the chart, and the table cannot be hidden.
 		expect(screen.queryByRole('button', { name: /^Download image/ })).toBeNull();
 		expect(screen.queryByRole('button', { name: /data table/ })).toBeNull();

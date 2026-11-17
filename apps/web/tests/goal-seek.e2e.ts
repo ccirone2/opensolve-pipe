@@ -284,7 +284,8 @@ test('out of date on a project never solved, and every Solve waits during a run'
 	await expect(apply).not.toHaveAttribute('aria-disabled', 'true');
 	await closeButton(page).click();
 
-	// Solved once, the link carries its method version: opened again, it offers Solve now.
+	// Solved once, the link carries its method version: opened again, the Results pane says so and
+	// names the header's Solve, the page's one (E3; build-density.md §19: no Solve now).
 	const unsolved = page.url();
 	await page.getByRole('button', { name: 'Solve', exact: true }).click();
 	await expect(resultsPane(page).getByRole('status')).toHaveText('Last solve: converged');
@@ -296,28 +297,33 @@ test('out of date on a project never solved, and every Solve waits during a run'
 	await runButton(page).click();
 	await expect.poll(() => held.length).toBe(1);
 	await closeButton(page).click();
-	const solveNow = resultsPane(page).getByRole('button', { name: 'Solve now' });
-	await expect(solveNow).toHaveAttribute('aria-disabled', 'true');
-	await expect(solveNow).toHaveAccessibleDescription(
-		'A goal seek is running; Cancel in the header stops it.'
+	// E3's words as drawn: the shortcut on a fine pointer only (KeysHint).
+	const fine = await page.evaluate(() => matchMedia('(pointer: fine)').matches);
+	await expect(resultsPane(page).getByText(/^This project was opened without results/)).toHaveText(
+		`This project was opened without results: a link holds the project's inputs, not its results. Press Solve, at the top${fine ? ' (Ctrl+Enter or ⌘+Enter)' : ''}, to calculate the flows, pressures and pump operating points (the project is sent to the calculation server, which does not keep it).`,
+		{ useInnerText: true }
 	);
+	// No Solve, Solve now or Solve again in the pane: the header's is the one.
+	await expect(resultsPane(page).getByRole('button', { name: /^Solve($| (?!all\b))/ })).toHaveCount(
+		0
+	);
+	const header = page.locator('[data-solve-button]');
+	await expect(header).toHaveAttribute('aria-disabled', 'true');
+	await expect(header).toHaveAccessibleDescription('A goal seek is running; Cancel stops it.');
 	// Clicked anyway (Playwright waits for an aria-disabled button: force the click), it sends
 	// nothing and the goal seek goes on.
 	const solves: string[] = [];
 	page.on('request', (r) => {
 		if (r.url().endsWith('/api/v1/solve')) solves.push(r.url());
 	});
-	await solveNow.click({ force: true });
+	await header.click({ force: true });
 	await expect(goalSeekButton(page)).toHaveAccessibleName('Goal seek (running)');
 	expect(solves).toEqual([]);
-	const header = page.locator('[data-solve-button]');
-	await expect(header).toHaveAttribute('aria-disabled', 'true');
-	await expect(header).toHaveAccessibleDescription('A goal seek is running; Cancel stops it.');
 	const stopped = aborted(page);
 	await page.getByRole('button', { name: 'Cancel goal seek' }).click();
 	await stopped;
 	await page.unroute(`**${PATH}`);
-	await expect(solveNow).not.toHaveAttribute('aria-disabled', 'true');
+	await expect(header).not.toHaveAttribute('aria-disabled', 'true');
 });
 
 test("the trace's entry: Use in goal seek preselects the connection", async ({

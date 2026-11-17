@@ -1,11 +1,13 @@
 /**
- * The committed fixture workbook (proposal export.md §7.2): the real model and writer build the
+ * The committed fixture workbooks (proposal export.md §7.2): the real model and writer build the
  * workbook of the shared fixture's `scenarios` case (real API responses: export-input.json, from
  * apps/api/tests/fixtures/export_input.py), and its bytes must equal the committed
  * `__fixtures__/export-results.xlsx`, and its typed cells the committed
  * `export-results.expected.json`: every cell (sheet, reference, type, value), with each sheet's
  * caption, headers, autofilter range, frozen pane and print titles. An API test reads the committed
- * workbook with openpyxl (an independent SpreadsheetML reader) against the same JSON.
+ * workbook with openpyxl (an independent SpreadsheetML reader) against the same JSON. The same for
+ * the `pump-groups` case (CLAUDE.md D21, slice 4c): `export-pump-groups.xlsx` and
+ * `export-pump-groups.expected.json`, read by the API's test_web_export_groups_fixture.py.
  *
  *     cd apps/web && UPDATE_FIXTURES=1 pnpm exec vitest run src/lib/utils/export/fixture.test.ts
  *
@@ -23,12 +25,18 @@ import { blobBytes, entryText, readZip } from './zip-reader.testing';
 import { writeCsvZip } from './csv';
 
 const UPDATE = process.env.UPDATE_FIXTURES === '1';
-const WORKBOOK = fileURLToPath(new URL('../__fixtures__/export-results.xlsx', import.meta.url));
-const EXPECTED = fileURLToPath(
-	new URL('../__fixtures__/export-results.expected.json', import.meta.url)
-);
-/** The fixture case whose workbook is committed. */
-const COMMITTED = 'scenarios';
+const fixturePath = (file: string) =>
+	fileURLToPath(new URL(`../__fixtures__/${file}`, import.meta.url));
+/** The fixture cases whose workbooks are committed, with their files. */
+const COMMITTED = [
+	{ name: 'scenarios', workbook: 'export-results.xlsx', expected: 'export-results.expected.json' },
+	{
+		name: 'pump-groups',
+		workbook: 'export-pump-groups.xlsx',
+		expected: 'export-pump-groups.expected.json'
+	}
+] as const;
+const EXPECTED = fixturePath(COMMITTED[0].expected);
 
 type CellType = 's' | 'n' | 'b';
 
@@ -51,7 +59,7 @@ interface ExpectedWorkbook {
 const FORBIDDEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/;
 
 /** What a correct reader returns from the workbook of `bundle`: every cell, typed. */
-function expectedOf(bundle: ExportBundle): ExpectedWorkbook {
+function expectedOf(bundle: ExportBundle, name: string): ExpectedWorkbook {
 	const cells: ExpectedWorkbook['cells'] = [];
 	const sheets: ExpectedWorkbook['sheets'] = [];
 	for (const sheet of bundle.sheets) {
@@ -71,7 +79,8 @@ function expectedOf(bundle: ExportBundle): ExpectedWorkbook {
 					sheet: sheet.title,
 					ref: `${columnName(i)}${r}`,
 					type,
-					value: value as string | number | boolean
+					// The writer writes −0 as 0 (numberText), so a reader reads 0 there.
+					value: Object.is(value, -0) ? 0 : (value as string | number | boolean)
 				});
 			});
 		add(1, [sheet.caption]);
@@ -90,31 +99,36 @@ function expectedOf(bundle: ExportBundle): ExpectedWorkbook {
 	}
 	return {
 		generatedBy: 'apps/web/src/lib/utils/export/fixture.test.ts (UPDATE_FIXTURES=1)',
-		input: COMMITTED,
+		input: name,
 		sheets,
 		cells
 	};
 }
 
-async function formatted(json: unknown): Promise<string> {
+async function formatted(json: unknown, path: string): Promise<string> {
 	const prettier = await import('prettier');
-	const config = (await prettier.resolveConfig(EXPECTED)) ?? {};
-	return prettier.format(JSON.stringify(json), { ...config, filepath: EXPECTED });
+	const config = (await prettier.resolveConfig(path)) ?? {};
+	return prettier.format(JSON.stringify(json), { ...config, filepath: path });
 }
 
-describe('the committed fixture workbook', () => {
-	it('is what the model and the writer make of the fixture, byte for byte and cell by cell', async () => {
-		const bundle = buildExport(fixtureInput(COMMITTED));
-		const bytes = await blobBytes(await writeXlsx(bundle));
-		const expected = expectedOf(bundle);
-		if (UPDATE) {
-			writeFileSync(WORKBOOK, bytes);
-			writeFileSync(EXPECTED, await formatted(expected));
+describe('the committed fixture workbooks', () => {
+	it.each(COMMITTED)(
+		'$name: what the model and the writer make of the fixture, byte for byte and cell by cell',
+		async ({ name, workbook, expected: json }) => {
+			const WORKBOOK = fixturePath(workbook);
+			const EXPECTED = fixturePath(json);
+			const bundle = buildExport(fixtureInput(name));
+			const bytes = await blobBytes(await writeXlsx(bundle));
+			const expected = expectedOf(bundle, name);
+			if (UPDATE) {
+				writeFileSync(WORKBOOK, bytes);
+				writeFileSync(EXPECTED, await formatted(expected, EXPECTED));
+			}
+			expect(existsSync(WORKBOOK), 'run with UPDATE_FIXTURES=1 to write it').toBe(true);
+			expect(new Uint8Array(readFileSync(WORKBOOK))).toEqual(bytes);
+			expect(JSON.parse(readFileSync(EXPECTED, 'utf8'))).toEqual(expected);
 		}
-		expect(existsSync(WORKBOOK), 'run with UPDATE_FIXTURES=1 to write it').toBe(true);
-		expect(new Uint8Array(readFileSync(WORKBOOK))).toEqual(bytes);
-		expect(JSON.parse(readFileSync(EXPECTED, 'utf8'))).toEqual(expected);
-	});
+	);
 
 	it('holds what the reader checks: names, a formula-like name, _x0041_x0042_ and a CR, every type', () => {
 		const expected = JSON.parse(readFileSync(EXPECTED, 'utf8')) as ExpectedWorkbook;
@@ -142,6 +156,36 @@ describe('the committed fixture workbook', () => {
 		expect(values).toContain('=HYPERLINK("https://example.com","Demand")');
 		expect(values).toContain('Low tank_x0041_x0042_\r(B)');
 		expect(new Set(expected.cells.map((c) => c.type))).toEqual(new Set(['s', 'n', 'b']));
+	});
+
+	it('pump-groups: the five group sheets right after System curves (CLAUDE.md D21, slice 4c)', () => {
+		const expected = JSON.parse(
+			readFileSync(fixturePath(COMMITTED[1].expected), 'utf8')
+		) as ExpectedWorkbook;
+		expect(expected.input).toBe('pump-groups');
+		expect(expected.sheets.map((s) => s.name)).toEqual([
+			'About',
+			'Flags',
+			'Compare cases',
+			'Nodes',
+			'Links',
+			'Pipes',
+			'Fittings',
+			'Pumps',
+			'Pump curves',
+			'System curves',
+			'Pump groups',
+			'Pump group members',
+			'Group curves',
+			'Group curve members',
+			'Group system curves',
+			'Valves',
+			'Branches',
+			'Branch ports',
+			'Boundaries',
+			'Scenario changes',
+			'Methods'
+		]);
 	});
 });
 

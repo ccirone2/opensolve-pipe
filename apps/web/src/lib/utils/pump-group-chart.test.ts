@@ -33,9 +33,12 @@ import {
 	groupChartData,
 	groupImageTitle,
 	groupLegend,
+	groupMethodsHeading,
+	groupMethodsLines,
 	groupNoteLines,
 	groupNotes,
 	groupSampleRows,
+	MEMBER_STATUS_WORDS,
 	groupSummary,
 	groupTable,
 	stopRise,
@@ -96,13 +99,17 @@ type Dataset = PumpChartConfig['data']['datasets'][number] & {
 const datasets = (cfg: PumpChartConfig) => cfg.data.datasets as Dataset[];
 
 describe('the chart data', () => {
-	it("draws each member's curve and point in its slot's colour, marker and dashes", () => {
+	// Nit 5 (owner, 2026-11-12; Q1 "Shapes go too"; docs/proposals/pumps-nits.md item 5, rule 2;
+	// slice 5c): a slot is its colour and dashes, each slot a pattern of its own (slot 2 a long
+	// dash, was solid as slot 1), and a point takes its line's look, no marker; was "its slot's
+	// colour, marker and dashes" with the points' markers ['triangle', 'rect'].
+	it("draws each member's curve in its slot's colour and dashes, its point in its line's", () => {
 		const c = named('parallel-ideal');
 		const data = groupChartData(membersOf(c), prefsOf(c), responseOf(c));
 		expect(data.flowUnit).toBe('L/s');
 		expect(data.lines.map((l) => [l.label, l.style.color, l.style.dash])).toEqual([
 			['Pump PA, 100 % speed (own flow)', GROUP_BLUE, []],
-			['Pump PB, 85 % speed (own flow)', GROUP_AQUA, []]
+			['Pump PB, 85 % speed (own flow)', GROUP_AQUA, [8, 3]]
 		]);
 		const pa = c.solve.solvedState.pumpResults.PA!;
 		expect(data.points[0]).toMatchObject({
@@ -110,31 +117,115 @@ describe('the chart data', () => {
 			held: false,
 			point: { x: expect.closeTo(pa.operatingFlow * 1000, 12), y: pa.operatingHead }
 		});
-		expect(data.points.map((p) => p.style.marker)).toEqual(['triangle', 'rect']);
+		expect(data.points.map((p) => [p.id, p.style])).toEqual([
+			['PA', GROUP_SLOTS[0]],
+			['PB', GROUP_SLOTS[1]]
+		]);
 		// The pump curve as the pump chart draws it: the API's samples, unchanged.
 		expect(data.lines[0]!.curve).toEqual(
 			pa.curve.map((p) => ({ x: expect.closeTo(p.flow * 1000, 12), y: p.head }))
 		);
 	});
 
+	// Nit 5 (slice 5c, rule 2): the slots' markers (▲ ■ ★ × + ▢) went, so six distinct looks are
+	// six distinct line patterns; slot 2 is a long dash, its beyond dotted (was solid, [6, 4]).
 	it('keeps a colour with its pump while it stays ticked; later members reuse hues with dashes', () => {
 		const c = named('ladder');
 		// P1 unticked (slot 0 free): P2 keeps aqua, P3 keeps the third slot's blue dash-dot.
 		const data = groupChartData(membersOf(c, [null, 'P2', 'P3']), prefsOf(c), null);
 		expect(data.lines.map((l) => [l.ids, l.style.color, l.style.dash, l.style.beyondDash])).toEqual(
 			[
-				[['P2'], GROUP_AQUA, [], [6, 4]],
+				[['P2'], GROUP_AQUA, [8, 3], [2, 3]],
 				[['P3'], GROUP_BLUE, [12, 3, 3, 3], [2, 3]]
 			]
 		);
-		expect(data.points.map((p) => [p.id, p.style.marker])).toEqual([
-			['P2', 'rect'],
-			['P3', 'star']
+		expect(data.points.map((p) => [p.id, p.style])).toEqual([
+			['P2', GROUP_SLOTS[1]],
+			['P3', GROUP_SLOTS[2]]
 		]);
-		// Six distinct looks: colour, dash and marker together never repeat.
-		const looks = GROUP_SLOTS.map((s) => `${s.color}${s.dash.join()}${s.marker}`);
+		// Six distinct looks: the line patterns alone never repeat, colour or not.
+		const looks = GROUP_SLOTS.map((s) => `${s.color}${s.dash.join()}`);
 		expect(new Set(looks).size).toBe(6);
-		expect(new Set(GROUP_SLOTS.map((s) => s.marker)).size).toBe(6);
+		expect(new Set(GROUP_SLOTS.map((s) => JSON.stringify(s.dash))).size).toBe(6);
+		// A line beyond its data never reads as a line of its colour inside its data.
+		for (const slot of GROUP_SLOTS) {
+			const inside = GROUP_SLOTS.filter((s) => s.color === slot.color).map((s) => s.dash);
+			expect(inside, JSON.stringify(slot)).not.toContainEqual(slot.beyondDash);
+		}
+	});
+
+	// Review DOTS-LABELS-A2: two members' runs beyond their data were drawn alike, slots 4 and 6
+	// both aqua dotted [1, 5] at 2 px (on da7aa98 the six were distinct, blue and aqua in turn
+	// over [6, 4], [2, 3], [1, 5]): where the two runs met, nothing told them apart.
+	it('gives each slot’s line beyond its data a look of its own: colour and dashes', () => {
+		const beyond = GROUP_SLOTS.map((s) => `${s.color} ${JSON.stringify(s.beyondDash)}`);
+		expect(new Set(beyond).size).toBe(6);
+	});
+
+	// Review DOTS-LABELS-B5 (rule 2: slots differ by more than hue; WCAG 1.4.1): what a swatch shows
+	// is the first stretch of its slot's pattern, so patterns that differ only further along look
+	// alike there. Slot 3 [12, 3, 3, 3] and slot 4 [12, 3, 3, 3, 3, 3] first differed at 24 px: the
+	// page's 24 px swatches were the same, blue against aqua (1.30:1) the only difference. Each
+	// pattern drawn as a swatch is drawn (a butt-capped line from its start, its dashes from 0),
+	// sampled at each column's centre: the page's legend line, 24 px (PumpGroupFigure.svelte), by
+	// the pixel; the image's, Chart.js 4.5.1's 'line' point style in its legend (usePointStyle), a
+	// line through the box's centre of the radius it gives a point, boxHeight · √2 / 2 either side,
+	// so boxHeight · √2 long (boxHeight 12 here: 16.97 px), by the half pixel (the image's 2×).
+	// Every two slots' swatches differ in 3 px of their length or more, the gap of slot 2's dash.
+	it('draws every two slots’ swatches apart by their pattern, on the page (24 px) and in the image', () => {
+		const ink = (dash: readonly number[], length: number, step: number) => {
+			const period = dash.reduce((a, b) => a + b, 0);
+			return Array.from({ length: Math.round(length / step) }, (_, k) => {
+				if (!period) return true;
+				let t = ((k + 0.5) * step) % period;
+				for (const [i, d] of dash.entries()) {
+					if (t < d) return i % 2 === 0;
+					t -= d;
+				}
+				return true;
+			});
+		};
+		const config = pumpGroupConfig(groupChartData(membersOf(named('ladder')), SI_UNITS, null), {
+			legendLabels: () => [],
+			format: (v: number) => formatNumber(v, 4),
+			forImage: true
+		});
+		const boxHeight = config.options!.plugins!.legend!.labels!.boxHeight!;
+		expect(boxHeight).toBe(12);
+		for (const [where, length, step] of [
+			['the page', 24, 1],
+			['the image', boxHeight * Math.SQRT2, 0.5]
+		] as const) {
+			const masks = GROUP_SLOTS.map((s) => ink(s.dash, length, step));
+			for (let a = 0; a < masks.length; a++)
+				for (let b = a + 1; b < masks.length; b++) {
+					const apart = masks[a]!.filter((on, k) => on !== masks[b]![k]).length * step;
+					expect(apart, `${where}: slots ${a + 1} and ${b + 1}`).toBeGreaterThanOrEqual(3);
+				}
+		}
+	});
+
+	it("draws members sharing a line in that line's colour, a held one too (nit 5, rule 2)", () => {
+		// Made-up from the fixture's ladder: P2 and P3 given P1's curve at P1's speed share P1's
+		// line (slot 1, blue); their points take its look, not their own slots' (aqua, blue dash-dot).
+		const c = named('ladder');
+		const [p1, p2, p3] = membersOf(c, ['P1', 'P2', 'P3']);
+		const share = (m: GroupMemberInput, values: Partial<PumpResult> = {}): GroupMemberInput => ({
+			...m,
+			curveId: p1!.curveId,
+			result: { ...m.result, speed: p1!.result.speed, ...values }
+		});
+		const data = groupChartData(
+			[p1!, share(p2!), share(p3!, { status: 'no_flow', operatingFlow: 0 })],
+			prefsOf(c),
+			null
+		);
+		expect(data.lines.map((l) => [l.ids, l.style])).toEqual([[['P1', 'P2', 'P3'], GROUP_SLOTS[0]]]);
+		expect(data.points.map((p) => [p.id, p.held, p.style])).toEqual([
+			['P1', false, GROUP_SLOTS[0]],
+			['P2', false, GROUP_SLOTS[0]],
+			['P3', true, GROUP_SLOTS[0]]
+		]);
 	});
 
 	it('draws one line for members with one curve at one speed, naming them all', () => {
@@ -245,12 +336,13 @@ describe('the chart configuration', () => {
 			borderColor: GROUP_INK,
 			borderDash: [6, 4]
 		});
-		// The markers: each member's (its slot's shape, a held pump the diamond) and the station's.
+		// The markers: each member's (a dot, a held pump the diamond) and the station's. Nit 5,
+		// slice 5c (Q1 "Shapes go too"): Pump PA's point moved from its slot's 'triangle' to a dot.
 		const markers = sets.filter((d) => (d as { showLine?: boolean }).showLine === false);
 		expect(
 			markers.map((d) => [d.label, (d as { pointStyle?: string }).pointStyle, d.caseLabel])
 		).toEqual([
-			['Pump PA', 'triangle', 'Pump PA'],
+			['Pump PA', 'circle', 'Pump PA'],
 			['Pump PB, held at zero flow', 'rectRot', 'Pump PB'],
 			['Group duty, on the curve', 'circle', 'Group']
 		]);
@@ -296,16 +388,27 @@ describe('the chart configuration', () => {
 		});
 		expect(screenConfig.options!.plugins!.legend!.display).toBe(false);
 		expect(config(data).options!.plugins!.legend!.display).toBe(true);
-		// The page's legend names what the chart's would, its markers as text.
-		expect(groupLegend(data).map((i) => [i.label, i.kind, i.symbol ?? i.dash])).toEqual([
+		// The page's legend names what the chart's would, each mark drawn from the canvas's spec
+		// (chart-marks.ts), never a character. Nit 5 (owner, 2026-11-12; Q1 "Shapes go too";
+		// docs/proposals/pumps-nits.md item 5, rules 1, 2, 3, 5 and 8; slice 5c): a running pump's
+		// point has no entry (the chart names it beside its dot; its line's entry names it), the held
+		// pump keeps its diamond named in words, the Group its ink dot; slot 2's line is a long dash.
+		// Was ['Pump PA', 'marker', '▲'], ◇ for the held pump and ● for the Group, slot 2 solid.
+		const legend = groupLegend(data);
+		expect(legend.map((i) => [i.label, i.kind, i.mark ?? i.dash])).toEqual([
 			['Pump PA, 100 % speed (own flow)', 'line', []],
-			['Pump PB, 70 % speed (own flow)', 'line', []],
+			['Pump PB, 70 % speed (own flow)', 'line', [8, 3]],
 			["Group curve (station's flow)", 'line', []],
 			['Group curve, a pump beyond its data (dashed)', 'line', [6, 4]],
-			['Pump PA', 'marker', '▲'],
-			['Pump PB, held at zero flow', 'marker', '◇'],
-			['Group duty, on the curve', 'marker', '●']
+			['Pump PB, held at zero flow', 'marker', 'held'],
+			['Group duty, on the curve', 'marker', 'group']
 		]);
+		// The held pump's diamond in its line's colour, the Group's dot in ink.
+		expect(legend.filter((i) => i.kind === 'marker').map((i) => [i.key, i.color])).toEqual([
+			['point-PB', GROUP_AQUA],
+			['station', GROUP_INK]
+		]);
+		for (const item of legend) expect(item, item.label).not.toHaveProperty('symbol');
 	});
 
 	it('draws the image at a fixed size, without events or tooltips', () => {
@@ -408,7 +511,7 @@ describe('the notes (screen and image)', () => {
 		const l = (q: number) => `${f4(q * 1000)} L/s`;
 		expect(notesOf(c, { status: 'ready', response }).duty).toEqual([
 			`The group curve does not pass through the Group point: at the duty's rise it gives ${l(duty.members[0]!.flow)} (the solve: ${l(duty.flow)}), and Pump PB 0 L/s (the solve: ${l(duty.members[1]!.flow)}).`,
-			'Several steady states can exist (D13); the point is the one the solve found.'
+			'Several steady states can exist; the point is the one the solve found.'
 		]);
 	});
 
@@ -544,6 +647,34 @@ describe('the notes (screen and image)', () => {
 			notes.systemCurves
 		]);
 	});
+
+	// Nit 5, rule 7 (slice 5c): a point whose label the chart's drawing left out is named in the
+	// notes with its values, never only counted, on the screen and in the image's footer (its line
+	// after the dashed note, before the pumps' own system curves); none left out, no line.
+	it('names each point whose label the drawing left out, with its values, after the dashed note', () => {
+		const c = named('dead-headed');
+		const members = membersOf(c);
+		const data = groupChartData(members, prefsOf(c), responseOf(c));
+		const input = { data, members, state: ready(c), project: c.project, prefs: prefsOf(c) };
+		expect(groupNotes(input).notLabelled).toBeNull();
+		const notes = groupNotes({
+			...input,
+			notLabelled: [
+				{ name: 'Pump PA', mark: 'point', flow: '37.37 L/s', head: '29.55 m' },
+				{ name: 'case 2, Pump PB off', mark: 'ring', flow: '40.75 L/s', head: '23.68 m' }
+			]
+		});
+		expect(notes.notLabelled).toBe(
+			'Not labelled on the chart: Pump PA, its point at 37.37 L/s and 29.55 m; case 2, Pump PB off, its ring at 40.75 L/s and 23.68 m.'
+		);
+		const lines = groupNoteLines(notes);
+		expect(lines).toEqual([
+			...groupNoteLines(groupNotes(input)).slice(0, -1),
+			notes.notLabelled,
+			notes.systemCurves
+		]);
+		expect(lines.indexOf(notes.notLabelled!)).toBe(lines.indexOf(notes.dashed!) + 1);
+	});
 });
 
 describe('the caption, title and accessible name', () => {
@@ -591,6 +722,8 @@ describe('the group table', () => {
 			['η', '%'],
 			['Shaft power', 'kW'],
 			['NPSH margin', 'm'],
+			// The ratio after it, shown; the margin hidden by default (pumps-nits.md item 4, E-1-4).
+			['NPSH margin ratio', ''],
 			['Shutoff head', 'm'],
 			['Inside curve data', '']
 		]);
@@ -614,6 +747,57 @@ describe('the group table', () => {
 				value: `${f4(response.duty!.head)} m`
 			}
 		]);
+	});
+
+	it('its NPSH reading the margin ratio, the margin hidden by default; a pump that cavitates with no ratio says so with its margin and sorts below every ratio (the owner’s nit 4 and Q3; docs/proposals/pumps-nits.md item 4; review E-1-4)', () => {
+		const c = named('one-off');
+		const sig4 = (v: number) => String(Number(v.toPrecision(4)));
+		const results = c.solve.solvedState.pumpResults;
+		const table = groupTable(
+			membersOf(c),
+			c.solve.solvedState.nodeResults,
+			responseOf(c),
+			prefsOf(c),
+			c.project
+		);
+		const keys = table.columns.map((col) => col.key);
+		expect(keys.indexOf('npshMarginRatio')).toBe(keys.indexOf('npshMargin') + 1);
+		expect(table.columns.find((col) => col.key === 'npshMarginRatio')).toEqual({
+			key: 'npshMarginRatio',
+			label: 'NPSH margin ratio',
+			numeric: true
+		});
+		expect(table.columns.filter((col) => col.hiddenByDefault).map((col) => col.key)).toEqual([
+			'npshMargin'
+		]);
+		// The API's NPSHa ÷ NPSHr to 4 significant figures.
+		expect(table.rows.map((r) => r.cells.npshMarginRatio)).toEqual([
+			sig4(results.PA!.npshMarginRatio!),
+			sig4(results.PB!.npshMarginRatio!)
+		]);
+		expect(table.rows.every((r) => r.sortKeys === undefined)).toBe(true);
+		// Synthetic: Pump PA's NPSHr 0 at its flow and its NPSHa −2.521 m (corpus unit_rich1090 PU2).
+		const members = membersOf(c).map((m) =>
+			m.id === 'PA'
+				? {
+						...m,
+						result: {
+							...m.result,
+							npshAvailable: -2.521,
+							npshRequired: 0,
+							npshMargin: -2.521,
+							npshMarginRatio: null
+						}
+					}
+				: m
+		);
+		const cue = groupTable(members, c.solve.solvedState.nodeResults, null, prefsOf(c), c.project);
+		expect(cue.rows[0]!.cells.npshMarginRatio).toEqual([
+			'—',
+			'Cavitates (NPSHr 0): NPSH margin -2.521 m'
+		]);
+		expect(cue.rows[0]!.sortKeys).toEqual({ npshMarginRatio: Number.NEGATIVE_INFINITY });
+		expect(cue.rows[1]!.sortKeys).toBeUndefined();
 	});
 
 	it('series: inlet and discharge pressures (gauge) and the interstage loss; before the curve, no share', () => {
@@ -677,5 +861,31 @@ describe('the data table', () => {
 				{ flow: '—', head: '—', state: '—' }
 			]
 		});
+	});
+});
+
+describe('the methods heading and lines (the card and the export, slice 4c)', () => {
+	it('heads the methods with the title and version, then items and references as methodsText', () => {
+		const r = named('parallel-ideal').groupCurve.body as PumpGroupCurveResponse;
+		expect(groupMethodsHeading(r)).toBe(
+			`${r.methods.title} (calculation methods ${r.methodVersion})`
+		);
+		expect(groupMethodsHeading(r)).toBe('Pump group (calculation methods 1.6.0)');
+		expect(r.methods.references.length).toBeGreaterThan(0);
+		expect(groupMethodsLines(r)).toEqual([
+			'Pump group (calculation methods 1.6.0)',
+			...r.methods.items.map((item) => `- ${item}`),
+			'References:',
+			...r.methods.references.map((ref) => `- ${ref}`)
+		]);
+		const bare = { ...r, methods: { ...r.methods, references: [] } };
+		expect(groupMethodsLines(bare)).toEqual([
+			'Pump group (calculation methods 1.6.0)',
+			...r.methods.items.map((item) => `- ${item}`)
+		]);
+	});
+
+	it('words a member’s status as the data table does', () => {
+		expect(MEMBER_STATUS_WORDS).toEqual({ running: 'Running', off: 'Off', no_flow: 'No flow' });
 	});
 });

@@ -50,6 +50,32 @@ def test_relative_links_resolve(path: Path) -> None:
     assert broken == []
 
 
+_CITED_DOC = re.compile(r"\bdocs/[A-Za-z0-9_./-]+\.md\b")
+_CODE_DIRS = (
+    "apps/api/src",
+    "apps/api/tests",
+    "apps/api/scripts",
+    "apps/web/src",
+    "apps/web/tests",
+)
+_CODE_SUFFIXES = {".py", ".ts", ".js", ".svelte"}
+
+
+def test_documents_cited_in_code_exist() -> None:
+    """Comments and docstrings cite the record they implement (CLAUDE.md Conventions), as
+    `docs/proposals/<name>.md, item 4`. A record that a later branch is to write leaves the
+    citation dangling on main if this branch merges first."""
+    missing = []
+    for directory in _CODE_DIRS:
+        for path in sorted((ROOT / directory).rglob("*")):
+            if path.suffix not in _CODE_SUFFIXES or "node_modules" in path.parts:
+                continue
+            for cited in sorted(set(_CITED_DOC.findall(path.read_text()))):
+                if not (ROOT / cited).is_file():
+                    missing.append(f"{path.relative_to(ROOT)}: {cited}")
+    assert missing == []
+
+
 def test_decisions_are_contiguous_and_indexed() -> None:
     files = sorted((DOCS / "decisions").glob("D[0-9][0-9]-*.md"))
     numbers = [int(f.name[1:3]) for f in files]

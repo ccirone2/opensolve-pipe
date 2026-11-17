@@ -509,7 +509,7 @@ _addresses = itertools.count(1)
 def test_the_api_sends_the_reason_and_empty_fields_on_points_with_a_head() -> None:
     """POST /system-curve: below the FCV's 0.02 m³/s plus D1's 0.004 m³/s the points have a
     head and every reason field empty; beyond it the reason, D1 and both flows (camelCase)."""
-    client = TestClient(app, client=(f"198.51.100.{next(_addresses) + 200}", 50000))
+    client = TestClient(app, client=(f"198.51.110.{next(_addresses)}", 50000))
     net = demand_on_the_discharge_side(0.01, 0.004)
     body = {
         "project": net.model_dump(mode="json", by_alias=True, exclude_none=True),
@@ -549,7 +549,7 @@ def test_the_api_sends_the_reason_and_empty_fields_on_points_with_a_head() -> No
 
 def post_curve(net: Project, **request: Any) -> list[dict[str, Any]]:
     """The points POST /system-curve returns for PU with these request fields (camelCase)."""
-    client = TestClient(app, client=(f"198.51.100.{next(_addresses) + 200}", 50000))
+    client = TestClient(app, client=(f"198.51.110.{next(_addresses)}", 50000))
     body = {
         "project": net.model_dump(mode="json", by_alias=True, exclude_none=True),
         "pumpId": "PU",

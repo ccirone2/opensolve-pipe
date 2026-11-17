@@ -795,6 +795,78 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		expect(cue).not.toHaveClass('max-sm:sr-only');
 	});
 
+	/** The transfer pump alone, cavitating with no ratio (made-up, as corpus unit_rich1090 PU2). */
+	const cavitatingAlone = () =>
+		pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({
+					npshAvailable: -2.521,
+					npshRequired: 0,
+					npshMargin: -2.521,
+					npshMarginRatio: null
+				})
+			},
+			flags: [
+				flag({ code: 'CAVITATION', severity: 'invalid', message: 'made-up', componentId: 'P1' })
+			]
+		});
+
+	it('marks the cue as the cell’s note line, its value and unit one unbreakable span, and the table’s numeric cell lets that line wrap from 640 px at an 11 rem floor; the words unchanged (docs/proposals/pumps-nits.md §11, leftover L3)', async () => {
+		localStorage.removeItem('opensolve-pipe:results-fields:Results per pump');
+		const { panel } = await solveAndOpenPumps(pumpTransferExample(), cavitatingAlone());
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		const cell = rowFor(table, 'Transfer pump').querySelector(
+			'td[data-label="NPSH margin ratio"]'
+		) as HTMLElement;
+		const lines = [...cell.querySelectorAll(':scope > span.block')];
+		expect(lines.map((l) => l.textContent)).toEqual([
+			'—',
+			'Cavitates (NPSHr 0): NPSH margin -2.521 m'
+		]);
+		// The "—" is the value's line; the cue its note line.
+		expect(lines[0]).not.toHaveAttribute('data-cell-note');
+		expect(lines[1]).toHaveAttribute('data-cell-note');
+		// "-2.521 m", never split from its unit.
+		const tails = lines[1]!.querySelectorAll('[data-value-unit]');
+		expect(tails).toHaveLength(1);
+		expect(tails[0]).toHaveTextContent(/^-2\.521 m$/);
+		expect(tails[0]).toHaveClass('whitespace-nowrap');
+		// The table's numeric cell wraps its note line from 640 px, at an 11 rem floor; below 640 px
+		// a phone's line already wraps.
+		expect(cell).toHaveClass(
+			'sm:[&_[data-cell-note]]:whitespace-normal',
+			'sm:[&_[data-cell-note]]:min-w-44'
+		);
+		expect(cell.textContent!.replace(/\s+/g, ' ').trim()).toBe(
+			'—Cavitates (NPSHr 0): NPSH margin -2.521 m'
+		);
+	});
+
+	it('leaves the trace’s NPSH margin ratio lines unwrapped and unfloored: no min-width or white-space class reaches the trace’s grid (docs/proposals/pumps-nits.md §11, leftover L3; critique CR-ENG-1)', async () => {
+		localStorage.removeItem('opensolve-pipe:results-fields:Results per pump');
+		const { panel } = await solveAndOpenPumps(pumpTransferExample(), cavitatingAlone());
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		await fireEvent.click(within(table).getByRole('button', { name: /^Transfer pump/ }));
+		const dialog = await screen.findByRole('dialog', { name: 'Transfer pump' });
+		const values = within(dialog).getByRole('region', { name: 'Result values' });
+		const term = [...values.querySelectorAll('dt')].find(
+			(dt) => dt.textContent!.replace(/\s+/g, ' ').trim() === 'NPSH margin ratio'
+		)!;
+		const dd = term.nextElementSibling as HTMLElement;
+		expect(dd.textContent).toContain('Cavitates (NPSHr 0): NPSH margin -2.521 m');
+		for (const el of [dd, ...dd.querySelectorAll('*')]) {
+			const classes = [...el.classList];
+			expect(
+				classes.filter((c) => /(^|:)min-w-|(^|:)whitespace-/.test(c) && !c.includes('nowrap')),
+				el.outerHTML
+			).toEqual([]);
+			expect(
+				classes.filter((c) => c.includes('[data-cell-note]')),
+				el.outerHTML
+			).toEqual([]);
+		}
+	});
+
 	it("draws each pump's status as a pill holding its state word, tinted by the state, the qualifier after it as plain text and the cell's words the label's (docs/proposals/pumps-nits.md item 2)", async () => {
 		// Made-up results: the transfer pump holds a flow setpoint (CLAUDE.md D11), booster A is
 		// off and booster B gives no flow, the system head above its shutoff head.

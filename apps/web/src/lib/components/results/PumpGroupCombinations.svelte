@@ -45,7 +45,7 @@
 		type CombinationRow,
 		type CombinationsTable
 	} from '$lib/utils/pump-group-one-off';
-	import { cellLines, type Row, type RowGroup, type Table } from '$lib/utils/results';
+	import { cellLines, noteParts, type Row, type RowGroup, type Table } from '$lib/utils/results';
 	import { sectionMark } from '$lib/utils/section-nav';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
 	import CaseTag from '$lib/components/ui/CaseTag.svelte';
@@ -188,13 +188,23 @@
 
 <!-- A value, marked where the pump is physically invalid in that case (§5.2): the red octagon
 	before it, then "physically invalid:" for a screen reader. On the value's baseline by its text,
-	the octagon centred beside it, so a phone's line keeps one baseline (§15 item 157; EXT-2). -->
-{#snippet marked(text: string, mark: boolean)}
+	the octagon centred beside it, so a phone's line keeps one baseline (§15 item 157; EXT-2). A
+	note line's words (`note`) are one flex item, their trailing value and unit one span that never
+	wraps (noteParts; docs/proposals/pumps-nits.md §11, leftover L3). -->
+{#snippet marked(text: string, mark: boolean, note = false)}
 	{#if mark}<span class="inline-flex items-baseline gap-1"
 			><FlagIcon severity="invalid" class="size-3.5 self-center" /><span class="sr-only"
 				>physically invalid:</span
-			>{text}</span
-		>{:else}{text}{/if}
+			>{#if note}<span class="min-w-0">{@render noteWords(text)}</span>{:else}{text}{/if}</span
+		>{:else if note}{@render noteWords(text)}{:else}{text}{/if}
+{/snippet}
+
+<!-- A note line's words, as CellValue draws them: its value and unit one unbreakable span. -->
+{#snippet noteWords(text: string)}
+	{@const [head, tail] = noteParts(text)}{head}{#if tail}<span
+			data-value-unit
+			class="whitespace-nowrap">{tail}</span
+		>{/if}
 {/snippet}
 
 <!-- A cell's value, or its lines as ResultsTable draws them, a line each (CellValue): a pump with
@@ -214,7 +224,8 @@
 	{#if status}<PumpStatus parts={status} />{:else if lines.length === 1}{@render marked(
 			lines[0]!,
 			at === 0
-		)}{:else}{#each lines as line, i (i)}<span class="block">{@render marked(line, at === i)}</span
+		)}{:else}{#each lines as line, i (i)}<span class="block" data-cell-note={i > 0 ? '' : undefined}
+				>{@render marked(line, at === i, i > 0)}</span
 			>{/each}{/if}
 {/snippet}
 

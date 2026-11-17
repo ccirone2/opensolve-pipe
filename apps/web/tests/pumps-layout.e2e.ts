@@ -8275,6 +8275,120 @@ function cavitatingTransfer(): Project {
 	return project;
 }
 
+/**
+ * The NPSH margin ratio column's width at 1280 px where a cell holds a note (pumps-nits.md §11,
+ * leftover L3), in px: from 640 px the note line wraps at an 11 rem floor (176 px) in a cell with
+ * 8 px of padding on each side, 192 px; 313.8 px for the cue, unwrapped, on main 21230f0.
+ */
+const CUE_COLUMN = 192;
+
+/**
+ * Each NPSH margin ratio cell under `scope` that holds a note (a "—" line and a line of words):
+ * its table, its width, the "—" line's text and whether it lies above the note, the note's lines
+ * as drawn (its visible characters grouped by their top) each with whether it lies inside the
+ * cell, and its trailing value and unit: the lines its characters are drawn on (one: never split
+ * from its unit) and the `[data-value-unit]` spans with their white-space (pumps-nits.md §11,
+ * leftover L3).
+ */
+function readNoteCells(scope: Element) {
+	const out = [];
+	for (const td of scope.querySelectorAll<HTMLElement>('td[data-label="NPSH margin ratio"]')) {
+		const blocks = [...td.querySelectorAll<HTMLElement>(':scope > span.block')];
+		if (blocks.length < 2) continue;
+		const [dash, note] = blocks as [HTMLElement, HTMLElement];
+		const cell = td.getBoundingClientRect();
+		const chars: { ch: string; line: number; left: number; right: number }[] = [];
+		let line = -1;
+		let lastTop = -1e9;
+		const walker = document.createTreeWalker(note, NodeFilter.SHOW_TEXT);
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			if (n.parentElement!.closest('.sr-only')) continue;
+			const t = n as Text;
+			for (let i = 0; i < t.length; i++) {
+				const r = document.createRange();
+				r.setStart(t, i);
+				r.setEnd(t, i + 1);
+				const b = r.getBoundingClientRect();
+				const ch = t.data[i]!;
+				if (/\s/.test(ch) && b.width < 0.5) {
+					// A space at a line's end: on the line it ends.
+					chars.push({ ch, line: Math.max(line, 0), left: NaN, right: NaN });
+					continue;
+				}
+				if (Math.abs(b.top - lastTop) > 3) line++;
+				lastTop = b.top;
+				chars.push({ ch, line, left: b.left, right: b.right });
+			}
+		}
+		const lines: { text: string; inside: boolean }[] = [];
+		for (const c of chars) {
+			const l = (lines[c.line] ??= { text: '', inside: true });
+			l.text += c.ch;
+			if (!Number.isNaN(c.left)) {
+				l.inside &&= c.left >= cell.left - 0.5 && c.right <= cell.right + 0.5;
+			}
+		}
+		const text = chars.map((c) => c.ch).join('');
+		const tail = /-?\d[\d.,]*\s+\S+\s*$/.exec(text);
+		const tailLines = tail
+			? new Set(
+					chars
+						.slice(tail.index)
+						.filter((c) => !/\s/.test(c.ch))
+						.map((c) => c.line)
+				).size
+			: null;
+		out.push({
+			table: (td.closest('table')?.querySelector('caption')?.textContent ?? '').trim(),
+			row: (td.closest('tr')?.querySelector('th')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+			width: Math.round(cell.width * 10) / 10,
+			dash: (dash.textContent ?? '').trim(),
+			dashAbove: dash.getBoundingClientRect().bottom <= note.getBoundingClientRect().top + 0.5,
+			lines: lines.map((l) => ({ text: l.text.replace(/\s+/g, ' ').trim(), inside: l.inside })),
+			tail: tail ? tail[0].trim() : null,
+			tailLines,
+			valueUnits: [...note.querySelectorAll<HTMLElement>('[data-value-unit]')].map((el) => ({
+				text: (el.textContent ?? '').trim(),
+				whiteSpace: getComputedStyle(el).whiteSpace
+			}))
+		});
+	}
+	return out;
+}
+
+/**
+ * At 1280 px a note's column is CUE_COLUMN wide or less and its note two lines inside its cell
+ * after the "—"; on a phone its trailing value is drawn on one line with its unit, in one
+ * `[data-value-unit]` span that does not wrap (pumps-nits.md §11, leftover L3). `count` is how
+ * many such cells `scope` holds.
+ */
+async function noteCellsChecked(scope: Locator, count: number, where: string) {
+	const read = await scope.evaluate(readNoteCells);
+	console.log(`notes, ${where}: ${JSON.stringify(read)}`);
+	expect.soft(read.length, `cells with a note, ${where}`).toBe(count);
+	const desktop = scope.page().viewportSize()!.width >= 1024;
+	for (const c of read) {
+		const what = `${c.row}'s note in ${c.table}, ${where}`;
+		expect.soft(c.dash, `the "—" line, ${what}`).toBe('—');
+		expect
+			.soft(
+				c.lines.every((l) => l.inside),
+				`every line inside its cell, ${what}`
+			)
+			.toBe(true);
+		expect.soft(c.tailLines, `the value on one line with its unit, ${what}`).toBe(1);
+		expect
+			.soft(c.valueUnits, `one unbreakable value and unit, ${what}`)
+			.toEqual([{ text: c.tail, whiteSpace: 'nowrap' }]);
+		if (desktop) {
+			// A table's cell: the "—" above its note (a phone's list puts it beside, a pair).
+			expect.soft(c.dashAbove, `the "—" above the note, ${what}`).toBe(true);
+			expect.soft(c.width, `the column's width, ${what}`).toBeLessThanOrEqual(CUE_COLUMN);
+			expect.soft(c.lines.length, `the note's lines, ${what}`).toBe(2);
+		}
+	}
+}
+
 /** A cell's or a value's lines as drawn, each squashed, empty ones left out. */
 const linesOf = (text: string) =>
 	text
@@ -8361,6 +8475,9 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 			await seenLine(cell.getByText(cue, { exact: true })),
 			`the words on screen, ${where}`
 		).toBe(true);
+		// pumps-nits.md §11, leftover L3: from 640 px the cue wraps at CUE_COLUMN, its value never
+		// split from its unit.
+		await noteCellsChecked(tab.getByRole('table', { name: 'Results per pump' }), 1, where);
 		await noSidewaysScroll(page, `Results per pump, ${where}`);
 		await axeClean(page, `the cavitating pump, ${where}`);
 
@@ -8503,6 +8620,7 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 			await seenLine(cell.getByText(note, { exact: true })),
 			`the words on screen, ${where}`
 		).toBe(true);
+		await noteCellsChecked(tab.getByRole('table', { name: 'Results per pump' }), 1, where);
 		await noSidewaysScroll(page, `Results per pump, ${where}`);
 		await axeClean(page, `the pump with NPSHr 0, ${where}`);
 
@@ -8557,6 +8675,106 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 			`the page's width, Build, ${where}`
 		).toBe(true);
 		await showPane(page, 'Results');
+	}
+	await page.setViewportSize(viewport);
+});
+
+/**
+ * The one-off with its pumps cavitating with no ratio in every case where they run: R1 5 m below
+ * the pumps under −80 kPa, water's vapor pressure 2,339 Pa, and NPSHr 0 at every point of each
+ * curve (pumps-nits.md §11, leftover L3; design B's probe).
+ */
+function cavitatingOneOff(): Project {
+	const project = projectOf('one-off');
+	for (const c of project.components) {
+		if (c.type === 'reservoir' && c.id === 'R1') {
+			Object.assign(c, { elevation: -5, liquidLevel: 0.5, surfacePressure: -80e3 });
+		}
+	}
+	if (project.fluid.kind === 'custom') project.fluid.vaporPressure = 2339;
+	for (const curve of project.pumpLibrary) {
+		if (curve.npshrCurve) curve.npshrCurve = curve.npshrCurve.map((p) => ({ ...p, npshr: 0 }));
+	}
+	return project;
+}
+
+test('Leftover L3: from 640 px a cavitation cue wraps in its numeric cell at an 11 rem floor, the column CUE_COLUMN wide, in Results per pump, the group table and Running combinations; on a phone its value never starts a line without its unit; the trace’s grid untouched (pumps-nits.md §11, leftover L3)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const viewport = page.viewportSize()!;
+	const counter = solveCounter(page);
+	await open(page, cavitatingOneOff());
+	await solveAll(page, counter, 5);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const sizes = isMobile
+		? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
+		: [viewport];
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `the cavitating one-off at ${sizeOf(page)}`;
+		// Pump PA cavitates wherever it runs: the base case, Pump PB off and the higher tank;
+		// Pump PB keeps a ratio.
+		await noteCellsChecked(tab.getByRole('table', { name: 'Results per pump' }), 1, where);
+		await noteCellsChecked(card.locator('[data-group-table] table'), 1, where);
+		await noteCellsChecked(
+			card.getByRole('table', { name: 'Running combinations', exact: true }),
+			3,
+			where
+		);
+		await noSidewaysScroll(page, where);
+	}
+	await page.setViewportSize(viewport);
+	if (isMobile) return;
+	// The trace (a pin, critique CR-ENG-1): its grid of values takes no floor; the cavitating
+	// transfer pump made flow-controlled, its trace open beside the results.
+	const project = cavitatingTransfer();
+	Object.assign(
+		project.components.find((c) => c.id === 'P1')!,
+		{
+			control: { mode: 'flow', setpoint: 0.012, minSpeed: 0.5 }
+		}
+	);
+	await open(page, project);
+	await solveConverged(page);
+	for (const size of [
+		{ width: 1280, height: 800 },
+		{ width: 1024, height: 768 }
+	]) {
+		await page.setViewportSize(size);
+		const pumps = await pumpsTab(page);
+		await settle(page, 800);
+		await pumps
+			.getByRole('table', { name: 'Results per pump' })
+			.getByRole('button', { name: /^Transfer pump/ })
+			.click();
+		const trace = traceOf(page, 'Transfer pump');
+		await expect(trace).toBeVisible();
+		const read = await trace.evaluate((el) => {
+			const scroller = el.querySelector<HTMLElement>('.overflow-y-auto')!;
+			const dd = [...el.querySelectorAll('dt')].find(
+				(dt) => (dt.textContent ?? '').replace(/\s+/g, ' ').trim() === 'NPSH margin ratio'
+			)?.nextElementSibling as HTMLElement | undefined;
+			const item = dd?.parentElement?.getBoundingClientRect();
+			const range = document.createRange();
+			if (dd) range.selectNodeContents(dd);
+			const right = Math.max(...[...range.getClientRects()].map((r) => r.right));
+			return {
+				scroll: scroller.scrollWidth,
+				client: scroller.clientWidth,
+				text: (dd?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+				inside: !!item && right <= item.right + 0.5
+			};
+		});
+		const where = `the trace at ${sizeOf(page)}`;
+		expect.soft(read.text, `the ratio's words, ${where}`).toMatch(/^—\s?Cavitates \(NPSHr 0\)/);
+		expect.soft(read.scroll, `the trace's scroller, ${where}`).toBeLessThanOrEqual(read.client);
+		expect.soft(read.inside, `the cue inside its grid cell, ${where}`).toBe(true);
+		await trace.getByRole('button', { name: 'Close', exact: true }).click();
+		await expect(traceOf(page, 'Transfer pump')).toBeHidden();
 	}
 	await page.setViewportSize(viewport);
 });

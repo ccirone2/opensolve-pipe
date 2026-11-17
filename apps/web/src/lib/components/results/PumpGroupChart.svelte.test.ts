@@ -3961,10 +3961,34 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(lines(cavitating[0]!)).toEqual(['—', `physically invalid:${cue}`]);
 		expect(shapes(cavitating[0]!)).toEqual([OCTAGON]);
 		// The mark is the words' own: the octagon, then "physically invalid:", then the words.
-		const words = within(cavitating[0]!).getByText(cue);
+		// Moved (pumps-nits.md §11, leftover L3): the words' value and unit are their own span
+		// (never split), so the words are found as the element whose whole text they are, at the
+		// same strictness: one element, inside the mark's.
+		const matches = within(cavitating[0]!).queryAllByText(
+			(_, el) =>
+				!!el &&
+				squashed(el.textContent) === cue &&
+				![...el.children].some((child) => squashed(child.textContent) === cue)
+		);
+		expect(matches).toHaveLength(1);
+		const words = matches[0]!.parentElement!;
 		expect(shapes(words)).toEqual([OCTAGON]);
 		expect(words.querySelector('.sr-only')).toHaveTextContent('physically invalid:');
 		expect(words.closest('span.block')?.previousElementSibling).toHaveTextContent(/^—$/);
+		// The cue line is the cell's note line (§11, leftover L3), the octagon inside it, its value
+		// and unit one unbreakable span; the "—" line is not.
+		const note = words.closest('span.block')!;
+		expect(note).toHaveAttribute('data-cell-note');
+		expect(note.previousElementSibling).not.toHaveAttribute('data-cell-note');
+		expect(shapes(note)).toEqual([OCTAGON]);
+		const tails = note.querySelectorAll('[data-value-unit]');
+		expect(tails).toHaveLength(1);
+		expect(tails[0]).toHaveTextContent(/^-2\.521 m$/);
+		expect(tails[0]).toHaveClass('whitespace-nowrap');
+		expect(cavitating[0]).toHaveClass(
+			'sm:[&_[data-cell-note]]:whitespace-normal',
+			'sm:[&_[data-cell-note]]:min-w-44'
+		);
 		// Sorted by the ratio, smallest first: that pump first, below every ratio.
 		await sortBy(/^NPSH margin ratio/);
 		expect(drawnGroups()[0]!.rows[0]).toMatch(

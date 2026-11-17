@@ -53,6 +53,7 @@ import {
 	displayedNumber,
 	highestPressureNode,
 	NAME_SORT_KEY,
+	noteParts,
 	smallestNpshMarginRatio,
 	sortableColumn,
 	sortRows,
@@ -1431,6 +1432,24 @@ describe('a pump with NPSHr 0 that does not cavitate gives its NPSH margin in th
 		expect(table.rows.map((r) => r.cells.npshMarginRatio)).toEqual(['1.282', '1.282']);
 		expect(sorted(table.rows, 'ascending')[0]).toBe('P1');
 		expect(smallestNpshMarginRatio(solved, two)).toEqual({ id: 'P1', ratio: 1.28204 });
+	});
+});
+
+describe('a note line’s trailing value and unit, one unbreakable span (pumps-nits.md §11, leftover L3)', () => {
+	it('splits a note before its trailing number and unit, and gives a line without them whole; the words unchanged', () => {
+		for (const [line, parts] of [
+			[
+				'Cavitates (NPSHr 0): NPSH margin -2.521 m',
+				['Cavitates (NPSHr 0): NPSH margin ', '-2.521 m']
+			],
+			['NPSHr 0: NPSH margin 16.4 ft', ['NPSHr 0: NPSH margin ', '16.4 ft']],
+			['Cavitates: NPSH margin -1.5e-5 kPa(g)', ['Cavitates: NPSH margin ', '-1.5e-5 kPa(g)']],
+			['No value here', ['No value here', '']],
+			['ends in 12', ['ends in 12', '']]
+		] as const) {
+			expect(noteParts(line), line).toEqual(parts);
+			expect(noteParts(line).join(''), line).toBe(line);
+		}
 	});
 });
 

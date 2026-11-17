@@ -1080,6 +1080,28 @@ export function npshRatioNote(pump: PumpResult, f: Formatter): string | null {
 }
 
 /**
+ * The classes a results table's numeric cell takes so a note line under its value (CellValue's
+ * `data-cell-note` lines: npshRatioCell's words) wraps from 640 px at an 11 rem floor, rather than
+ * widening its column to the words' one line (docs/proposals/pumps-nits.md §11, leftover L3: the
+ * cue had made the NPSH margin ratio column 313.8 px at 1280). Only on ResultsTable's numeric
+ * cell: the trace's grid and Build's strip draw the same lines unfloored (critique CR-ENG-1); a
+ * phone's list wraps them already.
+ */
+export const CELL_NOTE_WRAP =
+	'sm:[&_[data-cell-note]]:whitespace-normal sm:[&_[data-cell-note]]:min-w-44';
+
+/**
+ * A note line split before its trailing value and unit ("Cavitates (NPSHr 0): NPSH margin ",
+ * "-2.521 m"), so the two are drawn as one unbreakable span and a unit never starts a line
+ * (§11, leftover L3; critique CR-OWNER-6). Render-only: the words are the line's. A line with no
+ * trailing number and unit gives itself and ''.
+ */
+export function noteParts(line: string): [string, string] {
+	const tail = /-?\d+(?:\.\d+)?(?:e-?\d+)? \S+$/.exec(line);
+	return tail ? [line.slice(0, tail.index), tail[0]] : [line, ''];
+}
+
+/**
  * A pump's NPSH margin ratio cell: the API's NPSHa ÷ NPSHr, a pure number to 4 significant figures,
  * or "—" without one. A pump with no ratio that cavitates, or whose NPSHr is 0, keeps the "—" as
  * its first line, never text among the ratios, and its second line says why (npshRatioNote), so

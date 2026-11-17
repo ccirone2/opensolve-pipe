@@ -65,6 +65,7 @@
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
 	import {
+		CELL_NOTE_WRAP,
 		NAME_SORT_KEY,
 		sortableColumn,
 		sortRows,
@@ -732,6 +733,8 @@
 					divider,
 					'px-2 py-2 align-top',
 					column.numeric && 'text-right tabular-nums',
+					// A note line under a value wraps from 640 px at 11 rem (§11, leftover L3).
+					column.numeric && CELL_NOTE_WRAP,
 					column.wrap ? 'max-w-[22rem] min-w-[14rem] text-xs break-words' : 'whitespace-nowrap',
 					stale && 'bg-amber-50/60 max-sm:bg-transparent',
 					// A phone: "Flow (L/s) 18.98", its label from the column (not in its text).

@@ -870,17 +870,17 @@ describe('the methods heading and lines (the card and the export, slice 4c)', ()
 		expect(groupMethodsHeading(r)).toBe(
 			`${r.methods.title} (calculation methods ${r.methodVersion})`
 		);
-		expect(groupMethodsHeading(r)).toBe('Pump group (calculation methods 1.6.0)');
+		expect(groupMethodsHeading(r)).toBe('Pump group (calculation methods 1.6.1)');
 		expect(r.methods.references.length).toBeGreaterThan(0);
 		expect(groupMethodsLines(r)).toEqual([
-			'Pump group (calculation methods 1.6.0)',
+			'Pump group (calculation methods 1.6.1)',
 			...r.methods.items.map((item) => `- ${item}`),
 			'References:',
 			...r.methods.references.map((ref) => `- ${ref}`)
 		]);
 		const bare = { ...r, methods: { ...r.methods, references: [] } };
 		expect(groupMethodsLines(bare)).toEqual([
-			'Pump group (calculation methods 1.6.0)',
+			'Pump group (calculation methods 1.6.1)',
 			...r.methods.items.map((item) => `- ${item}`)
 		]);
 	});

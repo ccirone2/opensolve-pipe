@@ -122,6 +122,41 @@ function overflowSideways(box: HTMLElement) {
 	sizeBox(box, { clientWidth: 452, scrollWidth: 900, clientHeight: 300, scrollHeight: 300 });
 	observers.resize(box);
 }
+
+/**
+ * Each State cell's status pill (docs/proposals/pumps-nits.md item 2, §11 leftover L22), as
+ * Results per pump draws it: exactly one `[data-status-pill]` holding its state word alone, tinted
+ * by the state (PUMP_STATUS_TONES), no border, icon or vertical padding, the qualifier after it as
+ * plain text in one element with it, and the cell's words the label's, word for word.
+ */
+function expectStatusPills(cells: HTMLElement[], expected: (readonly [string, string, string])[]) {
+	expect(cells.map((c) => c.textContent!.replace(/\s+/g, ' ').trim())).toEqual(
+		expected.map(([, , label]) => label)
+	);
+	cells.forEach((cell, i) => {
+		const [word, tone, label] = expected[i]!;
+		const pills = cell.querySelectorAll('[data-status-pill]');
+		expect(pills, label).toHaveLength(1);
+		const pill = pills[0] as HTMLElement;
+		expect(pill.textContent, label).toBe(word);
+		expect(pill.children, label).toHaveLength(0);
+		expect(pill, label).toHaveClass(...tone.split(' '));
+		expect(pill, label).toHaveClass(
+			'inline-block',
+			'align-top',
+			'rounded-full',
+			'px-2',
+			'text-xs',
+			'leading-5',
+			'font-medium',
+			'whitespace-nowrap'
+		);
+		expect(pill.className, label).not.toMatch(/\bborder\b|\bpy-/);
+		expect(pill.parentElement!.textContent, label).toBe(label);
+		expect(pill.parentElement!.parentElement, label).toBe(cell);
+		expect(pill.previousSibling, label).toBeNull();
+	});
+}
 /** A curve table's disclosure (CurveTable), by its table's name. */
 const disclosureOf = (name: string, scope: HTMLElement = document.body) =>
 	within(scope).getByRole('table', { name }).closest('details')!;
@@ -3059,6 +3094,90 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		...values
 	});
 
+	it('Running combinations draws each State as its status pill, grouped and sorted; a member with no result keeps plain words (docs/proposals/pumps-nits.md §11, leftover L22)', async () => {
+		const dead = named('one-off-dead-headed') as unknown as OneOffCase;
+		// Made-up: the base case's solve without Pump PB's result (a member closed off).
+		const closed = structuredClone(c.solve);
+		delete (closed.solvedState.pumpResults as Record<string, unknown>).PB;
+		const input: CombinationsInput = {
+			members: [
+				{ id: 'PA', name: 'Pump PA', slot: 0 },
+				{ id: 'PB', name: 'Pump PB', slot: 1 }
+			],
+			cases: [
+				{
+					key: '',
+					name: 'Base case',
+					shown: true,
+					status: 'solved',
+					response: dead.solve,
+					stale: false,
+					station: null,
+					tag: 'Base'
+				},
+				{
+					key: 'S2',
+					name: 'Pump PB off',
+					shown: false,
+					status: 'solved',
+					response: c.scenarioCases.S2!.solve,
+					stale: false,
+					station: null,
+					tag: 2
+				},
+				{
+					key: 'S7',
+					name: 'Closed off (synthetic)',
+					shown: false,
+					status: 'solved',
+					response: closed,
+					stale: false,
+					station: null,
+					tag: 7
+				}
+			],
+			prefs: c.project.settings.units,
+			project: c.project
+		};
+		render(PumpGroupChart, base({ combinations: runningCombinations(input) }));
+		const table = screen.getByRole('table', { name: 'Running combinations' });
+		const states = () =>
+			[...table.querySelectorAll('td[data-label="State"]')].map((td) => td as HTMLElement);
+		const running = ['Running', 'bg-green-200 text-green-900', 'Running'] as const;
+		const noFlow = [
+			'No flow',
+			'bg-red-200 text-red-950',
+			'No flow (system head above shutoff)'
+		] as const;
+		const off = ['Off', 'bg-slate-200 text-slate-700', 'Off'] as const;
+		const cells = states();
+		expect(cells).toHaveLength(6);
+		// The members with a result: a pill each, in the groups' order.
+		expectStatusPills(
+			[cells[0]!, cells[1]!, cells[2]!, cells[3]!, cells[4]!],
+			[running, noFlow, running, off, running]
+		);
+		// No result: its words, no pill.
+		expect(cells[5]!.textContent!.trim()).toBe('No result (closed off)');
+		expect(cells[5]!.querySelector('[data-status-pill]')).toBeNull();
+		expect(table.querySelectorAll('[data-status-pill]')).toHaveLength(5);
+		// Sorted by Flow: one flat table, every pill still its row's.
+		const flow = within(table).getByRole('columnheader', { name: /^Flow/ });
+		await fireEvent.click(within(flow).getByRole('button'));
+		await tick();
+		const flat = states();
+		expect(flat).toHaveLength(6);
+		const words = flat.map((cell) => cell.textContent!.replace(/\s+/g, ' ').trim());
+		const pilled = flat.filter((cell) => cell.querySelector('[data-status-pill]'));
+		expect(pilled).toHaveLength(5);
+		expectStatusPills(
+			pilled,
+			pilled.map((cell) =>
+				[running, noFlow, off].find((e) => e[2] === cell.textContent!.replace(/\s+/g, ' ').trim())!
+			)
+		);
+		expect(words.filter((w) => w === 'No result (closed off)')).toHaveLength(1);
+	});
 	it('the extremes’ box and Running combinations’ box: each a Tab stop and a named region only while it overflows (§9 S7, §7 item 25)', () => {
 		const input = combinationsOf([
 			solvedCase('', 'Base case', c.solve),
@@ -4830,6 +4949,27 @@ describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station,
 				return `flags of ${r.querySelector('[data-row-notes]')!.getAttribute('data-row-notes')}`;
 			});
 	const heading = (name: RegExp) => within(region()).getByRole('columnheader', { name });
+
+	it('draws each State as its status pill, as Results per pump’s Status, the cell’s words the label’s; sorted too (docs/proposals/pumps-nits.md §11, leftover L22)', async () => {
+		const c = named('dead-headed');
+		render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		const states = () =>
+			[...region().querySelectorAll('td[data-label="State"]')].map((td) => td as HTMLElement);
+		const expected = [
+			['Running', 'bg-green-200 text-green-900', 'Running'],
+			['No flow', 'bg-red-200 text-red-950', 'No flow (system head above shutoff)']
+		] as const;
+		expectStatusPills(states(), [...expected]);
+		expect(region().querySelectorAll('[data-status-pill]')).toHaveLength(2);
+		// Sorted by State, the pills follow their rows.
+		await fireEvent.click(within(heading(/^State/)).getByRole('button'));
+		await tick();
+		expect(heading(/^State/)).toHaveAttribute('aria-sort', 'ascending');
+		expectStatusPills(
+			states(),
+			[...expected].sort((a, b) => a[2].localeCompare(b[2]))
+		);
+	});
 
 	it('its title visible, naming its box (a region and a Tab stop) and its table; FlagLine, not FlagBadge', () => {
 		const c = named('ladder');

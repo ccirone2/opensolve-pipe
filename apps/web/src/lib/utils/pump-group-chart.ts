@@ -76,7 +76,9 @@ import {
 	npshRatioCell,
 	npshRatioSortKeys,
 	pumpStatusLabel,
-	type Column
+	pumpStatusParts,
+	type Column,
+	type PumpStatusParts
 } from './results';
 import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
 import { displayUnit, formatNumber, fromSI, unitLabel, type UnitId } from './units';
@@ -1910,6 +1912,11 @@ export interface GroupRow {
 	sortKeys?: Readonly<Record<string, number>>;
 	/** That key's tie, its margin (npshRatioSortKeys). */
 	sortTies?: Readonly<Record<string, number>>;
+	/**
+	 * Its status as its State cell's pill draws it (pumpStatusParts; docs/proposals/pumps-nits.md
+	 * §11, leftover L22); the cell's text stays pumpStatusLabel's, for the export and the sort.
+	 */
+	status: PumpStatusParts;
 }
 
 export interface GroupTable {
@@ -1977,6 +1984,7 @@ export function groupTable(
 				style: slotStyle(m.slot),
 				flags: m.flags,
 				...npshRatioSortKeys(r),
+				status: pumpStatusParts(r, m.flags),
 				cells: {
 					state: pumpStatusLabel(r, m.flags),
 					speed: r.status === 'off' ? '—' : f.num(r.speed, 'fraction'),

@@ -51,6 +51,7 @@
 	import CaseTag from '$lib/components/ui/CaseTag.svelte';
 	import FlagIcon from './FlagIcon.svelte';
 	import FlagLine from './FlagLine.svelte';
+	import PumpStatus from './PumpStatus.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 	import { registerSection } from './section-nav.svelte';
 
@@ -196,18 +197,21 @@
 		>{:else}{text}{/if}
 {/snippet}
 
-<!-- A cell's value, or its lines as ResultsTable draws them, a line each (CellValue): a pump that
-	cavitates with no NPSH margin ratio reads "—", then its words with its margin (npshRatioCell;
-	docs/proposals/pumps-nits.md item 4, review E-1-4). The mark goes before its first line that is
-	not "—", so before those words. -->
+<!-- A cell's value, or its lines as ResultsTable draws them, a line each (CellValue): a pump with
+	no NPSH margin ratio that cavitates, or whose NPSHr is 0, reads "—", then its words with its
+	margin (npshRatioCell; docs/proposals/pumps-nits.md item 4, review E-1-4, §11 leftover L1). The
+	mark goes before its first line that is not "—", so before those words. A member's State is its
+	status pill (PumpStatus, §11 leftover L22), never marked; a member with no result in the case
+	keeps its plain words. -->
 {#snippet markedCell(row: Row, key: string)}
 	{@const value = row.cells[key] ?? '—'}
+	{@const status = key === 'state' ? members.get(rowKey(row))?.status : undefined}
 	{@const lines = cellLines(value)}
 	{@const at =
 		members.get(rowKey(row))?.invalid && (INVALID_MARKED as readonly string[]).includes(key)
 			? lines.findIndex((line) => line !== '—')
 			: -1}
-	{#if lines.length === 1}{@render marked(
+	{#if status}<PumpStatus parts={status} />{:else if lines.length === 1}{@render marked(
 			lines[0]!,
 			at === 0
 		)}{:else}{#each lines as line, i (i)}<span class="block">{@render marked(line, at === i)}</span

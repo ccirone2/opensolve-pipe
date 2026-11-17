@@ -73,7 +73,9 @@ import {
 	npshRatioNote,
 	npshRatioSortKeys,
 	pumpStatusLabel,
-	type Column
+	pumpStatusParts,
+	type Column,
+	type PumpStatusParts
 } from './results';
 import type { CaseId } from './scenarios';
 
@@ -664,6 +666,11 @@ export interface CombinationRow {
 	sortKeys?: Readonly<Record<string, number>>;
 	/** That key's tie, its margin (npshRatioSortKeys). */
 	sortTies?: Readonly<Record<string, number>>;
+	/**
+	 * Its status as its State cell's pill draws it (pumpStatusParts; docs/proposals/pumps-nits.md
+	 * §11, leftover L22); none for a member with no result in the case, whose words stay plain.
+	 */
+	status?: PumpStatusParts;
 }
 
 export interface CombinationGroup {
@@ -843,7 +850,8 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 				cells,
 				invalid: flags.some((flag) => flag.severity === 'invalid'),
 				flags,
-				...npshRatioSortKeys(r)
+				...npshRatioSortKeys(r),
+				status: pumpStatusParts(r, flags)
 			};
 		});
 		return {

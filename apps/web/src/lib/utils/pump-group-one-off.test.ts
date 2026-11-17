@@ -57,11 +57,13 @@ import {
 	sameInside,
 	sameStation,
 	sharedRest,
+	type CombinationGroup,
 	type CombinationsInput,
 	type OtherCasesInput,
 	type OtherGroupCase
 } from './pump-group-one-off';
 import { pumpLineup } from './pump-lineups';
+import { pumpStatusParts } from './results';
 import { applyScenario, SCENARIO_NAME_LIMIT, withScenarios } from './scenarios';
 
 interface Answer {
@@ -1927,6 +1929,64 @@ describe('the station inside, and the other cases’ own group curves (D24 slice
 		expect(OTHER_CURVE_WORDS.through(runningWords(2, true))).toBe(
 			'drawn (as last solved: 2 running): it passes through the ring'
 		);
+	});
+});
+
+describe('Running combinations’ State, a status pill (docs/proposals/pumps-nits.md §11, leftover L22)', () => {
+	it('gives each member with a result its status’s parts, its State cell still the label’s words; a member with no result none', () => {
+		const dead = named('one-off-dead-headed');
+		// Made-up: the one-off's base solve without Pump PB's result (a member closed off).
+		const closed = structuredClone(oneOff.solve);
+		delete (closed.solvedState.pumpResults as Record<string, unknown>).PB;
+		const table = runningCombinations({
+			members: [
+				{ id: 'PA', name: 'Pump PA', slot: 0 },
+				{ id: 'PB', name: 'Pump PB', slot: 1 }
+			],
+			cases: [
+				{
+					key: '',
+					name: 'Base case',
+					shown: true,
+					status: 'solved',
+					response: dead.solve,
+					stale: false,
+					station: null,
+					tag: 'Base'
+				},
+				{
+					key: 'S7',
+					name: 'Closed off',
+					shown: false,
+					status: 'solved',
+					response: closed,
+					stale: false,
+					station: null,
+					tag: 7
+				}
+			],
+			prefs: oneOff.project.settings.units,
+			project: oneOff.project
+		});
+		const [base, off] = table.groups as [CombinationGroup, CombinationGroup];
+		const flagsOf = (r: SolveResponse, id: string) =>
+			r.solvedState.flags.filter((f) => f.componentId === id);
+		expect(base.rows.map((r) => r.status)).toEqual([
+			pumpStatusParts(dead.solve.solvedState.pumpResults.PA!, flagsOf(dead.solve, 'PA')),
+			pumpStatusParts(dead.solve.solvedState.pumpResults.PB!, flagsOf(dead.solve, 'PB'))
+		]);
+		expect(base.rows[1]!.status).toEqual({
+			state: 'no_flow',
+			word: 'No flow',
+			detail: '(system head above shutoff)'
+		});
+		expect(base.rows.map((r) => r.cells.state)).toEqual([
+			'Running',
+			'No flow (system head above shutoff)'
+		]);
+		expect(off.rows[0]!.status).toEqual({ state: 'running', word: 'Running', detail: '' });
+		expect(off.rows[1]!.cells.state).toBe('No result (closed off)');
+		expect(off.rows[1]).not.toHaveProperty('status');
 	});
 });
 

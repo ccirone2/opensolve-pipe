@@ -81,7 +81,6 @@
 		flagsForElement,
 		Formatter,
 		markChanged,
-		PUMP_STATUS_TONES,
 		pumpStatusParts,
 		pumpTable,
 		resultsProject,
@@ -125,6 +124,7 @@
 	import PumpGroupChart from './PumpGroupChart.svelte';
 	import type { LineupsBlockProps } from './PumpLineupsBlock.svelte';
 	import PumpsNav from './PumpsNav.svelte';
+	import PumpStatus from './PumpStatus.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 	import { provideSectionNav, registerSection, type SectionTarget } from './section-nav.svelte';
 
@@ -975,26 +975,14 @@
 
 <!--
 	A per-pump cell (docs/proposals/pumps-nits.md item 2): Status is a pill holding the pump's state
-	word, tinted by the state alone (PUMP_STATUS_TONES), any qualifier after it as plain text, so the
-	cell says the label's words, word for word (pumpStatusLabel). No border, icon or glyph, so it
-	never reads as a flag pill or a control; `leading-5` with no padding above or below keeps the
-	row's 20 px line, and on a phone the qualifier wraps after the pill. Every other cell as
-	ResultsTable draws it.
+	word, tinted by the state alone, any qualifier after it as plain text (PumpStatus, the card's
+	two tables' too). Every other cell as ResultsTable draws it.
 -->
 {#snippet statusCell(row: Row, key: string)}
 	{@const cell = row.cells[key] ?? '—'}
 	{@const result = key === 'status' ? solved.pumpResults[row.key] : undefined}
 	{#if result}
-		{@const parts = pumpStatusParts(result, row.flags)}
-		<span class="min-w-0"
-			><span
-				data-status-pill
-				class={[
-					'inline-block rounded-full px-2 align-top text-xs leading-5 font-medium whitespace-nowrap',
-					PUMP_STATUS_TONES[parts.state]
-				]}>{parts.word}</span
-			>{parts.detail ? ` ${parts.detail}` : ''}</span
-		>
+		<PumpStatus parts={pumpStatusParts(result, row.flags)} />
 	{:else if typeof cell === 'string'}{cell}{:else}<CellValue {cell} />{/if}
 {/snippet}
 

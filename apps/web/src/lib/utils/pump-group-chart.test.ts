@@ -44,6 +44,7 @@ import {
 	stopRise,
 	type GroupMemberInput
 } from './pump-group-chart';
+import { pumpStatusParts } from './results';
 import { formatNumber, fromSI, SI_UNITS } from './units';
 
 interface FixtureCase {
@@ -746,6 +747,29 @@ describe('the group table', () => {
 				label: 'Rise from Tee T1 (run inlet) to Tee T2 (run outlet)',
 				value: `${f4(response.duty!.head)} m`
 			}
+		]);
+	});
+
+	it('gives each row its status’s parts, the pill’s word, tint and qualifier, its State cell still the label’s words (docs/proposals/pumps-nits.md §11, leftover L22)', () => {
+		const c = named('dead-headed');
+		const members = membersOf(c);
+		const table = groupTable(
+			members,
+			c.solve.solvedState.nodeResults,
+			responseOf(c),
+			prefsOf(c),
+			c.project
+		);
+		expect(table.rows.map((r) => r.status)).toEqual(
+			members.map((m) => pumpStatusParts(m.result, m.flags))
+		);
+		expect(table.rows.map((r) => r.status)).toEqual([
+			{ state: 'running', word: 'Running', detail: '' },
+			{ state: 'no_flow', word: 'No flow', detail: '(system head above shutoff)' }
+		]);
+		expect(table.rows.map((r) => r.cells.state)).toEqual([
+			'Running',
+			'No flow (system head above shutoff)'
 		]);
 	});
 

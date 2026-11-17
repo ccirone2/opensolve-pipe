@@ -7710,16 +7710,25 @@ test('Nits item 1: neither chart’s Show data table, pressed to Hide data table
  * with its status as plain text, as it was before the pill: a clone in the same tbody, measured and
  * removed at once, so a row is compared with itself and "no row grows" needs no recorded number.
  */
-function readStatusPills(wrap: Element) {
-	const table = wrap.querySelector('table')!;
+function readStatusPills(wrap: Element, opts: { column?: string; caption?: string } | undefined) {
+	// The column's label and, where `wrap` holds more than one table, the start of its table's
+	// caption (the card's group table, which names the case shown after a comma, and Running
+	// combinations; pumps-nits.md §11 leftover L22).
+	const column = opts?.column ?? 'Status';
+	const table = opts?.caption
+		? [...wrap.querySelectorAll('table')].find((t) =>
+				(t.querySelector('caption')?.textContent ?? '').trim().startsWith(opts.caption!)
+			)!
+		: wrap.querySelector('table')!;
 	const box = table.parentElement!;
+	// A pump's rows only: never a row group's heading (Running combinations' cases).
 	const rows = [...table.querySelectorAll('tbody tr')].filter((tr) =>
-		tr.querySelector('th[role="rowheader"]')
+		tr.querySelector('th[role="rowheader"]:not([scope="rowgroup"])')
 	);
 	return {
 		box: { client: box.clientWidth, scroll: box.scrollWidth },
 		rows: rows.map((tr) => {
-			const cell = tr.querySelector<HTMLElement>('td[data-label="Status"]')!;
+			const cell = tr.querySelector<HTMLElement>(`td[data-label="${column}"]`)!;
 			const pills = cell.querySelectorAll<HTMLElement>('[data-status-pill]');
 			const pill = pills[0];
 			const style = getComputedStyle(cell);
@@ -7728,7 +7737,7 @@ function readStatusPills(wrap: Element) {
 			const above = parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop);
 			const below = parseFloat(style.paddingBottom) + parseFloat(style.borderBottomWidth);
 			const plain = tr.cloneNode(true) as HTMLElement;
-			const plainCell = plain.querySelector<HTMLElement>('td[data-label="Status"]')!;
+			const plainCell = plain.querySelector<HTMLElement>(`td[data-label="${column}"]`)!;
 			plainCell.textContent = (cell.textContent ?? '').trim();
 			tr.after(plain);
 			const plainRow = plain.getBoundingClientRect().height;
@@ -7815,7 +7824,7 @@ test('Nits item 2: each pump’s status a pill of its state word on its row’s 
 			await settle(page, 1000);
 			const where = `${view} at ${sizeOf(page)}`;
 			await noSidewaysScroll(page, where);
-			const read = await wrap.evaluate(readStatusPills);
+			const read = await wrap.evaluate(readStatusPills, undefined);
 			console.log(`${where}: ${JSON.stringify(read)}`);
 			// A phone's list never scrolls sideways; from 640 px the table's box may.
 			if (isMobile) soft(read.box.scroll, `the table's box, ${where}`).toBe(read.box.client);
@@ -7892,6 +7901,111 @@ test('Nits item 2: each pump’s status a pill of its state word on its row’s 
 	// Three states, three tints.
 	expect([...tints.keys()].sort()).toEqual(['No flow', 'Off', 'Running']);
 	expect(new Set([...tints.values()].map((t) => t.split(' / ')[0])).size).toBe(3);
+	await page.setViewportSize(viewport);
+});
+
+test('Leftover L22: the card’s group table and Running combinations draw each State as its status pill on its row’s 20 px line, tinted by the state, no row grown and nothing sideways, axe clean with the pills’ contrast checked, at 1280, 390 and 320 px (pumps-nits.md item 2, §11 leftover L22)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	const counter = solveCounter(page);
+	await open(page, projectOf('one-off-dead-headed'));
+	await solveAll(page, counter, 2);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const TABLES = [
+		{
+			wrap: card.locator('[data-group-table]'),
+			caption: 'The pumps in the group',
+			statuses: [
+				['Pump PA', 'Running', 'Running'],
+				['Pump PB', 'No flow', 'No flow (system head above shutoff)']
+			]
+		},
+		{
+			wrap: card.locator('[data-group-combinations]'),
+			caption: 'Running combinations',
+			// The case shown first, then case 1, Pump PA off.
+			statuses: [
+				['Pump PA', 'Running', 'Running'],
+				['Pump PB', 'No flow', 'No flow (system head above shutoff)'],
+				['Pump PA', 'Off', 'Off'],
+				['Pump PB', 'Running', 'Running']
+			]
+		}
+	];
+	const tints = new Map<string, string>();
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		for (const { wrap, caption, statuses } of TABLES) {
+			const where = `${caption}, the dead-headed one-off at ${sizeOf(page)}`;
+			await noSidewaysScroll(page, where);
+			const read = await wrap.evaluate(readStatusPills, { column: 'State', caption });
+			console.log(`${where}: ${JSON.stringify(read)}`);
+			if (isMobile) soft(read.box.scroll, `the table's box, ${where}`).toBe(read.box.client);
+			soft(
+				read.rows.map((r) => [r.name, r.pill?.word ?? null, r.text]),
+				`each pump's pill and its cell's words, ${where}`
+			).toEqual(statuses);
+			for (const r of read.rows) {
+				const what = `${r.name}'s State, ${where}`;
+				soft(r.pills, `one pill, ${what}`).toBe(1);
+				if (!r.pill) continue;
+				soft(r.pill.height, `the pill's height, ${what}`).toBe(20);
+				soft(r.pill.lineHeight, `the pill's line height, ${what}`).toBe('20px');
+				soft(r.pill.paddingY, `the pill's padding above and below, ${what}`).toBe('0px 0px');
+				soft(r.pill.fontSize, `the pill's font size, ${what}`).toBe('12px');
+				soft(r.pill.border, `the pill's border, ${what}`).toBe('0px');
+				soft(
+					Math.abs(r.pill.top),
+					`the pill on the cell's first line, ${what}`
+				).toBeLessThanOrEqual(0.5);
+				soft(r.pill.right, `the pill inside its cell, ${what}`).toBeLessThanOrEqual(
+					r.pill.cellRight + 0.5
+				);
+				// No row grows: the row and its State line as with the state in plain text.
+				soft(
+					Math.abs(r.row - r.plainRow),
+					`the row's height (${r.row} px), ${what}`
+				).toBeLessThanOrEqual(0.5);
+				soft(
+					Math.abs(r.status - r.plainStatus),
+					`the State line's height (${r.status} px), ${what}`
+				).toBeLessThanOrEqual(0.5);
+				const tint = `${r.pill.background} / ${r.pill.color}`;
+				soft(tints.get(r.pill.word!) ?? tint, `one tint per state word, ${what}`).toBe(tint);
+				tints.set(r.pill.word!, tint);
+			}
+		}
+		// The pills' contrast checked by axe's own rule, every pill a node it passed.
+		const contrast = await new AxeBuilder({ page })
+			.include('[data-pumps-together] [data-status-pill]')
+			.withRules(['color-contrast'])
+			.analyze();
+		soft(
+			contrast.violations.map((v) => `${v.id} (${v.nodes.length})`),
+			`the pills' colour contrast, at ${sizeOf(page)}`
+		).toEqual([]);
+		soft(
+			contrast.incomplete.map((v) => `${v.id} (${v.nodes.length})`),
+			`the pills' colour contrast left incomplete, at ${sizeOf(page)}`
+		).toEqual([]);
+		soft(
+			contrast.passes.flatMap((v) => v.nodes).length,
+			`the pills whose colour contrast passed, at ${sizeOf(page)}`
+		).toBe(TABLES.reduce((n, t) => n + t.statuses.length, 0));
+	}
+	for (const size of [...sizes].reverse()) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		await axeClean(page, `the dead-headed one-off's card at ${sizeOf(page)}`);
+	}
+	expect([...tints.keys()].sort()).toEqual(['No flow', 'Off', 'Running']);
 	await page.setViewportSize(viewport);
 });
 

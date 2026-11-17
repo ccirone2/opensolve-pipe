@@ -26,10 +26,12 @@
 	import type { GroupNotes, GroupTable } from '$lib/utils/pump-group-chart';
 	import { wordsText, type Words } from '$lib/utils/pump-groups';
 	import type { Row, Table } from '$lib/utils/results';
+	import CellValue from './CellValue.svelte';
 	import { flagSeverities, sectionMark } from '$lib/utils/section-nav';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import FlagLine from './FlagLine.svelte';
 	import IssueDetail from './IssueDetail.svelte';
+	import PumpStatus from './PumpStatus.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 	import { registerSection } from './section-nav.svelte';
 
@@ -151,6 +153,8 @@
 			...(row.sortTies ? { sortTies: row.sortTies } : {})
 		}))
 	});
+	/** Each member's status parts by its id, for its State cell's pill. */
+	const statuses = $derived(new Map(table.rows.map((row) => [row.id, row.status])));
 </script>
 
 {#snippet words(list: Words)}
@@ -187,6 +191,17 @@
 <!-- A flagged member's flag line (§5.3 Station): the pills and their text, read once. -->
 {#snippet memberFlags(row: Row)}
 	<FlagLine name={row.name} flags={row.flags} {flagText} />
+{/snippet}
+
+<!-- A member's cell (docs/proposals/pumps-nits.md §11, leftover L22): its State a status pill, as
+	Results per pump's Status (PumpStatus), the cell's words the label's; every other cell as
+	ResultsTable draws it. -->
+{#snippet memberCell(row: Row, key: string)}
+	{@const cell = row.cells[key] ?? '—'}
+	{@const status = key === 'state' ? statuses.get(row.key) : undefined}
+	{#if status}<PumpStatus
+			parts={status}
+		/>{:else if typeof cell === 'string'}{cell}{:else}<CellValue {cell} />{/if}
 {/snippet}
 
 <!-- A plain div with its heading, not a landmark (§7); tabindex −1, the section nav's target. -->
@@ -304,6 +319,7 @@
 			labelledby="{id}-table-title"
 			name={memberName}
 			flagLine={memberFlags}
+			cellContent={memberCell}
 		/>
 	</div>
 </div>

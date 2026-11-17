@@ -69,6 +69,7 @@ import {
 	flagsForElement,
 	hiddenByDefault,
 	npshRatioCell,
+	npshRatioColumn,
 	npshRatioLimit,
 	npshRatioNote,
 	npshRatioSortKeys,
@@ -796,7 +797,7 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 		f.column('head', 'Head', 'head'),
 		f.column('shaftPower', 'Shaft power', 'power'),
 		hiddenByDefault(f.column('npshMargin', 'NPSH margin', 'head')),
-		f.column('npshMarginRatio', 'NPSH margin ratio', 'dimensionless'),
+		npshRatioColumn(f),
 		{ key: 'inCurve', label: 'Inside curve data' },
 		...(checks ? [{ key: 'checks', label: 'Design checks' }] : [])
 	];

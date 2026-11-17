@@ -74,6 +74,7 @@ import {
 	Formatter,
 	hiddenByDefault,
 	npshRatioCell,
+	npshRatioColumn,
 	npshRatioSortKeys,
 	pumpStatusLabel,
 	pumpStatusParts,
@@ -1961,7 +1962,7 @@ export function groupTable(
 		f.column('efficiency', 'η', 'fraction'),
 		f.column('shaftPower', 'Shaft power', 'power'),
 		hiddenByDefault(f.column('npshMargin', 'NPSH margin', 'head')),
-		f.column('npshMarginRatio', 'NPSH margin ratio', 'dimensionless'),
+		npshRatioColumn(f),
 		f.column('shutoff', 'Shutoff head', 'head'),
 		{ key: 'inCurve', label: 'Inside curve data' }
 	];

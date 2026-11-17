@@ -533,6 +533,14 @@ export interface Column {
 	 * (docs/proposals/pumps-nits.md item 3).
 	 */
 	hiddenByDefault?: true;
+	/**
+	 * Its heading on two lines, in place of the label on one, where the label is the widest
+	 * thing in its column: the NPSH margin ratio's "NPSH margin" over "ratio", no wider than the
+	 * margin's own heading (docs/proposals/pumps-nits.md §11, leftover L4). The table's heading
+	 * only: Fields, Sort by, a phone's pair, the trace and the export keep `label`, whose words
+	 * these are.
+	 */
+	heading?: readonly [string, string];
 }
 
 /** Text with a note shown on hover, e.g. "≈ 0" with the exact value the solver returned. */
@@ -1080,6 +1088,18 @@ export function npshRatioNote(pump: PumpResult, f: Formatter): string | null {
 }
 
 /**
+ * The NPSH margin ratio's column: NPSHa ÷ NPSHr from the API (PumpResult.npshMarginRatio), a pure
+ * number with no unit, its heading "NPSH margin" over "ratio" (§11, leftover L4). Results per pump,
+ * the group table and Running combinations.
+ */
+export function npshRatioColumn(f: Formatter): Column {
+	return {
+		...f.column('npshMarginRatio', 'NPSH margin ratio', 'dimensionless'),
+		heading: ['NPSH margin', 'ratio']
+	};
+}
+
+/**
  * The classes a results table's numeric cell takes so a note line under its value (CellValue's
  * `data-cell-note` lines: npshRatioCell's words) wraps from 640 px at an 11 rem floor, rather than
  * widening its column to the words' one line (docs/proposals/pumps-nits.md §11, leftover L3: the
@@ -1170,8 +1190,7 @@ export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPref
 		hiddenByDefault(f.column('npshAvailable', 'NPSHa', 'head')),
 		hiddenByDefault(f.column('npshRequired', 'NPSHr', 'head')),
 		hiddenByDefault(f.column('npshMargin', 'NPSH margin', 'head')),
-		// NPSHa ÷ NPSHr from the API (PumpResult.npshMarginRatio): a pure number, no unit.
-		f.column('npshMarginRatio', 'NPSH margin ratio', 'dimensionless')
+		npshRatioColumn(f)
 	];
 	const rows = orderedIds(project, Object.keys(results)).map((id) => {
 		const pump = results[id] as PumpResult;

@@ -5500,6 +5500,48 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 		soft(under, 'focused trace buttons under the heading row').toEqual([]);
 		await sortCombinations(page, /^NPSH margin ratio/, 'npshMarginRatio', true);
 
+		// The ratio's heading on two lines, "NPSH margin" over "ratio" (pumps-nits.md §11,
+		// leftover L4): at the end of Running combinations' scroll its words lie wholly right of
+		// the sticky Pump column (23.9 px of them under it on main 21230f0), and its button is no
+		// taller than Flow's, so the heading row keeps its height. Its width is checked against
+		// the margin's below, once the margin is shown.
+		const headingAt = (el: HTMLElement) => {
+			const table = el.querySelector('table')!;
+			const th = [...table.querySelectorAll<HTMLElement>('thead th')];
+			const by = (re: RegExp) =>
+				th.find((h) => re.test((h.textContent ?? '').replace(/\s+/g, ' ').trim()));
+			const ratio = by(/^NPSH margin ratio/);
+			const flow = by(/^Flow/);
+			const words = ratio?.querySelector('button > span') ?? ratio;
+			return {
+				table: Math.round(table.getBoundingClientRect().width * 10) / 10,
+				row: Math.round(table.querySelector('thead tr')!.getBoundingClientRect().height * 10) / 10,
+				ratio: ratio ? Math.round(ratio.getBoundingClientRect().width * 10) / 10 : null,
+				wordsLeft: words?.getBoundingClientRect().left ?? null,
+				stickyRight: th[0]!.getBoundingClientRect().right,
+				ratioButton: ratio?.querySelector('button')?.getBoundingClientRect().height ?? null,
+				flowButton: flow?.querySelector('button')?.getBoundingClientRect().height ?? null
+			};
+		};
+		const twoLines: Record<string, ReturnType<typeof headingAt>> = {};
+		for (const [label, b] of Object.entries(boxes)) {
+			await b.evaluate((el) => {
+				el.scrollIntoView({ block: 'center' });
+				el.scrollLeft = el.scrollWidth;
+			});
+			await frames(page);
+			twoLines[label] = await b.evaluate(headingAt);
+		}
+		console.log(`the ratio's heading at each box's end: ${JSON.stringify(twoLines)}`);
+		for (const [label, m] of Object.entries(twoLines)) {
+			soft(m.ratioButton, `the ratio's heading as tall as Flow's, ${label}`).toBe(m.flowButton);
+		}
+		const atEnd = twoLines['Running combinations']!;
+		soft(
+			atEnd.wordsLeft! - atEnd.stickyRight,
+			"the ratio's words right of the sticky column at Running combinations' end"
+		).toBeGreaterThanOrEqual(-0.5);
+
 		// A heading pressed by the pointer stays under it as the table flattens and groups again:
 		// a second press at the same point reverses, a third clears (LAYOUT-S6-2). At the box's end
 		// a numeric heading whole in view: "NPSH margin", the column measured here before nit 4,
@@ -5538,6 +5580,18 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 			}
 		}
 		soft(jumps, 'a heading pressed three times at one point').toEqual([]);
+		// The margin shown (marginForRatio): the ratio's two-line heading is no wider than the
+		// margin's, "NPSH margin" over "m" (leftover L4; 138.7 against 104.9 px on main).
+		const marginWidth = await boxes['Running combinations'].evaluate((el) => {
+			const th = [...el.querySelectorAll<HTMLElement>('thead th')].find((h) =>
+				/^NPSH margin(?! ratio)/.test((h.textContent ?? '').replace(/\s+/g, ' ').trim())
+			);
+			return th ? Math.round(th.getBoundingClientRect().width * 10) / 10 : null;
+		});
+		console.log(`the margin's heading: ${marginWidth}`);
+		soft(atEnd.ratio!, "the ratio's heading no wider than the margin's").toBeLessThanOrEqual(
+			marginWidth! + 0.5
+		);
 	} else {
 		// A phone's "Sort by": "Pump" sorts by name in both card tables (STRUCT-3, TBL-1), and
 		// every field chosen shows whole beside its direction button, on one line with Fields, at

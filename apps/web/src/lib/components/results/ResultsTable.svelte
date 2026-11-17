@@ -607,7 +607,30 @@
 		'sticky left-0 border-r border-slate-300 shadow-[6px_0_6px_-6px_rgb(15_23_42/0.35)]';
 </script>
 
-{#snippet heading(key: string, label: string, unit: string | undefined, numeric: boolean)}
+<!-- A heading's words: its label on one line, or its two lines (Column.heading: "NPSH margin" over
+	"ratio", docs/proposals/pumps-nits.md §11, leftover L4) with a space between them, so its name
+	and its words read without CSS are its label's. The first column's heading wraps: that column
+	keeps its fixed width on phones. -->
+{#snippet words(
+	key: string,
+	label: string,
+	lines: readonly [string, string] | undefined,
+	pad = false
+)}
+	{#if lines}<span class={['block whitespace-nowrap', pad && 'px-1']}>{lines[0]}</span>{' '}<span
+			class={['block whitespace-nowrap', pad && 'px-1']}>{lines[1]}</span
+		>{:else}<span class={['block', pad && 'px-1', key !== NAME_SORT_KEY && 'whitespace-nowrap']}
+			>{label}</span
+		>{/if}
+{/snippet}
+
+{#snippet heading(
+	key: string,
+	label: string,
+	unit: string | undefined,
+	numeric: boolean,
+	lines?: readonly [string, string]
+)}
 	{@const active = sort?.key === key}
 	{#if sortable.has(key)}
 		<!-- Set on its line by its foot, not its baseline: a numeric heading's row is reversed, and a
@@ -629,8 +652,7 @@
 			onclick={(event) => pressHeading(key, event.currentTarget)}
 		>
 			<span>
-				<!-- The first column's heading wraps: that column keeps its fixed width on phones. -->
-				<span class={['block', key !== NAME_SORT_KEY && 'whitespace-nowrap']}>{label}</span>
+				{@render words(key, label, lines)}
 				{#if unit}
 					<span class="block text-xs font-normal whitespace-nowrap text-slate-600">{unit}</span>
 				{/if}
@@ -643,7 +665,7 @@
 			{/if}
 		</button>
 	{:else}
-		<span class={['block px-1', key !== NAME_SORT_KEY && 'whitespace-nowrap']}>{label}</span>
+		{@render words(key, label, lines, true)}
 		{#if unit}
 			<span class="block px-1 text-xs font-normal whitespace-nowrap text-slate-600">{unit}</span>
 		{/if}
@@ -1004,7 +1026,13 @@
 						]}
 						style:min-width={heldWidth(column.key)}
 					>
-						{@render heading(column.key, column.label, column.unit, !!column.numeric)}
+						{@render heading(
+							column.key,
+							column.label,
+							column.unit,
+							!!column.numeric,
+							column.heading
+						)}
 					</th>
 				{/each}
 			</tr>

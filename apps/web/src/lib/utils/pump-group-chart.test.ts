@@ -786,10 +786,12 @@ describe('the group table', () => {
 		);
 		const keys = table.columns.map((col) => col.key);
 		expect(keys.indexOf('npshMarginRatio')).toBe(keys.indexOf('npshMargin') + 1);
+		// Its heading on two lines (pumps-nits.md §11, leftover L4; moved: `heading` added).
 		expect(table.columns.find((col) => col.key === 'npshMarginRatio')).toEqual({
 			key: 'npshMarginRatio',
 			label: 'NPSH margin ratio',
-			numeric: true
+			numeric: true,
+			heading: ['NPSH margin', 'ratio']
 		});
 		expect(table.columns.filter((col) => col.hiddenByDefault).map((col) => col.key)).toEqual([
 			'npshMargin'

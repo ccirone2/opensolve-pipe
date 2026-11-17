@@ -1097,11 +1097,14 @@ describe('the NPSH margin ratio in Results per pump (docs/proposals/pumps-nits.m
 			const keys = table.columns.map((c) => c.key);
 			expect(keys.indexOf('npshMarginRatio')).toBe(keys.indexOf('npshMargin') + 1);
 			expect(keys.at(-1)).toBe('npshMarginRatio');
-			// No unit: a ratio of two heads, the same in every unit system.
+			// No unit: a ratio of two heads, the same in every unit system. Its heading on two
+			// lines, "NPSH margin" over "ratio" (pumps-nits.md §11, leftover L4; moved from the
+			// same toEqual without `heading`); its label everywhere else.
 			expect(table.columns.find((c) => c.key === 'npshMarginRatio')).toEqual({
 				key: 'npshMarginRatio',
 				label: 'NPSH margin ratio',
-				numeric: true
+				numeric: true,
+				heading: ['NPSH margin', 'ratio']
 			});
 			// The API's value, 12.82347 ÷ 10, to 4 significant figures: not a percentage.
 			expect(table.rows[0]!.cells.npshMarginRatio).toBe('1.282');

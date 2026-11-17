@@ -2048,10 +2048,12 @@ describe('the card’s NPSH reading is the margin ratio, the margin hidden by de
 		const table = runningCombinations(all());
 		const keys = table.columns.map((c) => c.key);
 		expect(keys.indexOf('npshMarginRatio')).toBe(keys.indexOf('npshMargin') + 1);
+		// Its heading on two lines (pumps-nits.md §11, leftover L4; moved: `heading` added).
 		expect(table.columns.find((c) => c.key === 'npshMarginRatio')).toEqual({
 			key: 'npshMarginRatio',
 			label: 'NPSH margin ratio',
-			numeric: true
+			numeric: true,
+			heading: ['NPSH margin', 'ratio']
 		});
 		expect(table.columns.find((c) => c.key === 'npshMargin')?.hiddenByDefault).toBe(true);
 		expect(table.columns.filter((c) => c.hiddenByDefault).map((c) => c.key)).toEqual([

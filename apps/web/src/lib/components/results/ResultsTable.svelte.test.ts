@@ -1200,6 +1200,83 @@ describe('S6, the CI fix: a press grows the table by whole pixels, so its box ca
 	});
 });
 
+describe('a column’s heading on two lines (docs/proposals/pumps-nits.md §11, leftover L4)', () => {
+	afterEach(() => localStorage.clear());
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	/** Two pumps, the NPSH margin ratio's heading "NPSH margin" over "ratio". */
+	function ratios(): Table {
+		const row = (key: string, ratio: string): Row => ({
+			key,
+			element: { kind: 'component', id: key },
+			name: `Pump ${key}`,
+			detail: '',
+			cells: { flow: '20', npshMarginRatio: ratio },
+			flags: []
+		});
+		return {
+			columns: [
+				{ key: 'flow', label: 'Flow', unit: 'L/s', numeric: true },
+				{
+					key: 'npshMarginRatio',
+					label: 'NPSH margin ratio',
+					numeric: true,
+					heading: ['NPSH margin', 'ratio']
+				}
+			],
+			rows: [row('PA', '1.282'), row('PB', '4')]
+		};
+	}
+
+	it('draws "NPSH margin" over "ratio" in its sort button, a space between them, its name and every other place its label', async () => {
+		render(ResultsTable, { table: ratios(), caption: 'Pumps', first: 'Pump' });
+		const header = screen.getByRole('columnheader', { name: 'NPSH margin ratio' });
+		const button = within(header).getByRole('button');
+		const words = button.firstElementChild!;
+		const blocks = [...words.children];
+		expect(blocks.map((b) => b.textContent)).toEqual(['NPSH margin', 'ratio']);
+		for (const b of blocks) expect(b).toHaveClass('block', 'whitespace-nowrap');
+		// A space between the lines, a text node of its own: read without CSS, the words do not
+		// run together.
+		expect(blocks[0]!.nextSibling?.nodeType).toBe(Node.TEXT_NODE);
+		expect(blocks[0]!.nextSibling?.textContent).toBe(' ');
+		expect(words.textContent!.trim()).toBe('NPSH margin ratio');
+		expect(squash(header.textContent)).toBe('NPSH margin ratio');
+		expect(header).toHaveAccessibleName('NPSH margin ratio');
+		// Every other place keeps the label: a phone's pair, Fields and Sort by.
+		for (const td of document.querySelectorAll('td[data-label^="NPSH"]')) {
+			expect(td).toHaveAttribute('data-label', 'NPSH margin ratio');
+		}
+		const sortBy = screen.getByRole('combobox', { name: /^Sort by/ }) as HTMLSelectElement;
+		expect([...sortBy.options].map((o) => o.text)).toContain('NPSH margin ratio');
+		await fireEvent.click(screen.getByRole('button', { name: /^Fields/ }));
+		expect(
+			within(screen.getByRole('group', { name: 'Fields shown in Pumps' })).getByRole('checkbox', {
+				name: 'NPSH margin ratio'
+			})
+		).toBeChecked();
+		// Sorted, the arrow after the two lines; the words unchanged.
+		await fireEvent.click(button);
+		await tick();
+		expect(header).toHaveAttribute('aria-sort', 'ascending');
+		expect([...button.firstElementChild!.children].map((b) => b.textContent)).toEqual([
+			'NPSH margin',
+			'ratio'
+		]);
+		expect(header).toHaveAccessibleName('NPSH margin ratio');
+	});
+
+	it('draws the two lines where the column cannot be sorted too', () => {
+		const t = ratios();
+		for (const r of t.rows) r.cells.npshMarginRatio = '—';
+		render(ResultsTable, { table: t, caption: 'Pumps', first: 'Pump' });
+		const header = screen.getByRole('columnheader', { name: 'NPSH margin ratio' });
+		expect(within(header).queryByRole('button')).toBeNull();
+		const lines = [...header.querySelectorAll('span.block')].map((b) => b.textContent);
+		expect(lines).toEqual(['NPSH margin', 'ratio']);
+		expect(squash(header.textContent)).toBe('NPSH margin ratio');
+	});
+});
+
 describe('Fields: columns hidden by default, the choice stored as departures from them, a sort shows its column (docs/proposals/pumps-nits.md item 3)', () => {
 	const KEY = 'opensolve-pipe:results-fields:Pumps';
 	/**

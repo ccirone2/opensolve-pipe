@@ -1050,8 +1050,8 @@
 		Head is the rise in the energy grade line across the pump; for a pump held at zero flow it is
 		the head across it (its shutoff head when its discharge is closed off). NPSH margin ratio is
 		NPSHa ÷ NPSHr, below 1 where the pump would cavitate; it is not given where NPSHr is zero or
-		either is not computed (NPSHa needs the fluid's vapor pressure), and a pump that cavitates
-		without one says so, with its NPSH margin. An off pump has no speed.
+		either is not computed (NPSHa needs the fluid's vapor pressure); where NPSHr is zero the cell
+		gives the NPSH margin instead, and says so where the pump cavitates. An off pump has no speed.
 		{#if anyControlled}A speed-controlled pump's speed is the one it runs at: solved to hold its
 			setpoint, or its minimum or maximum speed when its drive is at a limit (its trace states the
 			rule that put it there).{/if}

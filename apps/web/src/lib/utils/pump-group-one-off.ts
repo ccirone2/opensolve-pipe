@@ -69,7 +69,8 @@ import {
 	flagsForElement,
 	hiddenByDefault,
 	npshRatioCell,
-	npshRatioCue,
+	npshRatioLimit,
+	npshRatioNote,
 	npshRatioSortKeys,
 	pumpStatusLabel,
 	type Column
@@ -654,13 +655,15 @@ export interface CombinationRow {
 	/** The row header: the member's name, with its id where another member has it (memberLabels). */
 	name: string;
 	style: GroupSlot;
-	/** Text, or lines: a pump that cavitates with no NPSH margin ratio (npshRatioCell). */
+	/** Text, or lines: a pump with no NPSH margin ratio and words for it (npshRatioCell). */
 	cells: Record<string, string | string[]>;
 	/** The member has a flag of severity `invalid` in this case: its values are marked. */
 	invalid: boolean;
 	flags: readonly Flag[];
 	/** Its NPSH margin ratio's sort key where its text does not carry it (npshRatioSortKeys). */
 	sortKeys?: Readonly<Record<string, number>>;
+	/** That key's tie, its margin (npshRatioSortKeys). */
+	sortTies?: Readonly<Record<string, number>>;
 }
 
 export interface CombinationGroup {
@@ -992,7 +995,9 @@ interface MeasureReading {
  * NPSHr, a plain number, as Results per pump's (the owner's nit 4 and Q3, "Ratio everywhere";
  * docs/proposals/pumps-nits.md item 4, review E-1-4): a case where the pump cavitates with no ratio
  * (npshRatioCue: NPSHa below zero over an NPSHr of 0, tending to −∞) ranks below every ratio, the
- * most negative margin first, its amount those words.
+ * most negative margin first, and one where its NPSHr is 0 and it does not cavitate above every
+ * ratio, the smallest margin first (npshRatioLimit; §11, leftover L1), its amount their words
+ * (npshRatioNote).
  */
 const EXTREME_MEASURES: readonly {
 	what: string;
@@ -1017,8 +1022,9 @@ const EXTREME_MEASURES: readonly {
 		key: 'npshMarginRatio',
 		largest: false,
 		read: (r, f) => {
-			const cue = npshRatioCue(r, f);
-			if (cue) return { v: Number.NEGATIVE_INFINITY, tie: r.npshMargin!, amount: cue };
+			const limit = npshRatioLimit(r);
+			const note = npshRatioNote(r, f);
+			if (limit !== null && note) return { v: limit, tie: r.npshMargin!, amount: note };
 			return finiteReading(r.npshMarginRatio, (v) => f.plain(v));
 		}
 	}

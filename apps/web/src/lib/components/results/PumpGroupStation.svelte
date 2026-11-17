@@ -145,8 +145,10 @@
 			detail: '',
 			cells: row.cells,
 			flags: [...row.flags],
-			// A pump that cavitates with no NPSH margin ratio sorts below every ratio (groupTable).
-			...(row.sortKeys ? { sortKeys: row.sortKeys } : {})
+			// A pump with no NPSH margin ratio that cavitates sorts below every ratio, one with NPSHr
+			// 0 above, each tie by its margin (groupTable).
+			...(row.sortKeys ? { sortKeys: row.sortKeys } : {}),
+			...(row.sortTies ? { sortTies: row.sortTies } : {})
 		}))
 	});
 </script>

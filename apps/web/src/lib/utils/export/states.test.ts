@@ -599,9 +599,10 @@ describe('Compare cases: a pump that cavitates with no NPSH margin ratio (docs/p
 	// Made-up results (testing/results.ts). The base case's pump: NPSHr 0 at its flow and NPSHa
 	// −2.521 m, so its margin is −2.521 m, it has no ratio and CAVITATION is raised (corpus
 	// unit_rich1090 PU2). Winter's: a ratio, 6 ÷ 3.7. Peak's: NPSHr 0 and NPSHa 5 m, no ratio and
-	// no cavitation, nothing to say. Compare's default row for the pump is its ratio (the owner's
-	// Q3, "Ratio everywhere"): the base case's cell is empty, and an empty cell there is no sign of
-	// a safe value, so About says why, in the screen's words (compareCells' note).
+	// no cavitation, its margin given in the ratio's place since pumps-nits.md §11 (leftover L1).
+	// Compare's default row for the pump is its ratio (the owner's Q3, "Ratio everywhere"): the
+	// base case's cell is empty, and an empty cell there is no sign of a safe value, so About says
+	// why, in the screen's words (compareCells' note).
 	const cavitating = pumpResult({
 		npshAvailable: -2.521,
 		npshRequired: 0,
@@ -650,9 +651,9 @@ describe('Compare cases: a pump that cavitates with no NPSH margin ratio (docs/p
 		return p;
 	};
 
-	for (const [units, head] of [
-		['display', '-8.271 ft'],
-		['si', '-2.521 m']
+	for (const [units, head, peak] of [
+		['display', '-8.271 ft', '16.4 ft'],
+		['si', '-2.521 m', '5 m']
 	] as const) {
 		it(`says in About why the base case's ratio cell is empty, in the file's units (${units}: ${head})`, async () => {
 			const ws = workspace(imperial(), answer);
@@ -683,27 +684,41 @@ describe('Compare cases: a pump that cavitates with no NPSH margin ratio (docs/p
 			expect(new Formatter(prefs).value(-2.521, 'head')).toBe(head);
 			expect(cells[0]!.note).toBe(`Cavitates (NPSHr 0): NPSH margin ${head}`);
 			expect(cells[1]!.note).toBeUndefined();
-			expect(cells[2]!.note).toBeUndefined();
+			// Moved (pumps-nits.md §11, leftover L1): Peak's NPSHr 0 gives its margin, 5 m or
+			// 5 ÷ 0.3048 ft; before, no note.
+			expect(String(Number((5 / 0.3048).toPrecision(4)))).toBe('16.4');
+			expect(cells[2]!.note).toBe(`NPSHr 0: NPSH margin ${peak}`);
 			const about = readSheet(bundle, 'about').rows.filter((r) =>
 				String(r[1]).startsWith(`Compare cases: ${ROW}`)
 			);
-			// One row, for the base case only: Winter has a ratio and Peak does not cavitate.
+			// A row for each case with a note: Winter has a ratio.
 			expect(about).toEqual([
-				['Export', `Compare cases: ${ROW} (Base case)`, `No value: ${cells[0]!.note}`]
+				['Export', `Compare cases: ${ROW} (Base case)`, `No value: ${cells[0]!.note}`],
+				['Export', `Compare cases: ${ROW} (Peak (S2))`, `No value: ${cells[2]!.note}`]
 			]);
 			// Nothing is left out: the API gives no value.
 			expect(bundle.omitted.map((o) => o.what).join(' ')).not.toContain(ROW);
 		});
 	}
 
-	it('says nothing where every case has a ratio, or none cavitates', async () => {
+	// Moved (pumps-nits.md §11, leftover L1): S2's NPSHr 0 now has words, its margin, which About
+	// gives as for any case without a value; before, About had no Compare row here.
+	it('says nothing where every case has a ratio, and no cavitation where none cavitates', async () => {
 		const ws = workspace(twoScenarios(), (id) =>
 			id === null ? converged() : answer(id === 'S1' ? 'S1' : 'S2', pumpTransferExample())
 		);
 		await ws.store.solveAll();
 		const about = readSheet(bundleOf(ws, ALL), 'about').rows;
-		expect(about.filter((r) => String(r[1]).startsWith('Compare cases: '))).toEqual([]);
+		expect(about.filter((r) => String(r[1]).startsWith('Compare cases: '))).toEqual([
+			['Export', `Compare cases: ${ROW} (Peak (S2))`, 'No value: NPSHr 0: NPSH margin 5 m']
+		]);
 		expect(about.flat().join(' ')).not.toMatch(/cavitat/i);
+		const every = workspace(twoScenarios(), (id) =>
+			id === null ? converged() : answer('S1', pumpTransferExample())
+		);
+		await every.store.solveAll();
+		const none = readSheet(bundleOf(every, ALL), 'about').rows;
+		expect(none.filter((r) => String(r[1]).startsWith('Compare cases: '))).toEqual([]);
 	});
 });
 

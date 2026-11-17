@@ -1132,11 +1132,16 @@ describe('the NPSH margin ratio in Results per pump (docs/proposals/pumps-nits.m
 		).toEqual(['P1', 'P2', 'P0']);
 	});
 
-	it('reads "—" where the API gives no ratio and the pump does not cavitate: no NPSHr curve, no vapor pressure, off, or NPSHr 0 with a margin of 0 or more', () => {
+	// Moved (pumps-nits.md §11, L1): NPSHr 0 with a margin of 0 or more no longer reads a bare
+	// "—"; its second line gives the margin, at greater strictness (the whole cell, below), and a
+	// ratio the API cannot give with NPSHr above 0 stays a bare "—".
+	it('reads a bare "—" where the API gives no ratio and the pump does not cavitate: no NPSHr curve, no vapor pressure, off, or NPSHr above 0 with no ratio; NPSHr 0 with a margin of 0 or more reads "—" and its margin', () => {
 		const cases: [string, PumpResult][] = [
 			['no NPSHr curve', withNpsh(12, null)],
 			['no vapor pressure', withNpsh(null, 3, { suctionAbsolutePressure: null })],
-			['off', withNpsh(null, null, { status: 'off', operatingFlow: 0, speed: 0 })]
+			['off', withNpsh(null, null, { status: 'off', operatingFlow: 0, speed: 0 })],
+			// The quotient not finite with NPSHr above 0 (practically unreachable): nothing to say.
+			['NPSHr above 0, no ratio', withNpsh(12, 3, { npshMarginRatio: null })]
 		];
 		for (const [name, pump] of cases) {
 			expect(pumpTable(project, p1(pump), SI_UNITS).rows[0]!.cells.npshMarginRatio, name).toBe('—');
@@ -1146,6 +1151,7 @@ describe('the NPSH margin ratio in Results per pump (docs/proposals/pumps-nits.m
 		const zero = pumpTable(project, p1(withNpsh(5, 0)), SI_UNITS).rows[0]!;
 		expect(zero.cells.npshMargin).toBe('5');
 		const lines = cellLines(zero.cells.npshMarginRatio!);
+		expect(lines).toEqual(['—', 'NPSHr 0: NPSH margin 5 m']);
 		expect(lines[0]).toBe('—');
 		expect(lines.join(' ')).not.toMatch(/cavitat/i);
 	});
@@ -1243,11 +1249,14 @@ describe('a pump that cavitates with no NPSH margin ratio ranks below every rati
 		expect(smallestNpshMarginRatio(solved, three)?.id).toBe(sorted(table.rows, 'ascending')[0]);
 	});
 
-	it('keeps several such pumps in the table’s order, the first of them the extreme, with no NaN from equal keys', () => {
+	// Moved (pumps-nits.md §11, L1; critique CR-OWNER-3): equal infinite keys are ranked by their
+	// margins, the most negative first smallest first, as the card's extremes rank them; the table's
+	// order is the last resort. Before, the table's order decided ([booster, second]).
+	it('ranks several such pumps by their margin, the most negative first, the first of them the extreme, with no NaN from equal keys', () => {
 		const { project: three, ids } = withPumps(['Booster pump', 'Second booster']);
 		const [booster, second] = ids as [string, string];
-		// The second booster's margin is the more negative: the table's order decides, as it does
-		// for every tie, so the extreme and the first row stay one pump.
+		// The second booster's margin is the more negative (−4 m against −2.521 m): it is first,
+		// and the extreme and the first row stay one pump.
 		const solved = pumpTransferSolved({
 			pumpResults: {
 				[second]: cavitating({ npshAvailable: -4, npshMargin: -4 }),
@@ -1256,20 +1265,23 @@ describe('a pump that cavitates with no NPSH margin ratio ranks below every rati
 			}
 		});
 		const table = pumpTable(three, solved, SI_UNITS);
-		expect(sorted(table.rows, 'ascending')).toEqual([booster, second, 'P1']);
+		expect(sorted(table.rows, 'ascending')).toEqual([second, booster, 'P1']);
 		expect(sorted(table.rows, 'descending')).toEqual(['P1', booster, second]);
-		expect(smallestNpshMarginRatio(solved, three)).toEqual({ id: booster, ratio: null });
+		expect(smallestNpshMarginRatio(solved, three)).toEqual({ id: second, ratio: null });
 	});
 
-	it('makes a column of only such pumps sortable, and leaves a pump with no ratio and a margin of 0 or more unranked', () => {
+	// Moved (pumps-nits.md §11, L1): a pump with no ratio and a margin above 0 (NPSHr 0) is now
+	// ranked, above every ratio, its NPSHa ÷ 0⁺ tending to +∞, its margin its tie; before it was
+	// "—", unranked, with no extreme (sortKeys undefined, not sortable, the extreme null).
+	it('makes a column of only such pumps sortable, and ranks a pump with no ratio and a margin of 0 or more above every ratio, by its margin', () => {
 		const lone = pumpTable(
 			project,
 			pumpTransferSolved({ pumpResults: { P1: cavitating() } }),
 			SI_UNITS
 		);
 		expect(sortableColumn(lone.rows, 'npshMarginRatio')).toBe(true);
-		// NPSHr 0 with NPSHa 5 m: no ratio, a margin of 5 m, no cavitation: "—", sorted last, and
-		// no extreme of its own.
+		// NPSHr 0 with NPSHa 5 m: no ratio, a margin of 5 m, no cavitation: "—" and its margin,
+		// ranked as +∞ with its margin to break a tie, and the extreme where it is the only pump.
 		const safe = pumpResult({
 			npshAvailable: 5,
 			npshRequired: 0,
@@ -1278,9 +1290,147 @@ describe('a pump that cavitates with no NPSH margin ratio ranks below every rati
 		});
 		const solved = pumpTransferSolved({ pumpResults: { P1: safe } });
 		const row = pumpTable(project, solved, SI_UNITS).rows[0]!;
-		expect(row.sortKeys).toBeUndefined();
-		expect(sortableColumn([row], 'npshMarginRatio')).toBe(false);
-		expect(smallestNpshMarginRatio(solved, project)).toBeNull();
+		expect(row.sortKeys).toEqual({ npshMarginRatio: Number.POSITIVE_INFINITY });
+		expect(row.sortTies).toEqual({ npshMarginRatio: 5 });
+		expect(sortableColumn([row], 'npshMarginRatio')).toBe(true);
+		expect(smallestNpshMarginRatio(solved, project)).toEqual({ id: 'P1', ratio: null });
+	});
+});
+
+describe('a pump with NPSHr 0 that does not cavitate gives its NPSH margin in the ratio’s place, and ranks above every ratio (pumps-nits.md §11, leftovers L1 and L2)', () => {
+	// Made-up results (testing/results.ts). NPSHr 0 at the operating flow with NPSHa 5 m: the API
+	// gives no ratio (NPSHa ÷ 0), a margin of 5 m (NPSHa − 0) and no CAVITATION flag; its NPSHa ÷
+	// NPSHr, NPSHa over NPSHr → 0⁺, tends to +∞ (pumps-nits.md §7.1).
+	const safe = (values: Partial<PumpResult> = {}) =>
+		pumpResult({
+			npshAvailable: 5,
+			npshRequired: 0,
+			npshMargin: 5,
+			npshMarginRatio: null,
+			...values
+		});
+	const cavitating = (margin = -2.521) =>
+		pumpResult({
+			npshAvailable: margin,
+			npshRequired: 0,
+			npshMargin: margin,
+			npshMarginRatio: null
+		});
+	const noCurve = () => pumpResult({ npshRequired: null, npshMargin: null, npshMarginRatio: null });
+	function withPumps(names: string[]): { project: Project; ids: string[] } {
+		let p = pumpTransferExample();
+		const ids: string[] = [];
+		for (const name of names) {
+			const pump = createComponent('pump', p, { name });
+			p = insertComponentInConnection(p, 'L3', pump);
+			ids.push(pump.id);
+		}
+		const order = p.components.map((c) => c.id);
+		// The table's order: P1, then each pump added, in turn.
+		expect(['P1', ...ids].map((id) => order.indexOf(id))).toEqual(
+			['P1', ...ids].map((id) => order.indexOf(id)).sort((a, b) => a - b)
+		);
+		return { project: p, ids };
+	}
+	const sorted = (rows: readonly Row[], direction: 'ascending' | 'descending') =>
+		sortRows(rows, { key: 'npshMarginRatio', direction }).map((r) => r.key);
+
+	it('reads "—" and then "NPSHr 0: NPSH margin 5 m" (16.4 ft in US units), in Results per pump and Build’s strip', () => {
+		const solved = pumpTransferSolved({ pumpResults: { P1: safe() } });
+		const row = pumpTable(project, solved, SI_UNITS).rows[0]!;
+		expect(cellLines(row.cells.npshMarginRatio!)).toEqual(['—', 'NPSHr 0: NPSH margin 5 m']);
+		// 5 m ÷ 0.3048 m/ft = 16.404 ft, to 4 significant figures.
+		expect(sig4(5 / FT)).toBe('16.4');
+		const us = pumpTable(project, solved, IMPERIAL_UNITS).rows[0]!;
+		expect(cellLines(us.cells.npshMarginRatio!)).toEqual([
+			'—',
+			`NPSHr 0: NPSH margin ${sig4(5 / FT)} ft`
+		]);
+		// Build's strip reads the cell: the ratio's item is kept, with both lines.
+		const strip = elementSummary(project, solved, SI_UNITS, { kind: 'component', id: 'P1' })!;
+		expect(strip.items.map((i) => i.key)).toEqual(['status', 'flow', 'head', 'npshMarginRatio']);
+		expect(cellLines(strip.items[3]!.cell)).toEqual(['—', 'NPSHr 0: NPSH margin 5 m']);
+		// No cavitation is claimed where there is none.
+		expect(cellLines(row.cells.npshMarginRatio!).join(' ')).not.toMatch(/cavitat/i);
+	});
+
+	it('sorts above every ratio (NPSHa ÷ 0⁺ → +∞) and below none, smallest first: the cavitating pump, the ratios, then NPSHr 0, then a bare "—"; largest first the exact reverse, the bare "—" still last', () => {
+		const { project: four, ids } = withPumps(['Booster pump', 'Spare pump', 'Third pump']);
+		const [booster, spare, third] = ids as [string, string, string];
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult(),
+				[booster]: safe(),
+				[spare]: noCurve(),
+				[third]: cavitating()
+			}
+		});
+		const table = pumpTable(four, solved, SI_UNITS);
+		expect(sorted(table.rows, 'ascending')).toEqual([third, 'P1', booster, spare]);
+		expect(sorted(table.rows, 'descending')).toEqual([booster, 'P1', third, spare]);
+		// A margin of exactly 0 with NPSHr 0: the ratio at which any pump's margin is 0, 1, between
+		// ratios of 0.999 and 1.001.
+		const zero = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ npshMarginRatio: 1.001 }),
+				[booster]: safe({ npshAvailable: 0, npshMargin: 0 }),
+				[spare]: pumpResult({ npshMarginRatio: 0.999 }),
+				[third]: pumpResult()
+			}
+		});
+		expect(sorted(pumpTable(four, zero, SI_UNITS).rows, 'ascending')).toEqual([
+			spare,
+			booster,
+			'P1',
+			third
+		]);
+	});
+
+	it('ranks equal infinite keys by their margins, not the table’s order (critique CR-OWNER-3)', () => {
+		const { project: five, ids } = withPumps(['Pump A', 'Pump B', 'Pump C', 'Pump D']);
+		const [a, b, c, d] = ids as [string, string, string, string];
+		// A at −0.5 m and B at −8 m cavitate, in that table order; C at 10 m and D at 0.5 m have
+		// NPSHr 0, in that order; P1 a ratio of 4.
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult(),
+				[a]: cavitating(-0.5),
+				[b]: cavitating(-8),
+				[c]: safe({ npshAvailable: 10, npshMargin: 10 }),
+				[d]: safe({ npshAvailable: 0.5, npshMargin: 0.5 })
+			}
+		});
+		const table = pumpTable(five, solved, SI_UNITS);
+		expect(sorted(table.rows, 'ascending')).toEqual([b, a, 'P1', d, c]);
+		// Largest first, the exact reverse: B last among the values.
+		expect(sorted(table.rows, 'descending')).toEqual([c, d, 'P1', a, b]);
+		expect(smallestNpshMarginRatio(solved, five)).toEqual({ id: b, ratio: null });
+	});
+
+	it('is the Summary’s smallest ratio only where no pump has a smaller one, with no ratio', () => {
+		const lone = pumpTransferSolved({ pumpResults: { P1: safe() } });
+		expect(smallestNpshMarginRatio(lone, project)).toEqual({ id: 'P1', ratio: null });
+		const { project: two, ids } = withPumps(['Booster pump']);
+		const both = pumpTransferSolved({ pumpResults: { P1: safe(), [ids[0]!]: pumpResult() } });
+		expect(smallestNpshMarginRatio(both, two)).toEqual({ id: ids[0], ratio: 4 });
+	});
+
+	it('names, as the Summary’s smallest ratio, the first row of Results per pump sorted by it, where two ratios show alike: the values shown, then the table’s order (leftover L2)', () => {
+		const { project: two, ids } = withPumps(['Booster pump']);
+		const booster = ids[0]!;
+		// 1.28204 and 1.28196 both show as 1.282, to 4 significant figures: the API's 1.28196 is the
+		// smaller, but the table compares what it shows, and its order puts P1 first.
+		expect([sig4(1.28204), sig4(1.28196)]).toEqual(['1.282', '1.282']);
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ npshMarginRatio: 1.28204 }),
+				[booster]: pumpResult({ npshMarginRatio: 1.28196 })
+			}
+		});
+		const table = pumpTable(two, solved, SI_UNITS);
+		expect(table.rows.map((r) => r.cells.npshMarginRatio)).toEqual(['1.282', '1.282']);
+		expect(sorted(table.rows, 'ascending')[0]).toBe('P1');
+		expect(smallestNpshMarginRatio(solved, two)).toEqual({ id: 'P1', ratio: 1.28204 });
 	});
 });
 

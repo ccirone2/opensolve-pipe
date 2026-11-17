@@ -1903,11 +1903,13 @@ export interface GroupRow {
 	id: string;
 	name: string;
 	style: GroupSlot;
-	/** Text, or lines: a pump that cavitates with no NPSH margin ratio (npshRatioCell). */
+	/** Text, or lines: a pump with no NPSH margin ratio and words for it (npshRatioCell). */
 	cells: Record<string, string | string[]>;
 	flags: readonly Flag[];
 	/** Its NPSH margin ratio's sort key where its text does not carry it (npshRatioSortKeys). */
 	sortKeys?: Readonly<Record<string, number>>;
+	/** That key's tie, its margin (npshRatioSortKeys). */
+	sortTies?: Readonly<Record<string, number>>;
 }
 
 export interface GroupTable {

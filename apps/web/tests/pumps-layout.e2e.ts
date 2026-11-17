@@ -8174,7 +8174,7 @@ const squashText = (text: string) => text.replace(/\s+/g, ' ').trim();
 /** `text` as a regular expression that matches it literally. */
 const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) says so, with its NPSH margin, wherever the ratio stands in for the margin: Results per pump, the Summary, Build’s result strip and Compare, on screen and axe clean at 1280, 390 and 320 px (pumps-nits.md item 4; the API review’s A1/B1)', async ({
+test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) says so, with its NPSH margin, wherever the ratio stands in for the margin: Results per pump, the Summary, Build’s result strip and Compare, on screen and axe clean at 1280, 390 and 320 px; one with NPSHr 0 that does not cavitate gives its NPSH margin in the same places (pumps-nits.md item 4, §11 leftover L1; the API review’s A1/B1)', async ({
 	page,
 	isMobile
 }) => {
@@ -8210,6 +8210,11 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 	expect(open1.npshRequired).toBe(0);
 	expect(open1.npshMargin).toBeGreaterThanOrEqual(0);
 	expect(open1.npshMarginRatio).toBeNull();
+	// Its words (pumps-nits.md §11, leftover L1): the margin in m as the API gives it to 4
+	// significant figures (between 1 and 10 m it has three decimals, so none is padded).
+	expect(open1.npshMargin).toBeGreaterThan(1);
+	expect(open1.npshMargin).toBeLessThan(10);
+	const note = `NPSHr 0: NPSH margin ${sig4(open1.npshMargin)} m`;
 	const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 	const axeResults = async (where: string) => {
 		const scan = await new AxeBuilder({ page })
@@ -8339,7 +8344,17 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 			await seenLine(cells.nth(0).getByText(cue, { exact: true })),
 			`Compare's words on screen, ${where}`
 		).toBe(true);
-		expect(linesOf(await cells.nth(1).innerText()), `Compare's scenario, ${where}`).toEqual(['—']);
+		// Moved (pumps-nits.md §11, leftover L1): the scenario's cell, a bare "—" before, now "—"
+		// and its margin, on screen.
+		expect(linesOf(await cells.nth(1).innerText()), `Compare's scenario, ${where}`).toEqual([
+			'—',
+			note
+		]);
+		expect(
+			await seenLine(cells.nth(1).getByText(note, { exact: true })),
+			`Compare's scenario's words on screen, ${where}`
+		).toBe(true);
+		await expect(cells.nth(1)).not.toContainText('physically invalid:');
 		// Compare has no results view row, so no Results pane scroller of its own: the page's width.
 		expect(
 			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -8352,6 +8367,82 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 			.getByRole('tab')
 			.first()
 			.click();
+	}
+
+	// The scenario shown (pumps-nits.md §11, leftover L1): the pump with NPSHr 0 that does not
+	// cavitate gives its margin wherever the ratio stands: Results per pump's two lines, the
+	// Summary's line and its extreme, and Build's strip. Before, a bare "—", left out of a phone's
+	// row, the Summary's line and the strip, and no NPSH extreme.
+	await chooseCase(page, 'Suction tank open to the air (1 change)');
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		const where = `with the scenario shown, at ${sizeOf(page)}`;
+		const tab = await pumpsTab(page);
+		await settle(page, 1000);
+		const cell = tab
+			.getByRole('table', { name: 'Results per pump' })
+			.locator('td[data-label="NPSH margin ratio"]');
+		await expect(cell).toHaveCount(1);
+		expect(linesOf(await cell.innerText()), `the ratio's cell, ${where}`).toEqual(['—', note]);
+		expect(await seenBox(cell), `the ratio's cell on screen, ${where}`).toBe(true);
+		expect(
+			await seenLine(cell.getByText(note, { exact: true })),
+			`the words on screen, ${where}`
+		).toBe(true);
+		await noSidewaysScroll(page, `Results per pump, ${where}`);
+		await axeClean(page, `the pump with NPSHr 0, ${where}`);
+
+		const summary = await resultsView(page, 'Summary');
+		const line = summary.getByRole('region', { name: 'Pumps' }).getByRole('listitem');
+		await expect(line).toHaveCount(1);
+		expect(squashText(await line.innerText()), `the Summary's line, ${where}`).toMatch(
+			new RegExp(`^Transfer pump [\\d.]+ L/s at [\\d.]+ m · ${literal(note)}$`)
+		);
+		expect(await seenLine(line), `the Summary's line on screen, ${where}`).toBe(true);
+		const extremes = summary.getByRole('region', { name: 'Extremes' });
+		const npshEntry = extremes
+			.locator('dl > div')
+			.filter({ has: page.getByRole('term').filter({ hasText: /NPSH/ }) });
+		await expect(npshEntry).toHaveCount(1);
+		await expect(npshEntry.getByRole('term')).toHaveText('Smallest NPSH margin ratio');
+		expect(
+			squashText(await npshEntry.getByRole('definition').innerText()),
+			`the Summary's smallest ratio, ${where}`
+		).toBe(`${note} Transfer pump`);
+		expect(
+			await seenLine(npshEntry.getByText(note, { exact: true })),
+			`the extreme's words on screen, ${where}`
+		).toBe(true);
+		await noSidewaysScroll(page, `the Summary, ${where}`);
+		await axeResults(`the Summary, ${where}`);
+
+		await showPane(page, 'Build');
+		await buildPane(page).getByRole('button', { name: 'Jump to a component' }).click();
+		await page
+			.getByRole('dialog', { name: 'Jump to a component' })
+			.getByRole('button', { name: /^Transfer pump/ })
+			.click();
+		await expect(buildPane(page).getByRole('heading', { level: 2 })).toHaveText('Transfer pump');
+		const strip = buildPane(page)
+			.getByRole('group', { name: /^Last solve/ })
+			.first();
+		const terms = strip.locator('dl > div > dt');
+		await expect(terms).toHaveCount(4);
+		await expect(terms.nth(3)).toHaveText(/^NPSH margin ratio$/);
+		const reading = strip.locator('dl > div').nth(3);
+		expect(linesOf(await reading.locator('dd').innerText()), `the strip, ${where}`).toEqual([
+			'—',
+			note
+		]);
+		expect(
+			await seenLine(reading.getByText(note, { exact: true })),
+			`the strip's words on screen, ${where}`
+		).toBe(true);
+		expect(
+			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+			`the page's width, Build, ${where}`
+		).toBe(true);
+		await showPane(page, 'Results');
 	}
 	await page.setViewportSize(viewport);
 });

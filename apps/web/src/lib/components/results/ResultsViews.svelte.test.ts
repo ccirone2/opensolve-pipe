@@ -725,6 +725,33 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		const words = note.textContent!.replace(/\s+/g, ' ');
 		expect(words).toMatch(/NPSH margin ratio is NPSHa [÷/] NPSHr/);
 		expect(words).toMatch(/not given where NPSHr is zero/);
+		// pumps-nits.md §11, leftover L1: where NPSHr is zero the cell gives the margin instead.
+		expect(words).toMatch(
+			/where NPSHr is zero the cell gives the NPSH margin instead, and says so where the pump cavitates\./
+		);
+	});
+
+	it('gives the NPSH margin in the NPSH margin ratio cell of a pump with NPSHr 0 that does not cavitate, drawn on a phone too (pumps-nits.md §11, leftover L1)', async () => {
+		localStorage.removeItem('opensolve-pipe:results-fields:Results per pump');
+		// Made-up results: NPSHr 0 at its flow and NPSHa 5 m: a margin of 5 m, no ratio, no flag.
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ npshAvailable: 5, npshRequired: 0, npshMargin: 5, npshMarginRatio: null })
+			}
+		});
+		const { panel } = await solveAndOpenPumps(pumpTransferExample(), solved);
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		const cell = rowFor(table, 'Transfer pump').querySelector(
+			'td[data-label="NPSH margin ratio"]'
+		) as HTMLElement;
+		expect(cell).toBeInstanceOf(HTMLElement);
+		const lines = [...cell.querySelectorAll('span.block')].map((l) =>
+			l.textContent!.replace(/\s+/g, ' ').trim()
+		);
+		expect(lines).toEqual(['—', 'NPSHr 0: NPSH margin 5 m']);
+		// Not a value the row has none of: a phone's list shows it.
+		expect(outOfSight(cell)).toBe(false);
+		expect(cell).not.toHaveClass('max-sm:sr-only');
 	});
 
 	it('names the cavitation and the margin in the NPSH margin ratio cell of a pump with no ratio whose margin is negative, on a phone too (docs/proposals/pumps-nits.md item 4)', async () => {

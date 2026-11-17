@@ -378,6 +378,78 @@ describe('the Summary’s NPSH reading is the margin ratio (docs/proposals/pumps
 			localStorage.removeItem(KEY);
 		}
 	});
+
+	// pumps-nits.md §11, leftovers L1 and L2.
+	/** NPSHr 0 at its flow: its margin is its NPSHa, and the API gives no ratio. */
+	const npshrZero = (margin: number) =>
+		pumpResult({
+			npshAvailable: margin,
+			npshRequired: 0,
+			npshMargin: margin,
+			npshMarginRatio: null
+		});
+
+	it('gives the NPSH margin of a pump with NPSHr 0 that does not cavitate in its line and, where it is the lone pump, as the extreme (leftover L1)', async () => {
+		// Made-up results: NPSHr 0 at its flow and NPSHa 5 m: a margin of 5 m, no ratio, no flag.
+		try {
+			localStorage.removeItem(KEY);
+			await solveWith(pumpTransferSolved({ pumpResults: { P1: npshrZero(5) } }));
+			const pumps = results().getByRole('region', { name: 'Pumps' });
+			expect(pumps.querySelector('li')!.textContent!.replace(/\s+/g, ' ').trim()).toBe(
+				'Transfer pump 20 L/s at 22 m · NPSHr 0: NPSH margin 5 m'
+			);
+			const { entry, pump } = smallestRatio();
+			expect(pump).toBe('Transfer pump');
+			expect(within(entry).getByRole('definition')).toHaveTextContent(
+				/^NPSHr 0: NPSH margin 5 m\s*Transfer pump$/
+			);
+		} finally {
+			localStorage.removeItem(KEY);
+		}
+	});
+
+	it('names, of two pumps that cavitate with no ratio, the one with the more negative margin, and its link’s first row is that pump (critique CR-OWNER-3)', async () => {
+		// Made-up results: the transfer pump −0.5 m, the booster after it −8 m; both NPSHr 0.
+		try {
+			await twoPumps(npshrZero(-0.5), npshrZero(-8), (booster) => [
+				flag({ code: 'CAVITATION', severity: 'invalid', message: 'made-up', componentId: 'P1' }),
+				flag({ code: 'CAVITATION', severity: 'invalid', message: 'made-up', componentId: booster })
+			]);
+			const { entry, pump } = smallestRatio();
+			expect(pump).toBe('Booster pump');
+			expect(within(entry).getByRole('definition')).toHaveTextContent(
+				/^Cavitates \(NPSHr 0\): NPSH margin -8 m\s*Booster pump\s*Pumps, smallest first$/
+			);
+			await fireEvent.click(results().getByRole('button', { name: 'Pumps, smallest first' }));
+			await tick();
+			expect(columnHeading(/^NPSH margin ratio/)).toHaveAttribute('aria-sort', 'ascending');
+			expect(rowNames()).toEqual(['Booster pump', 'Transfer pump']);
+			expect(rowNames()[0]).toBe(pump);
+		} finally {
+			localStorage.removeItem(KEY);
+		}
+	});
+
+	it('names, where two ratios show alike (1.282), the pump its link’s sorted table puts first: the values shown, then the table’s order (leftover L2)', async () => {
+		// Made-up results: 1.28204 and 1.28196, both 1.282 to 4 significant figures; the API's
+		// smaller is the booster's, after the transfer pump in the table.
+		expect([sig4(1.28204), sig4(1.28196)]).toEqual(['1.282', '1.282']);
+		try {
+			await twoPumps(
+				pumpResult({ npshMarginRatio: 1.28204 }),
+				pumpResult({ npshMarginRatio: 1.28196 })
+			);
+			const { entry, pump } = smallestRatio();
+			expect(entry).toHaveTextContent('1.282');
+			await fireEvent.click(results().getByRole('button', { name: 'Pumps, smallest first' }));
+			await tick();
+			expect(columnHeading(/^NPSH margin ratio/)).toHaveAttribute('aria-sort', 'ascending');
+			expect(rowNames()).toEqual(['Transfer pump', 'Booster pump']);
+			expect(pump).toBe(rowNames()[0]);
+		} finally {
+			localStorage.removeItem(KEY);
+		}
+	});
 });
 
 describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits.md item 3)', () => {

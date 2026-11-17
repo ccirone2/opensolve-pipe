@@ -2071,4 +2071,49 @@ describe('the card’s NPSH reading is the margin ratio, the margin hidden by de
 			sig4(ratioOf(scenarioCase('S1').solve, 'PB')!)
 		);
 	});
+
+	/**
+	 * A case's solve with Pump PA, where it runs, given NPSHr 0 at its flow and NPSHa `margin` (0 or
+	 * more), so its margin is `margin`, the API gives no ratio and nothing cavitates (synthetic;
+	 * pumps-nits.md §7.1).
+	 */
+	function npshrZero(response: SolveResponse, margin: number): SolveResponse {
+		const copy = structuredClone(response);
+		const pa = copy.solvedState.pumpResults.PA!;
+		if (pa.status !== 'running') return copy;
+		Object.assign(pa, {
+			npshAvailable: margin,
+			npshRequired: 0,
+			npshMargin: margin,
+			npshMarginRatio: null
+		});
+		return copy;
+	}
+	const margins: Record<string, number> = { '': 6, S2: 3, S3: 9 };
+
+	it('a pump with NPSHr 0 that does not cavitate reads "—" and its margin, sorts above every ratio by its margin, and its extreme is the case of the smallest margin, in those words (pumps-nits.md §11, leftover L1)', () => {
+		const input = all((k, r) => (k in margins ? npshrZero(r, margins[k]!) : r));
+		// PA runs in the base case, Pump PB off (S2) and Delivery tank 5 m higher (S3) only.
+		expect(
+			input.cases
+				.filter((c) => c.response!.solvedState.pumpResults.PA?.status === 'running')
+				.map((c) => c.key)
+		).toEqual(['', 'S2', 'S3']);
+		const table = runningCombinations(input);
+		const s2 = table.groups.find((g) => g.key === 'S2')!.rows.find((r) => r.id === 'PA')!;
+		expect(s2.cells.npshMarginRatio).toEqual(['—', 'NPSHr 0: NPSH margin 3 m']);
+		expect(s2.sortKeys).toEqual({ npshMarginRatio: Number.POSITIVE_INFINITY });
+		expect(s2.sortTies).toEqual({ npshMarginRatio: 3 });
+		const { table: extremes } = combinationExtremes(input);
+		const cell = extremes.rows[0]!.cells[2]!;
+		expect(cell.amount).toBe('NPSHr 0: NPSH margin 3 m');
+		expect(cell.rest).toMatch(/^in Pump PB off; beyond its curve data \(over 3 of 5 cases;/);
+		// A case with a ratio comes before it: Pump PA's ratio in S3 kept, the others NPSHr 0.
+		const mixed = combinationExtremes(
+			all((k, r) => (k === '' || k === 'S2' ? npshrZero(r, margins[k]!) : r))
+		);
+		expect(mixed.table.rows[0]!.cells[2]!.amount).toBe(
+			sig4(ratioOf(scenarioCase('S3').solve, 'PA')!)
+		);
+	});
 });

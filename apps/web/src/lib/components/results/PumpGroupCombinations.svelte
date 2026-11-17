@@ -97,8 +97,10 @@
 				detail: '',
 				cells: r.cells,
 				flags: [...r.flags],
-				// A pump that cavitates with no NPSH margin ratio sorts below every ratio.
-				...(r.sortKeys ? { sortKeys: r.sortKeys } : {})
+				// A pump with no NPSH margin ratio that cavitates sorts below every ratio, one with
+				// NPSHr 0 above, each tie by its margin (npshRatioSortKeys).
+				...(r.sortKeys ? { sortKeys: r.sortKeys } : {}),
+				...(r.sortTies ? { sortTies: r.sortTies } : {})
 			}))
 		)
 	});

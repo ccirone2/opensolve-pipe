@@ -617,10 +617,9 @@
 	lines: readonly [string, string] | undefined,
 	pad = false
 )}
-	{#if lines}<span class={['block whitespace-nowrap', pad && 'px-1']}>{lines[0]}</span>{' '}<span
-			class={['block whitespace-nowrap', pad && 'px-1']}>{lines[1]}</span
-		>{:else}<span class={['block', pad && 'px-1', key !== NAME_SORT_KEY && 'whitespace-nowrap']}
-			>{label}</span
+	{#if lines}<span class={['block whitespace-nowrap', pad && 'px-1']}>{lines[0]}</span>
+		<span class={['block whitespace-nowrap', pad && 'px-1']}>{lines[1]}</span>{:else}<span
+			class={['block', pad && 'px-1', key !== NAME_SORT_KEY && 'whitespace-nowrap']}>{label}</span
 		>{/if}
 {/snippet}
 

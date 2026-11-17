@@ -280,6 +280,18 @@ def test_method_1_6_1_refuses_coefficients_past_the_slope_bound() -> None:
     assert "which solved before where the solve never evaluated the plate, is now refused." in (
         naming
     )
+    # Review of 1.6.1 (ST-API-01, ST-API-02, 2026-11-17): the meter's C at its own taps' Re_lo,
+    # refused wherever the plate is, and a relief valve's trace slope that no longer divides by 0.
+    assert "whose meter coefficient fluids cannot evaluate at those taps' own lowest Reynolds" in (
+        naming
+    )
+    assert "and solved before where they did not (a plate closed off), as a system curve" in (
+        naming
+    )
+    assert (
+        "A relief valve whose trace's slope at zero flow divided by a product that underflows"
+        in naming
+    )
     assert naming.endswith(
         "Apart from these, flows, heads, pressures, statuses, traces, messages and system curves "
         "are unchanged (corpus comparison)."

@@ -769,7 +769,7 @@ describe('the codes told before', () => {
 	});
 });
 
-describe('a loss coefficient above the slope bound (open item 2, CLAUDE.md D18, D20, D22)', () => {
+describe('a loss coefficient above the slope bound (TSD §12 item 19, CLAUDE.md D18, D20, D22)', () => {
 	// The API's messages (builder.py, coefficients.slope_bound_text), as the real builder printed
 	// them for apps/api tests/unit/test_nonfinite_laws.py's inputs one double past the bound and
 	// further past it, with the ids, fitting types and entries of this file's projects. The
@@ -960,11 +960,12 @@ describe('a loss coefficient above the slope bound (open item 2, CLAUDE.md D18, 
 	});
 });
 
-describe("a fluid at the schema's bounds (open item 2's follow-up, CLAUDE.md D20)", () => {
+describe("a fluid at the schema's bounds (TSD §12 item 19 (c), CLAUDE.md D20)", () => {
 	// The API's messages (builder.py _unrepresentable_pipes and _ORIFICE_FLUID_TAILS), as the
 	// real builder printed them for apps/api tests/unit/test_nonfinite_laws.py's fluids, with the
-	// ids of this file's projects. iso_at_re_lo, which no probed input reaches, is the builder's
-	// own _orifice_issue_text for that rule.
+	// ids of this file's projects. iso_at_re_lo is the builder's message for a plate whose law
+	// cannot be built: fluids' velocity at Re_lo, μ·Re_lo/(Dρ), overflows while 4ρ/(πDμ) stays
+	// finite (1e-302 kg/m³ and 1e3 Pa·s here, printed by the builder on 2026-11-17).
 	const issue = (
 		code: string,
 		message: string,
@@ -996,7 +997,7 @@ describe("a fluid at the schema's bounds (open item 2's follow-up, CLAUDE.md D20
 		"Re_D is infinite at every flow but zero, where ISO 5167-2's discharge coefficient cannot " +
 		`be evaluated; ${PLATE}`;
 	const reLo =
-		`${HEAD}with the fluid's density of 1000 kg/m³ and dynamic viscosity of 1e-300 Pa·s, ISO ` +
+		`${HEAD}with the fluid's density of 1e-302 kg/m³ and dynamic viscosity of 1000 Pa·s, ISO ` +
 		"5167-2's discharge coefficient cannot be evaluated at the plate's lowest Reynolds number " +
 		`(fluids' arithmetic fails there); ${PLATE}`;
 	const plate =
@@ -1103,13 +1104,45 @@ describe("a fluid at the schema's bounds (open item 2's follow-up, CLAUDE.md D20
 		const i = issue('ORIFICE_OUT_OF_RANGE', reLo, ['O1']);
 		expect(view(i, orificeProject())).toEqual({
 			text:
-				`${plate}: with the fluid's density of 1000 kg/m³ and dynamic viscosity of 1e-297 ` +
+				`${plate}: with the fluid's density of 1e-302 kg/m³ and dynamic viscosity of 1000000 ` +
 				"mPa·s, ISO 5167-2's discharge coefficient cannot be evaluated at the plate's lowest " +
 				"Reynolds number, so the solver cannot represent this plate. Check the fluid's " +
 				'density and viscosity.',
 			links: [{ componentId: 'O1' }],
 			detail: i.message
 		});
+	});
+
+	it("tells a plate whose meter's C cannot be evaluated at its taps' lowest Reynolds number", () => {
+		// ST-API-01 (review of 1.6.1): the builder's message for test_nonfinite_laws.py's flange
+		// plate, a 0.5 m bore on a 1 m pipe in 1e-301 kg/m³ and 1e3 Pa·s.
+		const message =
+			"orifice 'O1': a bore diameter of 0.5 m in an inlet pipe of inner diameter 1 m " +
+			"(β = d/D = 0.5): with the fluid's density of 1e-301 kg/m³ and dynamic viscosity of " +
+			"1000 Pa·s, ISO 5167-2's discharge coefficient at its flange tappings, which gives only " +
+			"the meter's reading, cannot be evaluated at their lowest Reynolds number, 42500 " +
+			`(fluids' arithmetic fails there); ${PLATE}`;
+		const i = issue('ORIFICE_OUT_OF_RANGE', message, ['O1']);
+		expect(view(i, orificeProject())).toEqual({
+			text:
+				'Bypass orifice (a bore of 500 mm in an inlet pipe of inner diameter 1000 mm, β = 0.5): ' +
+				"with the fluid's density of 1e-301 kg/m³ and dynamic viscosity of 1000000 mPa·s, ISO " +
+				"5167-2's discharge coefficient at its flange tappings, which gives only the meter's " +
+				'reading, cannot be evaluated at their lowest Reynolds number, 42500, so the solver ' +
+				'cannot represent this plate. Use D and D/2 taps or no taps, or check the ' +
+				"fluid's density and viscosity.",
+			links: [{ componentId: 'O1' }],
+			detail: i.message
+		});
+		// Corner tappings are told by their name too; another tap name keeps the server's message.
+		expect(
+			view(
+				issue('ORIFICE_OUT_OF_RANGE', message.replace('flange', 'corner'), ['O1']),
+				orificeProject()
+			).text
+		).toContain('at its corner tappings, which gives only');
+		const odd = issue('ORIFICE_OUT_OF_RANGE', message.replace('flange', 'pipe'), ['O1']);
+		expect(view(odd, orificeProject()).text).toBe(odd.message);
 	});
 
 	it("keeps the server's message when it is not in the form expected", () => {

@@ -129,9 +129,16 @@ Basis = Literal["loss", "reading", "move"]
 (b)): loss, ISO's C_L at D and D/2 tappings, which sets the plate's loss; reading, ISO's C_M at
 the plate's corner or flange taps, which gives only the meter's reading; move, a C of the ratio
 that moves an entered C from corner or flange taps to D and D/2 tappings (decision 13)."""
-FluidReason = Literal["reynolds_denominator", "area_density", "reynolds_infinite", "iso_at_re_lo"]
+FluidReason = Literal[
+    "reynolds_denominator",
+    "area_density",
+    "reynolds_infinite",
+    "iso_at_re_lo",
+    "iso_at_meter_re_lo",
+]
 """Why the case's fluid leaves a plate's Reynolds-number arithmetic unrepresentable
-(``fluid_refusal``; the builder adds iso_at_re_lo)."""
+(``fluid_refusal``; the builder adds iso_at_re_lo, the law that cannot be built, and
+iso_at_meter_re_lo, ISO's C_M at the plate's own taps that cannot be evaluated at their Re_lo)."""
 
 
 def tap_lengths(taps: str, d_pipe: float) -> tuple[float, float]:
@@ -494,7 +501,8 @@ class Refusal:
     """The C bound broken: the largest C (iso_coefficient, moved_coefficient), c_high (slope) or
     c_low, the smallest bound of C_L (coefficient)."""
     where: str | None = None
-    """iso_coefficient: the tap set where eq. (4) can exceed 1."""
+    """iso_coefficient: the tap set where eq. (4) can exceed 1; fluid (iso_at_meter_re_lo): the
+    plate's taps, where ISO's C_M cannot be evaluated."""
     ratio: float | None = None
     """moved_coefficient: r_max, the bound of the move's ratio."""
     basis: Basis | None = None
@@ -509,6 +517,8 @@ class Refusal:
     """fluid: which of ``fluid_refusal``'s tests the case's fluid breaks."""
     fluid_values: tuple[float, float] | None = None
     """fluid: the case's density ρ, kg/m³, and dynamic viscosity μ, Pa·s, the 422 quotes."""
+    reynolds: float | None = None
+    """fluid (iso_at_meter_re_lo): the taps' lowest Reynolds number, Re_lo, the 422 quotes."""
 
 
 def c_range(d_pipe: float, d_bore: float, taps: str, re_from: float) -> tuple[float, float]:
@@ -621,9 +631,9 @@ def fluid_refusal(
     entered: float | None,
     taps: OrificeTaps | None,
 ) -> Refusal | None:
-    """Decision 17 (e), the case's fluid (open item 2's follow-up, 2026-11-03): a plate whose
-    Reynolds-number arithmetic the fluid's density ρ and viscosity μ, at the schema's bounds,
-    make unrepresentable, each written as the law, or fluids, forms it:
+    """Decision 17 (e), the case's fluid (TSD §12 item 19 (c), the schema-bounds probe,
+    2026-11-03): a plate whose Reynolds-number arithmetic the fluid's density ρ and viscosity μ,
+    at the schema's bounds, make unrepresentable, each written as the law, or fluids, forms it:
 
     - reynolds_denominator: Re_D = 4ρ|Q|/(πDμ) divides by π D μ, which is 0 in floating point
       (μ near the smallest double): every plate's law divides by zero when it is built;
@@ -636,7 +646,9 @@ def fluid_refusal(
     An entered C used as entered never calls fluids, so only the first applies to it. None of
     these depends on the bore or the C, so a goal seek over either (decision 21) meets none at a
     bound that the case does not meet. Like the pipe whose A ν underflows
-    (``builder._unrepresentable_pipes``), the solver could only fail on such a plate."""
+    (``builder._unrepresentable_pipes``), the solver could only fail on such a plate. The
+    builder adds two tests that do depend on the bore, monotonically (``iso_at_re_lo`` and
+    ``iso_at_meter_re_lo``, ``builder._orifice_fluid_refusal``)."""
     beta = d_bore / d_pipe
     values = (density, viscosity)
     if not math.pi * d_pipe * viscosity > 0.0:

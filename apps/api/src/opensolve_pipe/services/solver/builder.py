@@ -84,11 +84,13 @@ from .network import LinkKind, LinkLaw, SolverLink, SolverNetwork, SolverNode
 from .orifice import (
     BETA_RANGE,
     BORE_MIN,
+    LOSS_TAPS,
     PIPE_RANGE,
     TAP_NAMES,
     OrificeLaw,
     Refusal,
     fluid_refusal,
+    re_lo,
     refusal,
 )
 from .project_library import entered_text, entry_k, pipe_specs, resistance_entries
@@ -972,10 +974,12 @@ def orifice_refusals(
     None).
 
     With the case's ``fluid``, rule (e) too (``orifice.fluid_refusal``), after rules (a) to (d):
-    a fluid at the schema's bounds that leaves the plate's Reynolds number unrepresentable; and,
-    as a guard for any other such combination, a law that cannot be built at all (ISO's C at
-    Re_lo raising in fluids, ``iso_at_re_lo``), on which the solver would fail with an internal
-    error (500) before 2026-11-03."""
+    a fluid at the schema's bounds that leaves the plate's Reynolds number unrepresentable; a law
+    that cannot be built (ISO's C at Re_lo raising in fluids, ``iso_at_re_lo``: fluids' velocity
+    there, μ Re_lo/(D ρ), overflowing while 4ρ/(π D μ) stays finite), on which the solver failed
+    with an internal error (500) before 2026-11-03; and ISO's C_M at a meter's corner or flange
+    taps that fluids cannot evaluate at those taps' own Re_lo (``iso_at_meter_re_lo``), on which
+    the results failed (500) before 2026-11-17 (``_orifice_fluid_refusal``)."""
     if not any(isinstance(c, Orifice) for c in project.components):
         return {}
     if resolved is None:
@@ -998,17 +1002,39 @@ def orifice_refusals(
 
 
 def _orifice_fluid_refusal(comp: Orifice, d: float, fluid: FluidProperties) -> Refusal | None:
-    """Rule (e) for one plate (``orifice_refusals``): ``orifice.fluid_refusal``, then the law
-    built as ``build_network`` builds it."""
+    """Rule (e) for one plate (``orifice_refusals``): ``orifice.fluid_refusal``; then the law
+    built as ``build_network`` builds it, which evaluates the loss's C at its Re_lo
+    (iso_at_re_lo); then the plate's state at zero flow, as the results take it at and below
+    the meter's Re_lo, which evaluates ISO's C_M at the plate's corner or flange taps at their
+    own Re_lo (iso_at_meter_re_lo; flange tappings' 170000 β² D can be far above the loss's).
+    Above the meter's Re_lo, C_M is taken at the Re_D the loss's C is taken at, with the same
+    velocity in fluids, which the GGA has evaluated, so this one evaluation covers the reading at
+    every flow (review of 1.6.1, ST-API-01: 7fcbdb8 and 5948867 gave a 500 on a converged solve).
+    Both checks depend on the bore through Re_lo(β), which does not decrease as the bore grows,
+    and fluids' velocity there, μ Re_lo/(D ρ), grows with it, so the bores refused are every bore
+    above a threshold and goal seek's bound builds still prove every trial (decision 21)."""
     rho, mu = fluid.density, fluid.dynamic_viscosity
+    beta = comp.bore_diameter / d
     why = fluid_refusal(d, comp.bore_diameter, rho, mu, comp.discharge_coefficient, comp.taps)
     if why is not None:
         return why
     try:
-        OrificeLaw(d, comp.bore_diameter, rho, mu, comp.discharge_coefficient, comp.taps, G)
+        law = OrificeLaw(d, comp.bore_diameter, rho, mu, comp.discharge_coefficient, comp.taps, G)
+    except (ArithmeticError, ValueError):
+        return Refusal("fluid", beta, fluid="iso_at_re_lo", fluid_values=(rho, mu))
+    taps = comp.taps
+    if comp.discharge_coefficient is not None or taps is None or taps == LOSS_TAPS:
+        return None  # the reading is the entered C, the loss's C, or none: no C_M of its own
+    try:
+        law.state(0.0)
     except (ArithmeticError, ValueError):
         return Refusal(
-            "fluid", comp.bore_diameter / d, fluid="iso_at_re_lo", fluid_values=(rho, mu)
+            "fluid",
+            beta,
+            where=TAP_NAMES[taps],
+            fluid="iso_at_meter_re_lo",
+            fluid_values=(rho, mu),
+            reynolds=re_lo(beta, d, taps),
         )
     return None
 
@@ -1083,16 +1109,22 @@ _ORIFICE_FLUID_TAILS = {
         "5167-2's discharge coefficient cannot be evaluated at the plate's lowest Reynolds number "
         "(fluids' arithmetic fails there)"
     ),
+    "iso_at_meter_re_lo": (
+        "with the fluid's density of {rho:g} kg/m³ and dynamic viscosity of {mu:g} Pa·s, ISO "
+        "5167-2's discharge coefficient at its {where}, which gives only the meter's reading, "
+        "cannot be evaluated at their lowest Reynolds number, {re:.6g} (fluids' arithmetic fails "
+        "there)"
+    ),
 }
 """Rule (e)'s words by ``Refusal.fluid`` (``orifice.fluid_refusal``); filled with the case's
-fluid by ``_orifice_fluid_tail``."""
+fluid (and, for the meter's taps, the taps and their Re_lo) by ``_orifice_fluid_tail``."""
 
 
 def _orifice_fluid_tail(why: Refusal) -> str:
     assert why.fluid is not None
     assert why.fluid_values is not None
     rho, mu = why.fluid_values
-    return _ORIFICE_FLUID_TAILS[why.fluid].format(rho=rho, mu=mu)
+    return _ORIFICE_FLUID_TAILS[why.fluid].format(rho=rho, mu=mu, where=why.where, re=why.reynolds)
 
 
 def _orifice_iso_tail(comp: Orifice, why: Refusal) -> str:

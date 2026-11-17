@@ -204,9 +204,15 @@ METHOD_CHANGELOG: list[MethodChange] = [
             "orifice plate's refusal also holds wherever the plate is: a plate on which ISO "
             "5167-2's discharge coefficient is evaluated, in a fluid that makes its Reynolds "
             "number per unit flow, 4ρ/(πDμ), not a finite number, which solved before where the "
-            "solve never evaluated the plate, is now refused. Apart from these, flows, heads, "
-            "pressures, statuses, traces, messages and system curves are unchanged (corpus "
-            "comparison).",
+            "solve never evaluated the plate, is now refused. So is a plate on ISO 5167-2's "
+            "discharge coefficient at corner or flange taps whose meter coefficient fluids cannot "
+            "evaluate at those taps' own lowest Reynolds number (at flange tappings 170000 β² D, "
+            "which can be far above the loss's): it ended in an internal error wherever the "
+            "results gave its reading, and solved before where they did not (a plate closed off), "
+            "as a system curve through it did. A relief valve whose trace's slope at zero flow "
+            "divided by a product that underflows to zero (a tiny set in a very light liquid) is "
+            "solved, with that slope in its trace. Apart from these, flows, heads, pressures, "
+            "statuses, traces, messages and system curves are unchanged (corpus comparison).",
         ],
     },
 ]

@@ -1,5 +1,5 @@
 /**
- * The convergence report of a solve whose iteration diverged (CLAUDE.md D7, open item 2): the
+ * The convergence report of a solve whose iteration diverged (CLAUDE.md D7, TSD §12 item 19): the
  * elements whose laws gave a value that is not a finite number, from the NOT_CONVERGED flag's
  * `nonFiniteLawAt`, each a link, a pipe connection named by its piping ("Tank → Pump"), then the
  * other elements the message names. The solve results are made-up test inputs shaped like the

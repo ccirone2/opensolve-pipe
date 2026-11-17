@@ -1,4 +1,4 @@
-"""Loss laws whose values are not finite numbers (open item 2, verified on 7fcbdb8, 2026-11-03).
+"""Loss laws whose values are not finite numbers (TSD §12 item 19, verified on 7fcbdb8, 2026-11-03).
 
 (a) Where the GGA stops because a value of its iterate is not a finite number ("the iteration
 diverged"), the NOT_CONVERGED flag names the laws that gave one (CLAUDE.md D7: the flag names
@@ -37,7 +37,7 @@ from opensolve_pipe.models.components import OrificeTaps
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.results import Flag, SolvedState
 from opensolve_pipe.services.fluids import fluid_properties
-from opensolve_pipe.services.solver import solve_project
+from opensolve_pipe.services.solver import solve_project, system_curve
 from opensolve_pipe.services.solver.builder import BuiltNetwork, build_network
 from opensolve_pipe.services.solver.coefficients import SLOPE_COEFFICIENT_MAX, slope_overflows
 from opensolve_pipe.services.solver.elements import (
@@ -51,7 +51,9 @@ from opensolve_pipe.services.solver.gga import solve_gga
 from opensolve_pipe.services.solver.network import NORMAL, LinkLaw, LinkState
 from opensolve_pipe.services.solver.orifice import (
     OrificeLaw,
+    c_iso,
     dk_dc,
+    fluid_refusal,
     k_of_c,
     ratio_range,
     re_lo,
@@ -963,6 +965,216 @@ def test_a_closed_off_plate_with_an_infinite_reynolds_number_is_refused() -> Non
         f"{mu:g} Pa·s, its Reynolds number per unit flow, 4ρ/(π D μ), is not a finite "
         "floating-point number, so Re_D is infinite at every flow but zero, where ISO 5167-2's "
         "discharge coefficient cannot be evaluated; the solver cannot represent this plate"
+    )
+
+
+def test_a_plate_whose_iso_c_raises_at_its_lowest_reynolds_number_is_refused() -> None:
+    """D20 rule (e)'s build guard (``builder._orifice_fluid_refusal``, iso_at_re_lo): ISO's C, a
+    0.5 m bore on a 1 m pipe, in a liquid of 1e-302 kg/m³ and 1e3 Pa·s (schema-valid).
+    4ρ/(π D μ) is finite and (π D²/4) ρ is not 0, so ``orifice.fluid_refusal`` accepts it, but
+    fluids' velocity at Re_lo, μ Re_lo/(D ρ), overflows and its log10 raises (ValueError). The
+    law raised when built, so 7fcbdb8 gave an internal error (500); it is a 422 now. The 1 m x 1 m
+    pipes keep a finite resistance, so the plate's is the only issue."""
+    rho, mu, d, bore = 1.0e-302, 1.0e3, 1.0, 0.5
+    assert math.isfinite(4.0 * rho / (math.pi * d * mu))
+    assert 0.25 * math.pi * d * d * rho > 0.0
+    assert mu * re_lo(bore / d, d, "d_and_d_2") / (d * rho) == math.inf
+    assert refusal(d, bore, None, None, g) is None
+    assert fluid_refusal(d, bore, rho, mu, None, None) is None
+    with pytest.raises(ValueError, match="math domain error"):
+        OrificeLaw(d, bore, rho, mu, None, None, g)
+    plate = element("orifice", "O1", boreDiameter=bore)
+    found = refused(line(plate, d=d, length=1.0, fluid=custom_fluid(rho, mu)))
+    assert (found.code, found.component_ids) == ("ORIFICE_OUT_OF_RANGE", ["O1"])
+    assert found.message == (
+        "orifice 'O1': a bore diameter of 0.5 m in an inlet pipe of inner diameter 1 m "
+        f"(β = d/D = 0.5): with the fluid's density of {rho:g} kg/m³ and dynamic viscosity of "
+        f"{mu:g} Pa·s, ISO 5167-2's discharge coefficient cannot be evaluated at the plate's "
+        "lowest Reynolds number (fluids' arithmetic fails there); the solver cannot represent "
+        "this plate"
+    )
+
+
+METER_FLUID = (1.0e-301, 1.0e3)
+"""kg/m³, Pa·s: on a 1 m pipe with a 0.5 m bore, fluids' velocity μ Re/(D ρ) is finite at the
+loss's Re_lo (5000) and overflows at flange tappings' (170000 β² D = 42500)."""
+
+
+def _meter_head(bore: float) -> str:
+    return (
+        f"orifice 'O1': a bore diameter of {bore:g} m in an inlet pipe of inner diameter 1 m "
+        f"(β = d/D = {bore:g}): "
+    )
+
+
+def test_a_plate_whose_meter_c_raises_at_its_flange_taps_lowest_reynolds_number_is_refused() -> (
+    None
+):
+    """D20 rule (e), the meter's reading (review of 1.6.1, ST-API-01): ISO's C at flange taps, a
+    0.5 m bore on a 1 m pipe, in a liquid of 1e-301 kg/m³ and 1e3 Pa·s. The loss's C (D and D/2
+    tappings) is evaluated at Re_lo = max(5000, 16000 β²) = 5000, where fluids' velocity
+    μ Re/(D ρ) is 5e307, so every earlier test accepts the plate and its law builds; the
+    meter's C_M is held at flange tappings' own Re_lo, max(5000, 170000 β² D) = 42500, where
+    that velocity overflows and fluids' log10 raises (ValueError). The results evaluate C_M there
+    (``OrificeLaw.state``), so 7fcbdb8 and 5948867 gave an internal error (500) on a converged
+    solve; it is refused before the solve now."""
+    rho, mu = METER_FLUID
+    d, bore = 1.0, 0.5
+    loss_lo, meter_lo = re_lo(0.5, d, "d_and_d_2"), re_lo(0.5, d, "flange")
+    assert (loss_lo, meter_lo) == (max(5000.0, 16000.0 * 0.25), max(5000.0, 170000.0 * 0.25))
+    assert math.isfinite(mu * loss_lo / (d * rho))
+    assert mu * meter_lo / (d * rho) == math.inf
+    assert math.isfinite(c_iso(d, bore, rho, mu, loss_lo, "d_and_d_2"))
+    with pytest.raises(ValueError, match="math domain error"):
+        c_iso(d, bore, rho, mu, meter_lo, "flange")
+    assert refusal(d, bore, None, "flange", g) is None
+    assert fluid_refusal(d, bore, rho, mu, None, "flange") is None
+    law = OrificeLaw(d, bore, rho, mu, None, "flange", g)
+    with pytest.raises(ValueError, match="math domain error"):
+        law.state(0.0)  # what the results take at and below the meter's Re_lo
+    plate = element("orifice", "O1", boreDiameter=bore, taps="flange")
+    found = refused(line(plate, d=d, length=1.0, fluid=custom_fluid(rho, mu)))
+    assert (found.code, found.component_ids) == ("ORIFICE_OUT_OF_RANGE", ["O1"])
+    assert found.message == (
+        f"{_meter_head(bore)}with the fluid's density of {rho:g} kg/m³ and dynamic viscosity of "
+        f"{mu:g} Pa·s, ISO 5167-2's discharge coefficient at its flange tappings, which gives "
+        "only the meter's reading, cannot be evaluated at their lowest Reynolds number, 42500 "
+        "(fluids' arithmetic fails there); the solver cannot represent this plate"
+    )
+
+
+@pytest.mark.parametrize("taps", ["corner", "d_and_d_2", None])
+def test_the_same_plate_with_other_taps_solves(taps: str | None) -> None:
+    """ST-API-01's plate and fluid with corner or D and D/2 taps, or none: corner tappings' Re_lo
+    is the loss's (max(5000, 16000 β²)), D and D/2 taps read the loss's C, and a plate without
+    taps has no reading, so nothing is evaluated past the loss's Re_lo and the plate solves."""
+    rho, mu = METER_FLUID
+    kw: dict[str, Any] = {} if taps is None else {"taps": taps}
+    plate = element("orifice", "O1", boreDiameter=0.5, **kw)
+    state = solve_project(line(plate, d=1.0, length=1.0, fluid=custom_fluid(rho, mu)))
+    assert state.converged, state.convergence.message
+
+
+def test_a_closed_off_plate_whose_meter_c_raises_is_refused() -> None:
+    """ST-API-01: R1 → R2, and a branch R1 → V1 → O1 → V2 → R2 whose gate valves are isolated,
+    every pipe 1 m x 1 m (a finite resistance in this fluid), the plate (ISO's C, flange taps,
+    0.5 m bore) in ``METER_FLUID``. With an active gate valve in the plate's place the project
+    solves; 7fcbdb8 and 5948867 solved it with the plate too (a 200), as neither the solve nor
+    the results evaluate a plate in a closed-off section; rule (e) refuses it wherever it is now
+    (a 422), as it refuses a closed-off plate whose Reynolds number per unit flow is infinite."""
+    rho, mu = METER_FLUID
+
+    def project(middle: dict[str, Any]) -> Project:
+        wide = [custom_pipe(1.0, 1.0, 0.0)]
+        data = project_dict(
+            [
+                reservoir("R1", level=10.0, ports=("port_1", "port_2")),
+                element("valve", "V1", valveType="gate", status="isolated"),
+                middle,
+                element("valve", "V2", valveType="gate", status="isolated"),
+                reservoir("R2", level=0.0, ports=("port_1", "port_2")),
+            ],
+            [
+                connection("L1", ("R1", "port_1"), ("R2", "port_1"), pipes=wide),
+                connection("L2", ("R1", "port_2"), ("V1", "inlet"), pipes=wide),
+                connection("L3", ("V1", "outlet"), (middle["id"], "inlet"), pipes=wide),
+                connection("L4", (middle["id"], "outlet"), ("V2", "inlet"), pipes=wide),
+                connection("L5", ("V2", "outlet"), ("R2", "port_2"), pipes=wide),
+            ],
+            fluid=custom_fluid(rho, mu),
+        )
+        return Project.model_validate(data)
+
+    state = solve_project(project(element("valve", "V3", valveType="gate")))
+    assert state.converged, state.convergence.message
+    found = refused(project(element("orifice", "O1", boreDiameter=0.5, taps="flange")))
+    assert (found.code, found.component_ids) == ("ORIFICE_OUT_OF_RANGE", ["O1"])
+    assert found.message.startswith(
+        f"{_meter_head(0.5)}with the fluid's density of {rho:g} kg/m³ and dynamic viscosity of "
+        f"{mu:g} Pa·s, ISO 5167-2's discharge coefficient at its flange tappings"
+    )
+
+
+@pytest.mark.parametrize("taps", ["flange", "corner"])
+def test_a_system_curve_through_a_plate_whose_meter_c_raises_is_refused(taps: str) -> None:
+    """ST-API-01: R1 → P1 → O1 → R2 (1 m x 1 m pipes) in ``METER_FLUID``. A system curve
+    evaluates the plate's loss only, never its reading, so 5948867 gave the curve through a
+    flange-tapped plate (a 200); it is refused now, as the solve is. At corner taps the curve
+    is given."""
+    rho, mu = METER_FLUID
+    wide = [custom_pipe(1.0, 1.0, 0.0)]
+    pump = {
+        **element("pump", "P1", curveId="C1"),
+        "ports": [{"id": "suction", "nominalSize": 0.1}, {"id": "discharge", "nominalSize": 0.1}],
+    }
+    data = project_dict(
+        [
+            reservoir("R1", level=0.0),
+            pump,
+            element("orifice", "O1", boreDiameter=0.5, taps=taps),
+            reservoir("R2", level=10.0),
+        ],
+        [
+            connection("L1", ("R1", "port_1"), ("P1", "suction"), pipes=wide),
+            connection("L2", ("P1", "discharge"), ("O1", "inlet"), pipes=wide),
+            connection("L3", ("O1", "outlet"), ("R2", "port_1"), pipes=wide),
+        ],
+        fluid=custom_fluid(rho, mu),
+    )
+    data["pumpLibrary"] = [
+        {
+            "id": "C1",
+            "name": "test pump",
+            "points": [{"flow": q, "head": h} for q, h in ((0.0, 40.0), (0.5, 30.0), (1.0, 15.0))],
+        }
+    ]
+    project = Project.model_validate(data)
+    if taps == "corner":
+        assert len(system_curve(project, "P1", num_points=5).points) == 5
+        return
+    with pytest.raises(TopologyError) as caught:
+        system_curve(project, "P1", num_points=5)
+    [issue] = caught.value.issues
+    assert (issue.code, issue.component_ids) == ("ORIFICE_OUT_OF_RANGE", ["O1"])
+    assert "at its flange tappings, which gives only the meter's reading" in issue.message
+
+
+def test_a_goal_seek_bound_whose_meter_c_raises_is_a_400_without_values() -> None:
+    """D16/D20 (ST-API-01): a 0.3 m bore at flange taps on a 1 m pipe in ``METER_FLUID`` builds
+    (flange tappings' Re_lo 170000 β² D = 15300, where fluids' velocity μ Re/(D ρ), 1.53e308, is
+    finite); at the bore's upper bound, 0.6 m, Re_lo is 61200 and that velocity overflows. The
+    bound's build refuses it, so the goal seek is a 400 located by index, with no id or value;
+    on 5948867 the bound built and a trial's results raised (a 500)."""
+    from opensolve_pipe.models.api import GoalSeekRequest
+    from opensolve_pipe.services import goal_seek as gs
+
+    rho, mu = METER_FLUID
+    assert math.isfinite(mu * re_lo(0.3, 1.0, "flange") / rho)
+    assert mu * re_lo(0.6, 1.0, "flange") / rho == math.inf
+    plate = element("orifice", "O1", boreDiameter=0.3, taps="flange")
+    case = line(plate, d=1.0, length=1.0, fluid=custom_fluid(rho, mu))
+    request = GoalSeekRequest.model_validate(
+        {
+            "project": case.model_dump(by_alias=True, exclude_unset=True),
+            "variables": [
+                {
+                    "kind": "component",
+                    "componentId": "O1",
+                    "field": "boreDiameter",
+                    "lower": 0.3,
+                    "upper": 0.6,
+                }
+            ],
+            "goals": [{"quantity": "orifice_flow", "elementId": "O1", "target": 0.5}],
+        }
+    )
+    with pytest.raises(gs.GoalSeekInputError) as caught:
+        gs.prepare(request)
+    [issue] = caught.value.issues
+    assert (issue.code, issue.component_ids) == ("ORIFICE_OUT_OF_RANGE", ["O1"])
+    assert issue.message == (
+        "body.variables.0.upper: the orifice's Reynolds number is not representable in floating "
+        "point with the case's fluid at this bore"
     )
 
 

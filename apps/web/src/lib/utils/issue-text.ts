@@ -555,6 +555,16 @@ function orificeFluidWords(rest: string, units: UnitPreferences): [string, strin
 			both
 		];
 	}
+	const meter = ORIFICE_FLUID_METER.exec(rest);
+	if (meter) {
+		const [, density = '', viscosity = '', taps = '', re = ''] = meter;
+		return [
+			`with the fluid's density of ${rho(density)} and dynamic viscosity of ${mu(viscosity)}, ` +
+				`ISO 5167-2's discharge coefficient at its ${taps}, which gives only the meter's ` +
+				`reading, cannot be evaluated at their lowest Reynolds number, ${formatNumber(Number(re), 6)}`,
+			"Use D and D/2 taps or no taps, or check the fluid's density and viscosity."
+		];
+	}
 	return null;
 }
 
@@ -1136,7 +1146,8 @@ const ORIFICE_SLOPE = new RegExp(
  * Rule (e), the case's fluid (the builder's _ORIFICE_FLUID_TAILS after the head, with its
  * ending): μ (Pa·s) for π D μ that underflows; ρ (kg/m³) for (π D²/4) ρ that underflows; ρ and μ
  * for a Reynolds number per unit flow that is not finite, and for ISO 5167-2's C that fluids
- * cannot evaluate at the plate's lowest Reynolds number.
+ * cannot evaluate at the plate's lowest Reynolds number or, for the reading, at its taps' own
+ * (ORIFICE_FLUID_METER).
  */
 const ORIFICE_FLUID_DENOMINATOR = new RegExp(
 	`^with the fluid's dynamic viscosity of ${NUM} Pa·s, ` +
@@ -1170,6 +1181,16 @@ const ORIFICE_FLUID_RE_LO = new RegExp(
 			"ISO 5167-2's discharge coefficient cannot be evaluated at the plate's lowest Reynolds " +
 				"number (fluids' arithmetic fails there); the solver cannot represent this plate"
 		) +
+		'$'
+);
+/** Rule (e) at the meter's taps (iso_at_meter_re_lo, review of 1.6.1): ρ and μ, the plate's
+ * corner or flange tappings, and their lowest Reynolds number, where ISO 5167-2's C for the
+ * reading cannot be evaluated. */
+const ORIFICE_FLUID_METER = new RegExp(
+	`^with the fluid's density of ${NUM} kg/m³ and dynamic viscosity of ${NUM} Pa·s, ` +
+		"ISO 5167-2's discharge coefficient at its (corner tappings|flange tappings), which gives " +
+		`only the meter's reading, cannot be evaluated at their lowest Reynolds number, ${NUM} ` +
+		literal("(fluids' arithmetic fails there); the solver cannot represent this plate") +
 		'$'
 );
 /** "connection 'L1' pipe 2: <the pipe's problem>" (pipes numbered from 1). */

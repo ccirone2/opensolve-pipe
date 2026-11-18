@@ -80,6 +80,30 @@ export const POINT_LABEL_HALO = 3;
 export const POINT_LABEL_CLUSTER = 12;
 /** A ring number with no place of its own joins a ring label this close or closer (px). */
 export const POINT_LABEL_JOIN = 40;
+/**
+ * Dots this close or closer across (px), a quarter of a dot's diameter, are one run in a shared
+ * label's names, which keeps the pumps' order (leftover L19).
+ */
+export const POINT_LABEL_SAME_X = 3;
+
+/**
+ * A shared label's members (indices of `items`) in the order their names are written (leftover
+ * L19): their dots from left to right, so "Pump P3, Pump P2, Pump P1" reads over dots lying P3,
+ * P2, P1. In one greedy pass over the dots sorted by x, a dot within POINT_LABEL_SAME_X px of its
+ * run's first dot joins that run, else it starts the next; a run keeps the pumps' order (the
+ * items'), so dots that coincide are named as the pumps are. No tolerance inside the sort's
+ * comparator: it would not be a consistent order.
+ */
+export function inDotsOrder(items: readonly { x: number }[], own: readonly number[]): number[] {
+	const byX = [...own].sort((a, b) => items[a]!.x - items[b]!.x || a - b);
+	const runs: number[][] = [];
+	for (const i of byX) {
+		const run = runs.at(-1);
+		if (run && items[i]!.x - items[run[0]!]!.x <= POINT_LABEL_SAME_X) run.push(i);
+		else runs.push([i]);
+	}
+	return runs.flatMap((run) => run.sort((a, b) => a - b));
+}
 
 /**
  * The points within `within` px of one another, chained (single link: a point joins a group when
@@ -178,7 +202,8 @@ const ringTag = (numbers: readonly CaseNumber[]) =>
  *   over no mark but its own and over no point's centre, and strictly nearer its own point than
  *   any other point of its kind (a tie names neither point).
  * - Members within POINT_LABEL_CLUSTER px of one another (clusterPoints) share one label: their
- *   names where they fit, else "All pumps" (the cluster holds every member), else "{k} pumps".
+ *   names where they fit, in their dots' order from left to right (inDotsOrder; leftover L19),
+ *   else "All pumps" (the cluster holds every member), else "{k} pumps".
  * - Rings within POINT_LABEL_CLUSTER px of one another share one label too, their numbers in one
  *   box ("[1, 5, 6]"): rings that coincide have no place nearer one than the other, so apart they
  *   would have none (the lineups' cases 1, 5 and 6 on the pump chart, 0.1 to 2.3 px apart).
@@ -339,7 +364,7 @@ export function placePointLabels(
 			if (it.kind === 'group')
 				texts = it.short && it.short !== it.text ? [it.text, it.short] : [it.text];
 			else if (it.kind === 'member') {
-				const names = own.map(
+				const names = inDotsOrder(items, own).map(
 					(k) => (items[k] as Extract<PointLabelItem, { kind: 'member' }>).name
 				);
 				texts = [names.join(', ')];

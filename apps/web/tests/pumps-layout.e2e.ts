@@ -10464,3 +10464,73 @@ test('Leftover L10: the Pumps tab names each case by its number, its box beside 
 	await page.setViewportSize(viewport);
 	await axeClean(page, `the lineups, the long case shown, at ${sizeOf(page)}`);
 });
+
+// ---- Group C: canvases, labels and legends (pumps-nits.md §11.5) -------------------------------
+
+/** The sizes each group C test reads: 1280×800 on the desktop, 390, 360 and 320 on the phone. */
+function groupCSizes(page: Page, isMobile: boolean) {
+	const viewport = page.viewportSize()!;
+	return isMobile
+		? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
+		: [viewport];
+}
+
+// Leftover L19 (pumps-nits.md §8.14 bullet 7): pumps sharing a label were named in the pumps'
+// order, so in the four-speeds view "Pump P1, Pump P2, Pump P3" read over dots lying P3, P2, P1
+// from left to right (x 81.5, 92.6 and 102.0 at 1280). Now in the dots' order, from left to right;
+// dots 3 px apart or closer (from the first of their run) keep the pumps' order.
+test('Leftover L19: a label the pumps share names them in their dots’ order from left to right, in the four-speeds view at 1280×800, 390×844, 360×740 and 320×640 (pumps-nits.md §11.5)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	await fourSpeeds(page);
+	const tab = await pumpsTab(page);
+	await openCard(page, tab);
+	await settle(page, 2500);
+	// The members, in the placer's items in the pumps' order (the group chart's datasets').
+	const pumps = ['Pump P1', 'Pump P2', 'Pump P3', 'Pump P4'];
+	let read = 0;
+	for (const size of groupCSizes(page, isMobile)) {
+		await page.setViewportSize(size);
+		await settle(page, 1500);
+		const where = `four speeds at ${sizeOf(page)}`;
+		await expect
+			.poll(
+				async () => {
+					const g = (await page.evaluate(readPointLabels)).group;
+					return !!g?.points && g.points.plot.right <= g.canvas.width + 0.5;
+				},
+				{ timeout: 30_000 }
+			)
+			.toBe(true);
+		const placed = (await page.evaluate(readPointLabels)).group!.points!;
+		const members = placed.items.flatMap((it, i) => (it.kind === 'member' ? [i] : []));
+		soft(members.length, `four members on the group chart, ${where}`).toBe(4);
+		const nameOf = (i: number) => pumps[members.indexOf(i)]!;
+		for (const label of placed.labels.filter((l) => l.kind === 'member')) {
+			// Written out here: the dots from left to right, a run of dots within 3 px of its first
+			// in the pumps' order.
+			const runs: number[][] = [];
+			for (const i of [...label.items].sort(
+				(a, b) => placed.items[a]!.x - placed.items[b]!.x || a - b
+			)) {
+				const run = runs[runs.length - 1];
+				if (run && placed.items[i]!.x - placed.items[run[0]!]!.x <= 3) run.push(i);
+				else runs.push([i]);
+			}
+			const expected = runs.flatMap((run) => [...run].sort((a, b) => a - b)).map(nameOf);
+			const xs = label.items.map((i) => `${nameOf(i)} ${placed.items[i]!.x.toFixed(1)}`);
+			console.log(`${where}: "${label.text}" over ${xs.join(', ')}`);
+			if (label.items.length < 2 || !label.text.startsWith('Pump ')) continue;
+			read++;
+			soft(label.text, `the names in the dots' order, ${where} (${xs.join(', ')})`).toBe(
+				expected.join(', ')
+			);
+		}
+	}
+	// A shared label of names is read at one size at least (the four-speeds view's three running
+	// pumps share one at every size measured).
+	expect(read, 'a shared label of names read').toBeGreaterThan(0);
+});

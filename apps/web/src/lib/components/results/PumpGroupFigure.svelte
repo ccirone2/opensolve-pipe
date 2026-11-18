@@ -877,10 +877,21 @@
 				{/if}
 			{/each}
 			{#if notes.frame}<p class="text-xs text-slate-700">{notes.frame}</p>{/if}
-			<!-- Keyed by index, never by words: a pump's name need not be unique. -->
-			{#each notes.members as note, i (i)}
-				<p class="text-xs text-slate-700">{note}</p>
-			{/each}
+			<!-- The members' notes: two or more as one list, an item per pump starting with its name,
+				as the ring notes are (leftover L15: three pumps' notes made the card's run of notes 7
+				paragraphs in the four-speeds view, against its budget of 5); one, a paragraph. Keyed
+				by index, never by words: a pump's name need not be unique. -->
+			{#if notes.members.length > 1}
+				<ul class="list-disc pl-4 text-xs text-slate-700">
+					{#each notes.members as note, i (i)}
+						<li>{note}</li>
+					{/each}
+				</ul>
+			{:else}
+				{#each notes.members as note, i (i)}
+					<p class="text-xs text-slate-700">{note}</p>
+				{/each}
+			{/if}
 			{#if notes.dashed}<p class="text-xs text-slate-700">{notes.dashed}</p>{/if}
 			<!-- A point whose label the chart left out, named with its values (nit 5, rule 7). -->
 			{#if notes.notLabelled}<p class="text-xs text-slate-700">{notes.notLabelled}</p>{/if}

@@ -398,3 +398,44 @@ describe('the image names the points its own drawing left unlabelled (rule 7)', 
 		expect(unlabelled(request.drawnLines!())).toEqual([]);
 	});
 });
+
+// Leftover L15 (pumps-nits.md §8.14 bullet 3; §11.5): the card's run of notes reached its budget of
+// 5 paragraphs, and 8 in the four-speeds view, where three pumps each had a note. Two members'
+// notes or more are now one list, an item per pump starting with its name, as the ring notes are.
+describe('the members’ notes (leftover L15)', () => {
+	const squash = (t: string | null) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const notesOf = () => document.querySelector('[data-group-notes]')!;
+
+	it('lists two or more members’ notes as one list, an item per pump starting with its name', async () => {
+		const c = named('ladder');
+		render(PumpGroupChart, props(c));
+		const box = notesOf();
+		const lists = box.querySelectorAll(':scope > ul');
+		expect(lists).toHaveLength(1);
+		expect(lists[0]).toHaveClass('list-disc', 'pl-4', 'text-xs', 'text-slate-700');
+		const items = [...lists[0]!.querySelectorAll(':scope > li')].map((li) =>
+			squash(li.textContent)
+		);
+		expect(items).toHaveLength(2);
+		const names = pumpsOf(c).map((p) => p.name);
+		for (const item of items)
+			expect(
+				names.some((n) => item.startsWith(`${n} `)),
+				item
+			).toBe(true);
+		// Said once: no paragraph repeats an item.
+		const paragraphs = [...box.querySelectorAll('p')].map((p) => squash(p.textContent));
+		for (const item of items) expect(paragraphs).not.toContain(item);
+	});
+
+	it('keeps one member’s note a paragraph', async () => {
+		render(PumpGroupChart, props(named('dead-headed')));
+		const box = notesOf();
+		expect(box.querySelectorAll('ul')).toHaveLength(0);
+		expect(
+			[...box.querySelectorAll('p')].filter((p) =>
+				/^Pump PB delivers nothing/.test(squash(p.textContent))
+			)
+		).toHaveLength(1);
+	});
+});

@@ -2014,6 +2014,20 @@ const STATION_BELOW_HEADER: Readonly<Record<string, number>> = {
  * view, the one-off's) nothing is open, so every run counts.
  */
 const LONGEST_RUN = { card: 5, tab: 6 };
+
+/**
+ * The card's longest run of notes as §5.7 row 7 counts it (collect's runs: three paragraphs or more
+ * with no heading, control, list or list item between them; a run inside an opened disclosure is
+ * not counted), with the runs, for leftover L15's checks at sizes `measure` does not visit.
+ */
+async function cardNotesRun(page: Page): Promise<{ run: number; runs: string[] }> {
+	const data = await page.evaluate(collect);
+	const drawn = data.runs.filter((r) => r.inCard && !r.inDisclosure);
+	return {
+		run: Math.max(0, ...drawn.map((r) => r.paragraphs)),
+		runs: drawn.map((r) => `${r.paragraphs} paragraphs, ${r.words} words, ${r.height} px`)
+	};
+}
 /**
  * §5.7 row 8: the ring notes under "Other cases on the group chart" at 1280×800, "How to read the
  * rings" closed (its default), from the first note under the live line to the last: the lineups'
@@ -10150,6 +10164,12 @@ for (const [view, setUp] of [
 				(view === 'lineups' && sizeOf(page) === '390x844')
 			)
 				soft(tagsOut, `the group system curve's tag left out, ${where}`).toEqual([]);
+			// Leftover L15: the card's longest run of notes within LONGEST_RUN.card at every size.
+			const notesRun = await cardNotesRun(page);
+			console.log(`${where}: the card's runs of notes ${JSON.stringify(notesRun.runs)}`);
+			soft(notesRun.run, `the card's longest run of notes, ${where}`).toBeLessThanOrEqual(
+				LONGEST_RUN.card
+			);
 			const pumpPlot = m.pump?.points?.plot;
 			console.log(
 				`${where}: the pump chart's plot ${pumpPlot?.left.toFixed(1)}..${pumpPlot?.right.toFixed(1)} (${((pumpPlot?.right ?? 0) - (pumpPlot?.left ?? 0)).toFixed(1)} px) of ${m.pump?.canvas.width}`
@@ -10292,6 +10312,12 @@ test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the h
 				placed?.leftOut.map((p) => p.name),
 				`no pump left out, ${where}`
 			).toEqual([]);
+		// Leftover L15: the card's longest run of notes within LONGEST_RUN.card.
+		const notesRun = await cardNotesRun(page);
+		console.log(`${where}: the card's runs of notes ${JSON.stringify(notesRun.runs)}`);
+		soft(notesRun.run, `the card's longest run of notes, ${where}`).toBeLessThanOrEqual(
+			LONGEST_RUN.card
+		);
 	}
 });
 
@@ -10333,6 +10359,12 @@ test('Reviews DOTS-LABELS-B4 and B5: four member lines, every two swatches apart
 	const labels = (await page.evaluate(readPointLabels)).group;
 	console.log(`${where}: left out ${JSON.stringify(labels?.points?.leftOut.map((p) => p.name))}`);
 	soft(pointLabelFindings(labels), `the point labels, ${where}`).toEqual([]);
+	// Leftover L15: three pumps' notes as one list; the card's longest run within LONGEST_RUN.card.
+	const notesRun = await cardNotesRun(page);
+	console.log(`${where}: the card's runs of notes ${JSON.stringify(notesRun.runs)}`);
+	soft(notesRun.run, `the card's longest run of notes, ${where}`).toBeLessThanOrEqual(
+		LONGEST_RUN.card
+	);
 	const legend = card.getByRole('list', { name: 'Legend' });
 	const memberLines = legend
 		.getByRole('listitem')

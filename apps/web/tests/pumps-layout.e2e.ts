@@ -7901,7 +7901,25 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 		const group = figure.getByRole('group', { name: 'Show' });
 		const chips = group.getByRole('button');
 		await expect(chips).toHaveText(['Efficiency', 'Shaft power', 'NPSH']);
-		const pressAt = async (i: number, where: string, by: 'pointer' | 'key' = 'pointer') => {
+		/**
+		 * Below the Show row (leftover L8): the figure's words and lines under the row, px, less the
+		 * room held at its foot, and that room.
+		 */
+		const below = () =>
+			figure.evaluate((el, row) => {
+				const room = parseFloat(getComputedStyle(el).paddingBottom);
+				const r = el.querySelector(`[role="group"][aria-label="${row}"]`)!;
+				return {
+					content: el.getBoundingClientRect().bottom - room - r.getBoundingClientRect().bottom,
+					room
+				};
+			}, 'Show');
+		const pressAt = async (
+			i: number,
+			where: string,
+			by: 'pointer' | 'key' = 'pointer',
+			againOn = false
+		) => {
 			await scrollPane(page, { to: 1e7 });
 			await page.waitForTimeout(100);
 			const chip = chips.nth(i);
@@ -7911,6 +7929,7 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 			const before = await group.evaluate(readChips, point);
 			const what = `${before.chips[i]!.name} pressed ${was === 'true' ? 'off' : 'on'} by ${by} ${where}, ${example} at ${sizeOf(page)}`;
 			expect(before.hit, `the chip at the point pressed, ${what}`).toBe(before.chips[i]!.name);
+			const underBefore = await below();
 			if (by === 'key') {
 				await chip.focus();
 				await page.keyboard.press('Space');
@@ -7918,9 +7937,21 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 			await expect(chip).toHaveAttribute('aria-pressed', was === 'true' ? 'false' : 'true');
 			await page.waitForTimeout(300);
 			const after = await group.evaluate(readChips, point);
+			// The room held at the figure's foot, the blank band a press can leave at the pane's end
+			// (leftover L8, left: pumps-nits.md §11.4): a press resets it, so the row keeps still
+			// only with room for all that left the pane's range below it, its notes and readout lines
+			// and the room held before. Never more than that; none after a chip pressed back on
+			// straight after its own off press.
+			const underAfter = await below();
+			const left = underBefore.content - underAfter.content + underBefore.room;
 			console.log(
-				`${what}: tops ${before.chips.map((c) => c.top).join(' ')} -> ${after.chips.map((c) => c.top).join(' ')}; at the point ${after.hit}`
+				`${what}: tops ${before.chips.map((c) => c.top).join(' ')} -> ${after.chips.map((c) => c.top).join(' ')}; at the point ${after.hit}; below the row ${underBefore.content} -> ${underAfter.content} px, the room held ${underBefore.room} -> ${underAfter.room} px`
 			);
+			soft(
+				underAfter.room,
+				`the room held, no more than what left below the row, ${what}`
+			).toBeLessThanOrEqual(Math.max(0, Math.ceil(left)));
+			if (againOn) soft(underAfter.room, `no room held, pressed back on, ${what}`).toBe(0);
 			soft(after.row, `the row's height, ${what}`).toBe(before.row);
 			for (const [k, c] of after.chips.entries()) {
 				const b = before.chips[k]!;
@@ -7938,7 +7969,9 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 		// Each chip off in turn, then on in turn, the pane at its end before each press; then Shaft
 		// power off and on from the keyboard.
 		for (const i of [0, 1, 2, 0, 1, 2]) await pressAt(i, '(the pane at its end)');
-		for (const turn of [1, 2]) await pressAt(1, `(the pane at its end, turn ${turn})`, 'key');
+		for (const turn of [1, 2]) {
+			await pressAt(1, `(the pane at its end, turn ${turn})`, 'key', turn === 2);
+		}
 		// What a press held below the chart's notes goes once it is scrolled out of sight below the
 		// pane, so no blank band is left at the chart's foot.
 		await pressAt(1, '(the pane at its end, then scrolled to its top)');
@@ -7948,7 +7981,7 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 			await figure.evaluate((el) => getComputedStyle(el).paddingBottom),
 			`the room held below the chart's notes once out of sight, ${example}`
 		).toBe('0px');
-		await pressAt(1, '(the pane at its end, after it was scrolled to its top)');
+		await pressAt(1, '(the pane at its end, after it was scrolled to its top)', 'pointer', true);
 	}
 });
 

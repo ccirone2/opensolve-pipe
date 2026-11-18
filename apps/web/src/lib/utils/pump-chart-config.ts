@@ -1701,12 +1701,14 @@ export function pumpGroupConfig(
 				showLine: false,
 				caseLabel: p.name,
 				pointItem: { kind: 'member' as const, id: p.id, name: p.name },
+				// Keyed: the legend names it where its label is left out (leftover L13).
 				notLabelled: [
 					{
 						name: p.held ? `${p.name}, held at zero flow` : p.name,
 						mark: 'point' as const,
 						flow: `${fmt(p.point.x)} ${d.flowUnit}`,
-						head: `${fmt(p.point.y)} ${d.headUnit}`
+						head: `${fmt(p.point.y)} ${d.headUnit}`,
+						key: `point-${p.id}`
 					}
 				],
 				...(p.held ? {} : { legend: false }),
@@ -1737,7 +1739,8 @@ export function pumpGroupConfig(
 								name: 'Group',
 								mark: 'point' as const,
 								flow: `${fmt(d.station.flow)} ${d.flowUnit}`,
-								head: `${fmt(d.station.point.y)} ${d.headUnit}`
+								head: `${fmt(d.station.point.y)} ${d.headUnit}`,
+								key: 'station'
 							}
 						]
 					}

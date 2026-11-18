@@ -435,6 +435,12 @@ export interface NotLabelledPoint {
 	/** Where it is, in display units with their unit: "40.75 L/s", "23.68 m". */
 	flow: string;
 	head: string;
+	/**
+	 * The group chart's key (leftover L13): a pump's point, 'point-{id}', or the Group's,
+	 * 'station', is named in the legend by its entry, not in the notes; a ring or a curve's tag has
+	 * none.
+	 */
+	key?: string;
 }
 
 /**

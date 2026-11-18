@@ -774,10 +774,11 @@ export interface GroupLegendItem {
 	dash?: number[];
 	/**
 	 * A marker's mark (chart-marks.ts CHART_MARKS): the Group's ink dot, another case's slate ring,
-	 * or a held pump's diamond in `color`, its line's. Drawn from the canvas's own spec, never a
+	 * a held pump's diamond in `color`, its line's, or a running pump's dot in it (`member`: its
+	 * point left unlabelled on the chart, leftover L13). Drawn from the canvas's own spec, never a
 	 * character (nit 5, rules 1 and 8; slice 5c).
 	 */
-	mark?: 'group' | 'ring' | 'held';
+	mark?: 'group' | 'ring' | 'held' | 'member';
 	/**
 	 * An other case's ring: its cases' numbers, which `label` names ("Case 1: …", as the image's
 	 * legend does); no character stands for it (nit 5, slice 5b).
@@ -788,17 +789,61 @@ export interface GroupLegendItem {
 /**
  * The legend, in the chart's dataset order: one entry per line, then the marks that say a fact (a
  * pump held at zero flow, the Group's duty, the other cases' rings). A running member's point has
- * none: the chart names it beside its dot, and its line's entry names it (nit 5, rule 2; slice 5c).
+ * none while the chart names it beside its dot, and its line's entry names it (nit 5, rule 2;
+ * slice 5c).
+ *
+ * Leftover L13, the key by name (`keyed`: the points of this case the chart's drawing left
+ * unlabelled, as its notes would name them, each with its `key`): a running pump's point gets an
+ * entry right after its line's entry, its dot in the line's colour (`mark: 'member'`), "{name},
+ * its point at {flow} and {head}"; pumps of one line with equal values one entry, "{names},
+ * their points at …", in the pumps' order. A held pump's entry and the Group's gain ", its point at
+ * {flow} and {head}". No number or character stands for a pump (nit 5, Q1): its name, its mark.
  */
-export function groupLegend(data: GroupChartData): GroupLegendItem[] {
-	return [
-		...data.lines.map((line): GroupLegendItem => ({
-			key: `line-${line.ids.join()}`,
-			label: line.label,
-			kind: 'line',
+export function groupLegend(
+	data: GroupChartData,
+	keyed: readonly NotLabelledPoint[] = []
+): GroupLegendItem[] {
+	const keys = new Map(keyed.flatMap((p) => (p.key ? [[p.key, p] as const] : [])));
+	const at = (p: NotLabelledPoint) => `${p.flow} and ${p.head}`;
+	/** A running pump's point left out, after its line's entry; equal values in one entry. */
+	const pointsOf = (line: GroupLine): GroupLegendItem[] => {
+		const runs: { ids: string[]; names: string[]; values: string }[] = [];
+		for (const p of data.points) {
+			const left = keys.get(`point-${p.id}`);
+			if (p.held || !left || !line.ids.includes(p.id)) continue;
+			const run = runs.find((r) => r.values === at(left));
+			if (run) {
+				run.ids.push(p.id);
+				run.names.push(p.name);
+			} else runs.push({ ids: [p.id], names: [p.name], values: at(left) });
+		}
+		return runs.map((r) => ({
+			key: `point-${r.ids.join('-')}`,
+			label:
+				r.ids.length === 1
+					? `${r.names[0]}, its point at ${r.values}`
+					: `${andList(r.names)}, their points at ${r.values}`,
+			kind: 'marker',
 			color: line.style.color,
-			dash: line.style.dash
-		})),
+			mark: 'member'
+		}));
+	};
+	/** ", its point at {flow} and {head}" where `key`'s label is left out, else nothing. */
+	const valuesOf = (key: string) => {
+		const left = keys.get(key);
+		return left ? `, its point at ${at(left)}` : '';
+	};
+	return [
+		...data.lines.flatMap((line): GroupLegendItem[] => [
+			{
+				key: `line-${line.ids.join()}`,
+				label: line.label,
+				kind: 'line',
+				color: line.style.color,
+				dash: line.style.dash
+			},
+			...pointsOf(line)
+		]),
 		...(data.curve?.solid.length
 			? [
 					{
@@ -850,7 +895,7 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 			.filter((p) => p.held)
 			.map((p): GroupLegendItem => ({
 				key: `point-${p.id}`,
-				label: `${p.name}, held at zero flow`,
+				label: `${p.name}, held at zero flow${valuesOf(`point-${p.id}`)}`,
 				kind: 'marker',
 				color: p.style.color,
 				mark: 'held'
@@ -860,7 +905,7 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 			? [
 					{
 						key: 'station',
-						label: data.station.label,
+						label: `${data.station.label}${valuesOf('station')}`,
 						kind: 'marker' as const,
 						color: GROUP_INK,
 						mark: 'group' as const

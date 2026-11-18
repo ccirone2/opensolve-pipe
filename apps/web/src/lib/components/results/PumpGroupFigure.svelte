@@ -122,6 +122,11 @@
 		 */
 		notes: GroupNotes;
 		notesWith: (leftOut: number, notLabelled?: readonly NotLabelledPoint[]) => GroupNotes;
+		/**
+		 * The points of this case (a pump, the Group) the chart on screen left unlabelled, keyed in the
+		 * legend by name with their values in place of the notes (leftover L13).
+		 */
+		keyed?: readonly NotLabelledPoint[];
 		/** Why the pumps are not a station, or their group curve not defined: the image's reasons. */
 		refusals: readonly Refusal[];
 		/** The members' names, in the station's order once known; and its arrangement. */
@@ -185,6 +190,7 @@
 		stationShown,
 		notes,
 		notesWith,
+		keyed = [],
 		refusals,
 		memberNames,
 		arrangement,
@@ -243,7 +249,7 @@
 	 */
 	const caseTitle = $derived(caseName ? caseNamed(caseTag, caseName) : undefined);
 	const summary = $derived(groupSummary(data, members, shown, project, systemShown));
-	const legend = $derived(groupLegend(data));
+	const legend = $derived(groupLegend(data, keyed));
 	const samples = $derived(
 		shown ? groupSampleRows(shown, shown.station.memberIds, prefs, project) : []
 	);
@@ -494,11 +500,15 @@
 	/**
 	 * A marker entry's swatch (nit 5, rule 8; slice 5c): its mark as the canvas draws it, from the
 	 * one spec (chart-marks.ts): the Group's ink dot, another case's slate ring, a held pump's
-	 * hollow diamond in its line's colour; its box holds the whole mark, its border's outer half too.
+	 * hollow diamond in its line's colour, a running pump's dot in it where the key names its point
+	 * (leftover L13); its box holds the whole mark, its border's outer half too.
 	 */
-	const swatchOf = (item: { mark?: 'group' | 'ring' | 'held'; color: string }): ChartMark =>
-		item.mark === 'held'
-			? memberMark(item.color, true)
+	const swatchOf = (item: {
+		mark?: 'group' | 'ring' | 'held' | 'member';
+		color: string;
+	}): ChartMark =>
+		item.mark === 'held' || item.mark === 'member'
+			? memberMark(item.color, item.mark === 'held')
 			: item.mark === 'ring'
 				? CHART_MARKS.ring
 				: CHART_MARKS.group;

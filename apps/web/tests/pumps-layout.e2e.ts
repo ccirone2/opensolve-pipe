@@ -9711,6 +9711,12 @@ interface PlacedRead {
 	widths: number[];
 	/** The notes' "Not labelled on the chart: …" sentences, each with whether it is on screen. */
 	notes: { text: string; seen: boolean }[];
+	/**
+	 * The page's legend under the chart (the group chart's; none for the pump chart's canvas
+	 * legend): each entry's words, its swatch's mark (a line, or `data-mark`), its swatch's colour
+	 * (a line's stroke, a mark's fill), and whether it is on screen (leftover L13's key by name).
+	 */
+	legend: { text: string; mark: string | null; color: string | null; seen: boolean }[];
 }
 
 /**
@@ -9744,7 +9750,19 @@ function readPointLabels(): { pump: PlacedRead | null; group: PlacedRead | null 
 			widths: (points?.labels ?? []).map((l) => measure.measureText(l.text).width),
 			notes: [...(figure.querySelector(notesAt)?.querySelectorAll('p') ?? [])]
 				.filter((p) => squash(p.textContent).startsWith('Not labelled on the chart'))
-				.map((p) => ({ text: squash(p.textContent), seen: seen(p) }))
+				.map((p) => ({ text: squash(p.textContent), seen: seen(p) })),
+			legend: [
+				...(figure.querySelector('[aria-label="Legend"]')?.querySelectorAll('li') ?? [])
+			].map((li) => {
+				const line = li.querySelector('svg line');
+				const mark = li.querySelector('svg [data-mark]');
+				return {
+					text: squash(li.textContent),
+					mark: line ? 'line' : (mark?.getAttribute('data-mark') ?? null),
+					color: line?.getAttribute('stroke') ?? mark?.getAttribute('fill') ?? null,
+					seen: seen(li)
+				};
+			})
 		};
 	};
 	const figures = [...panel.querySelectorAll('figure')];
@@ -9956,7 +9974,40 @@ function pointLabelFindings(m: PlacedRead | null): string[] {
 		);
 	if (!items.some((it) => it.kind !== 'ring') && placed.leftOut.length !== rings)
 		found.push(`${rings} rings without a label, ${placed.leftOut.length} named in the notes`);
-	const notLabelled = [...placed.leftOut, ...(m.curves?.tagsLeftOut ?? [])];
+	// Leftover L13: a point of this case (a pump, the Group: its mark a point, not a ring) is
+	// named in the legend's key, with its own mark and its values, a running pump's entry right
+	// after its line's; the notes name only the rest (the rings, a curve's tag).
+	const keyed = placed.leftOut.filter((p) => p.mark === 'point');
+	for (const p of keyed) {
+		const values = `at ${p.flow} and ${p.head}`;
+		const k = m.legend.findIndex(
+			(e) =>
+				(e.text.endsWith(`its point ${values}`) || e.text.endsWith(`their points ${values}`)) &&
+				(p.name === 'Group' ? e.text.startsWith('Group') : e.text.includes(p.name))
+		);
+		const entry = m.legend[k];
+		if (!entry) {
+			found.push(`${p.name}, its point ${values}, is in no legend entry`);
+			continue;
+		}
+		if (!entry.seen) found.push(`"${entry.text}" is not on screen`);
+		const want =
+			p.name === 'Group' ? 'group' : p.name.endsWith('held at zero flow') ? 'held' : 'member';
+		if (entry.mark !== want)
+			found.push(`"${entry.text}" has the swatch ${entry.mark}, not ${want}`);
+		if (want === 'member') {
+			const line = m.legend.slice(0, k).findLast((e) => e.mark === 'line');
+			const between = m.legend.slice(m.legend.indexOf(line!) + 1, k);
+			if (!line || !line.text.includes(p.name) || between.some((e) => e.mark !== 'member'))
+				found.push(`"${entry.text}" is not right after its line's entry`);
+			else if (line.color !== entry.color)
+				found.push(`"${entry.text}"'s dot ${entry.color} is not its line's ${line.color}`);
+		}
+	}
+	const notLabelled = [
+		...placed.leftOut.filter((p) => p.mark !== 'point'),
+		...(m.curves?.tagsLeftOut ?? [])
+	];
 	if ((m.curves?.tagsLeftOut ?? []).some((t) => t.mark !== 'end'))
 		found.push(`a tag left out is not named by its curve's end`);
 	const sentence = notLabelled.length
@@ -10180,7 +10231,7 @@ for (const [view, setUp] of [
 // diamond has at the plot's left edge, and Pump PB, held at zero flow, was left out at 1024×768,
 // 1152×864, 390×844 and 360×740 although both labels fit there: the placer tries once more with a
 // pump left out first among the pumps.
-test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the held one too, where both labels fit, at 1024×768 and 1280×800, 390×844 and 360×740 (pumps-nits.md item 5, rule 7)', async ({
+test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the held one too, where both labels fit, at 1024×768 and 1280×800, 390×844 and 360×740; at 320×640 a pump left out keyed by name in the legend (pumps-nits.md item 5, rule 7; §11.5, leftover L13)', async ({
 	page,
 	isMobile
 }) => {
@@ -10194,10 +10245,13 @@ test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the h
 	const duties = card.getByRole('checkbox', { name: "Also show the other cases' station duties" });
 	if (!(await duties.isChecked())) await duties.check();
 	await settle(page, 2500);
+	// Leftover L13: 320×640 added, where Pump PB, held at zero flow, was named only in the notes
+	// (design C): every point left out is keyed in the legend by name (pointLabelFindings).
 	const sizes = isMobile
 		? [
 				{ width: 390, height: 844 },
-				{ width: 360, height: 740 }
+				{ width: 360, height: 740 },
+				{ width: 320, height: 640 }
 			]
 		: [
 				{ width: 1024, height: 768 },
@@ -10207,6 +10261,7 @@ test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the h
 		await page.setViewportSize(size);
 		await settle(page, 1500);
 		const where = `the dead-headed group chart at ${sizeOf(page)}`;
+		const small = size.width === 320;
 		await expect
 			.poll(
 				async () => {
@@ -10222,14 +10277,21 @@ test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the h
 			`${where}: labelled ${JSON.stringify(placed?.labels.map((l) => l.text))}; left out ${JSON.stringify(placed?.leftOut.map((p) => p.name))}`
 		);
 		soft(pointLabelFindings(read), `the point labels, ${where}`).toEqual([]);
-		soft(
-			placed?.labels.filter((l) => l.kind === 'member').map((l) => l.text),
-			`both pumps named, ${where}`
-		).toEqual(expect.arrayContaining(['Pump PA', 'Pump PB']));
-		soft(
-			placed?.leftOut.map((p) => p.name),
-			`no pump left out, ${where}`
-		).toEqual([]);
+		// Each pump named on the chart, or, at 320 px, in the legend's key (pointLabelFindings).
+		const named = [
+			...(placed?.labels.filter((l) => l.kind === 'member').map((l) => l.text) ?? []),
+			...(small
+				? (placed?.leftOut.map((p) => p.name.replace(/, held at zero flow$/, '')) ?? [])
+				: [])
+		];
+		soft(named, `both pumps named, ${where}`).toEqual(
+			expect.arrayContaining(['Pump PA', 'Pump PB'])
+		);
+		if (!small)
+			soft(
+				placed?.leftOut.map((p) => p.name),
+				`no pump left out, ${where}`
+			).toEqual([]);
 	}
 });
 
@@ -10263,6 +10325,14 @@ test('Reviews DOTS-LABELS-B4 and B5: four member lines, every two swatches apart
 	const card = await openCard(page, tab);
 	await settle(page, 2500);
 	const where = `four speeds at ${sizeOf(page)}`;
+	// Leftover L13: Pump P4, held at zero flow, left out at every size (design C), keyed in the
+	// legend by name with its values, the notes naming no pump (pointLabelFindings).
+	await expect
+		.poll(async () => !!(await page.evaluate(readPointLabels)).group?.points, { timeout: 30_000 })
+		.toBe(true);
+	const labels = (await page.evaluate(readPointLabels)).group;
+	console.log(`${where}: left out ${JSON.stringify(labels?.points?.leftOut.map((p) => p.name))}`);
+	soft(pointLabelFindings(labels), `the point labels, ${where}`).toEqual([]);
 	const legend = card.getByRole('list', { name: 'Legend' });
 	const memberLines = legend
 		.getByRole('listitem')

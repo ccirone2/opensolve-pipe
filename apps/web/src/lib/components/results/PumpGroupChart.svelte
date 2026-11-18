@@ -338,12 +338,20 @@
 			labelsLeftOut: leftOut,
 			notLabelled
 		});
+	/** The points the chart on screen left out, as its drawing of this data told them. */
+	const leftOutNow = $derived(pointsLeftOut.of === data ? pointsLeftOut.points : []);
+	/**
+	 * Those of this case (a pump, the Group): the legend keys them by name with their values
+	 * (leftover L13); the notes name the rest (the rings, a curve's tag). The image's notes name
+	 * every point its own drawing leaves out.
+	 */
+	const keyed = $derived(leftOutNow.filter((p) => p.key));
 	// Only while other cases' curves are drawn: a count kept from an earlier drawing never shows;
 	// nor do points named by a drawing of other data, until the chart is drawn again.
 	const notes = $derived(
 		notesWith(
 			data.otherCurves.length ? labelsLeftOut : 0,
-			pointsLeftOut.of === data ? pointsLeftOut.points : []
+			leftOutNow.filter((p) => !p.key)
 		)
 	);
 	/** Refused only for an active PRV or PSV inside: a station, whose group curve is not defined. */
@@ -573,6 +581,7 @@
 					{stationShown}
 					{notes}
 					{notesWith}
+					{keyed}
 					{refusals}
 					{memberNames}
 					{arrangement}

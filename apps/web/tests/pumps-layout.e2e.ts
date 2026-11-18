@@ -10068,6 +10068,25 @@ for (const [view, setUp] of [
 				// group chart its members and the Group.
 				soft(placed?.labels.length, `${chart}'s point labels drawn, ${where}`).toBeGreaterThan(0);
 			}
+			// Leftover L21b (pumps-nits.md §11.5): curve labels on one row 6 px apart or more; at
+			// 3 px they read as one ("[1, 2] 1 running" 4.2 px from "2 running (this case)").
+			const curveLabels = m.group?.curves?.labels ?? [];
+			const tooClose = curveLabels.flatMap((a, i) =>
+				curveLabels
+					.slice(i + 1)
+					.filter(
+						(b) =>
+							a.box.top < b.box.bottom &&
+							b.box.top < a.box.bottom &&
+							boxGap(a.box, b.box) < 6 - 0.01
+					)
+					.map((b) => `"${a.text}" ${boxGap(a.box, b.box).toFixed(1)} px from "${b.text}"`)
+			);
+			soft(tooClose, `curve labels on one row 6 px apart, ${where}`).toEqual([]);
+			const pumpPlot = m.pump?.points?.plot;
+			console.log(
+				`${where}: the pump chart's plot ${pumpPlot?.left.toFixed(1)}..${pumpPlot?.right.toFixed(1)} (${((pumpPlot?.right ?? 0) - (pumpPlot?.left ?? 0)).toFixed(1)} px) of ${m.pump?.canvas.width}`
+			);
 			soft(
 				[...new Set(m.group?.points?.items.map((it) => it.kind))].sort(),
 				`the group chart's points, ${where}`

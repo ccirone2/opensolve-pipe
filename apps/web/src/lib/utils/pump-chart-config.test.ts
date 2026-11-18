@@ -1167,6 +1167,86 @@ describe('the pump chart’s legend draws each line in its dataset’s dashes (l
 	});
 });
 
+// Leftover L21c (pumps-nits.md §8.14 bullet 8; §11.5): Chart.js gives each of the left stack's y
+// axes at most the canvas's width / 2 / their count, so on a phone the four panels' axes were
+// 42.5, 38.8 and 33.8 px wide at 390, 360 and 320 px where about 49 px is needed, and the ticks
+// overprinted the axis titles. Each stacked y axis now takes the width its title, tick, padding
+// and widest tick label need, as Chart.js's own fit sums them.
+describe('the pump chart’s stacked y axes as wide as their titles and ticks need (leftover L21c)', () => {
+	const full = pumpResult({
+		efficiencyCurve: [
+			{ flow: 0.004, efficiency: 0.4 },
+			{ flow: 0.012, efficiency: 0.7 },
+			{ flow: 0.02, efficiency: 0.6 }
+		],
+		powerCurve: [
+			{ flow: 0.004, shaftPower: 2000 },
+			{ flow: 0.02, shaftPower: 5000 }
+		],
+		npshrCurve: [
+			{ flow: 0, npshr: 1 },
+			{ flow: 0.03, npshr: 4 }
+		]
+	});
+	const data = pumpChartData(full, SI_UNITS, [0, 0.03], systemCurveResponse());
+	const ids = ['y', 'yEfficiency', 'yPower', 'yNpsh'];
+	/** Each y axis's width and what it needs, Chart.js laying the chart out at `width` × 544. */
+	const axes = (width: number, config = configOf()) => {
+		const chart = laidOut(config, width, 544);
+		try {
+			return ids.map((id) => {
+				const scale = chart.scales[id]!;
+				const widest = Math.max(...scale.ticks.map((t) => String(t.label).length * 6));
+				// Chart.js's fit, uncapped: the title (12 px × 1.2 line, 4 px above and below), the
+				// tick (8 px), the tick label's padding each side (3 px) and the widest label.
+				return { id, width: scale.width, needs: 12 * 1.2 + 8 + 8 + 2 * 3 + widest };
+			});
+		} finally {
+			chart.destroy();
+		}
+	};
+	const configOf = () =>
+		pumpChartConfig(data, [], {
+			speedText: '100 % speed',
+			legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+			format: (v) => formatNumber(v, 4),
+			panels: ['head', 'efficiency', 'power', 'npsh'],
+			compactLabels: true
+		});
+
+	it('gives each of the four panels’ y axes the width it needs on a 270 px phone canvas', () => {
+		const phone = axes(270);
+		// Chart.js's cap there: (270 − its padding) / 2 / 4 at most.
+		for (const axis of phone) {
+			expect(axis.needs, axis.id).toBeGreaterThan(270 / 2 / 4);
+			expect(axis.width, axis.id).toBeGreaterThanOrEqual(axis.needs - 1e-9);
+		}
+	});
+
+	it('leaves the axes as Chart.js fits them where they fit (454 px)', () => {
+		const own = configOf();
+		const plain = configOf();
+		for (const scale of Object.values(plain.options!.scales!))
+			delete (scale as { afterFit?: unknown }).afterFit;
+		expect(axes(454, own).map((a) => a.width)).toEqual(axes(454, plain).map((a) => a.width));
+	});
+});
+
+/** Chart.js lays out `config` on a `width` × `height` canvas (BasicPlatform; 6 px a character). */
+function laidOut(config: ReturnType<typeof pumpChartConfig>, width: number, height: number) {
+	const ctx: Record<string | symbol, unknown> = new Proxy({} as Record<string | symbol, unknown>, {
+		get(target, prop) {
+			if (prop in target) return target[prop];
+			if (prop === 'measureText') return (text: string) => ({ width: String(text).length * 6 });
+			if (prop === 'getLineDash') return () => [];
+			return () => undefined;
+		}
+	});
+	const canvas = { width, height, style: {}, getContext: () => ctx };
+	ctx.canvas = canvas;
+	return new Chart(canvas as never, { ...config, platform: BasicPlatform } as never);
+}
+
 /**
  * Chart.js lays out and draws `config` on a canvas of `width` × `height` in the `server` project
  * (BasicPlatform, no DOM), the context recording each stroke's dashes and points (text measured at

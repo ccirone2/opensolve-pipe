@@ -147,11 +147,12 @@ export function labelTag(text: string): { tag: string | null; words: string } {
  * words after it in the fill colour set. The font, fill and alignment are set back as they were.
  * Called only with labels the code tags (labelTag); a pump's name goes to fillText as typed.
  *
- * Without `halo` the box is not filled, as the curves' labels are drawn (D24 §9.3): they are placed
- * clear of the marks, but a white box hid the mark under a label that fell on one (slice 5b). With
- * `halo`, a point's label (placePointLabels, which keeps it off every mark but its own: nit 5, rule
- * 7; slice 5c), the box is filled with it and the words drawn over a POINT_LABEL_HALO px stroke of
- * it, so the label reads over a curve under it.
+ * With `halo`, a point's label (placePointLabels, which keeps it off every mark but its own: nit 5,
+ * rule 7; slice 5c) or a curve's (placeCurveLabels, clear of every mark too: leftover L21a), the box
+ * is filled with it and the words drawn over a POINT_LABEL_HALO px stroke of it, so the label reads
+ * over a curve under it. (Slice 5b drew the curves' labels unfilled, since a white box hid a mark a
+ * label fell on; they are placed clear of the marks since, and a dashed curve ran through their
+ * digits.) Without `halo` the box is not filled.
  */
 export function fillLabel(
 	ctx: CanvasRenderingContext2D,
@@ -535,6 +536,95 @@ function spanDrawnFlows(datasets: readonly { data: ChartDatum[]; spanDrawnFlows?
 /** A percentage written briefly ("70", "62.5"). */
 function trim(value: number): string {
 	return String(Number(value.toFixed(1)));
+}
+
+/** A scale as its `afterFit` sees it: the parts of Chart.js's Scale read here, all public. */
+interface FittedScale {
+	ctx: CanvasRenderingContext2D;
+	width: number;
+	chart: { options: { font?: FontSpec } };
+	ticks: { label?: string | string[] | number }[];
+	options: {
+		display?: boolean | 'auto';
+		title: { display?: boolean; text?: string | string[]; font?: FontSpec; padding?: unknown };
+		grid: { drawTicks?: boolean; tickLength?: number };
+		ticks: { display?: boolean; padding?: number; font?: FontSpec; mirror?: boolean };
+	};
+}
+
+/** A font as Chart.js's options give it: any field left out is the chart's own (`font`). */
+export interface FontSpec {
+	family?: string;
+	size?: number;
+	style?: string;
+	weight?: string | number | null;
+	lineHeight?: number | string;
+}
+
+/**
+ * A font's fields, each from `font` or else from `fallback` (the chart's `options.font`, Chart.js's
+ * defaults), as Chart.js's toFont fills them: the canvas's `font` string ("normal 12px 'Helvetica
+ * Neue', …") and the line height in px. Read field by field: Chart.js's options are proxies whose
+ * fields do not spread.
+ */
+export function canvasFont(
+	font: FontSpec | undefined,
+	fallback: FontSpec | undefined
+): { string: string; size: number; lineHeight: number } {
+	const size = font?.size ?? fallback?.size ?? 12;
+	const style = font?.style ?? fallback?.style;
+	const weight = font?.weight ?? fallback?.weight;
+	const family = font?.family ?? fallback?.family ?? 'sans-serif';
+	const h = font?.lineHeight ?? fallback?.lineHeight ?? 1.2;
+	const lineHeight =
+		typeof h === 'string' && h.endsWith('px')
+			? Number.parseFloat(h)
+			: (typeof h === 'number' ? h : Number.parseFloat(h)) * size;
+	return {
+		string: `${style ? `${style} ` : ''}${weight ? `${weight} ` : ''}${size}px ${family}`,
+		size,
+		lineHeight
+	};
+}
+
+/**
+ * A stacked y axis's `afterFit` (leftover L21c): Chart.js gives each axis of the left stack at most
+ * the canvas's width / 2 / their count (its layout's vBoxMaxWidth), so on a phone the four panels'
+ * axes were 34 to 43 px wide where about 49 px is needed, and their tick labels overprinted their
+ * titles. Raised to what Chart.js's own fit sums uncapped: the title's band (its lines at the
+ * font's line height, and its padding), the tick's length, the tick label's padding each side and
+ * the widest tick label, measured with the chart's context in the scale's tick font (never
+ * Chart.js's internal label sizes). Never narrowed: where the axis fits it is as Chart.js made it.
+ */
+function fitStackedAxis(axis: unknown): void {
+	const scale = axis as FittedScale;
+	const { title, grid, ticks } = scale.options;
+	if (scale.options.display === false || ticks.display === false || ticks.mirror) return;
+	const chartFont = scale.chart.options.font;
+	const padding = (p: unknown): number => {
+		if (typeof p === 'number') return 2 * p;
+		const box = (p ?? {}) as { top?: number; bottom?: number; y?: number };
+		return (box.top ?? box.y ?? 0) + (box.bottom ?? box.y ?? 0);
+	};
+	const band = title.display
+		? (Array.isArray(title.text) ? title.text.length : 1) *
+				canvasFont(title.font, chartFont).lineHeight +
+			padding(title.padding)
+		: 0;
+	const tick = grid.drawTicks === false ? 0 : (grid.tickLength ?? 8);
+	const { ctx } = scale;
+	const font = ctx.font;
+	ctx.font = canvasFont(ticks.font, chartFont).string;
+	const widest = Math.max(
+		0,
+		...scale.ticks.flatMap((t) =>
+			(Array.isArray(t.label) ? t.label : [t.label ?? '']).map(
+				(l) => ctx.measureText(String(l)).width
+			)
+		)
+	);
+	ctx.font = font;
+	scale.width = Math.max(scale.width, band + tick + 2 * (ticks.padding ?? 3) + widest);
 }
 
 /**
@@ -985,7 +1075,12 @@ export function pumpChartConfig(
 		grid: { color: GRID },
 		ticks: { color: TEXT, ...(key === 'head' ? {} : { maxTicksLimit: 4 }), ...font(14) },
 		...(panels.length > 1
-			? { stack: 'panels', stackWeight: PANEL_AXES[key].weight, offset: true }
+			? {
+					stack: 'panels',
+					stackWeight: PANEL_AXES[key].weight,
+					offset: true,
+					afterFit: fitStackedAxis
+				}
 			: {})
 	});
 	// Chart.js stacks axes in the order given from the bottom up: the head panel goes last.
@@ -1537,14 +1632,16 @@ export function pumpGroupConfig(
 			ctx.textBaseline = 'alphabetic';
 			for (const label of placement.labels) {
 				ctx.fillStyle = label.shown ? INK : SLATE;
-				// Another case's: its numbers in a box, then "3 running" (fillLabel).
-				fillLabel(ctx, label.text, label.x, label.y, size);
+				// Another case's: its numbers in a box, then "3 running" (fillLabel), over the surface
+				// (its box filled, its words haloed: leftover L21a), so a dashed curve under it does not
+				// run through its digits.
+				fillLabel(ctx, label.text, label.x, label.y, size, SURFACE);
 			}
 			// A curve's tag, last (rule 7), near its last drawn point inside the plot: above the line
 			// and ending there (as before), else right of that point, else under it to its right or to
-			// its left; inside the plot, over no point label (as the points' labels kept off it before:
-			// it has no halo to keep apart) or leader, mark, curve label or tag before it. With none, it
-			// is left out and named in the notes with that point's values.
+			// its left; inside the plot, over no point label or leader, mark, curve label or tag before
+			// it. With none, it is left out and named in the notes with that point's values. Its words
+			// over a halo of the surface, as every label's (leftover L21a).
 			const tags: CurveTagDrawn[] = [];
 			const tagsLeftOut: NotLabelledPoint[] = [];
 			const marks = obstacles.filter((o) => o.kind === 'marker').map((o) => o.box);
@@ -1596,6 +1693,7 @@ export function pumpGroupConfig(
 					return;
 				}
 				ctx.fillStyle = (dataset as { labelColor?: string }).labelColor ?? INK;
+				haloText(ctx, tag, spot.x, spot.y, SURFACE);
 				ctx.fillText(tag, spot.x, spot.y);
 				tags.push({ text: tag, x: spot.x, y: spot.y, box: spot.box });
 			});

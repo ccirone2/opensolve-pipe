@@ -4842,8 +4842,12 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			'2 running',
 			'3 running'
 		]);
+		// Leftover L21a: each curve label's box filled with the surface (was unfilled, the default).
 		for (const text of ['1 running (this case)', '[1, 4, 5, 6] 3 running', '[2] 2 running'])
-			expect(imageChart.label(text), text).toMatchObject({ font: '14px system-ui, sans-serif' });
+			expect(imageChart.label(text, '#ffffff'), text).toMatchObject({
+				font: '14px system-ui, sans-serif'
+			});
+		expect(imageChart.label('[Base] 4 running', '#ffffff')).toBeUndefined();
 		expect(imageChart.label('[Base] 4 running')).toBeUndefined();
 		// The base's ring's tag: its box alone (its curve is drawn), its number at 14 − 2 px, bold.
 		expect(imageChart.label('[Base]', '#ffffff')).toMatchObject({

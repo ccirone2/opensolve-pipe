@@ -929,8 +929,13 @@ const CURVE_LABEL_ROWS = 3;
 const CURVE_LABEL_OFFSET = 4;
 /** How far inside the plot's left edge a label is clamped (px), as the system curve's tag is. */
 const CURVE_LABEL_EDGE = 2;
-/** Labels closer than this side by side read as one (px; m4's spacing): they overlap. */
+/** A label this close or closer beside an obstacle overlaps it (px; m4's spacing). */
 const CURVE_LABEL_GAP = 3;
+/**
+ * Curve labels closer than this side by side on one row read as one (px; leftover L21b: "[1, 2] 1
+ * running" 4.2 px from "2 running (this case)" did): they overlap.
+ */
+export const CURVE_LABEL_APART = 6;
 
 /**
  * A curve's label (§9.3): another case's "[{numbers}] {k} running" (its case numbers in a box,
@@ -960,13 +965,8 @@ export function curveAnchor(
 	return best;
 }
 
-function overlaps(a: PxBox, b: PxBox): boolean {
-	return (
-		a.left < b.right + CURVE_LABEL_GAP &&
-		b.left < a.right + CURVE_LABEL_GAP &&
-		a.top < b.bottom &&
-		b.top < a.bottom
-	);
+function overlaps(a: PxBox, b: PxBox, gap = CURVE_LABEL_GAP): boolean {
+	return a.left < b.right + gap && b.left < a.right + gap && a.top < b.bottom && b.top < a.bottom;
 }
 
 /**
@@ -977,9 +977,10 @@ function overlaps(a: PxBox, b: PxBox): boolean {
  * - Labels of other cases' curves with equal k whose anchors are less than one label width apart
  *   (the width of the later one's own label) merge into one at the rightmost anchor, their numbers
  *   ascending: "[1, 4, 5, 6] 3 running". This case's label never merges.
- * - From left to right, a label that would overlap one placed before or an obstacle (a ring's
- *   tag, a marker, a member's label) moves up one 14 px row, at most twice; a row that would leave
- *   the plot's top does not fit either. A label that still overlaps is left out, and `leftOut`
+ * - From left to right, a label that would overlap one placed before (closer than
+ *   CURVE_LABEL_APART, 6 px, beside it on its row: leftover L21b) or an obstacle (a ring's tag, a
+ *   marker, a member's label; closer than 3 px) moves up one 14 px row, at most twice; a row that
+ *   would leave the plot's top does not fit either. A label that still overlaps is left out, and `leftOut`
  *   counts the curves it labels (the notes say so; the data table lists every curve).
  */
 export function placeCurveLabels(
@@ -1029,7 +1030,9 @@ export function placeCurveLabels(
 			const y = g.anchor.y - CURVE_LABEL_OFFSET - row * CURVE_LABEL_ROW;
 			const box = { left: x, right: x + width, top: y - CURVE_LABEL_ROW, bottom: y };
 			if (box.top < plot.top) break;
-			const taken = [...labels.map((l) => l.box), ...obstacles].some((b) => overlaps(box, b));
+			const taken =
+				labels.some((l) => overlaps(box, l.box, CURVE_LABEL_APART)) ||
+				obstacles.some((b) => overlaps(box, b));
 			if (!taken) placed = { text, curves: g.curves, shown: g.shown, x, y, row, box };
 		}
 		if (placed) labels.push(placed);

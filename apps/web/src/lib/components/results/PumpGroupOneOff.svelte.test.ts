@@ -2028,10 +2028,17 @@ describe('case numbers on both charts (nit 5, slice 5b)', () => {
 				const label = b.closest('label')!;
 				return [besideTag(label), shownTag(label)];
 			});
-	/** The case shown at a list's head: its words and its number. */
+	/**
+	 * The case shown at a list's head: its words and its number, read from the innermost element
+	 * that holds both (since pumps-nits.md §11.4, leftover L12, the words are in a span of their own
+	 * beside the box's: CaseNamed).
+	 */
 	const shownOf = (group: HTMLElement) => {
 		const tags = [...group.querySelectorAll('*')].filter(
-			(el) => !el.closest('label') && /\(shown\)$/.test(besideTag(el))
+			(el) =>
+				!el.closest('label') &&
+				/\(shown\)$/.test(besideTag(el)) &&
+				!!el.querySelector('[data-case-tag]')
 		);
 		const el = tags.at(-1)!;
 		return [besideTag(el), shownTag(el)] as Tagged;
@@ -2319,5 +2326,86 @@ describe('case numbers on both charts (nit 5, slice 5b)', () => {
 		// Each place shows its cases' numbers instead.
 		for (const [name, el] of places)
 			expect(el.querySelector('[data-case-tag]'), name).not.toBeNull();
+	}, 30_000);
+
+	/**
+	 * A case's box and its name as one unit (CaseNamed; docs/proposals/pumps-nits.md §11.4, leftover
+	 * L12): one flex row (inline-flex in a run of words), the box in a `shrink-0` span (`w-10`, the
+	 * reserved 2.5 rem, in a column), a space, then the name in a `min-w-0` span, so the box sits
+	 * beside the name's first line and every line of the name starts at one edge. The space renders
+	 * nothing between flex items and keeps the name heard ("Case 4: Both pumps off").
+	 */
+	function caseNamedIn(el: Element, form: 'inline' | 'block' | 'column', what: string) {
+		const units = el.querySelectorAll('[data-case-named]');
+		expect(units, `${what}: one unit`).toHaveLength(1);
+		const unit = units[0]!;
+		expect(unit, what).toHaveClass(form === 'inline' ? 'inline-flex' : 'flex', 'items-baseline');
+		expect(unit.children, `${what}: the box and the name`).toHaveLength(2);
+		const [box, name] = [...unit.children] as [HTMLElement, HTMLElement];
+		expect(box, `${what}: the box's span`).toHaveClass('shrink-0');
+		if (form === 'column') expect(box, `${what}: the reserved column`).toHaveClass('w-10');
+		expect(box.firstElementChild, `${what}: the box`).toHaveAttribute('data-case-tag');
+		expect(name, `${what}: the name's span`).toHaveClass('min-w-0');
+		expect(name.querySelector('[data-case-tag]'), `${what}: no box in the name`).toBeNull();
+		expect(box.nextSibling?.nodeType, `${what}: a text node after the box`).toBe(Node.TEXT_NODE);
+		expect(box.nextSibling?.textContent, `${what}: a space after the box`).toBe(' ');
+		return { unit, box, name };
+	}
+
+	it('draws each case’s box beside its name as one unit, the Base box too: both data tables, both "(shown)" tags, Running combinations’ headings and sorted Case cells (docs/proposals/pumps-nits.md §11.4, leftover L12)', async () => {
+		const { ws } = setup(structuredClone(oneOff.project), { systemCurve });
+		await showBoth(ws);
+		await waitFor(() => expect(curvesBox()).toBeEnabled());
+		await fireEvent.click(curvesBox());
+		await waitFor(() => expect(ringList()).toHaveLength(4));
+		await fireEvent.click(
+			results().getByRole('button', { name: 'Show data table of the pump chart' })
+		);
+		await fireEvent.click(
+			within(card()).getByRole('button', { name: 'Show data table of the group chart' })
+		);
+		// Both data tables: the box in its reserved column, drawn or not.
+		const points = results().getByRole('table', { name: 'Operating points by case' });
+		const duties = within(card()).getByRole('table', { name: "Other cases' station duties" });
+		for (const [table, count] of [
+			[points, 5],
+			[duties, 4]
+		] as const) {
+			const heads = within(table).getAllByRole('rowheader');
+			expect(heads).toHaveLength(count);
+			for (const th of heads) caseNamedIn(th, 'column', besideCaseTag(th));
+		}
+		expect(within(points).getByRole('rowheader', { name: 'Case 4: Both pumps off' })).toBeTruthy();
+		expect(within(duties).getByRole('rowheader', { name: 'Case 4: Both pumps off' })).toBeTruthy();
+		// The base case's row: its Base box drawn and hidden from screen readers, which hear its
+		// words alone.
+		const base = within(points).getAllByRole('rowheader')[0]!;
+		const baseBox = caseNamedIn(base, 'column', 'the base row').box.firstElementChild!;
+		expect(baseBox).toHaveAttribute('aria-hidden', 'true');
+		expect(baseBox.textContent).toBe('Base');
+		expect(base).toHaveAccessibleName('Base case (shown)');
+		// Both "(shown)" tags, the box inline before their words.
+		for (const group of [pumpCases(), cardCases()]) {
+			const tag = group.querySelector('legend + div')!.firstElementChild!;
+			const { name, box } = caseNamedIn(tag, 'inline', 'the case shown');
+			expect(besideCaseTag(name)).toBe('Base case (shown)');
+			expect(box.firstElementChild).toHaveAttribute('aria-hidden', 'true');
+		}
+		// Running combinations: each case's heading's first line, then each sorted Case cell.
+		const combos = within(card()).getByRole('table', { name: 'Running combinations' });
+		const groupHeads = [...combos.querySelectorAll('th[scope="rowgroup"]')];
+		expect(groupHeads).toHaveLength(5);
+		for (const th of groupHeads) caseNamedIn(th.firstElementChild!, 'block', besideCaseTag(th));
+		const ratio = within(combos).getByRole('columnheader', { name: /^NPSH margin ratio/ });
+		await fireEvent.click(within(ratio).getByRole('button'));
+		const caseCells = [
+			...within(card())
+				.getByRole('table', { name: 'Running combinations' })
+				.querySelectorAll('td[data-label="Case"]')
+		];
+		expect(caseCells).toHaveLength(10);
+		for (const td of caseCells) caseNamedIn(td, 'block', besideCaseTag(td));
+		// The group chart's "Other cases' group curves" row-group headers: PumpGroupChart.svelte.test.ts
+		// (the lineups' curve family, its table opened).
 	}, 30_000);
 });

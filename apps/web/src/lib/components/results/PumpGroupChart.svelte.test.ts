@@ -4522,6 +4522,21 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			['6', `${NAMES.S6}: 3 running`]
 		]);
 		expect(headers[1]).toHaveAccessibleName(`Case 2: ${NAMES.S2}: 2 running`);
+		// The box and the words one unit (CaseNamed, docs/proposals/pumps-nits.md §11.4, leftover
+		// L12): one flex row, the box in a shrink-0 span, a space, the words in a min-w-0 span, so
+		// the box sits beside their first line and every line starts at one edge.
+		for (const h of headers) {
+			const unit = h.querySelector('[data-case-named]');
+			expect(unit, besideCaseTag(h)).not.toBeNull();
+			expect(unit).toHaveClass('flex', 'items-baseline');
+			expect(unit!.children).toHaveLength(2);
+			const [box, words] = [...unit!.children];
+			expect(box).toHaveClass('shrink-0');
+			expect(box!.firstElementChild).toHaveAttribute('data-case-tag');
+			expect(box!.nextSibling?.textContent).toBe(' ');
+			expect(words).toHaveClass('min-w-0');
+			expect(words!.querySelector('[data-case-tag]')).toBeNull();
+		}
 		expect(designators(table)).toEqual([]);
 		// A stale case's header as Running combinations marks one.
 		expect(headers[0]).toHaveClass('bg-amber-50/60');

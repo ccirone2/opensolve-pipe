@@ -3436,7 +3436,8 @@ function readCombinationsTable() {
 	// the Case column's words (nit 5, slice 5b) is a box, not words: the words after it are read,
 	// and the box is held to a line of its cell instead: its words' first line (its middle within
 	// 1 px of theirs), or the whole line before it, where a word too long for the room left after
-	// the box starts on the next line (a 40-character unbroken name: `tagsAbove`, logged). A
+	// the box starts on the next line (a 40-character unbroken name: `tagsAbove`, logged, and
+	// since pumps-nits.md §11.4, leftover L12, asserted empty: the box beside the name). A
 	// member's State is a status pill since pumps-nits.md §11 (leftover L22), a 20 px box of 12 px
 	// words, as Results per pump's: a box too, its words not read, the box held to its row's line
 	// instead (its middle within 1 px of the first line of the cells beside it: `pillsOffLine`).
@@ -3702,6 +3703,10 @@ async function combinationsTablePart(page: Page, where: string, form: 'grouped' 
 			`${where}: each Case cell's box ${m.tagLines.join(', ')} px from its words' middle${m.tagsAbove.length ? `; on the line before its words in ${m.tagsAbove.join(', ')}` : ''}`
 		);
 		soft(m.tagLines.length, `the Case cells' boxes, ${where}`).toBeGreaterThan(0);
+		// Since pumps-nits.md §11.4 (leftover L12) a case's box and its name are one unit, the box
+		// beside the name's first line: none on the line before its words (logged and allowed
+		// before).
+		soft(m.tagsAbove, `a Case cell's box on the line before its words, ${where}`).toEqual([]);
 	}
 	soft(m.tagsOffLine, `a Case cell's box off its words' line, ${where}`).toEqual([]);
 	soft(m.covers, `fills over Running combinations' right shadow, ${where}`).toEqual([]);
@@ -4863,8 +4868,11 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		card.getByRole('table', { name: 'The pumps in the group' }).getByRole('rowheader').first()
 	).toContainText(LONG_PUMP);
 	const viewport = page.viewportSize()!;
+	// 360×740 since pumps-nits.md §11.4 (leftover L12), where a box and its name are one unit.
 	const sizes =
-		info.project.name === 'mobile' ? [viewport, { width: 320, height: 640 }] : [viewport];
+		info.project.name === 'mobile'
+			? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
+			: [viewport];
 	for (const size of sizes) {
 		await page.setViewportSize(size);
 		await settle(page, 1000);
@@ -4951,6 +4959,8 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		// the long pump name in its rows, each shown to its end; then the cases back.
 		await sortCombinations(page, /^NPSH margin ratio/, 'npshMarginRatio');
 		const flat = await combinationsTablePart(page, `${where}, sorted`, 'flat');
+		// Each Case cell's box beside its name's first line (leftover L12).
+		await boxedNamesPart(page, `${where}, sorted`);
 		expect
 			.soft(
 				flat?.rows.filter((r) => r.case.startsWith(LONG_CASE)).length,
@@ -4983,6 +4993,11 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		await expect(
 			figure.getByRole('table', { name: 'Operating points by case' }).getByRole('rowheader')
 		).toContainText([LONG_CASE]);
+		// Every case's box in the tab beside its name, with both data tables, the station duties
+		// and the other cases' system curves shown (pumps-nits.md §11.4, leftover L12): "Operating
+		// points by case", "Other cases' station duties", Running combinations' headings, both
+		// "(shown)" tags, both lists of cases and the ring list.
+		await boxedNamesPart(page, where);
 		const pastFigure = await figure.evaluate(namesPast, [LONG_PUMP, LONG_CASE]);
 		console.log(`${where}: past the pump chart ${JSON.stringify(pastFigure)}`);
 		expect.soft(pastFigure, `a long name's line past the pump chart's edge, ${where}`).toEqual([]);
@@ -5005,6 +5020,121 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 	}
 	await page.setViewportSize(viewport);
 });
+
+/**
+ * Every case's box drawn in the Pumps tab and the name after it (docs/proposals/pumps-nits.md
+ * §11.4, leftover L12; ui-guide, "A case is its number": the box beside the name's first line,
+ * every line of the name at one edge). A box's holder is its nearest ancestor that is not inline
+ * and holds words after it (a CaseNamed unit, a table cell, a label, a list item, a line of a
+ * heading, a caption); its words are those after the box inside the holder, read word by word, so
+ * a space left at a line's end is not taken for a line. Each is checked: the words' first line
+ * shares the box's line (they overlap by half the box's height or more), and every later line
+ * starts within 2 px of the first line's left (a line under the box starts 40 px or more left of
+ * it, where the name started on the box's line).
+ */
+function readBoxedNames() {
+	const pane = document.querySelector('section[aria-label="Results"]')!;
+	const tab = [...pane.querySelectorAll<HTMLElement>('[role="tabpanel"]')].find((p) => !p.hidden);
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const read: {
+		where: string;
+		words: string;
+		lines: number;
+		onBoxLine: boolean;
+		hang: number;
+	}[] = [];
+	for (const tag of tab?.querySelectorAll<HTMLElement>('[data-case-tag]') ?? []) {
+		const box = (tag.querySelector('[aria-hidden="true"]') ?? tag) as HTMLElement;
+		if (!box.checkVisibility({ visibilityProperty: true })) continue;
+		const b = box.getBoundingClientRect();
+		if (b.width < 1 || b.height < 1) continue;
+		// The words after the box inside `holder`: each word's boxes, grouped into lines.
+		const wordsAfter = (holder: Element) => {
+			const rects: DOMRect[] = [];
+			let words = '';
+			const walker = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+			for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+				if (tag.contains(n)) continue;
+				if (!(tag.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+				const parent = n.parentElement!;
+				if (parent.closest('.sr-only, [aria-hidden="true"]')) continue;
+				if (!parent.checkVisibility({ visibilityProperty: true })) continue;
+				for (const m of n.data.matchAll(/\S+/g)) {
+					const range = document.createRange();
+					range.setStart(n, m.index);
+					range.setEnd(n, m.index + m[0].length);
+					rects.push(...[...range.getClientRects()].filter((r) => r.width > 0.5));
+				}
+				words += n.data;
+			}
+			return { rects, words: squash(words) };
+		};
+		let holder: Element | null = tag.parentElement;
+		let found: ReturnType<typeof wordsAfter> | null = null;
+		for (; holder && holder !== tab; holder = holder.parentElement) {
+			const display = getComputedStyle(holder).display;
+			if (display === 'inline' || display === 'contents') continue;
+			const after = wordsAfter(holder);
+			if (after.rects.length) {
+				found = after;
+				break;
+			}
+		}
+		if (!holder || !found) continue;
+		const lines: { top: number; bottom: number; left: number }[] = [];
+		for (const r of found.rects) {
+			const line = lines.find((l) => Math.abs(l.top - r.top) < 3);
+			if (line) {
+				line.left = Math.min(line.left, r.left);
+				line.bottom = Math.max(line.bottom, r.bottom);
+			} else lines.push({ top: r.top, bottom: r.bottom, left: r.left });
+		}
+		lines.sort((x, y) => x.top - y.top);
+		const first = lines[0]!;
+		const overlap = Math.min(first.bottom, b.bottom) - Math.max(first.top, b.top);
+		const where =
+			holder.closest('table')?.querySelector('caption')?.textContent ??
+			holder.closest('fieldset')?.querySelector('legend')?.textContent ??
+			holder.closest('figure')?.querySelector('figcaption')?.textContent?.slice(0, 30) ??
+			holder.tagName;
+		read.push({
+			where: squash(where),
+			words: found.words.slice(0, 50),
+			lines: lines.length,
+			onBoxLine: overlap >= b.height / 2,
+			hang:
+				Math.round(Math.max(0, ...lines.slice(1).map((l) => Math.abs(l.left - first.left))) * 10) /
+				10
+		});
+	}
+	return read;
+}
+
+/**
+ * readBoxedNames at the size shown (soft): every box read has its name's first line beside it and
+ * every later line at that line's edge; logged with the count (leftover L12).
+ */
+async function boxedNamesPart(page: Page, where: string) {
+	const read = await page.evaluate(readBoxedNames);
+	const odd = read.filter((r) => !r.onBoxLine || r.hang > 2);
+	console.log(
+		`${where}: ${read.length} boxes read, ${read.filter((r) => r.lines > 1).length} names on more than one line${odd.length ? `; off: ${JSON.stringify(odd)}` : ''}`
+	);
+	if (RECORD) {
+		mkdirSync(RECORD, { recursive: true });
+		const file = `boxed-names ${where}`.replace(/[^\w×-]+/g, '-');
+		writeFileSync(path.join(RECORD, `${file}.json`), JSON.stringify(read, null, 1));
+	}
+	expect.soft(read.length, `boxes read, ${where}`).toBeGreaterThan(0);
+	expect
+		.soft(
+			odd.map(
+				(r) => `${r.where}: "${r.words}" (${r.onBoxLine ? `hang ${r.hang} px` : 'under its box'})`
+			),
+			`a case's name not beside its box, or a line of it not at the name's edge, ${where}`
+		)
+		.toEqual([]);
+}
 
 /**
  * The lines of `names` drawn past the right edge of `scope`, outside a box that scrolls sideways

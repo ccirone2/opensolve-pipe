@@ -68,7 +68,7 @@
 	import type { OtherGroupCase } from '$lib/utils/pump-group-one-off';
 	import { formatNumber } from '$lib/utils/units';
 	import { sectionMark } from '$lib/utils/section-nav';
-	import CaseTag from '$lib/components/ui/CaseTag.svelte';
+	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import CurveTable from './CurveTable.svelte';
 	import IssueDetail from './IssueDetail.svelte';
@@ -1166,10 +1166,13 @@
 											scope="row"
 											class="px-2 py-1 text-left font-normal max-sm:block max-sm:w-full max-sm:p-0 max-sm:font-medium max-sm:wrap-anywhere"
 											><!-- Its case's number in a reserved column (2.5 rem), drawn or not, so
-												every name starts at one edge (nit 5, slice 5b). --><span
-												class="inline-block w-10"><CaseTag tag={caseTagOf(tags, other.key)} /></span
-											>
-											{other.name}{other.stale ? ' (out of date)' : ''}</th
+												every name starts at one edge (nit 5, slice 5b); the box and the name
+												one unit, the box beside the name's first line (pumps-nits.md §11.4,
+												leftover L12). --><CaseNamed
+												tag={caseTagOf(tags, other.key)}
+												name="{other.name}{other.stale ? ' (out of date)' : ''}"
+												form="column"
+											/></th
 										>
 										{#if ring}
 											<td
@@ -1251,9 +1254,9 @@
 											outOfDate ? 'bg-amber-50/60' : 'bg-slate-50/60'
 										]}
 									>
-										<!-- Its case's number in a box, then its words (nit 5, slice 5b). -->
-										<CaseTag tag={group.tag} />
-										{group.header}
+										<!-- Its case's number in a box, then its words (nit 5, slice 5b), one
+											unit (pumps-nits.md §11.4, leftover L12). -->
+										<CaseNamed tag={group.tag} name={group.header} form="block" />
 									</th>
 								</tr>
 								{#each group.rows as row, i (i)}

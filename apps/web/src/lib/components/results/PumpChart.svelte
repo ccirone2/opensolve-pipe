@@ -73,6 +73,7 @@
 	} from '$lib/utils/pump-chart';
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
+	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import CaseTag from '$lib/components/ui/CaseTag.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import CurveTable from './CurveTable.svelte';
@@ -1174,10 +1175,13 @@
 										scope="row"
 										class="px-2 py-1 text-left font-normal max-sm:block max-sm:w-full max-sm:px-0 max-sm:pt-1 max-sm:font-medium max-sm:wrap-anywhere"
 										><!-- Its case's number in a reserved column (2.5 rem), so every name starts
-											at one edge (nit 5, slice 5b). --><span
-											class="inline-block w-10"><CaseTag tag={row.tag} /></span
-										>
-										{row.label}</th
+											at one edge (nit 5, slice 5b); the box and the name one unit, the box
+											beside the name's first line and every line of the name at one edge
+											(pumps-nits.md §11.4, leftover L12). --><CaseNamed
+											tag={row.tag}
+											name={row.label}
+											form="column"
+										/></th
 									>
 									{#each cells as cell (cell.label)}
 										<td
@@ -1355,10 +1359,10 @@
 				<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-3">
 					<!-- The case shown: a tag, not a control (§5.2 Tags); its number in a box, then its
 						words, no ● before them (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md
-						item 5, slice 5b). -->
+						item 5, slice 5b), the box and the words one unit (§11.4, leftover L12). -->
 					<span
 						class="col-span-full mt-1 justify-self-start rounded bg-slate-100 px-1.5 text-xs text-slate-700"
-						><CaseTag tag={caseTag} /> {caseName ?? 'This case'} (shown)</span
+						><CaseNamed tag={caseTag} name="{caseName ?? 'This case'} (shown)" /></span
 					>
 					{#each cases.listed as other (other.key)}
 						{@const on = shownKeys.has(other.key)}

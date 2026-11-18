@@ -18,7 +18,8 @@
 	shown, then every other case in number order, owner, 2026-11-12, nit 5, Q2 "By list place";
 	docs/proposals/pumps-nits.md item 5, slice 5b), which no untick and no "Also show …" moves, each
 	group's heading and its name in the flat form's Case column led by its case's number in a box
-	(CaseTag); the box a size container (§5.5), so each line of a group's
+	(CaseTag, with its name one unit since pumps-nits.md §11.4: CaseNamed); the box a size
+	container (§5.5), so each line of a group's
 	heading is sticky at the box's visible width and wraps in view; a flag line under each flagged
 	pump's row in place of the Flags column, as the group table's (§15 item 92), so a phone's list
 	has no "Flags None" line; the names wrap at 12 rem, trace buttons in the shown case's group
@@ -48,7 +49,7 @@
 	import { cellLines, noteParts, type Row, type RowGroup, type Table } from '$lib/utils/results';
 	import { sectionMark } from '$lib/utils/section-nav';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
-	import CaseTag from '$lib/components/ui/CaseTag.svelte';
+	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import FlagIcon from './FlagIcon.svelte';
 	import FlagLine from './FlagLine.svelte';
 	import PumpStatus from './PumpStatus.svelte';
@@ -137,14 +138,18 @@
 </script>
 
 <!-- A case's heading (§5.3 Group heading lines): its case's number in a box, then its name with
-	"(shown)" and "(out of date)" (nit 5, slice 5b: no " · ring n"), its lineup line and its station
-	line, each sticky at the box's visible width (the box a size container, §5.5), so it wraps in
-	view, an unbroken name inside it; a list's line on a phone. -->
+	"(shown)" and "(out of date)" (nit 5, slice 5b: no " · ring n"), the box and the name one unit,
+	the box beside the name's first line (pumps-nits.md §11.4, leftover L12), its lineup line and
+	its station line, each sticky at the box's visible width (the box a size container, §5.5), so
+	it wraps in view, an unbroken name inside it; a list's line on a phone. -->
 {#snippet caseHeading(rowGroup: RowGroup)}
 	{@const group = groups.get(rowGroup.key)}
 	<span class={[GROUP_LINE, 'font-medium']}
-		>{#if group}<CaseTag tag={group.tag} />{/if}
-		{rowGroup.label}</span
+		>{#if group}<CaseNamed
+				tag={group.tag}
+				name={rowGroup.label}
+				form="block"
+			/>{:else}{rowGroup.label}{/if}</span
 	>
 	{#if group?.lineup}<span class={[GROUP_LINE, 'text-xs text-slate-700']}>{group.lineup}</span>{/if}
 	{#if group?.detail}<span class={[GROUP_LINE, 'text-xs text-slate-600']}>{group.detail}</span>{/if}
@@ -174,11 +179,14 @@
 {/snippet}
 
 <!-- A row's case in the flat form's Case column (§9 S6b): its number in a box, then its name, as
-	its group's heading (nit 5, slice 5b). -->
+	its group's heading (nit 5, slice 5b), one unit (pumps-nits.md §11.4, leftover L12). -->
 {#snippet caseName(rowGroup: RowGroup)}
 	{@const group = groups.get(rowGroup.key)}
-	{#if group}<CaseTag tag={group.tag} />{/if}
-	{rowGroup.label}
+	{#if group}<CaseNamed
+			tag={group.tag}
+			name={rowGroup.label}
+			form="block"
+		/>{:else}{rowGroup.label}{/if}
 {/snippet}
 
 <!-- A flagged member's flag line (§5.3 Flags): the pills and their text, read once (FlagLine). -->

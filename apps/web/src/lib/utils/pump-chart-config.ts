@@ -431,6 +431,11 @@ export interface PointLabelsDrawn {
 	obstacles: PxBox[];
 	labels: PlacedPointLabel[];
 	leftOut: NotLabelledPoint[];
+	/**
+	 * The pump chart's short labels ("BEP", "70 %"; leftover L20): each one's words, its point, its
+	 * box where it is drawn (else the first place tried), and whether it is drawn.
+	 */
+	short?: { text: string; at: { x: number; y: number }; box: PxBox; drawn: boolean }[];
 }
 
 /**
@@ -1089,10 +1094,11 @@ export function pumpChartConfig(
 			ctx.textAlign = 'left';
 			ctx.textBaseline = 'alphabetic';
 			for (const label of placed.labels) drawPointLabel(ctx, label, caseSize, SLATE);
-			onlabels?.(placed);
-			// Short labels at one point of a line or marker ("BEP", "70 %"), in dataset order; a
-			// label that would overlap one already drawn, or a mark, is left out (the legend and notes
-			// name it).
+			// Short labels at one point of a line or marker ("BEP", "70 %"), in dataset order, each
+			// at the first of four places 6 px off its point that is clear (leftover L20; was the
+			// first alone): above right, as before and unbounded as before, then above left, below
+			// right and below left, those three inside the chart's area only. A label with no clear
+			// place is left out (the legend and notes name it).
 			const size = forImage ? 13 : 11;
 			ctx.font = `${size}px system-ui, sans-serif`;
 			ctx.fillStyle = SLATE;
@@ -1110,40 +1116,63 @@ export function pumpChartConfig(
 			const ringMarks = placed.items.map(({ x, y, r }) => markBox(x, y, r));
 			// Nor across a ring label's leader (review DOTS-LABELS-A1), which would seem to run from it.
 			const leaders = placed.labels.flatMap((l) => (l.leader ? [l.leader] : []));
+			const short: NonNullable<PointLabelsDrawn['short']> = [];
 			chart.data.datasets.forEach((dataset, i) => {
 				const { pointLabel, labelAt } = dataset as { pointLabel?: string; labelAt?: number };
 				const points = chart.getDatasetMeta(i).data;
 				const point = points[labelAt === -1 ? points.length - 1 : (labelAt ?? 0)];
 				if (!pointLabel || !point || !chart.isDatasetVisible(i)) return;
-				const box = {
-					x: point.x + 6,
-					y: point.y - 6 - size,
-					w: ctx.measureText(pointLabel).width,
-					h: size
+				const w = ctx.measureText(pointLabel).width;
+				const tries = [
+					{ x: point.x + 6, y: point.y - 6 - size, bounded: false },
+					{ x: point.x - 6 - w, y: point.y - 6 - size, bounded: true },
+					{ x: point.x + 6, y: point.y + 6, bounded: true },
+					{ x: point.x - 6 - w, y: point.y + 6, bounded: true }
+				].map((t) => ({ ...t, w, h: size }));
+				const clear = (box: (typeof tries)[number]) => {
+					if (
+						box.bounded &&
+						(box.x < area.left ||
+							box.x + box.w > area.right ||
+							box.y < area.top ||
+							box.y + box.h > area.bottom)
+					)
+						return false;
+					const overlaps = taken.some(
+						(o) =>
+							box.x < o.x + o.w + 2 &&
+							o.x < box.x + box.w + 2 &&
+							box.y < o.y + o.h &&
+							o.y < box.y + box.h
+					);
+					const overMark = [...ringMarks, ...marks.filter((m) => m.i !== i).map((m) => m.box)].some(
+						(m) =>
+							box.x < m.right && m.left < box.x + box.w && box.y < m.bottom && m.top < box.y + box.h
+					);
+					const crossed = leaders.some((leader) =>
+						leaderCrosses(leader, {
+							left: box.x,
+							right: box.x + box.w,
+							top: box.y,
+							bottom: box.y + box.h
+						})
+					);
+					return !overlaps && !overMark && !crossed;
 				};
-				const overlaps = taken.some(
-					(o) =>
-						box.x < o.x + o.w + 2 &&
-						o.x < box.x + box.w + 2 &&
-						box.y < o.y + o.h &&
-						o.y < box.y + box.h
-				);
-				const overMark = [...ringMarks, ...marks.filter((m) => m.i !== i).map((m) => m.box)].some(
-					(m) =>
-						box.x < m.right && m.left < box.x + box.w && box.y < m.bottom && m.top < box.y + box.h
-				);
-				const crossed = leaders.some((leader) =>
-					leaderCrosses(leader, {
-						left: box.x,
-						right: box.x + box.w,
-						top: box.y,
-						bottom: box.y + box.h
-					})
-				);
-				if (overlaps || overMark || crossed) return;
+				const box = tries.find(clear);
+				const at = box ?? tries[0]!;
+				short.push({
+					text: pointLabel,
+					at: { x: point.x, y: point.y },
+					box: { left: at.x, right: at.x + at.w, top: at.y, bottom: at.y + at.h },
+					drawn: !!box
+				});
+				if (!box) return;
 				taken.push(box);
-				ctx.fillText(pointLabel, point.x + 6, point.y - 6);
+				ctx.fillText(pointLabel, box.x, box.y + size);
 			});
+			// The canvas keeps the placement, the short labels' too (leftover L20).
+			onlabels?.({ ...placed, short });
 			ctx.restore();
 		}
 	};

@@ -773,7 +773,9 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 	// condenser's case 1 at 1280×800, the lineups' case 2 at 390×844). A short label that would lie
 	// over a ring or over any mark but its own point's is left out, as one over a label is: the
 	// legend and the notes name the best efficiency point.
-	it('leaves a short label out where it would lie over a ring or another mark, as over a label', () => {
+	// Leftover L20 (pumps-nits.md §8.14 bullet 7; §11.5): moved from one place, above right, to the
+	// first clear of four, so "BEP" over a ring is written above left where that is free.
+	it('puts a short label at the first of four places clear of every ring, mark and label, else leaves it out (leftover L20)', () => {
 		const result = pumpResult({
 			bestEfficiencyPoint: { flow: 0.012, efficiency: 0.7, head: 18, headExtrapolated: false }
 		});
@@ -800,11 +802,29 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		// here; its box 206 to 224 across, 183 to 194 down, over its own cross (190.5 to 209.5).
 		expect(draw({ x: 600, y: 600 })).toEqual([{ text: 'BEP', x: 206, y: 194 }]);
 		// Case 2's ring (r 10 and half its 2 px border: 11) at (215, 180): 204 to 226 across, 169 to
-		// 191 down, over the box. Its own label goes right of it (228 on), clear of the box.
-		expect(draw({ x: 215, y: 180 })).toEqual([]);
+		// 191 down, over the box. Its own label goes right of it (228 on), clear of the box. Above
+		// left of the cross is free: 176 to 194 across, 183 to 194 down (leftover L20; was left out).
+		expect(draw({ x: 215, y: 180 })).toEqual([{ text: 'BEP', x: 176, y: 194 }]);
 		// The operating point's dot (r 6 and half its 2 px border: 7) at (230, 190): 223 to 237
-		// across, 183 to 197 down, over the box's right end.
-		expect(draw({ x: 600, y: 600 }, { x: 230, y: 190 })).toEqual([]);
+		// across, 183 to 197 down, over the box's right end; above left is free.
+		expect(draw({ x: 600, y: 600 }, { x: 230, y: 190 })).toEqual([{ text: 'BEP', x: 176, y: 194 }]);
+		// Case 2's ring on the cross itself (189 to 211 each way) lies over all four places: above
+		// right, above left, below right (206 to 224, 206 to 217) and below left. Left out.
+		expect(draw({ x: 200, y: 200 })).toEqual([]);
+		// The three new places only inside the chart's area: a plot 195 to 230 across and 195 to 210
+		// down holds none of them (above left starts at 176, below ends at 217), so with the ring over
+		// above right "BEP" is left out; above right alone may leave the area, as before.
+		const edge = (ring: { x: number; y: number }) =>
+			drawCaseLabels(
+				config,
+				{ left: 195, right: 230, top: 195, bottom: 210 },
+				(tag) => (tag === '2' ? ring : { x: 700, y: 700 }),
+				(i) => (i === bep ? { x: 200, y: 200 } : far)
+			)
+				.written.filter((w) => w.text === 'BEP')
+				.map(({ x, y }) => [x, y]);
+		expect(edge({ x: 215, y: 180 })).toEqual([]);
+		expect(edge({ x: 600, y: 600 })).toEqual([[206, 194]]);
 		// Just clear of both: the ring's box ends at 182, above the box's top (183).
 		expect(draw({ x: 215, y: 171 }, { x: 232, y: 190 })).toEqual([{ text: 'BEP', x: 206, y: 194 }]);
 	});
@@ -839,8 +859,20 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		const ring = told[0]!.labels.find((l) => l.text === '[2]')!;
 		expect(ring.leader).toEqual({ x1: 215, y1: 180, x2: 215, y2: 194 });
 		// "BEP" would go 6 px right of its cross and 6 px above it: 206 to 224 across, 183 to 194
-		// down, the leader through it. Left out; the legend and the notes name the point.
-		expect(written.filter((w) => w.text === 'BEP')).toEqual([]);
+		// down, the leader through it. Leftover L20: moved from left out to its next place, above
+		// left, 176 to 194 across, clear of the leader, the ring and "[2]".
+		expect(
+			written.filter((w) => w.text === 'BEP').map(({ text, x, y }) => ({ text, x, y }))
+		).toEqual([{ text: 'BEP', x: 176, y: 194 }]);
+		// The canvas keeps each short label's place for measuring (`short`), its point too.
+		expect(told.at(-1)!.short).toEqual([
+			{
+				text: 'BEP',
+				at: { x: 200, y: 200 },
+				box: { left: 176, right: 194, top: 183, bottom: 194 },
+				drawn: true
+			}
+		]);
 	});
 
 	it('lists each ring in the legend where its dataset is, though it is drawn on top', () => {

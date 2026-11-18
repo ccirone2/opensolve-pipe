@@ -10579,7 +10579,7 @@ for (const [view, setUp] of [
 	['lineups', lineups],
 	['the condenser', condenser]
 ] as const) {
-	test(`Group C, the charts as drawn, ${view}: the pump chart's canvas legend whole inside its canvas and its box, the other cases two entries on a phone, each swatch its curve's dashes, at 1280×800, 390×844, 360×740 and 320×640 (pumps-nits.md §11.5, leftovers L16 to L18)`, async ({
+	test(`Group C, the charts as drawn, ${view}: the pump chart's canvas legend whole inside its canvas and its box, the other cases two entries on a phone, each swatch its curve's dashes; "BEP" at the first of four clear places; at 1280×800, 390×844, 360×740 and 320×640 (pumps-nits.md §11.5, leftovers L16 to L18, L20)`, async ({
 		page,
 		isMobile
 	}) => {
@@ -10627,6 +10627,41 @@ for (const [view, setUp] of [
 					.map((e) => `"${e.text}" ${JSON.stringify(e.dash)} for ${JSON.stringify(e.own)}`),
 				`swatches without their curve's dashes, ${where}`
 			).toEqual([]);
+			// L20: each short label ("BEP", "70 %") at the first of four places clear of every mark
+			// but its own point's, every point label and leader (data-point-labels' `short`).
+			const short = placed?.short ?? [];
+			console.log(
+				`${where}: short labels ${JSON.stringify(short.map((l) => `${l.text}${l.drawn ? '' : ' (left out)'}`))}`
+			);
+			const drawnBep = short.find((l) => l.text === 'BEP')?.drawn;
+			if (
+				(view === 'lineups' && ['1280x800', '390x844'].includes(sizeOf(page))) ||
+				(view === 'the one-off' && isMobile)
+			)
+				soft(drawnBep, `"BEP" drawn, ${where}`).toBe(true);
+			for (const l of short.filter((x) => x.drawn)) {
+				const own = (b: Box) =>
+					Math.abs((b.left + b.right) / 2 - l.at.x) < 0.01 &&
+					Math.abs((b.top + b.bottom) / 2 - l.at.y) < 0.01;
+				const over = [
+					...placed!.obstacles.filter((b) => !own(b) && boxesOverlap(b, l.box)).map(() => 'a mark'),
+					...placed!.items
+						.filter((it) =>
+							boxesOverlap(l.box, {
+								left: it.x - it.r,
+								right: it.x + it.r,
+								top: it.y - it.r,
+								bottom: it.y + it.r
+							})
+						)
+						.map((it) => `a ${it.kind}`),
+					...placed!.labels.filter((p) => boxesOverlap(p.box, l.box)).map((p) => `"${p.text}"`),
+					...placed!.labels
+						.filter((p) => p.leader && segmentCrosses(p.leader, l.box))
+						.map((p) => `the leader of "${p.text}"`)
+				];
+				soft(over, `"${l.text}" at ${JSON.stringify(l.box)} over, ${where}`).toEqual([]);
+			}
 			// L17: on a phone's screen the other cases' rings one entry toggling every ring.
 			if (isMobile && rings >= 2) {
 				const entry = legend.entries.find((e) => e.text === 'Other cases (a numbered ring each)');

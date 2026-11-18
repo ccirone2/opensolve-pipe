@@ -42,7 +42,7 @@
 - laptop: 1280×800, the pump transfer example solved, the pump's panel with the pump and system curves;
 - phone: 390×844 at 2× density, the same project's results summary.
 
-A phone shows only the phone shot, because the laptop's is too small to read at that width; from 640 px both show. **They go out of date when the UI changes; retake them by hand** (the owner's choice), with the same states. Since §6 they are in a carousel, and since §7 they tell the workflow as seven steps; §7 lists them and the state each shows.
+A phone shows only the phone shot, because the laptop's is too small to read at that width; from 640 px both show. **They go out of date when the UI changes; retake them by hand** (the owner's choice), with the same states. Since §6 they are in a carousel, and since §7 they tell the workflow as seven steps (eight since §8); §7 lists them and the state each shows. All sixteen were last retaken on 2026-11-18 (§7, "Retaken").
 
 ## 4. Verification plan
 
@@ -159,5 +159,5 @@ The captions state only what the app does, checked against D5, D10, D15, D17 and
 
 ## 9. Later
 
-- Retake the screenshots after a visible UI change (by hand, §3; the last retake, 2026-11-18, in §7).
+- Retake the screenshots after a visible UI change (by hand, §3). The last retake, 2026-11-18, on `web/pumps-leftovers` (`pumps-nits.md` §11.9, leftover L26), took all sixteen, each step's laptop and phone shot: Lay out the network, Describe each element, Solve, Check the pumps, See the working, Share the link, Compare scenarios and Goal seek; it changed the Solve and Compare scenarios alt texts (§7, "Retaken").
 - A recent project shows the time it was last seen here; a summary (component count, last solve) would need more stored data, so it waits for a request.

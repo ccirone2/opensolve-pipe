@@ -28,7 +28,11 @@ import {
 } from '@playwright/test';
 import { gzip } from 'pako';
 import type { Project } from '../src/lib/api/types';
-import type { CurveLabelsDrawn, PointLabelsDrawn } from '../src/lib/utils/pump-chart-config';
+import type {
+	CurveLabelsDrawn,
+	LegendDrawn,
+	PointLabelsDrawn
+} from '../src/lib/utils/pump-chart-config';
 import { exampleProject, pumpTransferExample } from '../src/lib/utils/examples';
 import { canonicalJson } from '../src/lib/utils/json';
 import { IMPERIAL_UNITS } from '../src/lib/utils/units';
@@ -10553,3 +10557,85 @@ test('Leftover L19: a label the pumps share names them in their dots’ order fr
 	// pumps share one at every size measured).
 	expect(read, 'a shared label of names read').toBeGreaterThan(0);
 });
+
+/** The pump chart's canvas legend as its last drawing laid it out (`data-legend`), or null. */
+function readPumpLegend(): LegendDrawn | null {
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const panel = document.querySelector('[role="tabpanel"][id$="-panel-pumps"]')!;
+	const figure = [...panel.querySelectorAll('figure')].find((f) =>
+		squash(f.querySelector(':scope > figcaption')?.textContent).startsWith('Pump and system curves')
+	);
+	const json = figure?.querySelector('canvas')?.dataset.legend;
+	return json ? (JSON.parse(json) as LegendDrawn) : null;
+}
+
+// Leftovers L16 to L18 (pumps-nits.md §8.14 bullets 4 to 6; §11.5), read from the pump chart's
+// `data-legend`: Chart.js cut an entry wider than the canvas (the lineups' "Case 3: 1 of 4 running
+// (…)" at 390 and 360 px) and drew none past half the canvas (the condenser's rings at 320 px);
+// its swatches drew dashed curves solid. On a phone the other cases are now two entries, each
+// toggling all its datasets; from 640 px a long entry wraps; every swatch has its curve's dashes.
+for (const [view, setUp] of [
+	['the one-off', oneOff],
+	['lineups', lineups],
+	['the condenser', condenser]
+] as const) {
+	test(`Group C, the charts as drawn, ${view}: the pump chart's canvas legend whole inside its canvas and its box, the other cases two entries on a phone, each swatch its curve's dashes, at 1280×800, 390×844, 360×740 and 320×640 (pumps-nits.md §11.5, leftovers L16 to L18)`, async ({
+		page,
+		isMobile
+	}) => {
+		test.setTimeout(420_000);
+		const soft = expect.configure({ soft: true });
+		await setUp(page);
+		await pumpsTab(page);
+		await settle(page, 2500);
+		for (const size of groupCSizes(page, isMobile)) {
+			await page.setViewportSize(size);
+			await settle(page, 1500);
+			const where = `${view} at ${sizeOf(page)}`;
+			await expect
+				.poll(
+					async () => {
+						const legend = await page.evaluate(readPumpLegend);
+						return !!legend && legend.canvas.width <= size.width;
+					},
+					{ timeout: 30_000 }
+				)
+				.toBe(true);
+			const legend = (await page.evaluate(readPumpLegend))!;
+			const placed = (await page.evaluate(readPointLabels)).pump?.points;
+			const fix = (n: number) => n.toFixed(1);
+			const rings = placed?.items.filter((it) => it.kind === 'ring').length ?? 0;
+			console.log(
+				`${where}: the legend ${fix(legend.box.bottom - legend.box.top)} px high of ${legend.canvas.height}, ${legend.entries.length} entries; the head panel's plot ${fix((placed?.plot.bottom ?? 0) - (placed?.plot.top ?? 0))} px high; ${rings} rings; ${JSON.stringify(legend.entries.map((e) => e.text))}`
+			);
+			// L17, L18: every entry whole, inside the canvas and inside the legend's box.
+			const out = legend.entries.filter(
+				(e) =>
+					e.box.left < Math.max(0, legend.box.left) - 0.5 ||
+					e.box.right > Math.min(legend.canvas.width, legend.box.right) + 0.5 ||
+					e.box.top < legend.box.top - 0.5 ||
+					e.box.bottom > legend.box.bottom + 0.5
+			);
+			soft(
+				out.map((e) => `"${e.text}" ${JSON.stringify(e.box)}`),
+				`entries outside the canvas (${legend.canvas.width} px) or the legend's box ${JSON.stringify(legend.box)}, ${where}`
+			).toEqual([]);
+			// L16: each swatch with its curve's own dashes.
+			soft(
+				legend.entries
+					.filter((e) => e.swatch && JSON.stringify(e.dash) !== JSON.stringify(e.own))
+					.map((e) => `"${e.text}" ${JSON.stringify(e.dash)} for ${JSON.stringify(e.own)}`),
+				`swatches without their curve's dashes, ${where}`
+			).toEqual([]);
+			// L17: on a phone's screen the other cases' rings one entry toggling every ring.
+			if (isMobile && rings >= 2) {
+				const entry = legend.entries.find((e) => e.text === 'Other cases (a numbered ring each)');
+				soft(entry?.datasets.length, `the rings' one entry, ${where}`).toBe(rings);
+				soft(
+					legend.entries.filter((e) => /^Case \d+: /.test(e.text)).map((e) => e.text),
+					`no entry per case on a phone, ${where}`
+				).toEqual([]);
+			}
+		}
+	});
+}

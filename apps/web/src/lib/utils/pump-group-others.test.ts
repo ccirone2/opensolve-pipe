@@ -763,7 +763,12 @@ describe('the chart configuration', () => {
 			'Case 1: Pump PA off (station duty)',
 			'Case 2: Pump PB off (station duty)'
 		]);
-		expect(labels.slice(0, -2)).toEqual(sets.filter((d) => d.order !== -1).map((d) => d.label));
+		// Leftovers L17, L18: moved from every other dataset to those the legend lists (its
+		// `filter`'s): generateLabels leaves out what the filter would, so it fits what is drawn.
+		expect(labels.slice(0, -2)).toEqual(
+			sets.filter((d) => d.order !== -1 && d.legend !== false).map((d) => d.label)
+		);
+		expect(sets.some((d) => d.legend === false)).toBe(true);
 	});
 
 	// Nit 5, slice 5c (rule 7): moved from a stand-in chart with every point at (100, 100), where

@@ -786,7 +786,9 @@
 						checks: checkLimits,
 						compactLabels: compact,
 						cursor: () => cursorNow,
-						onlabels: (placed) => ringsDrawn(element, d, drawnCases, placed)
+						onlabels: (placed) => ringsDrawn(element, d, drawnCases, placed),
+						// The canvas legend as laid out, for measuring the layout (leftovers L16 to L18).
+						onlegend: (laid) => (element.dataset.legend = JSON.stringify(laid))
 					})
 				);
 				drawnChart = chart;

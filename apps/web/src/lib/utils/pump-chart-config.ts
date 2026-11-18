@@ -11,6 +11,14 @@
 import type { Chart as ChartInstance, ChartConfiguration, LegendItem, Plugin } from 'chart.js';
 import { CHART_MARKS, memberMark, SURFACE } from './chart-marks';
 import {
+	collapseLegend,
+	legendHeight,
+	wrapLegend,
+	type FitItem,
+	type LegendFamily,
+	type LegendMetrics
+} from './legend-fit';
+import {
 	leaderCrosses,
 	placePointLabels,
 	POINT_LABEL_HALO,
@@ -97,9 +105,174 @@ export interface PumpChartConfigOptions {
 	 * 7; slice 5c): the notes name those, the canvas keeps the placement (absent: not told).
 	 */
 	onlabels?: (drawn: PointLabelsDrawn) => void;
+	/**
+	 * Told after every drawing where the legend's entries went (the canvas's `data-legend`, for
+	 * measuring the layout: leftovers L16 to L18; absent: not told).
+	 */
+	onlegend?: (drawn: LegendDrawn) => void;
+}
+
+/**
+ * The canvas legend as one drawing laid it out (leftovers L16 to L18), in CSS px: the canvas, the
+ * legend's box (Chart.js draws nothing of it outside) and each entry's words, its swatch's dashes
+ * and its dataset's own, whether it is struck through, whether it has a swatch (a wrapped entry's
+ * later rows have none), the datasets it toggles and its hit box.
+ */
+export interface LegendDrawn {
+	canvas: { width: number; height: number };
+	box: PxBox;
+	entries: {
+		text: string;
+		dash: number[];
+		own: number[];
+		hidden: boolean;
+		swatch: boolean;
+		datasets: number[];
+		box: PxBox;
+	}[];
+}
+
+/** The other cases' rings' one legend entry where they collapse (leftovers L17, L18). */
+export const OTHER_RINGS_LEGEND = 'Other cases (a numbered ring each)';
+/** The other cases' system curves' one legend entry where they collapse (leftovers L17, L18). */
+export const OTHER_SYSTEMS_LEGEND = "Other cases' system curves (dotted)";
+
+/**
+ * The legend's measures from the chart as Chart.js lays it out (Legend.fit, getBoxSize): its width
+ * and the most it is drawn high, the labels' font (each field from the chart's own where the
+ * labels' leave it out), the swatch's width, the padding, the row's height, and a measure of text
+ * in that font with the chart's context. Null before Chart.js has given the legend its room.
+ */
+function legendMetrics(chart: ChartInstance): LegendMetrics | null {
+	const legend = chart.legend as
+		(ChartInstance['legend'] & { maxWidth?: number; maxHeight?: number }) | undefined;
+	const ctx = chart.ctx as CanvasRenderingContext2D | undefined;
+	if (!legend?.maxWidth || !legend.maxHeight || !ctx) return null;
+	const labels = legend.options.labels as {
+		font?: FontSpec;
+		padding?: number;
+		boxWidth?: number;
+		boxHeight?: number;
+		pointStyleWidth?: number;
+		usePointStyle?: boolean;
+	};
+	const font = canvasFont(labels.font, (chart.options as { font?: FontSpec }).font);
+	const boxHeight = Math.min(labels.boxHeight ?? font.size, font.size);
+	return {
+		width: legend.maxWidth,
+		maxHeight: legend.maxHeight,
+		boxWidth: labels.usePointStyle
+			? labels.pointStyleWidth || Math.min(labels.boxWidth ?? font.size, font.size)
+			: (labels.boxWidth ?? font.size),
+		fontSize: font.size,
+		padding: labels.padding ?? 10,
+		itemHeight: Math.max(font.size, boxHeight),
+		measure: (text) => {
+			const was = ctx.font;
+			ctx.font = font.string;
+			const width = ctx.measureText(text).width;
+			ctx.font = was;
+			return width;
+		}
+	};
+}
+
+/**
+ * The legend's entries made to fit (leftovers L17, L18): on `collapse` (a phone's screen) each of
+ * `families` of two entries or more as one entry; then every entry too wide for a row written on
+ * as many rows as it needs; and where the rows would still pass the most the legend is drawn high
+ * (half the canvas: Chart.js clips the rest), the families collapsed too (the images' footers and
+ * the lists name each case). Unchanged before Chart.js has given the legend its room.
+ */
+function fittedLegend<T extends FitItem>(
+	chart: ChartInstance,
+	items: readonly T[],
+	families: readonly LegendFamily[],
+	collapse: boolean
+): T[] {
+	const m = legendMetrics(chart);
+	if (!m) return [...items];
+	const visible = (i: number) => chart.isDatasetVisible(i);
+	const collapsed = () => collapseLegend(items, families, visible);
+	const wrapped = wrapLegend(collapse ? collapsed() : items, m);
+	if (collapse || legendHeight(wrapped, m) <= m.maxHeight) return wrapped;
+	return wrapLegend(collapsed(), m);
+}
+
+/**
+ * A legend entry pressed (leftovers L17, L18; critique CR-ENG-2): a collapsed one hides all its
+ * datasets, or shows them all where every one is hidden; any other, Chart.js's own click
+ * (`Chart.defaults.plugins.legend.onClick`, read from the chart's class: this module loads no
+ * Chart.js code), which toggles its one dataset.
+ */
+function legendClick(
+	this: unknown,
+	event: unknown,
+	item: LegendItem & { datasetIndices?: number[] },
+	legend: { chart: ChartInstance }
+): void {
+	const chart = legend.chart;
+	const indices = item.datasetIndices;
+	if (!indices) {
+		const own = (
+			chart.constructor as unknown as {
+				defaults: { plugins: { legend: { onClick: (...args: unknown[]) => void } } };
+			}
+		).defaults.plugins.legend.onClick;
+		own.call(this, event, item, legend);
+		return;
+	}
+	const show = indices.every((i) => !chart.isDatasetVisible(i));
+	for (const i of indices) chart.setDatasetVisibility(i, show);
+	chart.update();
+}
+
+/** Reports the legend as drawn (LegendDrawn) to `onlegend`, after every drawing. */
+function legendReport(onlegend: (drawn: LegendDrawn) => void): Plugin<'line'> {
+	return {
+		id: 'legendReport',
+		afterDraw(chart) {
+			const legend = chart.legend as unknown as
+				| {
+						left: number;
+						top: number;
+						right: number;
+						bottom: number;
+						legendItems?: (LegendItem & { datasetIndices?: number[] })[];
+						legendHitBoxes?: { left: number; top: number; width: number; height: number }[];
+				  }
+				| undefined;
+			if (!legend?.legendItems) return;
+			const hits = legend.legendHitBoxes ?? [];
+			onlegend({
+				canvas: { width: chart.width, height: chart.height },
+				box: { left: legend.left, top: legend.top, right: legend.right, bottom: legend.bottom },
+				entries: legend.legendItems.map((item, k) => {
+					const hit = hits[k] ?? { left: 0, top: 0, width: 0, height: 0 };
+					const ds = chart.data.datasets[item.datasetIndex ?? -1] as
+						{ borderDash?: number[] } | undefined;
+					return {
+						text: item.text,
+						dash: [...(item.lineDash ?? [])],
+						own: [...(ds?.borderDash ?? [])],
+						hidden: !!item.hidden,
+						swatch: item.lineWidth !== 0,
+						datasets: item.datasetIndices ?? [item.datasetIndex ?? -1],
+						box: {
+							left: hit.left,
+							top: hit.top,
+							right: hit.left + hit.width,
+							bottom: hit.top + hit.height
+						}
+					};
+				})
+			});
+		}
+	};
 }
 
 /** Each panel's y-axis id and share of the height (proposal pump-chart.md §4.1). */
+
 const PANEL_AXES: Readonly<Record<PanelKey, { id: string; weight: number }>> = {
 	head: { id: 'y', weight: 3 },
 	efficiency: { id: 'yEfficiency', weight: 1 },
@@ -697,7 +870,8 @@ export function pumpChartConfig(
 		speedRange = false,
 		checks = false,
 		compactLabels = false,
-		onlabels
+		onlabels,
+		onlegend
 	}: PumpChartConfigOptions
 ): PumpChartConfig {
 	const shown = (key: PanelKey) => panels.includes(key);
@@ -828,7 +1002,9 @@ export function pumpChartConfig(
 							borderDash: [2, 3],
 							pointRadius: 0,
 							pointHitRadius: 4,
-							spanGaps: false
+							spanGaps: false,
+							// Collapsed with the others into one legend entry where they must be (leftover L17).
+							otherSystem: true
 						}
 					]
 				: []),
@@ -1098,9 +1274,11 @@ export function pumpChartConfig(
 						: `NPSH (${d.headUnit})`
 			)
 		]);
+	/** A dataset the legend lists: not a lower panel's duty dot, which repeats the operating point's. */
+	const listed = (i: number) => !(datasets[i] as { duty?: boolean } | undefined)?.duty;
 	return {
 		type: 'line',
-		plugins: [checkMarks, caseLabels, lines],
+		plugins: [checkMarks, caseLabels, lines, ...(onlegend ? [legendReport(onlegend)] : [])],
 		data: { datasets },
 		options: {
 			animation: false,
@@ -1123,14 +1301,14 @@ export function pumpChartConfig(
 			plugins: {
 				legend: {
 					position: 'bottom',
+					// A collapsed entry toggles all its datasets (leftover L17; critique CR-ENG-2).
+					onClick: legendClick,
 					labels: {
 						color: CHART_COLORS.legend,
 						usePointStyle: true,
 						boxHeight: 12,
 						// The panels' duty dots repeat the operating point's entry.
-						filter: (item, chartData) =>
-							!(chartData.datasets[item.datasetIndex ?? -1] as { duty?: boolean } | undefined)
-								?.duty,
+						filter: (item) => listed(item.datasetIndex ?? -1),
 						...font(14),
 						// Curves as a line, the operating point as a dot, an other case as its ring. A line's
 						// swatch is dashed as its line (leftover L16, as the group chart's since review
@@ -1138,24 +1316,41 @@ export function pumpChartConfig(
 						// point, which has no dashes, so it drew "Motor rated power (dashed)" and "Minimum flow
 						// (dash-dot)" solid. Chart.js lists datasets by `order`: the rings (−1, drawn on top) are
 						// listed where their datasets are, as before.
+						// Then made to fit (leftovers L17, L18): on a phone's screen the other cases' rings and
+						// their system curves one entry each; every entry too wide for a row on rows of its own;
+						// from 640 px and in the image, the other cases one entry each only where the rows would
+						// pass half the canvas.
 						generateLabels: (c) =>
-							legendLabels(c)
-								.map((item) => {
-									const ds = (c.data.datasets[item.datasetIndex ?? -1] ?? {}) as {
-										borderDash?: number[];
-									};
-									const style = legendStyle(ds) as 'circle' | 'line';
-									return {
-										...item,
-										pointStyle: style,
-										...(style === 'line' ? { lineDash: [...(ds.borderDash ?? [])] } : {})
-									};
-								})
-								.sort(
-									(a, b) =>
-										legendOrder(c, a) - legendOrder(c, b) ||
-										(a.datasetIndex ?? 0) - (b.datasetIndex ?? 0)
-								)
+							fittedLegend(
+								c,
+								legendLabels(c)
+									.filter((item) => listed(item.datasetIndex ?? -1))
+									.map((item) => {
+										const ds = (c.data.datasets[item.datasetIndex ?? -1] ?? {}) as Parameters<
+											typeof legendStyle
+										>[0] & { borderDash?: number[] };
+										const style = legendStyle(ds) as 'circle' | 'line';
+										return {
+											...item,
+											pointStyle: style,
+											...(style === 'line' ? { lineDash: [...(ds.borderDash ?? [])] } : {})
+										};
+									})
+									.sort(
+										(a, b) =>
+											legendOrder(c, a) - legendOrder(c, b) ||
+											(a.datasetIndex ?? 0) - (b.datasetIndex ?? 0)
+									),
+								[
+									{ text: OTHER_RINGS_LEGEND, belongs: (i) => !!datasetOf(c, i)?.otherCase },
+									{
+										text: OTHER_SYSTEMS_LEGEND,
+										belongs: (i) => !!datasetOf(c, i)?.otherSystem,
+										lineDash: [2, 3]
+									}
+								],
+								compactLabels && !forImage
+							)
 					}
 				},
 				tooltip: forImage
@@ -1802,6 +1997,9 @@ export function pumpGroupConfig(
 			ctx.restore();
 		}
 	};
+	/** A dataset the image's legend lists: not a running pump's point, nor a line's beyond-data part. */
+	const listedInGroup = (i: number) =>
+		(datasets[i] as { legend?: boolean } | undefined)?.legend !== false;
 	return {
 		type: 'line',
 		plugins: forImage || !readout ? [pointLabels] : [pointLabels, readoutMark],
@@ -1838,32 +2036,38 @@ export function pumpGroupConfig(
 				legend: {
 					display: !htmlLegend,
 					position: 'bottom',
+					// A collapsed entry toggles all its datasets (leftover L17; critique CR-ENG-2).
+					onClick: legendClick,
 					labels: {
 						color: CHART_COLORS.legend,
 						usePointStyle: true,
 						boxHeight: 12,
-						filter: (item, chartData) =>
-							(chartData.datasets[item.datasetIndex ?? -1] as { legend?: boolean } | undefined)
-								?.legend !== false,
+						filter: (item) => listedInGroup(item.datasetIndex ?? -1),
 						...font(14),
 						generateLabels: (c) => {
-							const items = legendLabels(c).map((item) => {
-								const ds = c.data.datasets[item.datasetIndex ?? -1] as
-									{ showLine?: boolean; pointStyle?: unknown; borderDash?: number[] } | undefined;
-								const point = ds?.showLine === false && typeof ds.pointStyle === 'string';
-								return {
-									...item,
-									pointStyle: (point ? ds.pointStyle : 'line') as 'circle' | 'line',
-									// A line's swatch dashed as its line (rule 2: a slot's pattern is its second
-									// cue): Chart.js takes an entry's style from its first point under
-									// usePointStyle, which has no dashes, so it drew every line solid (review
-									// DOTS-LABELS-B3).
-									...(point ? {} : { lineDash: [...(ds?.borderDash ?? [])] })
-								};
-							});
+							const items = legendLabels(c)
+								.filter((item) => listedInGroup(item.datasetIndex ?? -1))
+								.map((item) => {
+									const ds = c.data.datasets[item.datasetIndex ?? -1] as
+										{ showLine?: boolean; pointStyle?: unknown; borderDash?: number[] } | undefined;
+									const point = ds?.showLine === false && typeof ds.pointStyle === 'string';
+									return {
+										...item,
+										pointStyle: (point ? ds.pointStyle : 'line') as 'circle' | 'line',
+										// A line's swatch dashed as its line (rule 2: a slot's pattern is its second
+										// cue): Chart.js takes an entry's style from its first point under
+										// usePointStyle, which has no dashes, so it drew every line solid (review
+										// DOTS-LABELS-B3).
+										...(point ? {} : { lineDash: [...(ds?.borderDash ?? [])] })
+									};
+								});
 							// Other cases' own group curves as one entry, a solid slate line (D24 §9.6).
 							const first = items.find((item) => curveFamily(c, item));
-							return (
+							// Then made to fit (leftovers L17, L18; only the image draws it): every entry too
+							// wide for a row on rows of its own (a merged ring's names, long pump names), and
+							// the other cases' rings one entry only where the rows would pass half the canvas.
+							return fittedLegend(
+								c,
 								items
 									.filter((item) => item === first || !curveFamily(c, item))
 									.map((item) =>
@@ -1883,7 +2087,9 @@ export function pumpGroupConfig(
 										(a, b) =>
 											otherCase(c, a) - otherCase(c, b) ||
 											(a.datasetIndex ?? 0) - (b.datasetIndex ?? 0)
-									)
+									),
+								[{ text: OTHER_RINGS_LEGEND, belongs: (i) => !!datasetOf(c, i)?.otherCase }],
+								false
 							);
 						}
 					}
@@ -1902,6 +2108,14 @@ export function pumpGroupConfig(
 			}
 		}
 	};
+}
+
+/** A dataset's flags the legends read (leftovers L17, L18). */
+function datasetOf(
+	chart: ChartInstance,
+	i: number
+): { otherCase?: boolean; otherSystem?: boolean } | undefined {
+	return chart.data.datasets[i] as { otherCase?: boolean; otherSystem?: boolean } | undefined;
 }
 
 /**

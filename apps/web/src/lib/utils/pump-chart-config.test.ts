@@ -15,14 +15,18 @@ import {
 	labelTag,
 	pumpChartConfig,
 	type PointLabelsDrawn,
+	type PumpChartConfig,
+	type PumpChartConfigOptions,
 	pumpGroupConfig
 } from './pump-chart-config';
+import type { LegendItem } from 'chart.js';
 import { lineupView } from '../testing/curve-family';
 import {
 	GROUP_AQUA,
 	GROUP_BLUE,
 	GROUP_SLOTS,
 	groupChartData,
+	type GroupChartData,
 	type GroupMemberInput
 } from './pump-group-chart';
 import { formatNumber, SI_UNITS } from './units';
@@ -1232,6 +1236,196 @@ describe('the pump chart’s stacked y axes as wide as their titles and ticks ne
 	});
 });
 
+// Leftovers L17 and L18 (pumps-nits.md §8.14 bullets 5 and 6; §11.5): Chart.js 4.5.1's horizontal
+// legend lays each entry out as one line, so an entry wider than the canvas was cut ("Case 3: 1
+// of 4 running (…)" at 390 px), and it draws at most half the canvas high, so rows past that were
+// not drawn (the condenser's five rings listed as one at 320 px). Laid out here by Chart.js itself
+// (BasicPlatform, 6 px a character), its hit boxes being where it draws each entry.
+describe('the canvas legends fit their canvas (leftovers L17 and L18)', () => {
+	const RINGS = 'Other cases (a numbered ring each)';
+	const SYSTEMS = "Other cases' system curves (dotted)";
+	const NAMES = [
+		'3 of 4 running (Pump P4 off)',
+		'2 of 4 running (Pump P3, Pump P4 off)',
+		'1 of 4 running (Pump P2, Pump P3, Pump P4 off)',
+		'Pump P1 off with the discharge valve throttled',
+		'Pump P2 off with the discharge valve throttled'
+	];
+	const pumpWith = (names: readonly string[], options: Partial<PumpChartConfigOptions> = {}) => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], systemCurveResponse());
+		const others = otherCasesData(
+			names.map((name, i) => ({
+				key: `S${i + 1}`,
+				name,
+				result: pumpResult({ operatingFlow: 0.012 + 0.002 * i, operatingHead: 27 - i }),
+				stale: false,
+				system: systemCurveResponse()
+			})),
+			SI_UNITS,
+			[0, 0.03],
+			1,
+			null,
+			Object.fromEntries(names.map((_, i) => [`S${i + 1}`, i + 1]))
+		);
+		return pumpChartConfig(data, others, {
+			speedText: '100 % speed',
+			legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+			format: (v) => formatNumber(v, 4),
+			...options
+		});
+	};
+	/** The legend Chart.js laid out: its box, and each entry with its hit box and datasets. */
+	const legendOf = (chart: ReturnType<typeof laidOut>) => {
+		const legend = chart.legend as unknown as {
+			left: number;
+			top: number;
+			right: number;
+			bottom: number;
+			legendItems: (LegendItem & { datasetIndices?: number[] })[];
+			legendHitBoxes: { left: number; top: number; width: number; height: number }[];
+		};
+		return {
+			box: { left: legend.left, top: legend.top, right: legend.right, bottom: legend.bottom },
+			entries: legend.legendItems.map((item, k) => ({
+				item,
+				text: item.text,
+				swatch: item.lineWidth !== 0,
+				datasets: item.datasetIndices ?? [item.datasetIndex!],
+				hit: legend.legendHitBoxes[k]!
+			}))
+		};
+	};
+	/** Each entry drawn whole: inside the canvas and inside the legend's box (Chart.js clips it). */
+	const outside = (chart: ReturnType<typeof laidOut>, width: number) => {
+		const { box, entries } = legendOf(chart);
+		return entries
+			.filter(
+				({ hit }) =>
+					hit.left < Math.max(0, box.left) - 0.01 ||
+					hit.left + hit.width > Math.min(width, box.right) + 0.01 ||
+					hit.top < box.top - 0.01 ||
+					hit.top + hit.height > box.bottom + 0.01
+			)
+			.map(({ text, hit }) => `"${text}" at ${JSON.stringify(hit)} outside ${JSON.stringify(box)}`);
+	};
+	const ringsOf = (config: PumpChartConfig) =>
+		config.data.datasets.flatMap((d, i) => ((d as { otherCase?: boolean }).otherCase ? [i] : []));
+	const systemsOf = (config: PumpChartConfig) =>
+		config.data.datasets.flatMap((d, i) => (/^System curve, case /.test(d.label ?? '') ? [i] : []));
+
+	it('on a phone’s 270 px canvas lists five rings and five system curves as two entries, every entry whole and drawn', () => {
+		const config = pumpWith(NAMES, { compactLabels: true });
+		const chart = laidOut(config, 270, 544);
+		try {
+			expect(outside(chart, 270)).toEqual([]);
+			const { entries } = legendOf(chart);
+			const rings = entries.find((e) => e.text === RINGS);
+			const systems = entries.find((e) => e.text === SYSTEMS);
+			expect(rings?.datasets).toEqual(ringsOf(config));
+			expect(systems?.datasets).toEqual(systemsOf(config));
+			expect(ringsOf(config)).toHaveLength(5);
+			// Every other dataset Chart.js lists is an entry of its own, drawn.
+			const listed = entries.flatMap((e) => e.datasets);
+			for (const i of [...ringsOf(config), ...systemsOf(config)]) expect(listed).toContain(i);
+			expect(entries.some((e) => /^Case \d/.test(e.text))).toBe(false);
+		} finally {
+			chart.destroy();
+		}
+	});
+
+	// Critique CR-ENG-2: Chart.js's own click toggles the one dataset of an entry.
+	it('hides every ring with one press on the collapsed entry, and shows them all with the next', () => {
+		const config = pumpWith(NAMES, { compactLabels: true });
+		const chart = laidOut(config, 270, 544);
+		try {
+			const press = () => {
+				const entry = legendOf(chart).entries.find((e) => e.text === RINGS);
+				expect(entry, 'the rings’ one entry').toBeDefined();
+				if (!entry) return;
+				const click = chart.options.plugins!.legend!.onClick! as (...args: unknown[]) => void;
+				click.call(chart.legend, {}, entry.item, chart.legend);
+			};
+			press();
+			for (const i of ringsOf(config)) expect(chart.isDatasetVisible(i), `ring ${i}`).toBe(false);
+			expect(legendOf(chart).entries.find((e) => e.text === RINGS)?.item.hidden).toBe(true);
+			// The rest untouched.
+			for (const i of systemsOf(config)) expect(chart.isDatasetVisible(i)).toBe(true);
+			press();
+			for (const i of ringsOf(config)) expect(chart.isDatasetVisible(i), `ring ${i}`).toBe(true);
+			// Any other entry: Chart.js's own click, its one dataset.
+			const pump = legendOf(chart).entries.find((e) => e.text === 'Pump curve at 100 % speed')!;
+			const click = chart.options.plugins!.legend!.onClick! as (...args: unknown[]) => void;
+			click.call(chart.legend, {}, pump.item, chart.legend);
+			expect(chart.isDatasetVisible(pump.item.datasetIndex!)).toBe(false);
+		} finally {
+			chart.destroy();
+		}
+	});
+
+	// Critique CR-OWNER-7: from 640 px the entries name each case; a long one wraps.
+	it('keeps an entry per case at 454 px, a 70-character name written on two rows, its second without a swatch, none cut', () => {
+		// 70 characters: "Case 2: " and the name 468 px at 6 px a character, wider than the canvas.
+		const long = 'Summer peak with every pump of the north header at full speed on duty!';
+		expect(long).toHaveLength(70);
+		const config = pumpWith(['Winter', long]);
+		const chart = laidOut(config, 454, 544);
+		try {
+			expect(outside(chart, 454)).toEqual([]);
+			const { entries } = legendOf(chart);
+			expect(entries.some((e) => e.text === RINGS)).toBe(false);
+			expect(entries.map((e) => e.text)).toContain('Case 1: Winter');
+			const rows = entries.filter((e) => e.datasets[0] === ringsOf(config)[1]);
+			expect(rows.length).toBeGreaterThanOrEqual(2);
+			expect(rows.map((r) => r.text).join(' ')).toBe(`Case 2: ${long}`);
+			expect(rows.map((r) => r.swatch)).toEqual([true, ...rows.slice(1).map(() => false)]);
+			// Each row on a row of its own.
+			const tops = rows.map((r) => r.hit.top);
+			expect(new Set(tops).size).toBe(rows.length);
+		} finally {
+			chart.destroy();
+		}
+	});
+
+	it('draws the group image’s legend whole at 800 px with a merged ring entry and four 40-character pump names', () => {
+		const view = lineupView('');
+		const name = (c: string) => `${c.repeat(36)} P${c}x`;
+		const names = ['A', 'B', 'C', 'D'].map(name);
+		expect(names.every((n) => n.length === 40)).toBe(true);
+		const data: GroupChartData = {
+			...view.data,
+			lines: view.data.lines.map((line) => ({
+				...line,
+				label: `${names.slice(0, 3).join(', ')} and ${names[3]}, 100 % speed (each one's flow)`
+			})),
+			others: view.data.others.map((ring, i, all) =>
+				i === all.length - 1
+					? {
+							...ring,
+							label:
+								'Case 4: Pump P1 off with the discharge valve throttled, case 5: Pump P2 off with the discharge valve throttled and case 6: Pump P3 off with the discharge valve throttled (station duties, equal within the duty checks’ tolerances)'
+						}
+					: ring
+			)
+		};
+		const chart = laidOut(
+			pumpGroupConfig(data, {
+				legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+				format: (v) => formatNumber(v, 4),
+				forImage: true
+			}),
+			800,
+			440
+		);
+		try {
+			expect(outside(chart, 800)).toEqual([]);
+			const texts = legendOf(chart).entries.map((e) => e.text);
+			expect(texts.join(' ')).toContain(names[0]);
+		} finally {
+			chart.destroy();
+		}
+	});
+});
+
 /** Chart.js lays out `config` on a `width` × `height` canvas (BasicPlatform; 6 px a character). */
 function laidOut(config: ReturnType<typeof pumpChartConfig>, width: number, height: number) {
 	const ctx: Record<string | symbol, unknown> = new Proxy({} as Record<string | symbol, unknown>, {
@@ -1262,7 +1456,7 @@ function drawnLegend(
 		text: string;
 		pointStyle: unknown;
 		lineDash: number[] | undefined;
-		hidden: boolean;
+		hidden: boolean | undefined;
 		own: number[];
 	}[];
 	swatches: { dash: number[]; points: number }[];

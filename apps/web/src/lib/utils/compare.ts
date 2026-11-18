@@ -36,7 +36,7 @@ import {
 	Formatter,
 	linkReading,
 	lowestPressureNode,
-	npshRatioCue,
+	npshRatioNote,
 	pumpStatusLabel,
 	RELIEF_NO_RESULT,
 	valveStateLabel,
@@ -133,7 +133,8 @@ interface Spec {
 	where?: (solved: SolvedState, project: Project) => string;
 	/**
 	 * Words for a case with no value where none is no sign of a safe one, as the cell's note: a
-	 * pump with no NPSH margin ratio that cavitates (npshRatioCue). Null: nothing to say.
+	 * pump with no NPSH margin ratio that cavitates, or whose NPSHr is 0 (npshRatioNote; §11,
+	 * leftover L1). Null: nothing to say.
 	 */
 	noValueNote?: (solved: SolvedState, row: CompareRow, f: Formatter) => string | null;
 }
@@ -264,7 +265,7 @@ export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 		value: (s, r) => pump(s, r)?.npshMarginRatio,
 		noValueNote: (s, r, f) => {
 			const p = pump(s, r);
-			return p ? npshRatioCue(p, f) : null;
+			return p ? npshRatioNote(p, f) : null;
 		}
 	},
 	pumpStatus: {

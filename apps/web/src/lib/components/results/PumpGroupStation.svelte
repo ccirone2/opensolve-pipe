@@ -23,21 +23,27 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import type { Flag, TopologyIssue } from '$lib/api/types';
+	import { caseNamed, type CaseNumber } from '$lib/utils/pump-chart';
 	import type { GroupNotes, GroupTable } from '$lib/utils/pump-group-chart';
 	import { wordsText, type Words } from '$lib/utils/pump-groups';
 	import type { Row, Table } from '$lib/utils/results';
+	import CellValue from './CellValue.svelte';
 	import { flagSeverities, sectionMark } from '$lib/utils/section-nav';
+	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import FlagLine from './FlagLine.svelte';
 	import IssueDetail from './IssueDetail.svelte';
+	import PumpStatus from './PumpStatus.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 	import { registerSection } from './section-nav.svelte';
 
 	interface Props {
 		/** The group table (groupTable): its columns, a row per member and the station's footer. */
 		table: GroupTable;
-		/** The case shown, in a project with scenarios: named in the table's caption. */
+		/** The case shown, in a project with scenarios: named in the table's title and caption. */
 		caseName?: string;
+		/** The case shown's number (pump-chart.ts caseTags): its box in the title. */
+		caseTag?: CaseNumber;
 		/** Open an element's results and trace. */
 		oninspect?: (componentId: string) => void;
 		/** A flag's words (names, display units). */
@@ -63,6 +69,7 @@
 	let {
 		table,
 		caseName,
+		caseTag = 'Base',
 		oninspect,
 		flagText,
 		sharesPending = false,
@@ -133,9 +140,14 @@
 	/**
 	 * The group table as a results table (§9 S6a): a row per member in the table's order, keyed
 	 * by its id, named by its name alone (nit 5: no slot symbol). The title names the case shown,
-	 * in a project with scenarios.
+	 * in a project with scenarios: on screen its box beside its name (CaseNamed), in the table's
+	 * caption, which names Fields and Sort by too, in words, "case 2: Winter" (caseNamed; the base
+	 * case its name alone; pumps-nits.md §11.4, leftover L10). Fields keeps its key, so a choice
+	 * stored keeps.
 	 */
-	const title = $derived(`The pumps in the group${caseName ? `, ${caseName}` : ''}`);
+	const title = $derived(
+		`The pumps in the group${caseName ? `, ${caseNamed(caseTag, caseName)}` : ''}`
+	);
 	const resultsTable = $derived<Table>({
 		columns: table.columns,
 		rows: table.rows.map((row): Row => ({
@@ -145,10 +157,14 @@
 			detail: '',
 			cells: row.cells,
 			flags: [...row.flags],
-			// A pump that cavitates with no NPSH margin ratio sorts below every ratio (groupTable).
-			...(row.sortKeys ? { sortKeys: row.sortKeys } : {})
+			// A pump with no NPSH margin ratio that cavitates sorts below every ratio, one with NPSHr
+			// 0 above, each tie by its margin (groupTable).
+			...(row.sortKeys ? { sortKeys: row.sortKeys } : {}),
+			...(row.sortTies ? { sortTies: row.sortTies } : {})
 		}))
 	});
+	/** Each member's status parts by its id, for its State cell's pill. */
+	const statuses = $derived(new Map(table.rows.map((row) => [row.id, row.status])));
 </script>
 
 {#snippet words(list: Words)}
@@ -185,6 +201,17 @@
 <!-- A flagged member's flag line (§5.3 Station): the pills and their text, read once. -->
 {#snippet memberFlags(row: Row)}
 	<FlagLine name={row.name} flags={row.flags} {flagText} />
+{/snippet}
+
+<!-- A member's cell (docs/proposals/pumps-nits.md §11, leftover L22): its State a status pill, as
+	Results per pump's Status (PumpStatus), the cell's words the label's; every other cell as
+	ResultsTable draws it. -->
+{#snippet memberCell(row: Row, key: string)}
+	{@const cell = row.cells[key] ?? '—'}
+	{@const status = key === 'state' ? statuses.get(row.key) : undefined}
+	{#if status}<PumpStatus
+			parts={status}
+		/>{:else if typeof cell === 'string'}{cell}{:else}<CellValue {cell} />{/if}
 {/snippet}
 
 <!-- A plain div with its heading, not a landmark (§7); tabindex −1, the section nav's target. -->
@@ -293,7 +320,10 @@
 		button, wrapping at 12 rem; each flagged pump's flag line its pills and their text
 		(FlagLine), not FlagBadge, which reads the workspace. -->
 	<div class="space-y-1" data-group-table>
-		<p id="{id}-table-title" class="text-xs font-semibold text-slate-700">{title}</p>
+		<p id="{id}-table-title" class="text-xs font-semibold text-slate-700">
+			The pumps in the group{#if caseName},
+				<CaseNamed tag={caseTag} name={caseName} />{/if}
+		</p>
 		<ResultsTable
 			table={resultsTable}
 			caption={title}
@@ -302,6 +332,7 @@
 			labelledby="{id}-table-title"
 			name={memberName}
 			flagLine={memberFlags}
+			cellContent={memberCell}
 		/>
 	</div>
 </div>

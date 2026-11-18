@@ -65,6 +65,7 @@
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
 	import {
+		CELL_NOTE_WRAP,
 		NAME_SORT_KEY,
 		sortableColumn,
 		sortRows,
@@ -606,7 +607,29 @@
 		'sticky left-0 border-r border-slate-300 shadow-[6px_0_6px_-6px_rgb(15_23_42/0.35)]';
 </script>
 
-{#snippet heading(key: string, label: string, unit: string | undefined, numeric: boolean)}
+<!-- A heading's words: its label on one line, or its two lines (Column.heading: "NPSH margin" over
+	"ratio", docs/proposals/pumps-nits.md §11, leftover L4) with a space between them, so its name
+	and its words read without CSS are its label's. The first column's heading wraps: that column
+	keeps its fixed width on phones. -->
+{#snippet words(
+	key: string,
+	label: string,
+	lines: readonly [string, string] | undefined,
+	pad = false
+)}
+	{#if lines}<span class={['block whitespace-nowrap', pad && 'px-1']}>{lines[0]}</span>
+		<span class={['block whitespace-nowrap', pad && 'px-1']}>{lines[1]}</span>{:else}<span
+			class={['block', pad && 'px-1', key !== NAME_SORT_KEY && 'whitespace-nowrap']}>{label}</span
+		>{/if}
+{/snippet}
+
+{#snippet heading(
+	key: string,
+	label: string,
+	unit: string | undefined,
+	numeric: boolean,
+	lines?: readonly [string, string]
+)}
 	{@const active = sort?.key === key}
 	{#if sortable.has(key)}
 		<!-- Set on its line by its foot, not its baseline: a numeric heading's row is reversed, and a
@@ -628,8 +651,7 @@
 			onclick={(event) => pressHeading(key, event.currentTarget)}
 		>
 			<span>
-				<!-- The first column's heading wraps: that column keeps its fixed width on phones. -->
-				<span class={['block', key !== NAME_SORT_KEY && 'whitespace-nowrap']}>{label}</span>
+				{@render words(key, label, lines)}
 				{#if unit}
 					<span class="block text-xs font-normal whitespace-nowrap text-slate-600">{unit}</span>
 				{/if}
@@ -642,7 +664,7 @@
 			{/if}
 		</button>
 	{:else}
-		<span class={['block px-1', key !== NAME_SORT_KEY && 'whitespace-nowrap']}>{label}</span>
+		{@render words(key, label, lines, true)}
 		{#if unit}
 			<span class="block px-1 text-xs font-normal whitespace-nowrap text-slate-600">{unit}</span>
 		{/if}
@@ -684,15 +706,20 @@
 			{#if name}
 				{@render name(row)}
 			{:else if onselect}
+				<!-- Its words at most the button's width, so an unbroken name breaks inside its cell
+					rather than over the next one (docs/proposals/pumps-nits.md §11, X1). -->
 				<button
 					type="button"
 					class="flex min-h-11 w-full flex-col items-start justify-center rounded px-1 text-left hover:bg-slate-100"
 					onclick={() => onselect(row)}
 				>
-					<span class="font-medium break-words text-blue-800 underline underline-offset-2"
+					<span
+						class="max-w-full font-medium break-words text-blue-800 underline underline-offset-2"
 						>{row.name}</span
 					>
-					{#if row.detail}<span class="text-xs break-words text-slate-600">{row.detail}</span>{/if}
+					{#if row.detail}<span class="max-w-full text-xs break-words text-slate-600"
+							>{row.detail}</span
+						>{/if}
 				</button>
 			{:else}
 				<span class="block px-1 py-2">
@@ -732,6 +759,8 @@
 					divider,
 					'px-2 py-2 align-top',
 					column.numeric && 'text-right tabular-nums',
+					// A note line under a value wraps from 640 px at 11 rem (§11, leftover L3).
+					column.numeric && CELL_NOTE_WRAP,
 					column.wrap ? 'max-w-[22rem] min-w-[14rem] text-xs break-words' : 'whitespace-nowrap',
 					stale && 'bg-amber-50/60 max-sm:bg-transparent',
 					// A phone: "Flow (L/s) 18.98", its label from the column (not in its text).
@@ -874,7 +903,11 @@
 			{#if fieldsOpen}
 				<div class="fixed inset-0 z-40 bg-slate-900/40 sm:hidden" aria-hidden="true"></div>
 			{/if}
-			<!-- Escape inside the menu closes it (as from its button). -->
+			<!-- Escape inside the menu closes it (as from its button). Below 640 px a sheet at z 50,
+				over everything; from 640 px a menu at z 40: above the tables' sticky cells (z 10 to
+				30) and the section nav (z 35), under the pinned short header (z 45) and the trace's
+				side panel, which comes later in the page (docs/proposals/pumps-nits.md §11, leftover
+				L23; not `isolate`, which changes paint order everywhere, build-density.md §19). -->
 			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 			<div
 				bind:this={fieldsPanel}
@@ -883,7 +916,7 @@
 				role="group"
 				aria-label="Fields shown in {caption}"
 				class={[
-					'z-50 overflow-y-auto border border-slate-200 bg-white shadow-lg',
+					'z-50 overflow-y-auto border border-slate-200 bg-white shadow-lg sm:z-40',
 					'absolute left-0 mt-1 max-h-80 w-64 rounded-lg p-2',
 					'max-sm:fixed max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:mt-0 max-sm:max-h-[75dvh] max-sm:w-full max-sm:rounded-t-xl max-sm:rounded-b-none max-sm:px-3 max-sm:pt-2 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:shadow-2xl'
 				]}
@@ -1001,7 +1034,13 @@
 						]}
 						style:min-width={heldWidth(column.key)}
 					>
-						{@render heading(column.key, column.label, column.unit, !!column.numeric)}
+						{@render heading(
+							column.key,
+							column.label,
+							column.unit,
+							!!column.numeric,
+							column.heading
+						)}
 					</th>
 				{/each}
 			</tr>

@@ -263,6 +263,32 @@ describe('cells and differences', () => {
 		expect(`${quiet.text} ${quiet.note ?? ''}`).not.toMatch(/cavitat/i);
 	});
 
+	it('give the NPSH margin as the note of an NPSH margin ratio cell where the case has NPSHr 0 and a margin of 0 or more (pumps-nits.md §11, leftover L1)', () => {
+		// Made-up: NPSHr 0 at the operating flow, NPSHa 5 m: a margin of 5 m, no ratio, no flag.
+		const zero = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ npshAvailable: 5, npshRequired: 0, npshMargin: 5, npshMarginRatio: null })
+			}
+		});
+		const cells = compareCells(
+			{ quantity: 'pumpNpshMarginRatio', elementId: 'P1' },
+			[column(base), column(zero)],
+			project(),
+			SI_UNITS
+		);
+		expect(cells[1]).toMatchObject({ text: '—', note: 'NPSHr 0: NPSH margin 5 m' });
+		expect(cells[1]!.invalid).toBeFalsy();
+		expect(cells[1]!.diff).toBeUndefined();
+		// In US units, 5 m ÷ 0.3048 m/ft to 4 significant figures.
+		const us = compareCells(
+			{ quantity: 'pumpNpshMarginRatio', elementId: 'P1' },
+			[column(zero)],
+			project(),
+			IMPERIAL_UNITS
+		)[0]!;
+		expect(us.note).toBe(`NPSHr 0: NPSH margin ${String(Number((5 / 0.3048).toPrecision(4)))} ft`);
+	});
+
 	it('offer the NPSH margin ratio among a pump’s quantities, after its NPSH margin, which stays offered', () => {
 		const pump = ELEMENT_QUANTITIES.pump;
 		expect(pump).toContain('pumpNpshMargin');

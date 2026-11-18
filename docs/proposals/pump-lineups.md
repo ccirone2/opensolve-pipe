@@ -700,7 +700,7 @@ A scenario with any other effective change is never a match: "Winter", with P3 a
 **Ids.** The first free on the growing project (4d's `newIds`).
 
 **Refusals.** The button is `aria-disabled`, described by the reason shown under it as a hint, as in 4d.
-- **By number running, every case existing:** `Every case by number running already exists: {«A», «B» and «C»}.`
+- **By number running, every case existing:** `Every case by number running already exists: {«A», «B» and «C»}.` *(Since `pumps-nits.md` §11.4, leftover L10: `… already exists: {case 1 «A», case 2 «B» and case 3 «C»}.`, each case by its number; 4d's refusal the same, `Every case with one pump off already exists: {case 1 «A» and case 2 «B»}.`)*
 - **By number running, existing and base-state cases only:** `Nothing to add: each case by number running already exists or is the base case's state.`
 - **Each pump off, nothing to add:** 4d's `Every case with one pump off already exists: {A and B}.`
 - **Past 20:** 4d's words, the limit from the schema: `Adding {n} {case|cases} would make {total} scenarios; a project holds at most 20 scenarios.`
@@ -783,6 +783,8 @@ Then:
 - existing: `{name}: already a scenario, «{other}» ({id})`, or `{name}: already a scenario ({id})` when the two names are equal
 - base state: `{name}: not made, the base case's state ({A} {carries|carry} no flow in the base case)`
 
+*(Since `pumps-nits.md` §11.4, leftover L10, each case by its number, never its id: `{name}: case {n} has this name too but is another case`, `{name}: already case {n} «{other}»`, `{name}: already case {n}`.)*
+
 **Which group the names count.** When the card's members are not one group of the frame (a subset ticked by hand, or a station the finder does not suggest; §1.5 item 1), one sentence follows the list: `Names count every pump of the group {P1, P2 and P3}.` (or, when the members fall in no parallel group of the frame, `Names list each pump on its own.`).
 
 Under Each pump off the items are the same kinds. 4d's idle sentence and its "has its case already" sentence move into the items (`{offName}: not made, the base case's state ({name} carries no flow in the base case)` and `{offName}: already a scenario, «{other}» ({id})`).
@@ -798,7 +800,7 @@ Under Each pump off the items are the same kinds. 4d's idle sentence and its "ha
 
 **After it:**
 - `ws.pumpGroupOthers = true`, as in 4d;
-- the notice. By number running: `Added {n} {case|cases} by number running: {«A», «B» and «C»}. Solve all solves every case not yet solved; Undo removes them.` Each pump off: 4d's `addedNotice`;
+- the notice. By number running: `Added {n} {case|cases} by number running: {«A», «B» and «C»}. Solve all solves every case not yet solved; Undo removes them.` Each pump off: 4d's `addedNotice` *(since `pumps-nits.md` §11.4, leftover L10, each case by its number in the project after the add, `case 2 «A»`, in both)*;
 - focus moves to the block's Solve all (4d's `tick().then(...)`);
 - since `pumps-results-layout.md` S4, when the add ticked the box, "Now ticked: “Also show the other cases' station duties” (Group chart)." on screen and in the block's polite line (its §15 item 127).
 
@@ -883,17 +885,18 @@ About 260 px for four pumps; about 200 px under Each pump off.
 - `{name}: scenario {id} has this name too but is another case`
 - `{name}: already a scenario, «{other}» ({id})`
 - `{name}: already a scenario ({id})`
+- *(Since `pumps-nits.md` §11.4, leftover L10: `{name}: case {n} has this name too but is another case`, `{name}: already case {n} «{other}»`, `{name}: already case {n}`.)*
 - `{name}: not made, the base case's state ({A} {carries|carry} no flow in the base case)`
 - `Names count every pump of the group {P1, P2 and P3}.`, `Names list each pump on its own.`
 
 **Buttons and refusals:**
 - `Add {n} case`, `Add {n} cases`, `Add cases`
-- `Every case by number running already exists: {«A», «B» and «C»}.`
+- `Every case by number running already exists: {«A», «B» and «C»}.` *(Since `pumps-nits.md` §11.4, leftover L10: `{case 1 «A», case 2 «B» and case 3 «C»}`.)*
 - `Nothing to add: each case by number running already exists or is the base case's state.`
 - 4d's two refusals
 
 **Notices:**
-- `Added {n} {case|cases} by number running: {«A», «B» and «C»}. Solve all solves every case not yet solved; Undo removes them.` *(Since `build-density.md` §19: `… Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.`, and 4d's `addedNotice` the same tail.)*
+- `Added {n} {case|cases} by number running: {«A», «B» and «C»}. Solve all solves every case not yet solved; Undo removes them.` *(Since `build-density.md` §19: `… Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.`, and 4d's `addedNotice` the same tail. Since `pumps-nits.md` §11.4, leftover L10: `{case 1 «A», case 2 «B» and case 3 «C»}`, each by its number in the project after the add, and 4d's `addedNotice` the same form.)*
 - the rename notices of §4.5 (one, two, more than two)
 
 **Undo label:** `add cases by number running`

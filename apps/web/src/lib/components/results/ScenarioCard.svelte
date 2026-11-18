@@ -67,7 +67,9 @@
 		class="space-y-2 rounded-md border border-l-4 border-teal-600 bg-teal-50 p-3 text-sm text-teal-950"
 		aria-labelledby="{id}-title"
 	>
-		<h3 id="{id}-title" class="font-semibold">
+		<!-- A case's name may have no spaces: it breaks inside the heading, so the Results pane never
+			scrolls sideways (ui-guide, Phones; docs/proposals/pumps-nits.md §11.4, X4). -->
+		<h3 id="{id}-title" class="font-semibold wrap-break-word">
 			Scenario: {name}
 			<span class="font-mono text-xs font-normal">({scenario.id})</span>{solvedUnder}
 		</h3>

@@ -73,6 +73,7 @@
 	} from '$lib/utils/pump-chart';
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
+	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import CaseTag from '$lib/components/ui/CaseTag.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import CurveTable from './CurveTable.svelte';
@@ -250,27 +251,67 @@
 		const end = () => {
 			observer.disconnect();
 			for (const type of OWN_STEPS) window.removeEventListener(type, end, true);
-			if (held?.end === end) held = null;
+			if (held?.end === end) {
+				held = null;
+				closing = false;
+			}
 		};
 		for (const type of OWN_STEPS)
 			window.addEventListener(type, end, { capture: true, passive: true });
 		held = { keep, end };
+		closing = false;
 	}
+	/**
+	 * The other cases the chart shown was last drawn with (`otherData` at its drawing), set as each
+	 * drawing is made (pumps-nits.md §11.4, leftover L25).
+	 */
+	let drawnWith = $state.raw<unknown>(null);
+	/**
+	 * Every curve has answered, and the hold waits for the chart to be drawn with the cases now
+	 * current before it lets go (leftover L25). Not reactive.
+	 */
+	let closing = false;
+	/** No chart can be drawn: the hold has no drawing to wait for. */
+	const noDrawing = () => cannotDraw || !canvas;
 	// The last curve answered (or the rest cancelled): its table is drawn, so keep the switch in
-	// place once more and let it go. The notes' line naming the rings left out stays as it was
-	// until the chart is drawn again (`notLabelled`); a drawing that then leaves out other rings
-	// (the last curve rescaling the axes) changes that line after the hold (review RACE-2, left).
+	// place once more. The notes' line naming the rings left out stays as it was until the chart
+	// is drawn again (`notLabelled`), and that drawing can change it (the last curve rescaling the
+	// axes: other rings left out, or none): so the hold lets go at the drawing of whatever cases
+	// are current once the last answer is in, never at the answer itself (pumps-nits.md §11.4,
+	// leftover L25; review RACE-2's limit), or at once where the chart shown was already drawn with
+	// them or none can be drawn. Waiting for the cases current, not those of the last answer, lets
+	// go too where they change again before any drawing (critique CR-ENG-5).
 	$effect(() => {
 		if (overlayProgress) return;
 		untrack(() => {
-			held?.keep();
-			held?.end();
+			if (!held) return;
+			held.keep();
+			if (drawnWith === otherData || noDrawing()) held.end();
+			else closing = true;
+		});
+	});
+	// A drawing of the cases current (or no drawing possible) while the hold waits: the switch kept
+	// in place once more as that drawing changes what is above it, then let go (leftover L25).
+	$effect(() => {
+		const drawnCases = drawnWith;
+		const current = otherData;
+		const none = noDrawing();
+		untrack(() => {
+			if (!closing || !held || (drawnCases !== current && !none)) return;
+			held.keep();
+			held.end();
 		});
 	});
 	// Another pump shown, or the chart gone: nothing more to hold.
 	$effect(() => () => held?.end());
 	/** The other cases with a system curve: each has its table last in the data region (§5.3). */
 	const othersWithCurves = $derived(otherData.filter((o) => o.system));
+	/**
+	 * The case shown in words, by its number: "case 2: Winter", the base case its name alone
+	 * (caseNamed): the image's title and Download image's name, where the caption draws its box
+	 * beside its name (docs/proposals/pumps-nits.md §11.4, leftover L10).
+	 */
+	const caseTitle = $derived(caseName ? caseNamed(caseTag, caseName) : undefined);
 	/**
 	 * What is drawn above the switch that the other cases can change while it is held, as one
 	 * string, so it changes only as that layout does, not at every state of a case's curve: each
@@ -350,6 +391,13 @@
 	 */
 	let tail = $state(0);
 	/**
+	 * The canvas held at a height by the last chip pressed with its pane at the top (leftover L9,
+	 * below): `px` its height then, `rem` the natural height (chartHeightRem) it was held against.
+	 * Applied only while the natural height is still that one, and never below it, so a new solve's
+	 * panels, a change across 640 px or a pump change (`{#key}` in PumpsView) drops it.
+	 */
+	let hold = $state<{ px: number; rem: number } | null>(null);
+	/**
 	 * A chip stays under the pointer (ui-guide, a press moves nothing under the pointer; the owner's
 	 * nits of 2026-11-12, item 1, docs/proposals/pumps-nits.md): a panel's chip makes the canvas
 	 * above it a panel taller or shorter (chartHeightRem), so once the press is drawn its scroller
@@ -362,12 +410,19 @@
 	 * What the scroll could not take is held as room at the figure's foot, where the note was, and
 	 * scrolled; each press sets it anew (an "on" press gives the note back), and it goes as it is
 	 * scrolled out of sight below the pane (the effect below). Where even that cannot hold the chip
-	 * (a pane too short to scroll) none is held. At the pane's top nothing can (the tall-window
-	 * limit, pumps-nits.md item 1).
+	 * (a pane too short to scroll) none is held.
+	 *
+	 * At the pane's top the scroll cannot take it either (docs/proposals/pumps-nits.md §11.4,
+	 * leftover L9): pressed off, a panel's chip lifts by its panel, and on a tall window the pane
+	 * cannot scroll up by all of it (112 px at its top, 52 at a scroll of 60 on the transfer example
+	 * at 1280×1400). What the scroll could not take is held as canvas height (`hold`, never below the
+	 * natural height), the panels shown sharing it, so the row stays where it was pressed; the next
+	 * press lets it go, and a press back on finds the canvas the height it then needs.
 	 */
 	async function pressChip(button: HTMLButtonElement, key: ChipKey) {
 		const before = button.getBoundingClientRect().top;
 		tail = 0;
+		hold = null;
 		togglePanel(key);
 		await tick();
 		if (!button.isConnected) return;
@@ -378,6 +433,13 @@
 			return button.getBoundingClientRect().top - before;
 		};
 		const left = follow();
+		if (left < -0.5 && canvasArea) {
+			// Lifted, the pane at its top: the canvas keeps the height that holds the row.
+			hold = { px: Math.ceil(canvasArea.getBoundingClientRect().height - left), rem: heightRem };
+			await tick();
+			if (button.isConnected) follow();
+			return;
+		}
 		if (left <= 0.5) return;
 		tail = Math.ceil(left);
 		await tick();
@@ -404,6 +466,17 @@
 	});
 	const phone = mediaQuery('(max-width: 639px)');
 	const heightRem = $derived(chartHeightRem(shown, phone.current));
+	/** The root font's size in px: a rem as the canvas's height is drawn. */
+	const rootFontPx = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+	/**
+	 * The canvas's height: the panels' natural one (rem), or a chip's hold where it still applies,
+	 * never below the natural height in px (leftover L9).
+	 */
+	const canvasHeight = $derived(
+		hold && hold.rem === heightRem
+			? `${Math.max(hold.px, heightRem * rootFontPx())}px`
+			: `${heightRem}rem`
+	);
 
 	/** The flow the readout reads (display unit): the slider's or the pointer's, else the duty. */
 	let cursor = $state<number | null>(null);
@@ -662,6 +735,14 @@
 	 * for it again (export.md §5.5). Not reactive: `drawn` says when it is there.
 	 */
 	let chartModule: typeof import('./chart-setup') | null = null;
+	/**
+	 * The chart chunk's import while it is in flight: a drawing asked for meanwhile (the cases
+	 * changing twice in one go) waits on that one import, never a second one of the same chunk.
+	 * The same module either way in a browser; Vitest's module runner hands a second import of a
+	 * mocked module, made while the first is pending, the real module (pumps-nits.md §11.4,
+	 * leftover L25). Not reactive.
+	 */
+	let chunkLoading: Promise<typeof import('./chart-setup')> | null = null;
 	/** The chart shown has been drawn: an image can be made of it. */
 	let drawn = $state(false);
 
@@ -679,7 +760,12 @@
 		let cancelled = false;
 		let chart: ChartInstance<'line'> | null = null;
 		drawn = false;
-		void import('./chart-setup').then(
+		const chunk = (chunkLoading ??= import('./chart-setup'));
+		const loaded = () => {
+			if (chunkLoading === chunk) chunkLoading = null;
+		};
+		chunk.then(loaded, loaded);
+		void chunk.then(
 			(module) => {
 				if (cancelled) return;
 				chartModule = module;
@@ -700,11 +786,14 @@
 						checks: checkLimits,
 						compactLabels: compact,
 						cursor: () => cursorNow,
-						onlabels: (placed) => ringsDrawn(element, d, drawnCases, placed)
+						onlabels: (placed) => ringsDrawn(element, d, drawnCases, placed),
+						// The canvas legend as laid out, for measuring the layout (leftovers L16 to L18).
+						onlegend: (laid) => (element.dataset.legend = JSON.stringify(laid))
 					})
 				);
 				drawnChart = chart;
 				drawn = true;
+				drawnWith = drawnCases;
 			},
 			() => {
 				// A tab opened before a redeploy asks for a chunk the new deployment no longer has, or
@@ -813,6 +902,7 @@
 			offCases: offNote,
 			pumpName: name,
 			...(caseName ? { caseName } : {}),
+			...(caseTitle ? { caseTitle } : {}),
 			disclaimer: DISCLAIMER,
 			source: image
 		});
@@ -835,9 +925,11 @@
 	tabindex="-1"
 >
 	<!-- Its words wrap, a 40-character unbroken name too, as the group chart's figcaption (§7
-		Targets: text reflows at 320 px; S7 review LAYOUT-5). -->
+		Targets: text reflows at 320 px; S7 review LAYOUT-5). The case shown by its number, its box
+		beside its name, one unit (CaseNamed; pumps-nits.md §11.4, leftover L10). -->
 	<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">
-		Pump and system curves: {name}{caseName ? `, ${caseName}` : ''}
+		Pump and system curves: {name}{#if caseName},
+			<CaseNamed tag={caseTag} name={caseName} />{/if}
 	</figcaption>
 	{#if loadFailed}
 		<p bind:this={canvasArea} class="text-sm text-slate-700" role="alert">
@@ -847,7 +939,7 @@
 		<div
 			bind:this={canvasArea}
 			class="relative w-full"
-			style:height="{heightRem}rem"
+			style:height={canvasHeight}
 			role="img"
 			aria-label={summary}
 			aria-busy={loading}
@@ -1026,8 +1118,8 @@
 						type="button"
 						class="btn btn-quiet px-2 text-blue-800"
 						data-chart-image
-						aria-label="Download image of the pump and system curves: {name}{caseName
-							? `, ${caseName}`
+						aria-label="Download image of the pump and system curves: {name}{caseTitle
+							? `, ${caseTitle}`
 							: ''}"
 						aria-disabled={!!imageReason}
 						aria-describedby={imageReason ? `${id}-image-reason` : undefined}
@@ -1174,10 +1266,13 @@
 										scope="row"
 										class="px-2 py-1 text-left font-normal max-sm:block max-sm:w-full max-sm:px-0 max-sm:pt-1 max-sm:font-medium max-sm:wrap-anywhere"
 										><!-- Its case's number in a reserved column (2.5 rem), so every name starts
-											at one edge (nit 5, slice 5b). --><span
-											class="inline-block w-10"><CaseTag tag={row.tag} /></span
-										>
-										{row.label}</th
+											at one edge (nit 5, slice 5b); the box and the name one unit, the box
+											beside the name's first line and every line of the name at one edge
+											(pumps-nits.md §11.4, leftover L12). --><CaseNamed
+											tag={row.tag}
+											name={row.label}
+											form="column"
+										/></th
 									>
 									{#each cells as cell (cell.label)}
 										<td
@@ -1306,11 +1401,18 @@
 				</div>
 			</div>
 			<!-- The other cases' system curves, on this chart's flow grid, last (§5.3, F33); each open
-				by default when one of its points has no head (§9 S7). -->
+				by default when one of its points has no head (§9 S7). Each named by its case's number:
+				its box beside its name in the summary, "case 2: Winter" in the table's name, as the
+				legend and the tooltip say "System curve, case 2" (pumps-nits.md §11.4, leftover L10). -->
 			{#each othersWithCurves as other (other.key)}
+				{#snippet systemLabel()}System curve, <CaseNamed
+						tag={other.tag}
+						name={other.label}
+					/>{/snippet}
 				<CurveTable
 					key="system-{caseId(other.key)}"
-					caption="System curve, {other.label}"
+					caption="System curve, {caseNamed(other.tag, other.label)}"
+					label={systemLabel}
 					points={other.systemRows.length}
 					openByDefault={cannotDraw || other.systemRows.some((row) => row.head === '—')}
 					bind:choice={tablesOpen[`system-${caseId(other.key)}`]}
@@ -1330,7 +1432,10 @@
 								<td class="px-2 py-1 text-xs text-slate-600"
 									>{row.note}{#if row.detail}<IssueDetail
 											detail={row.detail}
-											subject="the point at {row.flow} {data.flowUnit}, {other.label}"
+											subject="the point at {row.flow} {data.flowUnit}, {caseNamed(
+												other.tag,
+												other.label
+											)}"
 										/>{/if}</td
 								>
 							</tr>
@@ -1355,10 +1460,10 @@
 				<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-3">
 					<!-- The case shown: a tag, not a control (§5.2 Tags); its number in a box, then its
 						words, no ● before them (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md
-						item 5, slice 5b). -->
+						item 5, slice 5b), the box and the words one unit (§11.4, leftover L12). -->
 					<span
 						class="col-span-full mt-1 justify-self-start rounded bg-slate-100 px-1.5 text-xs text-slate-700"
-						><CaseTag tag={caseTag} /> {caseName ?? 'This case'} (shown)</span
+						><CaseNamed tag={caseTag} name="{caseName ?? 'This case'} (shown)" /></span
 					>
 					{#each cases.listed as other (other.key)}
 						{@const on = shownKeys.has(other.key)}

@@ -48,6 +48,12 @@ export interface ChartImageCaptionInput {
 	title?: string;
 	/** The case shown, in a project with scenarios ("Winter", "Base case"). */
 	caseName?: string;
+	/**
+	 * The case shown in the title's words, by its number ("case 2: Winter"; the base case its name
+	 * alone: pump-chart.ts caseNamed), in place of `caseName` there (pumps-nits.md §11.4, leftover
+	 * L10). Given by the page, so this module reads no page module.
+	 */
+	caseTitle?: string;
 	projectName: string;
 	/** SolvedState.timestamp (ISO 8601, UTC). */
 	timestamp: string;
@@ -63,7 +69,10 @@ export interface ChartImageCaptionInput {
 }
 
 export interface ChartImageCaption {
-	/** "Pump and system curves: Transfer pump, Winter" (the figcaption's words). */
+	/**
+	 * "Pump and system curves: Transfer pump, case 2: Winter": the figcaption's words, its case's box
+	 * as the words "case 2:" (leftover L10).
+	 */
 	title: string;
 	/** "{project} · solved 2026-10-25 14:32 (UTC+02:00) · OpenSolve Pipe calculation methods 1.2.0". */
 	subtitle: string;
@@ -94,7 +103,7 @@ export function chartImageCaption(input: ChartImageCaptionInput): ChartImageCapt
 	return {
 		title:
 			(input.title ?? `Pump and system curves: ${input.pumpName}`) +
-			(input.caseName ? `, ${input.caseName}` : ''),
+			((input.caseTitle ?? input.caseName) ? `, ${input.caseTitle ?? input.caseName}` : ''),
 		subtitle:
 			`${input.projectName} · solved ${offsetDateTime(input.timestamp, input.utcOffsetMinutes)} · ` +
 			`OpenSolve Pipe calculation methods ${input.methodVersion}`,
@@ -324,8 +333,10 @@ export interface ChartImageRequest {
 	 */
 	notLabelled?: () => string | null;
 	pumpName: string;
-	/** The case shown, in a project with scenarios. */
+	/** The case shown, in a project with scenarios: the file's name. */
 	caseName?: string;
+	/** The case shown by its number in words ("case 2: Winter"), the title's (leftover L10). */
+	caseTitle?: string;
 	/** The disclaimer (components/links.ts DISCLAIMER). */
 	disclaimer: string;
 	source: ChartImageSource;
@@ -349,8 +360,10 @@ export interface FigureImageRequest {
 	drawnLines?: () => readonly string[];
 	/** What the file holds ("Pumps together PA, PB"), for its name. */
 	content: string;
-	/** The case shown, in a project with scenarios. */
+	/** The case shown, in a project with scenarios: the file's name. */
 	caseName?: string;
+	/** The case shown by its number in words ("case 2: Winter"), the title's (leftover L10). */
+	caseTitle?: string;
 	/** The disclaimer (components/links.ts DISCLAIMER). */
 	disclaimer: string;
 	source: ChartImageSource;
@@ -384,6 +397,7 @@ export async function downloadChartImage(
 				pumpName,
 				...(figure ? { title: figure.title } : {}),
 				...(request.caseName ? { caseName: request.caseName } : {}),
+				...(request.caseTitle ? { caseTitle: request.caseTitle } : {}),
 				projectName: source.projectName,
 				timestamp: source.timestamp,
 				methodVersion: source.methodVersion,

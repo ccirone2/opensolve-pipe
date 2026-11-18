@@ -1915,8 +1915,20 @@ export function compareSheet(ctx: ExportContext): SheetSpec | null {
 				const si = cases.map((c, i) =>
 					c.hasValues ? compareValue(row, compareColumns[i]!, project).value : null
 				);
-				const value = (v: number | string | null): CellValue =>
-					typeof v === 'number' ? (spec.category ? u.value(v, spec.category) : v) : v;
+				// A case with values but none here, where none is no sign of a safe one (a pump with
+				// no NPSH margin ratio that cavitates, or whose NPSHr is 0): the screen's note for
+				// that cell, in the file's units, so the file says what the screen says (D17;
+				// docs/proposals/pumps-nits.md §11, leftover L6). Only quantities with such a note
+				// are read, so a connection's ends or pipes note never lands here.
+				const notes = spec.noValueNote
+					? compareCells(row, compareColumns, project, u.prefs).map((cell) => cell.note ?? null)
+					: [];
+				const value = (v: number | string | null, i: number): CellValue =>
+					typeof v === 'number'
+						? spec.category
+							? u.value(v, spec.category)
+							: v
+						: (v ?? (cases[i]!.hasValues ? (notes[i] ?? null) : null));
 				const base = si[0] ?? null;
 				const label = rowLabel(project, row);
 				yield wide(
@@ -1927,7 +1939,7 @@ export function compareSheet(ctx: ExportContext): SheetSpec | null {
 						spec.label,
 						spec.category ? u.label(spec.category, spec.options ?? {}) || null : null
 					],
-					si.map(value),
+					si.map((v, i) => value(v, i)),
 					(i) => {
 						const v = si[i];
 						if (typeof v !== 'number' || typeof base !== 'number' || !spec.category)
@@ -1981,36 +1993,22 @@ const LEFT_OUT_REASONS: Readonly<Record<string, string>> = {
 /**
  * The Compare sheet's connection values that read otherwise than in their case's own tables
  * (compareValue's notes), as "row (case)": given with the other sign (reversed since that case was
- * solved), and left out, with the reason (an end moved since, or its pipes changed). And its empty
- * cells where no value is no sign of a safe one, with the screen's note for that cell in the
- * file's units (compareCells: a pump that cavitates with no NPSH margin ratio, "Cavitates (NPSHr
- * 0): NPSH margin -2.521 m"; docs/proposals/pumps-nits.md item 4, review E-0-2, E-1-2), so the file
- * says what the screen says (D17). Empty without a Compare sheet.
+ * solved), and left out, with the reason (an end moved since, or its pipes changed). Empty without
+ * a Compare sheet. A cell where no value is no sign of a safe one holds the screen's note itself
+ * (compareSheet; docs/proposals/pumps-nits.md §11, leftover L6), so About no longer names it.
  */
 export function compareNotes(ctx: ExportContext): {
 	reversed: string[];
 	leftOut: { what: string; reason: string }[];
-	noValue: { what: string; note: string }[];
 } {
 	const notes = {
 		reversed: [] as string[],
-		leftOut: [] as { what: string; reason: string }[],
-		noValue: [] as { what: string; note: string }[]
+		leftOut: [] as { what: string; reason: string }[]
 	};
 	if (ctx.single || ctx.cases.length < 2) return notes;
 	const project = ctx.input.project;
 	const columns = compareColumnsOf(ctx);
 	for (const row of ctx.input.compareRows) {
-		if (QUANTITIES[row.quantity].noValueNote) {
-			// The screen's own cells, in the file's units, as the Status row is.
-			compareCells(row, columns, project, ctx.units.prefs).forEach((cell, i) => {
-				const c = ctx.cases[i]!;
-				if (c.hasValues && cell.note) {
-					notes.noValue.push({ what: `${rowLabel(project, row)} (${c.label})`, note: cell.note });
-				}
-			});
-			continue;
-		}
 		if (QUANTITIES[row.quantity].element !== 'connection') continue;
 		ctx.cases.forEach((c, i) => {
 			if (!c.hasValues) return;

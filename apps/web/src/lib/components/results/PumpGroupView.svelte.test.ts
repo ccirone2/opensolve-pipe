@@ -203,7 +203,7 @@ describe('the Pumps together card in the Pumps view', () => {
 		]);
 		// The case is named on the figure (the fake answers with the fixture's three-pump station).
 		expect(
-			within(card()).getByRole('figure', { name: /^Pump .* in parallel, Winter$/ })
+			within(card()).getByRole('figure', { name: /^Pump .* in parallel, Case 1: Winter$/ })
 		).toBeVisible();
 	});
 
@@ -617,7 +617,9 @@ describe('the Pumps together card in the Pumps view', () => {
 			).toBeVisible()
 		);
 		expect(
-			within(card()).getByRole('figure', { name: 'Pump PA and Pump PB in parallel, Winter' })
+			within(card()).getByRole('figure', {
+				name: 'Pump PA and Pump PB in parallel, Case 1: Winter'
+			})
 		).toBeVisible();
 		// Back to the base: its curves are cached with its solve, nothing asked again.
 		ws.setCase(null);

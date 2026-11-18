@@ -28,7 +28,11 @@ import {
 } from '@playwright/test';
 import { gzip } from 'pako';
 import type { Project } from '../src/lib/api/types';
-import type { CurveLabelsDrawn, PointLabelsDrawn } from '../src/lib/utils/pump-chart-config';
+import type {
+	CurveLabelsDrawn,
+	LegendDrawn,
+	PointLabelsDrawn
+} from '../src/lib/utils/pump-chart-config';
 import { exampleProject, pumpTransferExample } from '../src/lib/utils/examples';
 import { canonicalJson } from '../src/lib/utils/json';
 import { IMPERIAL_UNITS } from '../src/lib/utils/units';
@@ -2010,6 +2014,20 @@ const STATION_BELOW_HEADER: Readonly<Record<string, number>> = {
  * view, the one-off's) nothing is open, so every run counts.
  */
 const LONGEST_RUN = { card: 5, tab: 6 };
+
+/**
+ * The card's longest run of notes as §5.7 row 7 counts it (collect's runs: three paragraphs or more
+ * with no heading, control, list or list item between them; a run inside an opened disclosure is
+ * not counted), with the runs, for leftover L15's checks at sizes `measure` does not visit.
+ */
+async function cardNotesRun(page: Page): Promise<{ run: number; runs: string[] }> {
+	const data = await page.evaluate(collect);
+	const drawn = data.runs.filter((r) => r.inCard && !r.inDisclosure);
+	return {
+		run: Math.max(0, ...drawn.map((r) => r.paragraphs)),
+		runs: drawn.map((r) => `${r.paragraphs} paragraphs, ${r.words} words, ${r.height} px`)
+	};
+}
 /**
  * §5.7 row 8: the ring notes under "Other cases on the group chart" at 1280×800, "How to read the
  * rings" closed (its default), from the first note under the live line to the last: the lineups'
@@ -2772,15 +2790,22 @@ async function extremesNames(page: Page, list: boolean, where: string) {
 
 /**
  * Each cell's accessible name (soft): in a list form, whose line header is ::before content, its
- * column's words, a space, then its words; in a table its words alone.
+ * column's words, a space, then its words; in a table its words alone. Its words are its text
+ * without its aria-hidden marks: since pumps-nits.md §11.4 (leftover L10) an extreme names its
+ * case by its box, whose number is seen and hidden ("Case 3:" heard before it); a cell with no
+ * such mark reads as its whole text, as before.
  */
 async function cellNames(cells: Locator, list: boolean, where: string) {
 	const soft = expect.configure({ soft: true });
 	const said = await cells.evaluateAll((all) =>
-		all.map((td) => ({
-			label: (td as HTMLElement).dataset.label ?? '',
-			text: (td.textContent ?? '').replace(/\s+/g, ' ').trim()
-		}))
+		all.map((td) => {
+			const copy = td.cloneNode(true) as HTMLElement;
+			for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+			return {
+				label: (td as HTMLElement).dataset.label ?? '',
+				text: (copy.textContent ?? '').replace(/\s+/g, ' ').trim()
+			};
+		})
 	);
 	for (const [i, c] of said.entries()) {
 		await soft(
@@ -3436,18 +3461,34 @@ function readCombinationsTable() {
 	// the Case column's words (nit 5, slice 5b) is a box, not words: the words after it are read,
 	// and the box is held to a line of its cell instead: its words' first line (its middle within
 	// 1 px of theirs), or the whole line before it, where a word too long for the room left after
-	// the box starts on the next line (a 40-character unbroken name: `tagsAbove`, logged).
+	// the box starts on the next line (a 40-character unbroken name: `tagsAbove`, logged, and
+	// since pumps-nits.md §11.4, leftover L12, asserted empty: the box beside the name). A
+	// member's State is a status pill since pumps-nits.md §11 (leftover L22), a 20 px box of 12 px
+	// words, as Results per pump's: a box too, its words not read, the box held to its row's line
+	// instead (its middle within 1 px of the first line of the cells beside it: `pillsOffLine`).
+	// Moved: before L22 its plain words were read as a value's.
 	const offLine: string[] = [];
 	const tagsOffLine: string[] = [];
 	const tagsAbove: string[] = [];
 	const tagLines: number[] = [];
+	const pillsOffLine: string[] = [];
 	for (const tr of [...table.querySelectorAll(':scope > tbody > tr')].slice(0, 60)) {
 		const lines: { cell: string; top: number; bottom: number }[] = [];
+		const pills: { cell: string; top: number; bottom: number }[] = [];
 		for (const td of tr.querySelectorAll<HTMLElement>(':scope > td[data-label]')) {
+			const pill = td.querySelector('[data-status-pill]')?.getBoundingClientRect();
+			if (pill && pill.height > 1) {
+				pills.push({
+					cell: `${td.dataset.label}: ${squash(td.textContent)}`,
+					top: pill.top,
+					bottom: pill.bottom
+				});
+			}
 			const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
 			for (let n = walker.nextNode(); n; n = walker.nextNode()) {
 				if (!n.textContent?.trim() || n.parentElement?.closest('.sr-only')) continue;
 				if (n.parentElement?.closest('[data-case-tag]')) continue;
+				if (n.parentElement?.closest('[data-status-pill]')) continue;
 				const range = document.createRange();
 				range.selectNodeContents(n);
 				const r = range.getClientRects()[0];
@@ -3477,6 +3518,17 @@ function readCombinationsTable() {
 			for (const c of lines) {
 				if (Math.abs(a.top - c.top) < 6 && Math.abs(a.bottom - c.bottom) > 0.5) {
 					offLine.push(`"${a.cell.slice(0, 40)}" against "${c.cell.slice(0, 40)}"`);
+				}
+			}
+		}
+		for (const p of pills) {
+			for (const c of lines) {
+				if (Math.abs(p.top - c.top) >= 6) continue;
+				const delta = (p.top + p.bottom - c.top - c.bottom) / 2;
+				if (Math.abs(delta) > 1) {
+					pillsOffLine.push(
+						`"${p.cell.slice(0, 40)}" ${Math.round(delta * 10) / 10} px from "${c.cell.slice(0, 40)}"`
+					);
 				}
 			}
 		}
@@ -3534,6 +3586,7 @@ function readCombinationsTable() {
 		flagged: flagged ? { seen: seen(flagged), text: squash(flagged.textContent) } : null,
 		rows,
 		offLine: [...new Set(offLine)].slice(0, 6),
+		pillsOffLine: [...new Set(pillsOffLine)].slice(0, 6),
 		tagsOffLine: tagsOffLine.slice(0, 6),
 		tagsAbove: [...new Set(tagsAbove.map((t) => t.replace(/: its box.*/, '')))],
 		// Each Case cell's box middle from its words' middle, px (logged).
@@ -3669,11 +3722,16 @@ async function combinationsTablePart(page: Page, where: string, form: 'grouped' 
 		}
 	}
 	soft(m.offLine, `Running combinations' values off their line, ${where}`).toEqual([]);
+	soft(m.pillsOffLine, `Running combinations' status pills off their line, ${where}`).toEqual([]);
 	if (form === 'flat') {
 		console.log(
 			`${where}: each Case cell's box ${m.tagLines.join(', ')} px from its words' middle${m.tagsAbove.length ? `; on the line before its words in ${m.tagsAbove.join(', ')}` : ''}`
 		);
 		soft(m.tagLines.length, `the Case cells' boxes, ${where}`).toBeGreaterThan(0);
+		// Since pumps-nits.md §11.4 (leftover L12) a case's box and its name are one unit, the box
+		// beside the name's first line: none on the line before its words (logged and allowed
+		// before).
+		soft(m.tagsAbove, `a Case cell's box on the line before its words, ${where}`).toEqual([]);
 	}
 	soft(m.tagsOffLine, `a Case cell's box off its words' line, ${where}`).toEqual([]);
 	soft(m.covers, `fills over Running combinations' right shadow, ${where}`).toEqual([]);
@@ -3752,7 +3810,20 @@ function readGroupTable() {
 	const headings = [...(table?.querySelectorAll('thead th') ?? [])];
 	const rows = [...(table?.querySelectorAll('tbody > tr') ?? [])];
 	return {
-		title: title ? { id: title.id, text: squash(title.textContent), seen: seen(title) } : null,
+		title: title
+			? {
+					id: title.id,
+					text: squash(title.textContent),
+					// Its words heard: its case's box's number is seen and hidden, "Case 2:" heard
+					// before it (pumps-nits.md §11.4, leftover L10).
+					heard: (() => {
+						const copy = title.cloneNode(true) as HTMLElement;
+						for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+						return squash(copy.textContent);
+					})(),
+					seen: seen(title)
+				}
+			: null,
 		box: box
 			? {
 					labelledby: box.getAttribute('aria-labelledby'),
@@ -3866,7 +3937,13 @@ async function groupTablePart(page: Page, where: string) {
 	soft(m.box?.role, `the group table's box a region, ${where}`).toBe(stop ? 'region' : null);
 	soft(m.box?.tabindex, `the group table's box a Tab stop, ${where}`).toBe(stop ? '0' : null);
 	console.log(`${where}: the group table's box ${stop ? 'overflows: a Tab stop' : 'fits'}`);
-	soft(m.box?.caption, `the group table named as its title, ${where}`).toBe(m.title?.text);
+	// Named as its title says it: since pumps-nits.md §11.4 (leftover L10) the title draws the
+	// case's box (heard "Case 2:") and the caption, in words, reads "case 2: Winter" (caseNamed);
+	// the base case its name alone in both. Moved from the title's whole text, which held the name
+	// alone.
+	soft(m.box?.caption, `the group table named as its title, ${where}`).toBe(
+		m.title?.heard.replace(/, Case (\d+):/, ', case $1:')
+	);
 	soft(m.list, `the group table a list below 640 px only, ${where}`).toBe(phone);
 	soft(m.fields?.seen, `Fields in sight, ${where}`).toBe(true);
 	soft(m.group, `the Fields group drawn, ${where}`).toBe(true);
@@ -3978,11 +4055,19 @@ function readScrollBoxes() {
 			(/(auto|scroll)/.test(css.overflowY) && el.scrollHeight > el.clientHeight + 1)
 		);
 	};
+	// Its name as heard: the words of the elements naming it, without their aria-hidden parts (a
+	// case's box, whose number "Case 2:" says, since pumps-nits.md §11.4, leftover L10).
+	const heard = (el: Element | null) => {
+		if (!el) return '';
+		const copy = el.cloneNode(true) as Element;
+		for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+		return copy.textContent ?? '';
+	};
 	const named = (el: Element) =>
 		squash(
 			(el.getAttribute('aria-labelledby') ?? '')
 				.split(/\s+/)
-				.map((id) => document.getElementById(id)?.textContent ?? '')
+				.map((id) => heard(document.getElementById(id)))
 				.join(' ')
 		);
 	const read = (box: HTMLElement) => {
@@ -4039,8 +4124,12 @@ async function scrollBoxesPart(page: Page, view: string, where: string) {
 		);
 		if (stop && box.holds !== 'div') {
 			// Named by what it holds: the caption, or the group table's and Running combinations'
-			// titles, the same words.
-			soft(box.name, `"${box.holds}" named by what it holds, ${where}`).toBe(box.holds);
+			// titles, the same words. The group table's title draws the case shown's box, heard
+			// "Case 2:", where its caption says "case 2:" in words (pumps-nits.md §11.4, leftover L10).
+			soft(
+				box.name.replace(/, Case (\d+):/, ', case $1:'),
+				`"${box.holds}" named by what it holds, ${where}`
+			).toBe(box.holds);
 		}
 	}
 	const size = sizeOf(page);
@@ -4835,12 +4924,52 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		card.getByRole('table', { name: 'The pumps in the group' }).getByRole('rowheader').first()
 	).toContainText(LONG_PUMP);
 	const viewport = page.viewportSize()!;
+	// 360×740 since pumps-nits.md §11.4 (leftover L12), where a box and its name are one unit.
 	const sizes =
-		info.project.name === 'mobile' ? [viewport, { width: 320, height: 640 }] : [viewport];
+		info.project.name === 'mobile'
+			? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
+			: [viewport];
 	for (const size of sizes) {
 		await page.setViewportSize(size);
 		await settle(page, 1000);
 		const where = `the long names at ${sizeOf(page)}`;
+		// Results per pump (pumps-nits.md §11, X1): the long name's words end inside its sticky
+		// cell and, where they share a line with it, left of the Status pill.
+		const perPump = await tab
+			.getByRole('table', { name: 'Results per pump' })
+			.evaluate((table, name) => {
+				const th = [...table.querySelectorAll('tbody th[role="rowheader"]')].find((h) =>
+					(h.textContent ?? '').includes(name)
+				)!;
+				const words = th.querySelector('button > span')!;
+				const range = document.createRange();
+				range.selectNodeContents(words);
+				const rects = [...range.getClientRects()].filter((r) => r.width > 0.5);
+				const pill = th
+					.closest('tr')!
+					.querySelector('td[data-label="Status"] [data-status-pill]')!
+					.getBoundingClientRect();
+				const cell = th.getBoundingClientRect();
+				return {
+					right: Math.max(...rects.map((r) => r.right)),
+					cellRight: cell.right,
+					// The words' lines level with the pill (a table's row; a phone's list puts the
+					// pill on a line of its own below).
+					besidePill: rects
+						.filter((r) => r.bottom > pill.top + 0.5 && r.top < pill.bottom - 0.5)
+						.map((r) => r.right),
+					pillLeft: pill.left
+				};
+			}, LONG_PUMP);
+		console.log(`${where}: Results per pump's name ${JSON.stringify(perPump)}`);
+		expect
+			.soft(perPump.right, `Results per pump's long name inside its cell, ${where}`)
+			.toBeLessThanOrEqual(perPump.cellRight + 0.5);
+		for (const right of perPump.besidePill) {
+			expect
+				.soft(right, `Results per pump's long name left of the Status pill, ${where}`)
+				.toBeLessThanOrEqual(perPump.pillLeft + 0.5);
+		}
 		// The card's own checks: Results per pump's table above it is the shared ResultsTable's,
 		// outside this slice, and draws a long name of its own.
 		const cut = await cutInCard(page);
@@ -4886,6 +5015,8 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 		// the long pump name in its rows, each shown to its end; then the cases back.
 		await sortCombinations(page, /^NPSH margin ratio/, 'npshMarginRatio');
 		const flat = await combinationsTablePart(page, `${where}, sorted`, 'flat');
+		// Each Case cell's box beside its name's first line (leftover L12).
+		await boxedNamesPart(page, `${where}, sorted`);
 		expect
 			.soft(
 				flat?.rows.filter((r) => r.case.startsWith(LONG_CASE)).length,
@@ -4911,13 +5042,18 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 			name: "Also show the other cases' system curves"
 		});
 		await curves.check();
-		await expect(curveTableFold(figure, `System curve, ${LONG_CASE}`)).toHaveCount(1, {
+		await expect(curveTableFold(figure, `System curve, case 4: ${LONG_CASE}`)).toHaveCount(1, {
 			timeout: 120_000
 		});
 		await settle(page);
 		await expect(
 			figure.getByRole('table', { name: 'Operating points by case' }).getByRole('rowheader')
 		).toContainText([LONG_CASE]);
+		// Every case's box in the tab beside its name, with both data tables, the station duties
+		// and the other cases' system curves shown (pumps-nits.md §11.4, leftover L12): "Operating
+		// points by case", "Other cases' station duties", Running combinations' headings, both
+		// "(shown)" tags, both lists of cases and the ring list.
+		await boxedNamesPart(page, where);
 		const pastFigure = await figure.evaluate(namesPast, [LONG_PUMP, LONG_CASE]);
 		console.log(`${where}: past the pump chart ${JSON.stringify(pastFigure)}`);
 		expect.soft(pastFigure, `a long name's line past the pump chart's edge, ${where}`).toEqual([]);
@@ -4940,6 +5076,121 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 	}
 	await page.setViewportSize(viewport);
 });
+
+/**
+ * Every case's box drawn in the Pumps tab and the name after it (docs/proposals/pumps-nits.md
+ * §11.4, leftover L12; ui-guide, "A case is its number": the box beside the name's first line,
+ * every line of the name at one edge). A box's holder is its nearest ancestor that is not inline
+ * and holds words after it (a CaseNamed unit, a table cell, a label, a list item, a line of a
+ * heading, a caption); its words are those after the box inside the holder, read word by word, so
+ * a space left at a line's end is not taken for a line. Each is checked: the words' first line
+ * shares the box's line (they overlap by half the box's height or more), and every later line
+ * starts within 2 px of the first line's left (a line under the box starts 40 px or more left of
+ * it, where the name started on the box's line).
+ */
+function readBoxedNames() {
+	const pane = document.querySelector('section[aria-label="Results"]')!;
+	const tab = [...pane.querySelectorAll<HTMLElement>('[role="tabpanel"]')].find((p) => !p.hidden);
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const read: {
+		where: string;
+		words: string;
+		lines: number;
+		onBoxLine: boolean;
+		hang: number;
+	}[] = [];
+	for (const tag of tab?.querySelectorAll<HTMLElement>('[data-case-tag]') ?? []) {
+		const box = (tag.querySelector('[aria-hidden="true"]') ?? tag) as HTMLElement;
+		if (!box.checkVisibility({ visibilityProperty: true })) continue;
+		const b = box.getBoundingClientRect();
+		if (b.width < 1 || b.height < 1) continue;
+		// The words after the box inside `holder`: each word's boxes, grouped into lines.
+		const wordsAfter = (holder: Element) => {
+			const rects: DOMRect[] = [];
+			let words = '';
+			const walker = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+			for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+				if (tag.contains(n)) continue;
+				if (!(tag.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+				const parent = n.parentElement!;
+				if (parent.closest('.sr-only, [aria-hidden="true"]')) continue;
+				if (!parent.checkVisibility({ visibilityProperty: true })) continue;
+				for (const m of n.data.matchAll(/\S+/g)) {
+					const range = document.createRange();
+					range.setStart(n, m.index);
+					range.setEnd(n, m.index + m[0].length);
+					rects.push(...[...range.getClientRects()].filter((r) => r.width > 0.5));
+				}
+				words += n.data;
+			}
+			return { rects, words: squash(words) };
+		};
+		let holder: Element | null = tag.parentElement;
+		let found: ReturnType<typeof wordsAfter> | null = null;
+		for (; holder && holder !== tab; holder = holder.parentElement) {
+			const display = getComputedStyle(holder).display;
+			if (display === 'inline' || display === 'contents') continue;
+			const after = wordsAfter(holder);
+			if (after.rects.length) {
+				found = after;
+				break;
+			}
+		}
+		if (!holder || !found) continue;
+		const lines: { top: number; bottom: number; left: number }[] = [];
+		for (const r of found.rects) {
+			const line = lines.find((l) => Math.abs(l.top - r.top) < 3);
+			if (line) {
+				line.left = Math.min(line.left, r.left);
+				line.bottom = Math.max(line.bottom, r.bottom);
+			} else lines.push({ top: r.top, bottom: r.bottom, left: r.left });
+		}
+		lines.sort((x, y) => x.top - y.top);
+		const first = lines[0]!;
+		const overlap = Math.min(first.bottom, b.bottom) - Math.max(first.top, b.top);
+		const where =
+			holder.closest('table')?.querySelector('caption')?.textContent ??
+			holder.closest('fieldset')?.querySelector('legend')?.textContent ??
+			holder.closest('figure')?.querySelector('figcaption')?.textContent?.slice(0, 30) ??
+			holder.tagName;
+		read.push({
+			where: squash(where),
+			words: found.words.slice(0, 50),
+			lines: lines.length,
+			onBoxLine: overlap >= b.height / 2,
+			hang:
+				Math.round(Math.max(0, ...lines.slice(1).map((l) => Math.abs(l.left - first.left))) * 10) /
+				10
+		});
+	}
+	return read;
+}
+
+/**
+ * readBoxedNames at the size shown (soft): every box read has its name's first line beside it and
+ * every later line at that line's edge; logged with the count (leftover L12).
+ */
+async function boxedNamesPart(page: Page, where: string) {
+	const read = await page.evaluate(readBoxedNames);
+	const odd = read.filter((r) => !r.onBoxLine || r.hang > 2);
+	console.log(
+		`${where}: ${read.length} boxes read, ${read.filter((r) => r.lines > 1).length} names on more than one line${odd.length ? `; off: ${JSON.stringify(odd)}` : ''}`
+	);
+	if (RECORD) {
+		mkdirSync(RECORD, { recursive: true });
+		const file = `boxed-names ${where}`.replace(/[^\w×-]+/g, '-');
+		writeFileSync(path.join(RECORD, `${file}.json`), JSON.stringify(read, null, 1));
+	}
+	expect.soft(read.length, `boxes read, ${where}`).toBeGreaterThan(0);
+	expect
+		.soft(
+			odd.map(
+				(r) => `${r.where}: "${r.words}" (${r.onBoxLine ? `hang ${r.hang} px` : 'under its box'})`
+			),
+			`a case's name not beside its box, or a line of it not at the name's edge, ${where}`
+		)
+		.toEqual([]);
+}
 
 /**
  * The lines of `names` drawn past the right edge of `scope`, outside a box that scrolls sideways
@@ -5378,7 +5629,20 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 	const soft = expect.configure({ soft: true });
 	const groupBlock = card.locator('[data-group-table]');
 	const combos = card.locator('[data-running-combinations]');
-	const groupTitle = (await groupBlock.locator('p').first().innerText()).trim();
+	// The group table's name: its title's words as heard, in the caption's words. Since
+	// pumps-nits.md §11.4 (leftover L10) the title draws the case shown's box (the Base box
+	// hidden; a scenario's heard "Case 2:"), where the caption says "case 2:" in words; moved from
+	// the title's visible text, which held the name alone.
+	const groupTitle = (
+		await groupBlock
+			.locator('p')
+			.first()
+			.evaluate((p) => {
+				const copy = p.cloneNode(true) as HTMLElement;
+				for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+				return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+			})
+	).replace(/, Case (\d+):/, ', case $1:');
 	expect(groupTitle).toMatch(/^The pumps in the group, /);
 
 	// Each table's Fields and, on a phone, its "Sort by" named apart: the visible words, then the
@@ -5500,6 +5764,48 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 		soft(under, 'focused trace buttons under the heading row').toEqual([]);
 		await sortCombinations(page, /^NPSH margin ratio/, 'npshMarginRatio', true);
 
+		// The ratio's heading on two lines, "NPSH margin" over "ratio" (pumps-nits.md §11,
+		// leftover L4): at the end of Running combinations' scroll its words lie wholly right of
+		// the sticky Pump column (23.9 px of them under it on main 21230f0), and its button is no
+		// taller than Flow's, so the heading row keeps its height. Its width is checked against
+		// the margin's below, once the margin is shown.
+		const headingAt = (el: HTMLElement) => {
+			const table = el.querySelector('table')!;
+			const th = [...table.querySelectorAll<HTMLElement>('thead th')];
+			const by = (re: RegExp) =>
+				th.find((h) => re.test((h.textContent ?? '').replace(/\s+/g, ' ').trim()));
+			const ratio = by(/^NPSH margin ratio/);
+			const flow = by(/^Flow/);
+			const words = ratio?.querySelector('button > span') ?? ratio;
+			return {
+				table: Math.round(table.getBoundingClientRect().width * 10) / 10,
+				row: Math.round(table.querySelector('thead tr')!.getBoundingClientRect().height * 10) / 10,
+				ratio: ratio ? Math.round(ratio.getBoundingClientRect().width * 10) / 10 : null,
+				wordsLeft: words?.getBoundingClientRect().left ?? null,
+				stickyRight: th[0]!.getBoundingClientRect().right,
+				ratioButton: ratio?.querySelector('button')?.getBoundingClientRect().height ?? null,
+				flowButton: flow?.querySelector('button')?.getBoundingClientRect().height ?? null
+			};
+		};
+		const twoLines: Record<string, ReturnType<typeof headingAt>> = {};
+		for (const [label, b] of Object.entries(boxes)) {
+			await b.evaluate((el) => {
+				el.scrollIntoView({ block: 'center' });
+				el.scrollLeft = el.scrollWidth;
+			});
+			await frames(page);
+			twoLines[label] = await b.evaluate(headingAt);
+		}
+		console.log(`the ratio's heading at each box's end: ${JSON.stringify(twoLines)}`);
+		for (const [label, m] of Object.entries(twoLines)) {
+			soft(m.ratioButton, `the ratio's heading as tall as Flow's, ${label}`).toBe(m.flowButton);
+		}
+		const atEnd = twoLines['Running combinations']!;
+		soft(
+			atEnd.wordsLeft! - atEnd.stickyRight,
+			"the ratio's words right of the sticky column at Running combinations' end"
+		).toBeGreaterThanOrEqual(-0.5);
+
 		// A heading pressed by the pointer stays under it as the table flattens and groups again:
 		// a second press at the same point reverses, a third clears (LAYOUT-S6-2). At the box's end
 		// a numeric heading whole in view: "NPSH margin", the column measured here before nit 4,
@@ -5538,16 +5844,32 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 			}
 		}
 		soft(jumps, 'a heading pressed three times at one point').toEqual([]);
+		// The margin shown (marginForRatio): the ratio's two-line heading is no wider than the
+		// margin's, "NPSH margin" over "m" (leftover L4; 138.7 against 104.9 px on main).
+		const marginWidth = await boxes['Running combinations'].evaluate((el) => {
+			const th = [...el.querySelectorAll<HTMLElement>('thead th')].find((h) =>
+				/^NPSH margin(?! ratio)/.test((h.textContent ?? '').replace(/\s+/g, ' ').trim())
+			);
+			return th ? Math.round(th.getBoundingClientRect().width * 10) / 10 : null;
+		});
+		console.log(`the margin's heading: ${marginWidth}`);
+		soft(atEnd.ratio!, "the ratio's heading no wider than the margin's").toBeLessThanOrEqual(
+			marginWidth! + 0.5
+		);
 	} else {
 		// A phone's "Sort by": "Pump" sorts by name in both card tables (STRUCT-3, TBL-1), and
 		// every field chosen shows whole beside its direction button, on one line with Fields, at
-		// 390 and 320 px (TBL-4).
+		// 390 and 320 px (TBL-4). Since pumps-nits.md §11 (leftover L5, a pin) in Results per pump
+		// too and at 360 px as well; and while no sort is on, the field shows "Table order", whole
+		// in the room Fields' count leaves it (the record said its longest field was cut there,
+		// which a closed select never shows).
 		const viewport = page.viewportSize()!;
 		const cut: string[] = [];
-		for (const size of [viewport, { width: 320, height: 640 }]) {
+		for (const size of [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]) {
 			await page.setViewportSize(size);
 			await settle(page, 1000);
 			for (const [label, block] of [
+				['Results per pump', tab.locator('[data-pump-table]')],
 				['the group table', groupBlock],
 				['Running combinations', combos]
 			] as const) {
@@ -5555,6 +5877,30 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 				const select = block.getByRole('combobox', { name: /^Sort by/ });
 				const fields = block.getByRole('button', { name: /^Fields/ });
 				const direction = block.getByRole('button', { name: /lowest first|highest first/ });
+				soft(await direction.count(), `${where}: no sort on`).toBe(0);
+				const unsorted = await select.evaluate((el) => {
+					const s = el as HTMLSelectElement;
+					const css = getComputedStyle(s);
+					const context = document.createElement('canvas').getContext('2d')!;
+					context.font = `${css.fontStyle} ${css.fontWeight} ${css.fontSize} ${css.fontFamily}`;
+					const text = s.selectedOptions[0]?.text ?? '';
+					return {
+						text,
+						width: Math.ceil(context.measureText(text).width),
+						room: Math.floor(
+							s.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)
+						)
+					};
+				});
+				console.log(`"Sort by" unsorted, ${where}: ${JSON.stringify(unsorted)}`);
+				soft(unsorted.text, `${where}: "Table order" shown while no sort is on`).toBe(
+					'Table order'
+				);
+				if (unsorted.room - MENULIST_INNER < unsorted.width) {
+					cut.push(
+						`${where}: "${unsorted.text}" ${unsorted.width} px in ${unsorted.room - MENULIST_INNER}`
+					);
+				}
 				await select.selectOption({ label: 'Pump' });
 				await expect
 					.soft(
@@ -6688,14 +7034,14 @@ test('Add cases in one structure: the plan, its fold and its new lines, no Solve
 	await expect(plan).toHaveAttribute('open', '');
 	await expect(summary).toHaveText('The plan: 3 cases by number running: all 3 made');
 	const refusal = block.getByText(
-		'Every case by number running already exists: «3 of 4 running (P4 off)», «2 of 4 running (P3, P4 off)» and «1 of 4 running (P2, P3, P4 off)».',
+		'Every case by number running already exists: case 1 «3 of 4 running (P4 off)», case 2 «2 of 4 running (P3, P4 off)» and case 3 «1 of 4 running (P2, P3, P4 off)».',
 		{ exact: true }
 	);
 	await expect(refusal).toBeVisible();
 	expect.soft(await seenLine(refusal), 'the refusal on screen').toBe(true);
 	await expect(added).toHaveAttribute('aria-disabled', 'true');
 	await expect(added).toHaveAccessibleDescription(
-		'Every case by number running already exists: «3 of 4 running (P4 off)», «2 of 4 running (P3, P4 off)» and «1 of 4 running (P2, P3, P4 off)».'
+		'Every case by number running already exists: case 1 «3 of 4 running (P4 off)», case 2 «2 of 4 running (P3, P4 off)» and case 3 «1 of 4 running (P2, P3, P4 off)».'
 	);
 	await expect(solveAlls).toHaveCount(0);
 	// The Scenarios menu's Solve all counts the three (build-density.md §19).
@@ -7289,7 +7635,7 @@ test('S7 review: a 40-character unbroken case name ends inside the pump chart’
 	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
 	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
 	await figure.getByRole('checkbox', { name: "Also show the other cases' system curves" }).check();
-	const fold = curveTableFold(figure, `System curve, ${LONG_CASE}`);
+	const fold = curveTableFold(figure, `System curve, case 3: ${LONG_CASE}`);
 	await expect(fold).toHaveCount(1, { timeout: 120_000 });
 	await settle(page);
 	const header = figure
@@ -7573,7 +7919,25 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 		const group = figure.getByRole('group', { name: 'Show' });
 		const chips = group.getByRole('button');
 		await expect(chips).toHaveText(['Efficiency', 'Shaft power', 'NPSH']);
-		const pressAt = async (i: number, where: string, by: 'pointer' | 'key' = 'pointer') => {
+		/**
+		 * Below the Show row (leftover L8): the figure's words and lines under the row, px, less the
+		 * room held at its foot, and that room.
+		 */
+		const below = () =>
+			figure.evaluate((el, row) => {
+				const room = parseFloat(getComputedStyle(el).paddingBottom);
+				const r = el.querySelector(`[role="group"][aria-label="${row}"]`)!;
+				return {
+					content: el.getBoundingClientRect().bottom - room - r.getBoundingClientRect().bottom,
+					room
+				};
+			}, 'Show');
+		const pressAt = async (
+			i: number,
+			where: string,
+			by: 'pointer' | 'key' = 'pointer',
+			againOn = false
+		) => {
 			await scrollPane(page, { to: 1e7 });
 			await page.waitForTimeout(100);
 			const chip = chips.nth(i);
@@ -7583,6 +7947,7 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 			const before = await group.evaluate(readChips, point);
 			const what = `${before.chips[i]!.name} pressed ${was === 'true' ? 'off' : 'on'} by ${by} ${where}, ${example} at ${sizeOf(page)}`;
 			expect(before.hit, `the chip at the point pressed, ${what}`).toBe(before.chips[i]!.name);
+			const underBefore = await below();
 			if (by === 'key') {
 				await chip.focus();
 				await page.keyboard.press('Space');
@@ -7590,9 +7955,21 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 			await expect(chip).toHaveAttribute('aria-pressed', was === 'true' ? 'false' : 'true');
 			await page.waitForTimeout(300);
 			const after = await group.evaluate(readChips, point);
+			// The room held at the figure's foot, the blank band a press can leave at the pane's end
+			// (leftover L8, left: pumps-nits.md §11.4): a press resets it, so the row keeps still
+			// only with room for all that left the pane's range below it, its notes and readout lines
+			// and the room held before. Never more than that; none after a chip pressed back on
+			// straight after its own off press.
+			const underAfter = await below();
+			const left = underBefore.content - underAfter.content + underBefore.room;
 			console.log(
-				`${what}: tops ${before.chips.map((c) => c.top).join(' ')} -> ${after.chips.map((c) => c.top).join(' ')}; at the point ${after.hit}`
+				`${what}: tops ${before.chips.map((c) => c.top).join(' ')} -> ${after.chips.map((c) => c.top).join(' ')}; at the point ${after.hit}; below the row ${underBefore.content} -> ${underAfter.content} px, the room held ${underBefore.room} -> ${underAfter.room} px`
 			);
+			soft(
+				underAfter.room,
+				`the room held, no more than what left below the row, ${what}`
+			).toBeLessThanOrEqual(Math.max(0, Math.ceil(left)));
+			if (againOn) soft(underAfter.room, `no room held, pressed back on, ${what}`).toBe(0);
 			soft(after.row, `the row's height, ${what}`).toBe(before.row);
 			for (const [k, c] of after.chips.entries()) {
 				const b = before.chips[k]!;
@@ -7610,7 +7987,9 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 		// Each chip off in turn, then on in turn, the pane at its end before each press; then Shaft
 		// power off and on from the keyboard.
 		for (const i of [0, 1, 2, 0, 1, 2]) await pressAt(i, '(the pane at its end)');
-		for (const turn of [1, 2]) await pressAt(1, `(the pane at its end, turn ${turn})`, 'key');
+		for (const turn of [1, 2]) {
+			await pressAt(1, `(the pane at its end, turn ${turn})`, 'key', turn === 2);
+		}
 		// What a press held below the chart's notes goes once it is scrolled out of sight below the
 		// pane, so no blank band is left at the chart's foot.
 		await pressAt(1, '(the pane at its end, then scrolled to its top)');
@@ -7620,7 +7999,107 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 			await figure.evaluate((el) => getComputedStyle(el).paddingBottom),
 			`the room held below the chart's notes once out of sight, ${example}`
 		).toBe('0px');
-		await pressAt(1, '(the pane at its end, after it was scrolled to its top)');
+		await pressAt(1, '(the pane at its end, after it was scrolled to its top)', 'pointer', true);
+	}
+});
+
+/** The Results pane's scroller's scroll, in px (scrollPane's scroller). */
+async function paneScrollTop(page: Page): Promise<number | null> {
+	return page.evaluate(() => {
+		const pane = document.querySelector('section[aria-label="Results"]')!;
+		const row = pane.querySelector('[role="tablist"][aria-label="Results view"]')!;
+		for (let e = row.parentElement; e && e !== pane; e = e.parentElement) {
+			if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) return e.scrollTop;
+		}
+		return null;
+	});
+}
+
+test('Nits item 1, the pane at its top on a tall window: no press of a Show chip moves a chip, its row or the slider under it, the canvas holding what the pane cannot scroll by, at 1280×1400 (pumps-nits.md §11.4, leftover L9)', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(
+		isMobile,
+		'Desktop only, as the pane-at-its-end test (review PUMPS-NITS-B1): a phone’s window is never taller than the pane needs to scroll by a panel'
+	);
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	// The transfer example on a tall window, where the pane at its top cannot scroll up by a panel:
+	// on 21230f0 Efficiency off lifted the Show row 112 px at the pane's top and 52 px at a scroll
+	// of 60 (design B's measure; the tall-window limit of pumps-nits.md §4.5).
+	await page.setViewportSize({ width: 1280, height: 1400 });
+	await page.goto('/');
+	await open(page, pumpTransferExample());
+	await solveConverged(page);
+	const figure = await pumpFigure(page);
+	await settle(page, 1000);
+	const group = figure.getByRole('group', { name: 'Show' });
+	const chips = group.getByRole('button');
+	await expect(chips).toHaveText(['Efficiency', 'Shaft power', 'NPSH']);
+	const canvas = figure.locator('[role="img"]');
+	const readCanvas = () =>
+		canvas.evaluate((el) => ({
+			height: el.getBoundingClientRect().height,
+			style: (el as HTMLElement).style.height
+		}));
+	// Every panel shown: the canvas's natural height (chartHeightRem), in rem.
+	const natural = await readCanvas();
+	expect(natural.style).toMatch(/rem$/);
+	const pressAt = async (i: number, where: string, by: 'pointer' | 'key' = 'pointer') => {
+		const chip = chips.nth(i);
+		const was = await chip.getAttribute('aria-pressed');
+		const r = (await chip.boundingBox())!;
+		const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+		const before = await group.evaluate(readChips, point);
+		const what = `${before.chips[i]!.name} pressed ${was === 'true' ? 'off' : 'on'} by ${by} ${where}`;
+		expect(before.hit, `the chip at the point pressed, ${what}`).toBe(before.chips[i]!.name);
+		if (by === 'key') {
+			await chip.focus();
+			await page.keyboard.press('Space');
+		} else await page.mouse.click(point.x, point.y);
+		await expect(chip).toHaveAttribute('aria-pressed', was === 'true' ? 'false' : 'true');
+		await page.waitForTimeout(300);
+		const after = await group.evaluate(readChips, point);
+		console.log(
+			`${what}: tops ${before.chips.map((c) => c.top).join(' ')} -> ${after.chips.map((c) => c.top).join(' ')}; the pane at ${await paneScrollTop(page)}; the canvas ${JSON.stringify(await readCanvas())}`
+		);
+		soft(after.row, `the row's height, ${what}`).toBe(before.row);
+		for (const [k, c] of after.chips.entries()) {
+			const b = before.chips[k]!;
+			soft(Math.abs(c.top - b.top), `${c.name}'s top, ${what}`).toBeLessThanOrEqual(0.5);
+			soft(Math.abs(c.left - b.left), `${c.name}'s left, ${what}`).toBeLessThanOrEqual(0.5);
+			soft(Math.abs(c.width - b.width), `${c.name}'s width, ${what}`).toBeLessThanOrEqual(0.5);
+		}
+		soft(Math.abs(after.slider! - before.slider!), `the slider's top, ${what}`).toBeLessThanOrEqual(
+			0.5
+		);
+		soft(after.hit, `the chip still under the point pressed, ${what}`).toBe(before.chips[i]!.name);
+	};
+	/** Pressed back on: the canvas at its natural height again, the pane at its scroll again. */
+	const restored = async (start: number, where: string) => {
+		const now = await readCanvas();
+		soft(
+			Math.abs(now.height - natural.height),
+			`the canvas's height, ${where}`
+		).toBeLessThanOrEqual(0.5);
+		soft(now.style, `the canvas's height its natural one, in rem, ${where}`).toBe(natural.style);
+		soft(await paneScrollTop(page), `the pane's scroll, ${where}`).toBe(start);
+	};
+	for (const start of [0, 60]) {
+		// Each panel's chip off and on, the pane at `start` before each off press; then Shaft power
+		// off and on from the keyboard.
+		for (const i of [0, 1, 2]) {
+			await scrollPane(page, { to: start });
+			expect(await paneScrollTop(page), 'the pane scrolled to the start').toBe(start);
+			await pressAt(i, `(the pane at ${start})`);
+			await pressAt(i, `(the pane at ${start}, pressed back on)`);
+			await restored(start, `chip ${i} back on, the pane at ${start}`);
+		}
+		await scrollPane(page, { to: start });
+		await pressAt(1, `(the pane at ${start})`, 'key');
+		await pressAt(1, `(the pane at ${start}, pressed back on)`, 'key');
+		await restored(start, `Shaft power back on by key, the pane at ${start}`);
 	}
 });
 
@@ -7710,16 +8189,25 @@ test('Nits item 1: neither chart’s Show data table, pressed to Hide data table
  * with its status as plain text, as it was before the pill: a clone in the same tbody, measured and
  * removed at once, so a row is compared with itself and "no row grows" needs no recorded number.
  */
-function readStatusPills(wrap: Element) {
-	const table = wrap.querySelector('table')!;
+function readStatusPills(wrap: Element, opts: { column?: string; caption?: string } | undefined) {
+	// The column's label and, where `wrap` holds more than one table, the start of its table's
+	// caption (the card's group table, which names the case shown after a comma, and Running
+	// combinations; pumps-nits.md §11 leftover L22).
+	const column = opts?.column ?? 'Status';
+	const table = opts?.caption
+		? [...wrap.querySelectorAll('table')].find((t) =>
+				(t.querySelector('caption')?.textContent ?? '').trim().startsWith(opts.caption!)
+			)!
+		: wrap.querySelector('table')!;
 	const box = table.parentElement!;
+	// A pump's rows only: never a row group's heading (Running combinations' cases).
 	const rows = [...table.querySelectorAll('tbody tr')].filter((tr) =>
-		tr.querySelector('th[role="rowheader"]')
+		tr.querySelector('th[role="rowheader"]:not([scope="rowgroup"])')
 	);
 	return {
 		box: { client: box.clientWidth, scroll: box.scrollWidth },
 		rows: rows.map((tr) => {
-			const cell = tr.querySelector<HTMLElement>('td[data-label="Status"]')!;
+			const cell = tr.querySelector<HTMLElement>(`td[data-label="${column}"]`)!;
 			const pills = cell.querySelectorAll<HTMLElement>('[data-status-pill]');
 			const pill = pills[0];
 			const style = getComputedStyle(cell);
@@ -7728,7 +8216,7 @@ function readStatusPills(wrap: Element) {
 			const above = parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop);
 			const below = parseFloat(style.paddingBottom) + parseFloat(style.borderBottomWidth);
 			const plain = tr.cloneNode(true) as HTMLElement;
-			const plainCell = plain.querySelector<HTMLElement>('td[data-label="Status"]')!;
+			const plainCell = plain.querySelector<HTMLElement>(`td[data-label="${column}"]`)!;
 			plainCell.textContent = (cell.textContent ?? '').trim();
 			tr.after(plain);
 			const plainRow = plain.getBoundingClientRect().height;
@@ -7815,7 +8303,7 @@ test('Nits item 2: each pump’s status a pill of its state word on its row’s 
 			await settle(page, 1000);
 			const where = `${view} at ${sizeOf(page)}`;
 			await noSidewaysScroll(page, where);
-			const read = await wrap.evaluate(readStatusPills);
+			const read = await wrap.evaluate(readStatusPills, undefined);
 			console.log(`${where}: ${JSON.stringify(read)}`);
 			// A phone's list never scrolls sideways; from 640 px the table's box may.
 			if (isMobile) soft(read.box.scroll, `the table's box, ${where}`).toBe(read.box.client);
@@ -7892,6 +8380,111 @@ test('Nits item 2: each pump’s status a pill of its state word on its row’s 
 	// Three states, three tints.
 	expect([...tints.keys()].sort()).toEqual(['No flow', 'Off', 'Running']);
 	expect(new Set([...tints.values()].map((t) => t.split(' / ')[0])).size).toBe(3);
+	await page.setViewportSize(viewport);
+});
+
+test('Leftover L22: the card’s group table and Running combinations draw each State as its status pill on its row’s 20 px line, tinted by the state, no row grown and nothing sideways, axe clean with the pills’ contrast checked, at 1280, 390 and 320 px (pumps-nits.md item 2, §11 leftover L22)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	const viewport = page.viewportSize()!;
+	const sizes = isMobile ? [viewport, { width: 320, height: 640 }] : [viewport];
+	const counter = solveCounter(page);
+	await open(page, projectOf('one-off-dead-headed'));
+	await solveAll(page, counter, 2);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const TABLES = [
+		{
+			wrap: card.locator('[data-group-table]'),
+			caption: 'The pumps in the group',
+			statuses: [
+				['Pump PA', 'Running', 'Running'],
+				['Pump PB', 'No flow', 'No flow (system head above shutoff)']
+			]
+		},
+		{
+			wrap: card.locator('[data-group-combinations]'),
+			caption: 'Running combinations',
+			// The case shown first, then case 1, Pump PA off.
+			statuses: [
+				['Pump PA', 'Running', 'Running'],
+				['Pump PB', 'No flow', 'No flow (system head above shutoff)'],
+				['Pump PA', 'Off', 'Off'],
+				['Pump PB', 'Running', 'Running']
+			]
+		}
+	];
+	const tints = new Map<string, string>();
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		for (const { wrap, caption, statuses } of TABLES) {
+			const where = `${caption}, the dead-headed one-off at ${sizeOf(page)}`;
+			await noSidewaysScroll(page, where);
+			const read = await wrap.evaluate(readStatusPills, { column: 'State', caption });
+			console.log(`${where}: ${JSON.stringify(read)}`);
+			if (isMobile) soft(read.box.scroll, `the table's box, ${where}`).toBe(read.box.client);
+			soft(
+				read.rows.map((r) => [r.name, r.pill?.word ?? null, r.text]),
+				`each pump's pill and its cell's words, ${where}`
+			).toEqual(statuses);
+			for (const r of read.rows) {
+				const what = `${r.name}'s State, ${where}`;
+				soft(r.pills, `one pill, ${what}`).toBe(1);
+				if (!r.pill) continue;
+				soft(r.pill.height, `the pill's height, ${what}`).toBe(20);
+				soft(r.pill.lineHeight, `the pill's line height, ${what}`).toBe('20px');
+				soft(r.pill.paddingY, `the pill's padding above and below, ${what}`).toBe('0px 0px');
+				soft(r.pill.fontSize, `the pill's font size, ${what}`).toBe('12px');
+				soft(r.pill.border, `the pill's border, ${what}`).toBe('0px');
+				soft(
+					Math.abs(r.pill.top),
+					`the pill on the cell's first line, ${what}`
+				).toBeLessThanOrEqual(0.5);
+				soft(r.pill.right, `the pill inside its cell, ${what}`).toBeLessThanOrEqual(
+					r.pill.cellRight + 0.5
+				);
+				// No row grows: the row and its State line as with the state in plain text.
+				soft(
+					Math.abs(r.row - r.plainRow),
+					`the row's height (${r.row} px), ${what}`
+				).toBeLessThanOrEqual(0.5);
+				soft(
+					Math.abs(r.status - r.plainStatus),
+					`the State line's height (${r.status} px), ${what}`
+				).toBeLessThanOrEqual(0.5);
+				const tint = `${r.pill.background} / ${r.pill.color}`;
+				soft(tints.get(r.pill.word!) ?? tint, `one tint per state word, ${what}`).toBe(tint);
+				tints.set(r.pill.word!, tint);
+			}
+		}
+		// The pills' contrast checked by axe's own rule, every pill a node it passed.
+		const contrast = await new AxeBuilder({ page })
+			.include('[data-pumps-together] [data-status-pill]')
+			.withRules(['color-contrast'])
+			.analyze();
+		soft(
+			contrast.violations.map((v) => `${v.id} (${v.nodes.length})`),
+			`the pills' colour contrast, at ${sizeOf(page)}`
+		).toEqual([]);
+		soft(
+			contrast.incomplete.map((v) => `${v.id} (${v.nodes.length})`),
+			`the pills' colour contrast left incomplete, at ${sizeOf(page)}`
+		).toEqual([]);
+		soft(
+			contrast.passes.flatMap((v) => v.nodes).length,
+			`the pills whose colour contrast passed, at ${sizeOf(page)}`
+		).toBe(TABLES.reduce((n, t) => n + t.statuses.length, 0));
+	}
+	for (const size of [...sizes].reverse()) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		await axeClean(page, `the dead-headed one-off's card at ${sizeOf(page)}`);
+	}
+	expect([...tints.keys()].sort()).toEqual(['No flow', 'Off', 'Running']);
 	await page.setViewportSize(viewport);
 });
 
@@ -8161,6 +8754,120 @@ function cavitatingTransfer(): Project {
 	return project;
 }
 
+/**
+ * The NPSH margin ratio column's width at 1280 px where a cell holds a note (pumps-nits.md §11,
+ * leftover L3), in px: from 640 px the note line wraps at an 11 rem floor (176 px) in a cell with
+ * 8 px of padding on each side, 192 px; 313.8 px for the cue, unwrapped, on main 21230f0.
+ */
+const CUE_COLUMN = 192;
+
+/**
+ * Each NPSH margin ratio cell under `scope` that holds a note (a "—" line and a line of words):
+ * its table, its width, the "—" line's text and whether it lies above the note, the note's lines
+ * as drawn (its visible characters grouped by their top) each with whether it lies inside the
+ * cell, and its trailing value and unit: the lines its characters are drawn on (one: never split
+ * from its unit) and the `[data-value-unit]` spans with their white-space (pumps-nits.md §11,
+ * leftover L3).
+ */
+function readNoteCells(scope: Element) {
+	const out = [];
+	for (const td of scope.querySelectorAll<HTMLElement>('td[data-label="NPSH margin ratio"]')) {
+		const blocks = [...td.querySelectorAll<HTMLElement>(':scope > span.block')];
+		if (blocks.length < 2) continue;
+		const [dash, note] = blocks as [HTMLElement, HTMLElement];
+		const cell = td.getBoundingClientRect();
+		const chars: { ch: string; line: number; left: number; right: number }[] = [];
+		let line = -1;
+		let lastTop = -1e9;
+		const walker = document.createTreeWalker(note, NodeFilter.SHOW_TEXT);
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			if (n.parentElement!.closest('.sr-only')) continue;
+			const t = n as Text;
+			for (let i = 0; i < t.length; i++) {
+				const r = document.createRange();
+				r.setStart(t, i);
+				r.setEnd(t, i + 1);
+				const b = r.getBoundingClientRect();
+				const ch = t.data[i]!;
+				if (/\s/.test(ch) && b.width < 0.5) {
+					// A space at a line's end: on the line it ends.
+					chars.push({ ch, line: Math.max(line, 0), left: NaN, right: NaN });
+					continue;
+				}
+				if (Math.abs(b.top - lastTop) > 3) line++;
+				lastTop = b.top;
+				chars.push({ ch, line, left: b.left, right: b.right });
+			}
+		}
+		const lines: { text: string; inside: boolean }[] = [];
+		for (const c of chars) {
+			const l = (lines[c.line] ??= { text: '', inside: true });
+			l.text += c.ch;
+			if (!Number.isNaN(c.left)) {
+				l.inside &&= c.left >= cell.left - 0.5 && c.right <= cell.right + 0.5;
+			}
+		}
+		const text = chars.map((c) => c.ch).join('');
+		const tail = /-?\d[\d.,]*\s+\S+\s*$/.exec(text);
+		const tailLines = tail
+			? new Set(
+					chars
+						.slice(tail.index)
+						.filter((c) => !/\s/.test(c.ch))
+						.map((c) => c.line)
+				).size
+			: null;
+		out.push({
+			table: (td.closest('table')?.querySelector('caption')?.textContent ?? '').trim(),
+			row: (td.closest('tr')?.querySelector('th')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+			width: Math.round(cell.width * 10) / 10,
+			dash: (dash.textContent ?? '').trim(),
+			dashAbove: dash.getBoundingClientRect().bottom <= note.getBoundingClientRect().top + 0.5,
+			lines: lines.map((l) => ({ text: l.text.replace(/\s+/g, ' ').trim(), inside: l.inside })),
+			tail: tail ? tail[0].trim() : null,
+			tailLines,
+			valueUnits: [...note.querySelectorAll<HTMLElement>('[data-value-unit]')].map((el) => ({
+				text: (el.textContent ?? '').trim(),
+				whiteSpace: getComputedStyle(el).whiteSpace
+			}))
+		});
+	}
+	return out;
+}
+
+/**
+ * At 1280 px a note's column is CUE_COLUMN wide or less and its note two lines inside its cell
+ * after the "—"; on a phone its trailing value is drawn on one line with its unit, in one
+ * `[data-value-unit]` span that does not wrap (pumps-nits.md §11, leftover L3). `count` is how
+ * many such cells `scope` holds.
+ */
+async function noteCellsChecked(scope: Locator, count: number, where: string) {
+	const read = await scope.evaluate(readNoteCells);
+	console.log(`notes, ${where}: ${JSON.stringify(read)}`);
+	expect.soft(read.length, `cells with a note, ${where}`).toBe(count);
+	const desktop = scope.page().viewportSize()!.width >= 1024;
+	for (const c of read) {
+		const what = `${c.row}'s note in ${c.table}, ${where}`;
+		expect.soft(c.dash, `the "—" line, ${what}`).toBe('—');
+		expect
+			.soft(
+				c.lines.every((l) => l.inside),
+				`every line inside its cell, ${what}`
+			)
+			.toBe(true);
+		expect.soft(c.tailLines, `the value on one line with its unit, ${what}`).toBe(1);
+		expect
+			.soft(c.valueUnits, `one unbreakable value and unit, ${what}`)
+			.toEqual([{ text: c.tail, whiteSpace: 'nowrap' }]);
+		if (desktop) {
+			// A table's cell: the "—" above its note (a phone's list puts it beside, a pair).
+			expect.soft(c.dashAbove, `the "—" above the note, ${what}`).toBe(true);
+			expect.soft(c.width, `the column's width, ${what}`).toBeLessThanOrEqual(CUE_COLUMN);
+			expect.soft(c.lines.length, `the note's lines, ${what}`).toBe(2);
+		}
+	}
+}
+
 /** A cell's or a value's lines as drawn, each squashed, empty ones left out. */
 const linesOf = (text: string) =>
 	text
@@ -8174,7 +8881,67 @@ const squashText = (text: string) => text.replace(/\s+/g, ' ').trim();
 /** `text` as a regular expression that matches it literally. */
 const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) says so, with its NPSH margin, wherever the ratio stands in for the margin: Results per pump, the Summary, Build’s result strip and Compare, on screen and axe clean at 1280, 390 and 320 px (pumps-nits.md item 4; the API review’s A1/B1)', async ({
+/** A Compare card's case names' least width on a phone, 6 rem (review LO-OWNER-3). */
+const COMPARE_NAME_MIN = 96;
+
+/**
+ * Compare cases' narrow cards (CompareView.svelte, below 28 rem): each card's title, its case
+ * names' widths, the lines of its values that end outside the card's content box, the note
+ * values split from their units (`[data-value-unit]` on two lines) and those spans' words.
+ */
+function readCompareCards(region: Element) {
+	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+	return [...region.querySelectorAll('section.card')]
+		.filter((card) => card.getBoundingClientRect().width > 1)
+		.map((card) => {
+			const box = card.getBoundingClientRect();
+			const css = getComputedStyle(card);
+			const inner = {
+				left: box.left + parseFloat(css.paddingLeft),
+				right: box.right - parseFloat(css.paddingRight)
+			};
+			const outside: string[] = [];
+			for (const dd of card.querySelectorAll('dd')) {
+				// Its words as drawn: a visually hidden span's text keeps its width past its 1 px box.
+				const walker = document.createTreeWalker(dd, NodeFilter.SHOW_TEXT);
+				const rects: DOMRect[] = [];
+				for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+					if (!n.textContent?.trim() || n.parentElement?.closest('.sr-only')) continue;
+					const range = document.createRange();
+					range.selectNodeContents(n);
+					rects.push(...range.getClientRects());
+				}
+				for (const r of rects) {
+					if (r.width > 0.5 && (r.left < inner.left - 0.5 || r.right > inner.right + 0.5))
+						outside.push(
+							`"${squash(dd.textContent).slice(0, 50)}" ${r.left.toFixed(1)} to ${r.right.toFixed(1)}`
+						);
+				}
+			}
+			const units = [...card.querySelectorAll<HTMLElement>('dd [data-value-unit]')];
+			return {
+				title: squash(card.querySelector('h4')?.textContent),
+				names: [...card.querySelectorAll('dt')].map((dt) => ({
+					text: squash(dt.textContent).slice(0, 40),
+					width: dt.getBoundingClientRect().width
+				})),
+				outside,
+				split: units
+					.filter((u) => {
+						const range = document.createRange();
+						range.selectNodeContents(u);
+						const tops = new Set(
+							[...range.getClientRects()].filter((r) => r.width > 0.5).map((r) => Math.round(r.top))
+						);
+						return tops.size > 1;
+					})
+					.map((u) => `"${squash(u.textContent)}"`),
+				units: units.map((u) => squash(u.textContent))
+			};
+		});
+}
+
+test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) says so, with its NPSH margin, wherever the ratio stands in for the margin: Results per pump, the Summary, Build’s result strip and Compare, on screen and axe clean at 1280, 390 and 320 px; one with NPSHr 0 that does not cavitate gives its NPSH margin in the same places (pumps-nits.md item 4, §11 leftover L1; the API review’s A1/B1)', async ({
 	page,
 	isMobile
 }) => {
@@ -8210,6 +8977,11 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 	expect(open1.npshRequired).toBe(0);
 	expect(open1.npshMargin).toBeGreaterThanOrEqual(0);
 	expect(open1.npshMarginRatio).toBeNull();
+	// Its words (pumps-nits.md §11, leftover L1): the margin in m as the API gives it to 4
+	// significant figures (between 1 and 10 m it has three decimals, so none is padded).
+	expect(open1.npshMargin).toBeGreaterThan(1);
+	expect(open1.npshMargin).toBeLessThan(10);
+	const note = `NPSHr 0: NPSH margin ${sig4(open1.npshMargin)} m`;
 	const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 	const axeResults = async (where: string) => {
 		const scan = await new AxeBuilder({ page })
@@ -8242,6 +9014,9 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 			await seenLine(cell.getByText(cue, { exact: true })),
 			`the words on screen, ${where}`
 		).toBe(true);
+		// pumps-nits.md §11, leftover L3: from 640 px the cue wraps at CUE_COLUMN, its value never
+		// split from its unit.
+		await noteCellsChecked(tab.getByRole('table', { name: 'Results per pump' }), 1, where);
 		await noSidewaysScroll(page, `Results per pump, ${where}`);
 		await axeClean(page, `the cavitating pump, ${where}`);
 
@@ -8339,7 +9114,52 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 			await seenLine(cells.nth(0).getByText(cue, { exact: true })),
 			`Compare's words on screen, ${where}`
 		).toBe(true);
-		expect(linesOf(await cells.nth(1).innerText()), `Compare's scenario, ${where}`).toEqual(['—']);
+		// Moved (pumps-nits.md §11, leftover L1): the scenario's cell, a bare "—" before, now "—"
+		// and its margin, on screen.
+		expect(linesOf(await cells.nth(1).innerText()), `Compare's scenario, ${where}`).toEqual([
+			'—',
+			note
+		]);
+		expect(
+			await seenLine(cells.nth(1).getByText(note, { exact: true })),
+			`Compare's scenario's words on screen, ${where}`
+		).toBe(true);
+		await expect(cells.nth(1)).not.toContainText('physically invalid:');
+		// Review LO-OWNER-3: on a phone each card's case names keep 6 rem at least, its values' notes
+		// wrapping beside them, a note's value never apart from its unit. Before, the value column
+		// took its note's one line and left a name 10.7 px at 320 (one letter a line), in this card
+		// and in "Network · Highest velocity" with its pipe's ends under the value (as on main).
+		if (size.width < 1024) {
+			const cards = await compare.evaluate(readCompareCards);
+			console.log(`Compare's cards, ${where}: ${JSON.stringify(cards)}`);
+			expect.soft(cards.length, `Compare's cards, ${where}`).toBeGreaterThan(1);
+			expect
+				.soft(
+					cards.flatMap((c) =>
+						c.names
+							.filter((n) => n.width < COMPARE_NAME_MIN - 0.5)
+							.map((n) => `"${c.title}": "${n.text}" ${n.width.toFixed(1)} px`)
+					),
+					`case names narrower than ${COMPARE_NAME_MIN} px in Compare's cards, ${where}`
+				)
+				.toEqual([]);
+			expect
+				.soft(
+					cards.flatMap((c) => c.outside.map((o) => `"${c.title}": ${o}`)),
+					`values outside their card, ${where}`
+				)
+				.toEqual([]);
+			expect
+				.soft(
+					cards.flatMap((c) => c.split.map((s) => `"${c.title}": ${s}`)),
+					`a note's value apart from its unit, ${where}`
+				)
+				.toEqual([]);
+			const ratio = cards.find((c) => c.title === 'Transfer pump · NPSH margin ratio');
+			expect
+				.soft(ratio?.units, `the ratio card's notes' values and units, ${where}`)
+				.toEqual([cue.replace(/^.* (\S+ m)$/, '$1'), note.replace(/^.* (\S+ m)$/, '$1')]);
+		}
 		// Compare has no results view row, so no Results pane scroller of its own: the page's width.
 		expect(
 			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -8352,6 +9172,250 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 			.getByRole('tab')
 			.first()
 			.click();
+	}
+
+	// The scenario shown (pumps-nits.md §11, leftover L1): the pump with NPSHr 0 that does not
+	// cavitate gives its margin wherever the ratio stands: Results per pump's two lines, the
+	// Summary's line and its extreme, and Build's strip. Before, a bare "—", left out of a phone's
+	// row, the Summary's line and the strip, and no NPSH extreme.
+	await chooseCase(page, 'Suction tank open to the air (1 change)');
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		const where = `with the scenario shown, at ${sizeOf(page)}`;
+		const tab = await pumpsTab(page);
+		await settle(page, 1000);
+		const cell = tab
+			.getByRole('table', { name: 'Results per pump' })
+			.locator('td[data-label="NPSH margin ratio"]');
+		await expect(cell).toHaveCount(1);
+		expect(linesOf(await cell.innerText()), `the ratio's cell, ${where}`).toEqual(['—', note]);
+		expect(await seenBox(cell), `the ratio's cell on screen, ${where}`).toBe(true);
+		expect(
+			await seenLine(cell.getByText(note, { exact: true })),
+			`the words on screen, ${where}`
+		).toBe(true);
+		await noteCellsChecked(tab.getByRole('table', { name: 'Results per pump' }), 1, where);
+		await noSidewaysScroll(page, `Results per pump, ${where}`);
+		await axeClean(page, `the pump with NPSHr 0, ${where}`);
+
+		const summary = await resultsView(page, 'Summary');
+		const line = summary.getByRole('region', { name: 'Pumps' }).getByRole('listitem');
+		await expect(line).toHaveCount(1);
+		expect(squashText(await line.innerText()), `the Summary's line, ${where}`).toMatch(
+			new RegExp(`^Transfer pump [\\d.]+ L/s at [\\d.]+ m · ${literal(note)}$`)
+		);
+		expect(await seenLine(line), `the Summary's line on screen, ${where}`).toBe(true);
+		const extremes = summary.getByRole('region', { name: 'Extremes' });
+		const npshEntry = extremes
+			.locator('dl > div')
+			.filter({ has: page.getByRole('term').filter({ hasText: /NPSH/ }) });
+		await expect(npshEntry).toHaveCount(1);
+		await expect(npshEntry.getByRole('term')).toHaveText('Smallest NPSH margin ratio');
+		expect(
+			squashText(await npshEntry.getByRole('definition').innerText()),
+			`the Summary's smallest ratio, ${where}`
+		).toBe(`${note} Transfer pump`);
+		expect(
+			await seenLine(npshEntry.getByText(note, { exact: true })),
+			`the extreme's words on screen, ${where}`
+		).toBe(true);
+		await noSidewaysScroll(page, `the Summary, ${where}`);
+		await axeResults(`the Summary, ${where}`);
+
+		await showPane(page, 'Build');
+		await buildPane(page).getByRole('button', { name: 'Jump to a component' }).click();
+		await page
+			.getByRole('dialog', { name: 'Jump to a component' })
+			.getByRole('button', { name: /^Transfer pump/ })
+			.click();
+		await expect(buildPane(page).getByRole('heading', { level: 2 })).toHaveText('Transfer pump');
+		const strip = buildPane(page)
+			.getByRole('group', { name: /^Last solve/ })
+			.first();
+		const terms = strip.locator('dl > div > dt');
+		await expect(terms).toHaveCount(4);
+		await expect(terms.nth(3)).toHaveText(/^NPSH margin ratio$/);
+		const reading = strip.locator('dl > div').nth(3);
+		expect(linesOf(await reading.locator('dd').innerText()), `the strip, ${where}`).toEqual([
+			'—',
+			note
+		]);
+		expect(
+			await seenLine(reading.getByText(note, { exact: true })),
+			`the strip's words on screen, ${where}`
+		).toBe(true);
+		expect(
+			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+			`the page's width, Build, ${where}`
+		).toBe(true);
+		await showPane(page, 'Results');
+	}
+	await page.setViewportSize(viewport);
+});
+
+/**
+ * The one-off with its pumps cavitating with no ratio in every case where they run: R1 5 m below
+ * the pumps under −80 kPa, water's vapor pressure 2,339 Pa, and NPSHr 0 at every point of each
+ * curve (pumps-nits.md §11, leftover L3; design B's probe).
+ */
+function cavitatingOneOff(): Project {
+	const project = projectOf('one-off');
+	for (const c of project.components) {
+		if (c.type === 'reservoir' && c.id === 'R1') {
+			Object.assign(c, { elevation: -5, liquidLevel: 0.5, surfacePressure: -80e3 });
+		}
+	}
+	if (project.fluid.kind === 'custom') project.fluid.vaporPressure = 2339;
+	for (const curve of project.pumpLibrary) {
+		if (curve.npshrCurve) curve.npshrCurve = curve.npshrCurve.map((p) => ({ ...p, npshr: 0 }));
+	}
+	return project;
+}
+
+/**
+ * Each red octagon in a table's cells (a physically invalid value's mark, §5.2, or an invalid
+ * flag's in a flag line), against the first line of the words after it in its line (a note's
+ * line, `data-cell-note`, or else its cell): its vertical middle and that line's box, the sr-only
+ * "physically invalid:" left out (review LO-CODE-1, LO-OWNER-2).
+ */
+function readOctagons(table: Element) {
+	return [...table.querySelectorAll('td svg.text-red-700')].map((svg) => {
+		const icon = svg.getBoundingClientRect();
+		const td = svg.closest('td')!;
+		const line = svg.closest('[data-cell-note]') ?? td;
+		const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+		let first: DOMRect | null = null;
+		let words = '';
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			if (!n.textContent?.trim() || n.parentElement?.closest('.sr-only')) continue;
+			// After the octagon in the document's order.
+			if (!(svg.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+			const range = document.createRange();
+			range.selectNodeContents(n);
+			first = [...range.getClientRects()].find((r) => r.width > 0.5) ?? null;
+			break;
+		}
+		const shown = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+		for (let n = shown.nextNode(); n; n = shown.nextNode())
+			if (!n.parentElement?.closest('.sr-only')) words += n.textContent ?? '';
+		return {
+			cell: `${td.dataset.label ?? 'a flag line'}: ${words.replace(/\s+/g, ' ').trim().slice(0, 50)}`,
+			middle: (icon.top + icon.bottom) / 2,
+			line: first ? { top: first.top, bottom: first.bottom } : null,
+			lines: Math.round(line.getBoundingClientRect().height / 20)
+		};
+	});
+}
+
+test('Leftover L3: from 640 px a cavitation cue wraps in its numeric cell at an 11 rem floor, the column CUE_COLUMN wide, in Results per pump, the group table and Running combinations; on a phone its value never starts a line without its unit; the trace’s grid untouched (pumps-nits.md §11, leftover L3)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const viewport = page.viewportSize()!;
+	const counter = solveCounter(page);
+	await open(page, cavitatingOneOff());
+	await solveAll(page, counter, 5);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const sizes = isMobile
+		? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
+		: [viewport];
+	const combinations = card.getByRole('table', { name: 'Running combinations', exact: true });
+	/**
+	 * Review LO-CODE-1, LO-OWNER-2: each octagon in Running combinations beside the first line of
+	 * its words, the cue's three marked notes among them (at e684679 the cue's wrap centred the
+	 * octagon on the two-line block, between its lines, from 640 px; on a phone between them or by
+	 * the second of three since slice E); and every marked value on its row's line (EXT-2).
+	 */
+	const octagonsChecked = async (where: string) => {
+		const octagons = await combinations.evaluate(readOctagons);
+		console.log(`octagons, ${where}: ${JSON.stringify(octagons)}`);
+		const notes = octagons.filter((o) => o.cell.startsWith('NPSH margin ratio:'));
+		expect.soft(notes.length, `the cue's marked notes, ${where}`).toBe(3);
+		expect
+			.soft(
+				octagons
+					.filter((o) => !o.line || o.middle < o.line.top - 1 || o.middle > o.line.bottom + 1)
+					.map(
+						(o) =>
+							`"${o.cell}": the octagon's middle ${o.middle.toFixed(1)}, its first line ${o.line ? `${o.line.top.toFixed(1)} to ${o.line.bottom.toFixed(1)}` : 'none'}`
+					),
+				`octagons off their words' first line, ${where}`
+			)
+			.toEqual([]);
+		const read = await page.evaluate(readCombinationsTable);
+		expect.soft(read?.offLine, `Running combinations' values off their line, ${where}`).toEqual([]);
+		expect
+			.soft(read?.pillsOffLine, `Running combinations' status pills off their line, ${where}`)
+			.toEqual([]);
+	};
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `the cavitating one-off at ${sizeOf(page)}`;
+		// Pump PA cavitates wherever it runs: the base case, Pump PB off and the higher tank;
+		// Pump PB keeps a ratio.
+		await noteCellsChecked(tab.getByRole('table', { name: 'Results per pump' }), 1, where);
+		await noteCellsChecked(card.locator('[data-group-table] table'), 1, where);
+		await noteCellsChecked(combinations, 3, where);
+		await octagonsChecked(where);
+		await noSidewaysScroll(page, where);
+	}
+	if (!isMobile) {
+		// 1024 px: the cue wraps as at 1280 (the octagon's fault measured there too).
+		await page.setViewportSize({ width: 1024, height: 768 });
+		await settle(page, 1000);
+		await octagonsChecked(`the cavitating one-off at ${sizeOf(page)}`);
+	}
+	await page.setViewportSize(viewport);
+	if (isMobile) return;
+	// The trace (a pin, critique CR-ENG-1): its grid of values takes no floor; the cavitating
+	// transfer pump made flow-controlled, its trace open beside the results.
+	const project = cavitatingTransfer();
+	Object.assign(
+		project.components.find((c) => c.id === 'P1')!,
+		{
+			control: { mode: 'flow', setpoint: 0.012, minSpeed: 0.5 }
+		}
+	);
+	await open(page, project);
+	await solveConverged(page);
+	for (const size of [
+		{ width: 1280, height: 800 },
+		{ width: 1024, height: 768 }
+	]) {
+		await page.setViewportSize(size);
+		const pumps = await pumpsTab(page);
+		await settle(page, 800);
+		await pumps
+			.getByRole('table', { name: 'Results per pump' })
+			.getByRole('button', { name: /^Transfer pump/ })
+			.click();
+		const trace = traceOf(page, 'Transfer pump');
+		await expect(trace).toBeVisible();
+		const read = await trace.evaluate((el) => {
+			const scroller = el.querySelector<HTMLElement>('.overflow-y-auto')!;
+			const dd = [...el.querySelectorAll('dt')].find(
+				(dt) => (dt.textContent ?? '').replace(/\s+/g, ' ').trim() === 'NPSH margin ratio'
+			)?.nextElementSibling as HTMLElement | undefined;
+			const item = dd?.parentElement?.getBoundingClientRect();
+			const range = document.createRange();
+			if (dd) range.selectNodeContents(dd);
+			const right = Math.max(...[...range.getClientRects()].map((r) => r.right));
+			return {
+				scroll: scroller.scrollWidth,
+				client: scroller.clientWidth,
+				text: (dd?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+				inside: !!item && right <= item.right + 0.5
+			};
+		});
+		const where = `the trace at ${sizeOf(page)}`;
+		expect.soft(read.text, `the ratio's words, ${where}`).toMatch(/^—\s?Cavitates \(NPSHr 0\)/);
+		expect.soft(read.scroll, `the trace's scroller, ${where}`).toBeLessThanOrEqual(read.client);
+		expect.soft(read.inside, `the cue inside its grid cell, ${where}`).toBe(true);
+		await trace.getByRole('button', { name: 'Close', exact: true }).click();
+		await expect(traceOf(page, 'Transfer pump')).toBeHidden();
 	}
 	await page.setViewportSize(viewport);
 });
@@ -8823,6 +9887,12 @@ interface PlacedRead {
 	widths: number[];
 	/** The notes' "Not labelled on the chart: …" sentences, each with whether it is on screen. */
 	notes: { text: string; seen: boolean }[];
+	/**
+	 * The page's legend under the chart (the group chart's; none for the pump chart's canvas
+	 * legend): each entry's words, its swatch's mark (a line, or `data-mark`), its swatch's colour
+	 * (a line's stroke, a mark's fill), and whether it is on screen (leftover L13's key by name).
+	 */
+	legend: { text: string; mark: string | null; color: string | null; seen: boolean }[];
 }
 
 /**
@@ -8856,7 +9926,19 @@ function readPointLabels(): { pump: PlacedRead | null; group: PlacedRead | null 
 			widths: (points?.labels ?? []).map((l) => measure.measureText(l.text).width),
 			notes: [...(figure.querySelector(notesAt)?.querySelectorAll('p') ?? [])]
 				.filter((p) => squash(p.textContent).startsWith('Not labelled on the chart'))
-				.map((p) => ({ text: squash(p.textContent), seen: seen(p) }))
+				.map((p) => ({ text: squash(p.textContent), seen: seen(p) })),
+			legend: [
+				...(figure.querySelector('[aria-label="Legend"]')?.querySelectorAll('li') ?? [])
+			].map((li) => {
+				const line = li.querySelector('svg line');
+				const mark = li.querySelector('svg [data-mark]');
+				return {
+					text: squash(li.textContent),
+					mark: line ? 'line' : (mark?.getAttribute('data-mark') ?? null),
+					color: line?.getAttribute('stroke') ?? mark?.getAttribute('fill') ?? null,
+					seen: seen(li)
+				};
+			})
 		};
 	};
 	const figures = [...panel.querySelectorAll('figure')];
@@ -9068,7 +10150,40 @@ function pointLabelFindings(m: PlacedRead | null): string[] {
 		);
 	if (!items.some((it) => it.kind !== 'ring') && placed.leftOut.length !== rings)
 		found.push(`${rings} rings without a label, ${placed.leftOut.length} named in the notes`);
-	const notLabelled = [...placed.leftOut, ...(m.curves?.tagsLeftOut ?? [])];
+	// Leftover L13: a point of this case (a pump, the Group: its mark a point, not a ring) is
+	// named in the legend's key, with its own mark and its values, a running pump's entry right
+	// after its line's; the notes name only the rest (the rings, a curve's tag).
+	const keyed = placed.leftOut.filter((p) => p.mark === 'point');
+	for (const p of keyed) {
+		const values = `at ${p.flow} and ${p.head}`;
+		const k = m.legend.findIndex(
+			(e) =>
+				(e.text.endsWith(`its point ${values}`) || e.text.endsWith(`their points ${values}`)) &&
+				(p.name === 'Group' ? e.text.startsWith('Group') : e.text.includes(p.name))
+		);
+		const entry = m.legend[k];
+		if (!entry) {
+			found.push(`${p.name}, its point ${values}, is in no legend entry`);
+			continue;
+		}
+		if (!entry.seen) found.push(`"${entry.text}" is not on screen`);
+		const want =
+			p.name === 'Group' ? 'group' : p.name.endsWith('held at zero flow') ? 'held' : 'member';
+		if (entry.mark !== want)
+			found.push(`"${entry.text}" has the swatch ${entry.mark}, not ${want}`);
+		if (want === 'member') {
+			const line = m.legend.slice(0, k).findLast((e) => e.mark === 'line');
+			const between = m.legend.slice(m.legend.indexOf(line!) + 1, k);
+			if (!line || !line.text.includes(p.name) || between.some((e) => e.mark !== 'member'))
+				found.push(`"${entry.text}" is not right after its line's entry`);
+			else if (line.color !== entry.color)
+				found.push(`"${entry.text}"'s dot ${entry.color} is not its line's ${line.color}`);
+		}
+	}
+	const notLabelled = [
+		...placed.leftOut.filter((p) => p.mark !== 'point'),
+		...(m.curves?.tagsLeftOut ?? [])
+	];
 	if ((m.curves?.tagsLeftOut ?? []).some((t) => t.mark !== 'end'))
 		found.push(`a tag left out is not named by its curve's end`);
 	const sentence = notLabelled.length
@@ -9184,6 +10299,43 @@ for (const [view, setUp] of [
 				// group chart its members and the Group.
 				soft(placed?.labels.length, `${chart}'s point labels drawn, ${where}`).toBeGreaterThan(0);
 			}
+			// Leftover L21b (pumps-nits.md §11.5): curve labels on one row 6 px apart or more; at
+			// 3 px they read as one ("[1, 2] 1 running" 4.2 px from "2 running (this case)").
+			const curveLabels = m.group?.curves?.labels ?? [];
+			const tooClose = curveLabels.flatMap((a, i) =>
+				curveLabels
+					.slice(i + 1)
+					.filter(
+						(b) =>
+							a.box.top < b.box.bottom &&
+							b.box.top < a.box.bottom &&
+							boxGap(a.box, b.box) < 6 - 0.01
+					)
+					.map((b) => `"${a.text}" ${boxGap(a.box, b.box).toFixed(1)} px from "${b.text}"`)
+			);
+			soft(tooClose, `curve labels on one row 6 px apart, ${where}`).toEqual([]);
+			// Leftover L14 (pumps-nits.md §11.5): the group system curve's tag walks back along its
+			// curve where the spots by its end are taken; it was left out in the condenser at 1280 and
+			// the lineups at 390 (the condenser at 320 may still leave it out, named in the notes).
+			const tagsOut = m.group?.curves?.tagsLeftOut.map((t) => t.name) ?? [];
+			console.log(
+				`${where}: tags ${JSON.stringify(m.group?.curves?.tags.map((t) => t.text))}; left out ${JSON.stringify(tagsOut)}`
+			);
+			if (
+				(view === 'the condenser' && sizeOf(page) === '1280x800') ||
+				(view === 'lineups' && sizeOf(page) === '390x844')
+			)
+				soft(tagsOut, `the group system curve's tag left out, ${where}`).toEqual([]);
+			// Leftover L15: the card's longest run of notes within LONGEST_RUN.card at every size.
+			const notesRun = await cardNotesRun(page);
+			console.log(`${where}: the card's runs of notes ${JSON.stringify(notesRun.runs)}`);
+			soft(notesRun.run, `the card's longest run of notes, ${where}`).toBeLessThanOrEqual(
+				LONGEST_RUN.card
+			);
+			const pumpPlot = m.pump?.points?.plot;
+			console.log(
+				`${where}: the pump chart's plot ${pumpPlot?.left.toFixed(1)}..${pumpPlot?.right.toFixed(1)} (${((pumpPlot?.right ?? 0) - (pumpPlot?.left ?? 0)).toFixed(1)} px) of ${m.pump?.canvas.width}`
+			);
 			soft(
 				[...new Set(m.group?.points?.items.map((it) => it.kind))].sort(),
 				`the group chart's points, ${where}`
@@ -9261,7 +10413,7 @@ for (const [view, setUp] of [
 // diamond has at the plot's left edge, and Pump PB, held at zero flow, was left out at 1024×768,
 // 1152×864, 390×844 and 360×740 although both labels fit there: the placer tries once more with a
 // pump left out first among the pumps.
-test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the held one too, where both labels fit, at 1024×768 and 1280×800, 390×844 and 360×740 (pumps-nits.md item 5, rule 7)', async ({
+test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the held one too, where both labels fit, at 1024×768 and 1280×800, 390×844 and 360×740; at 320×640 a pump left out keyed by name in the legend (pumps-nits.md item 5, rule 7; §11.5, leftover L13)', async ({
 	page,
 	isMobile
 }) => {
@@ -9275,10 +10427,13 @@ test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the h
 	const duties = card.getByRole('checkbox', { name: "Also show the other cases' station duties" });
 	if (!(await duties.isChecked())) await duties.check();
 	await settle(page, 2500);
+	// Leftover L13: 320×640 added, where Pump PB, held at zero flow, was named only in the notes
+	// (design C): every point left out is keyed in the legend by name (pointLabelFindings).
 	const sizes = isMobile
 		? [
 				{ width: 390, height: 844 },
-				{ width: 360, height: 740 }
+				{ width: 360, height: 740 },
+				{ width: 320, height: 640 }
 			]
 		: [
 				{ width: 1024, height: 768 },
@@ -9288,6 +10443,7 @@ test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the h
 		await page.setViewportSize(size);
 		await settle(page, 1500);
 		const where = `the dead-headed group chart at ${sizeOf(page)}`;
+		const small = size.width === 320;
 		await expect
 			.poll(
 				async () => {
@@ -9303,14 +10459,27 @@ test('Review DOTS-LABELS-B7: the dead-headed group chart names both pumps, the h
 			`${where}: labelled ${JSON.stringify(placed?.labels.map((l) => l.text))}; left out ${JSON.stringify(placed?.leftOut.map((p) => p.name))}`
 		);
 		soft(pointLabelFindings(read), `the point labels, ${where}`).toEqual([]);
-		soft(
-			placed?.labels.filter((l) => l.kind === 'member').map((l) => l.text),
-			`both pumps named, ${where}`
-		).toEqual(expect.arrayContaining(['Pump PA', 'Pump PB']));
-		soft(
-			placed?.leftOut.map((p) => p.name),
-			`no pump left out, ${where}`
-		).toEqual([]);
+		// Each pump named on the chart, or, at 320 px, in the legend's key (pointLabelFindings).
+		const named = [
+			...(placed?.labels.filter((l) => l.kind === 'member').map((l) => l.text) ?? []),
+			...(small
+				? (placed?.leftOut.map((p) => p.name.replace(/, held at zero flow$/, '')) ?? [])
+				: [])
+		];
+		soft(named, `both pumps named, ${where}`).toEqual(
+			expect.arrayContaining(['Pump PA', 'Pump PB'])
+		);
+		if (!small)
+			soft(
+				placed?.leftOut.map((p) => p.name),
+				`no pump left out, ${where}`
+			).toEqual([]);
+		// Leftover L15: the card's longest run of notes within LONGEST_RUN.card.
+		const notesRun = await cardNotesRun(page);
+		console.log(`${where}: the card's runs of notes ${JSON.stringify(notesRun.runs)}`);
+		soft(notesRun.run, `the card's longest run of notes, ${where}`).toBeLessThanOrEqual(
+			LONGEST_RUN.card
+		);
 	}
 });
 
@@ -9344,6 +10513,20 @@ test('Reviews DOTS-LABELS-B4 and B5: four member lines, every two swatches apart
 	const card = await openCard(page, tab);
 	await settle(page, 2500);
 	const where = `four speeds at ${sizeOf(page)}`;
+	// Leftover L13: Pump P4, held at zero flow, left out at every size (design C), keyed in the
+	// legend by name with its values, the notes naming no pump (pointLabelFindings).
+	await expect
+		.poll(async () => !!(await page.evaluate(readPointLabels)).group?.points, { timeout: 30_000 })
+		.toBe(true);
+	const labels = (await page.evaluate(readPointLabels)).group;
+	console.log(`${where}: left out ${JSON.stringify(labels?.points?.leftOut.map((p) => p.name))}`);
+	soft(pointLabelFindings(labels), `the point labels, ${where}`).toEqual([]);
+	// Leftover L15: three pumps' notes as one list; the card's longest run within LONGEST_RUN.card.
+	const notesRun = await cardNotesRun(page);
+	console.log(`${where}: the card's runs of notes ${JSON.stringify(notesRun.runs)}`);
+	soft(notesRun.run, `the card's longest run of notes, ${where}`).toBeLessThanOrEqual(
+		LONGEST_RUN.card
+	);
 	const legend = card.getByRole('list', { name: 'Legend' });
 	const memberLines = legend
 		.getByRole('listitem')
@@ -9411,4 +10594,494 @@ test('Reviews DOTS-LABELS-B4 and B5: four member lines, every two swatches apart
 		`Pump P1's, the group curve's and the group system curve's lines, ${where}`
 	).toBe(true);
 	soft(new Set(three).size, `their colours apart under forced colours, ${where}`).toBe(3);
+});
+
+// ---- Leftover L10: every case named by its number (pumps-nits.md §11.4) -------------------------
+
+/**
+ * The places on the Pumps tab that named a case in words before leftover L10, each with the
+ * CaseNamed units it holds: both figcaptions, the group table's title, each extreme with a case
+ * (a cell with an amount), each other case's system curve's summary; the captions' and the
+ * title's heights and lines.
+ */
+function readCaseUnits() {
+	const pane = document.querySelector('section[aria-label="Results"]')!;
+	const units = (e: Element | null | undefined) =>
+		e ? e.querySelectorAll('[data-case-named]').length : null;
+	const height = (e: Element | null | undefined) =>
+		e ? Math.round(e.getBoundingClientRect().height * 10) / 10 : null;
+	// Its lines of words: each text node's boxes seen (none in a visually hidden one), one line per
+	// run of boxes whose middles lie within 6 px (a line is 16 px; the box's number sits in its
+	// line's middle, and a flex item's box starts at its own top, not the line's).
+	const lines = (e: Element | null) => {
+		if (!e) return null;
+		const middles: number[] = [];
+		const walker = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			if (n.parentElement?.closest('.sr-only')) continue;
+			const range = document.createRange();
+			range.selectNodeContents(n);
+			for (const r of range.getClientRects()) {
+				if (r.width > 0.5 && r.height > 1) middles.push(r.top + r.height / 2);
+			}
+		}
+		middles.sort((a, b) => a - b);
+		let count = 0;
+		let last = -Infinity;
+		for (const y of middles) {
+			if (y - last > 6) count += 1;
+			last = y;
+		}
+		return count;
+	};
+	const pump = [...pane.querySelectorAll('figure')].find((f) =>
+		/^Pump and system curves/.test(f.querySelector('figcaption')?.textContent?.trim() ?? '')
+	);
+	const group = pane.querySelector('[data-pumps-together] figure');
+	const title = pane.querySelector('[data-pumps-together] [data-group-table] > p');
+	const cells = [
+		...pane.querySelectorAll('[data-pumps-together] [data-combination-extremes] td')
+	].filter((td) => !/no case gives one/.test(td.textContent ?? ''));
+	const summaries = [...pane.querySelectorAll('details[data-curve-table^="system-"] > summary')];
+	return {
+		pumpCaption: {
+			units: units(pump?.querySelector('figcaption')),
+			height: height(pump?.querySelector('figcaption'))
+		},
+		groupCaption: {
+			units: units(group?.querySelector('figcaption')),
+			height: height(group?.querySelector('figcaption'))
+		},
+		title: { units: units(title), height: height(title), lines: lines(title) },
+		extremes: cells.map((td) => units(td)),
+		// An extreme's unit holds its box and the first word of its case's name, the rest of the
+		// name running on with the cell's words (PumpGroupCombinations nameLead): one word each.
+		extremeLeads: cells.map((td) =>
+			(td.querySelector('[data-case-named] > :last-child')?.textContent ?? '').trim()
+		),
+		summaries: summaries.map((s) => units(s))
+	};
+}
+
+/**
+ * readCaseUnits at the size shown (soft): one unit in each place, and every box beside its name
+ * (readBoxedNames). An extreme's unit is its box and its name's first word, so its box never ends
+ * a line apart from its name and an unbroken name wraps beside it at one edge; the rest of the
+ * name runs on as the cell's sentence wraps (EXTREMES_HEIGHT; PumpGroupCombinations nameLead).
+ */
+async function caseUnitsPart(page: Page, where: string, summaries: boolean) {
+	const m = await page.evaluate(readCaseUnits);
+	console.log(`${where}: ${JSON.stringify(m)}`);
+	expect.soft(m.pumpCaption.units, `the pump chart's caption's unit, ${where}`).toBe(1);
+	expect.soft(m.groupCaption.units, `the group chart's caption's unit, ${where}`).toBe(1);
+	expect.soft(m.title.units, `the group table's title's unit, ${where}`).toBe(1);
+	expect.soft(m.extremes.length, `the extremes with a case, ${where}`).toBeGreaterThan(0);
+	expect
+		.soft(
+			m.extremes.every((n) => n === 1),
+			`one unit in each extreme with a case, ${where}`
+		)
+		.toBe(true);
+	expect
+		.soft(
+			m.extremeLeads.filter((lead) => !lead || /\s/.test(lead)),
+			`each extreme's unit its box and one word of its case's name, ${where}`
+		)
+		.toEqual([]);
+	if (summaries) {
+		expect.soft(m.summaries.length, `the other cases' curve tables, ${where}`).toBeGreaterThan(0);
+		expect
+			.soft(
+				m.summaries.every((n) => n === 1),
+				`one unit in each other case's curve table's summary, ${where}`
+			)
+			.toBe(true);
+	}
+	// A box on a 12 px text's 16 px line grows no line (the title).
+	expect
+		.soft(m.title.height, `the group table's title 16 px a line, ${where}`)
+		.toBe(16 * (m.title.lines ?? 0));
+	await boxedNamesPart(page, where);
+	await noSidewaysScroll(page, where);
+	return m;
+}
+
+test('Leftover L10: the Pumps tab names each case by its number, its box beside its name as one unit: both figcaptions, the group table’s title, the extremes and the other cases’ curve tables; captions as tall as before, the title 16 px a line, nothing sideways, axe clean (pumps-nits.md §11.4, leftover L10)', async ({
+	page
+}, info) => {
+	test.setTimeout(900_000);
+	const viewport = page.viewportSize()!;
+	const sizes =
+		info.project.name === 'mobile'
+			? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
+			: [viewport];
+	// The one-off, "Delivery tank 5 m higher" (case 3) shown, its other cases' station duties and
+	// system curves and the pump chart's data table shown.
+	await oneOff(page);
+	await chooseCase(page, 'Delivery tank 5 m higher (1 change)');
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	await card.getByRole('checkbox', { name: "Also show the other cases' station duties" }).check();
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	await figure.getByRole('checkbox', { name: "Also show the other cases' system curves" }).check();
+	await tab.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	await settle(page, 2500);
+	// The captions as tall as with the case's name alone (measured on 25b45c5): one line at 1280,
+	// two on a phone.
+	const CAPTION: Readonly<Record<string, number>> = {
+		'1280x800': 20,
+		'390x844': 40,
+		'360x740': 40,
+		'320x640': 40
+	};
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `the one-off, case 3 shown, at ${sizeOf(page)}`;
+		const m = await caseUnitsPart(page, where, true);
+		expect
+			.soft(m.pumpCaption.height, `the pump chart's caption, ${where}`)
+			.toBe(CAPTION[sizeOf(page)]);
+		expect
+			.soft(m.groupCaption.height, `the group chart's caption, ${where}`)
+			.toBe(CAPTION[sizeOf(page)]);
+	}
+	await page.setViewportSize(viewport);
+	await axeClean(page, `the one-off, case 3 shown, at ${sizeOf(page)}`);
+
+	// The lineups, the 40-character case name shown (case 4).
+	const project = projectOf('lineups');
+	project.scenarios!.find((s) => s.id === 'S4')!.name = LONG_CASE;
+	await lineups(page, project);
+	await chooseCase(page, `${LONG_CASE} (1 change)`);
+	await settle(page, 2500);
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		await caseUnitsPart(page, `the lineups, the long case shown, at ${sizeOf(page)}`, false);
+	}
+	await page.setViewportSize(viewport);
+	await axeClean(page, `the lineups, the long case shown, at ${sizeOf(page)}`);
+});
+
+// ---- Group C: canvases, labels and legends (pumps-nits.md §11.5) -------------------------------
+
+/** The sizes each group C test reads: 1280×800 on the desktop, 390, 360 and 320 on the phone. */
+function groupCSizes(page: Page, isMobile: boolean) {
+	const viewport = page.viewportSize()!;
+	return isMobile
+		? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
+		: [viewport];
+}
+
+// Leftover L19 (pumps-nits.md §8.14 bullet 7): pumps sharing a label were named in the pumps'
+// order, so in the four-speeds view "Pump P1, Pump P2, Pump P3" read over dots lying P3, P2, P1
+// from left to right (x 81.5, 92.6 and 102.0 at 1280). Now in the dots' order, from left to right;
+// dots 3 px apart or closer (from the first of their run) keep the pumps' order.
+test('Leftover L19: a label the pumps share names them in their dots’ order from left to right, in the four-speeds view at 1280×800, 390×844, 360×740 and 320×640 (pumps-nits.md §11.5)', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	await fourSpeeds(page);
+	const tab = await pumpsTab(page);
+	await openCard(page, tab);
+	await settle(page, 2500);
+	// The members, in the placer's items in the pumps' order (the group chart's datasets').
+	const pumps = ['Pump P1', 'Pump P2', 'Pump P3', 'Pump P4'];
+	let read = 0;
+	for (const size of groupCSizes(page, isMobile)) {
+		await page.setViewportSize(size);
+		await settle(page, 1500);
+		const where = `four speeds at ${sizeOf(page)}`;
+		await expect
+			.poll(
+				async () => {
+					const g = (await page.evaluate(readPointLabels)).group;
+					return !!g?.points && g.points.plot.right <= g.canvas.width + 0.5;
+				},
+				{ timeout: 30_000 }
+			)
+			.toBe(true);
+		const placed = (await page.evaluate(readPointLabels)).group!.points!;
+		const members = placed.items.flatMap((it, i) => (it.kind === 'member' ? [i] : []));
+		soft(members.length, `four members on the group chart, ${where}`).toBe(4);
+		const nameOf = (i: number) => pumps[members.indexOf(i)]!;
+		for (const label of placed.labels.filter((l) => l.kind === 'member')) {
+			// Written out here: the dots from left to right, a run of dots within 3 px of its first
+			// in the pumps' order.
+			const runs: number[][] = [];
+			for (const i of [...label.items].sort(
+				(a, b) => placed.items[a]!.x - placed.items[b]!.x || a - b
+			)) {
+				const run = runs[runs.length - 1];
+				if (run && placed.items[i]!.x - placed.items[run[0]!]!.x <= 3) run.push(i);
+				else runs.push([i]);
+			}
+			const expected = runs.flatMap((run) => [...run].sort((a, b) => a - b)).map(nameOf);
+			const xs = label.items.map((i) => `${nameOf(i)} ${placed.items[i]!.x.toFixed(1)}`);
+			console.log(`${where}: "${label.text}" over ${xs.join(', ')}`);
+			if (label.items.length < 2 || !label.text.startsWith('Pump ')) continue;
+			read++;
+			soft(label.text, `the names in the dots' order, ${where} (${xs.join(', ')})`).toBe(
+				expected.join(', ')
+			);
+		}
+	}
+	// A shared label of names is read at one size at least (the four-speeds view's three running
+	// pumps share one at every size measured).
+	expect(read, 'a shared label of names read').toBeGreaterThan(0);
+});
+
+/** The pump chart's canvas legend as its last drawing laid it out (`data-legend`), or null. */
+function readPumpLegend(): LegendDrawn | null {
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const panel = document.querySelector('[role="tabpanel"][id$="-panel-pumps"]')!;
+	const figure = [...panel.querySelectorAll('figure')].find((f) =>
+		squash(f.querySelector(':scope > figcaption')?.textContent).startsWith('Pump and system curves')
+	);
+	const json = figure?.querySelector('canvas')?.dataset.legend;
+	return json ? (JSON.parse(json) as LegendDrawn) : null;
+}
+
+// Leftovers L16 to L18 (pumps-nits.md §8.14 bullets 4 to 6; §11.5), read from the pump chart's
+// `data-legend`: Chart.js cut an entry wider than the canvas (the lineups' "Case 3: 1 of 4 running
+// (…)" at 390 and 360 px) and drew none past half the canvas (the condenser's rings at 320 px);
+// its swatches drew dashed curves solid. On a phone the other cases are now two entries, each
+// toggling all its datasets; from 640 px a long entry wraps; every swatch has its curve's dashes.
+for (const [view, setUp] of [
+	['the one-off', oneOff],
+	['lineups', lineups],
+	['the condenser', condenser]
+] as const) {
+	test(`Group C, the charts as drawn, ${view}: the pump chart's canvas legend whole inside its canvas and its box, the other cases two entries on a phone, each swatch its curve's dashes; "BEP" drawn clear of every mark, ring, label and leader; at 1280×800, 390×844, 360×740 and 320×640 (pumps-nits.md §11.5, leftovers L16 to L18, L20)`, async ({
+		page,
+		isMobile
+	}) => {
+		test.setTimeout(420_000);
+		const soft = expect.configure({ soft: true });
+		await setUp(page);
+		await pumpsTab(page);
+		await settle(page, 2500);
+		for (const size of groupCSizes(page, isMobile)) {
+			await page.setViewportSize(size);
+			await settle(page, 1500);
+			const where = `${view} at ${sizeOf(page)}`;
+			await expect
+				.poll(
+					async () => {
+						const legend = await page.evaluate(readPumpLegend);
+						return !!legend && legend.canvas.width <= size.width;
+					},
+					{ timeout: 30_000 }
+				)
+				.toBe(true);
+			const legend = (await page.evaluate(readPumpLegend))!;
+			const placed = (await page.evaluate(readPointLabels)).pump?.points;
+			const fix = (n: number) => n.toFixed(1);
+			const rings = placed?.items.filter((it) => it.kind === 'ring').length ?? 0;
+			console.log(
+				`${where}: the legend ${fix(legend.box.bottom - legend.box.top)} px high of ${legend.canvas.height}, ${legend.entries.length} entries; the head panel's plot ${fix((placed?.plot.bottom ?? 0) - (placed?.plot.top ?? 0))} px high; ${rings} rings; ${JSON.stringify(legend.entries.map((e) => e.text))}`
+			);
+			// L17, L18: every entry whole, inside the canvas and inside the legend's box.
+			const out = legend.entries.filter(
+				(e) =>
+					e.box.left < Math.max(0, legend.box.left) - 0.5 ||
+					e.box.right > Math.min(legend.canvas.width, legend.box.right) + 0.5 ||
+					e.box.top < legend.box.top - 0.5 ||
+					e.box.bottom > legend.box.bottom + 0.5
+			);
+			soft(
+				out.map((e) => `"${e.text}" ${JSON.stringify(e.box)}`),
+				`entries outside the canvas (${legend.canvas.width} px) or the legend's box ${JSON.stringify(legend.box)}, ${where}`
+			).toEqual([]);
+			// L16: each swatch with its curve's own dashes.
+			soft(
+				legend.entries
+					.filter((e) => e.swatch && JSON.stringify(e.dash) !== JSON.stringify(e.own))
+					.map((e) => `"${e.text}" ${JSON.stringify(e.dash)} for ${JSON.stringify(e.own)}`),
+				`swatches without their curve's dashes, ${where}`
+			).toEqual([]);
+			// L20: each short label drawn ("BEP", "70 %") clear of every mark but its own point's,
+			// every point label and leader (data-point-labels' `short`). Which of its four places it
+			// takes, the first clear, is pinned in pump-chart-config.test.ts, each place drawn there
+			// (review LO-CODE-3; the title said "at the first of four clear places", which this test
+			// does not read).
+			const short = placed?.short ?? [];
+			console.log(
+				`${where}: short labels ${JSON.stringify(short.map((l) => `${l.text}${l.drawn ? '' : ' (left out)'}`))}`
+			);
+			const drawnBep = short.find((l) => l.text === 'BEP')?.drawn;
+			if (
+				(view === 'lineups' && ['1280x800', '390x844'].includes(sizeOf(page))) ||
+				(view === 'the one-off' && isMobile)
+			)
+				soft(drawnBep, `"BEP" drawn, ${where}`).toBe(true);
+			for (const l of short.filter((x) => x.drawn)) {
+				const own = (b: Box) =>
+					Math.abs((b.left + b.right) / 2 - l.at.x) < 0.01 &&
+					Math.abs((b.top + b.bottom) / 2 - l.at.y) < 0.01;
+				const over = [
+					...placed!.obstacles.filter((b) => !own(b) && boxesOverlap(b, l.box)).map(() => 'a mark'),
+					...placed!.items
+						.filter((it) =>
+							boxesOverlap(l.box, {
+								left: it.x - it.r,
+								right: it.x + it.r,
+								top: it.y - it.r,
+								bottom: it.y + it.r
+							})
+						)
+						.map((it) => `a ${it.kind}`),
+					...placed!.labels.filter((p) => boxesOverlap(p.box, l.box)).map((p) => `"${p.text}"`),
+					...placed!.labels
+						.filter((p) => p.leader && segmentCrosses(p.leader, l.box))
+						.map((p) => `the leader of "${p.text}"`)
+				];
+				soft(over, `"${l.text}" at ${JSON.stringify(l.box)} over, ${where}`).toEqual([]);
+			}
+			// L17: on a phone's screen the other cases' rings one entry toggling every ring.
+			if (isMobile && rings >= 2) {
+				const entry = legend.entries.find((e) => e.text === 'Other cases (a numbered ring each)');
+				soft(entry?.datasets.length, `the rings' one entry, ${where}`).toBe(rings);
+				soft(
+					legend.entries.filter((e) => /^Case \d+: /.test(e.text)).map((e) => e.text),
+					`no entry per case on a phone, ${where}`
+				).toEqual([]);
+			}
+		}
+	});
+}
+
+// ---- Review LO-OWNER-1, LO-CODE-2: the pump chart's stacked titles apart ------------------------
+
+/** Adjacent stacked y-axis titles of the pump chart at least this far apart, more than a space. */
+const TITLES_APART = 8;
+
+/**
+ * Record the rotated y-axis titles each canvas in the document draws (the pump chart's "Head (…)",
+ * "η (…)", "P (…)" and "NPSH (…)"): each one's extent along its axis in CSS px from the canvas's
+ * top, from its text's measured width, its alignment and the transform it is written under,
+ * kept from the canvas's last clearing, so the last drawing's (review LO-OWNER-1).
+ */
+async function recordAxisTitles(page: Page) {
+	await page.addInitScript(() => {
+		type Title = { text: string; top: number; bottom: number };
+		const w = window as unknown as { __axisTitles: WeakMap<HTMLCanvasElement, Title[]> };
+		w.__axisTitles = new WeakMap();
+		const proto = CanvasRenderingContext2D.prototype;
+		const clear = proto.clearRect;
+		proto.clearRect = function (
+			this: CanvasRenderingContext2D,
+			x: number,
+			y: number,
+			width: number,
+			height: number
+		) {
+			if (this.canvas.isConnected) w.__axisTitles.set(this.canvas, []);
+			return clear.call(this, x, y, width, height);
+		};
+		const fill = proto.fillText;
+		proto.fillText = function (
+			this: CanvasRenderingContext2D,
+			text: string,
+			x: number,
+			y: number,
+			maxWidth?: number
+		) {
+			const m = this.getTransform();
+			// A quarter turn: a and d zero, b ±1 times the pixel ratio.
+			if (
+				this.canvas.isConnected &&
+				Math.abs(m.a) < 1e-6 &&
+				Math.abs(m.b) > 1e-6 &&
+				/^(Head|η|P|NPSH) \(/.test(String(text))
+			) {
+				const width = this.measureText(String(text)).width;
+				const align = this.textAlign;
+				const start =
+					align === 'center' ? x - width / 2 : align === 'right' || align === 'end' ? x - width : x;
+				const scale = Math.hypot(m.a, m.b);
+				const ys = [start, start + width].map((u) => (m.b * u + m.d * y + m.f) / scale);
+				const list = w.__axisTitles.get(this.canvas) ?? [];
+				list.push({ text: String(text), top: Math.min(...ys), bottom: Math.max(...ys) });
+				w.__axisTitles.set(this.canvas, list);
+			}
+			return maxWidth === undefined
+				? fill.call(this, text, x, y)
+				: fill.call(this, text, x, y, maxWidth);
+		};
+	});
+}
+
+/** The pump chart's rotated titles as its canvas last drew them, from the top down. */
+function readPumpAxisTitles() {
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const panel = document.querySelector('[role="tabpanel"][id$="-panel-pumps"]')!;
+	const figure = [...panel.querySelectorAll('figure')].find((f) =>
+		squash(f.querySelector(':scope > figcaption')?.textContent).startsWith('Pump and system curves')
+	);
+	const canvas = figure?.querySelector('canvas');
+	const w = window as unknown as {
+		__axisTitles: WeakMap<HTMLCanvasElement, { text: string; top: number; bottom: number }[]>;
+	};
+	return canvas ? [...(w.__axisTitles.get(canvas) ?? [])].sort((a, b) => a.top - b.top) : [];
+}
+
+// Review LO-OWNER-1, LO-CODE-2: each stacked panel's title is drawn centred on its panel, and a
+// panel is its stack weight's share of the plot, so where a phone's canvas legend took the plot's
+// height a lower panel was shorter than its title: in the one-off with its design checks, "P (kW)"
+// ran into "NPSH (m)" at 320×640 with the other cases' system curves on (−1.6 px; −9.3 on main),
+// 2.4 px apart at 390 and 360 (and at 320 with them off), less than a space.
+test('Review LO-OWNER-1: the pump chart’s stacked axis titles 8 px apart or more, in the one-off with its design checks, the other cases’ system curves off and on, at 1280×800, 390×844, 360×740 and 320×640', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	await recordAxisTitles(page);
+	await oneOff(page);
+	const tab = await pumpsTab(page);
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	const sizes = groupCSizes(page, isMobile);
+	for (const curves of [false, true]) {
+		if (curves) {
+			await figure
+				.getByRole('checkbox', { name: "Also show the other cases' system curves" })
+				.check();
+			await settle(page);
+		}
+		for (const size of sizes) {
+			await page.setViewportSize(size);
+			await settle(page, 1500);
+			const where = `the one-off, the other cases' system curves ${curves ? 'on' : 'off'}, at ${sizeOf(page)}`;
+			await expect
+				.poll(async () => (await page.evaluate(readPumpAxisTitles)).length, { timeout: 30_000 })
+				.toBe(4);
+			const titles = await page.evaluate(readPumpAxisTitles);
+			const gaps = titles.slice(1).map((t, i) => ({
+				between: `${titles[i]!.text} / ${t.text}`,
+				gap: t.top - titles[i]!.bottom
+			}));
+			console.log(
+				`${where}: ${titles.map((t) => `"${t.text}" ${t.top.toFixed(1)} to ${t.bottom.toFixed(1)}`).join(', ')}; gaps ${gaps.map((g) => `${g.between} ${g.gap.toFixed(1)}`).join(', ')}`
+			);
+			expect
+				.soft(
+					titles.map((t) => t.text.replace(/ \(.*$/, '')),
+					`the four titles from the top, ${where}`
+				)
+				.toEqual(['Head', 'η', 'P', 'NPSH']);
+			expect
+				.soft(
+					gaps
+						// To 0.1 px, as measured: the floor's 8 px is met exactly where it binds.
+						.filter((g) => Math.round(g.gap * 10) / 10 < TITLES_APART)
+						.map((g) => `${g.between} ${g.gap.toFixed(1)} px`),
+					`titles less than ${TITLES_APART} px apart, ${where}`
+				)
+				.toEqual([]);
+		}
+		await page.setViewportSize(sizes[0]!);
+	}
 });

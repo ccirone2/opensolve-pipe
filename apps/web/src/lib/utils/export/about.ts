@@ -747,12 +747,6 @@ export function aboutRows(
 			`A connection's flow and head loss are given in its direction now. Reversed since its case was solved, so with the other sign than in that case's tables: ${compared.reversed.join('; ')}.`
 		]);
 	}
-	// An empty Compare cell that is no sign of a safe value, with the screen's words for it (a
-	// pump that cavitates with no NPSH margin ratio; docs/proposals/pumps-nits.md item 4). Not "Not
-	// in this file": nothing is left out, the API gives no value.
-	for (const { what, note } of compared.noValue) {
-		rows.push(['Export', `Compare cases: ${what}`, `No value: ${note}`]);
-	}
 	// Not in this file, and why.
 	const left: [string, string][] = [];
 	for (const { what, reason } of compared.leftOut) left.push([`Compare cases: ${what}`, reason]);

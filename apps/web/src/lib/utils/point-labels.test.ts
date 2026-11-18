@@ -150,7 +150,17 @@ function crosses(x1: number, y1: number, x2: number, y2: number, b: PxBox): bool
 /** The words an item is named by in its label: a member's name, a ring's numbers. */
 function memberTexts(items: readonly PointLabelItem[], named: readonly number[]): string[] {
 	const members = items.filter((it) => it.kind === 'member');
-	const names = named.map((i) => (items[i] as Extract<PointLabelItem, { kind: 'member' }>).name);
+	// Their names in their dots' order from left to right, dots 3 px apart or closer (from the
+	// first of their run) in the pumps' order (leftover L19): written out here, one dot at a time.
+	const order: number[][] = [];
+	for (const i of [...named].sort((a, b) => items[a]!.x - items[b]!.x || a - b)) {
+		const run = order[order.length - 1];
+		if (run && items[i]!.x - items[run[0]!]!.x <= 3) run.push(i);
+		else order.push([i]);
+	}
+	const names = order
+		.flatMap((run) => [...run].sort((a, b) => a - b))
+		.map((i) => (items[i] as Extract<PointLabelItem, { kind: 'member' }>).name);
 	return [
 		names.join(', '),
 		...(named.length > 1 && named.length === members.length ? ['All pumps'] : []),
@@ -507,6 +517,35 @@ describe('placePointLabels, rule by rule (made-up points)', () => {
 		expect(two.labels.map((l) => [l.text, l.items])).toEqual(
 			expect.arrayContaining([['2 pumps', [0, 1]]])
 		);
+	});
+
+	// Leftover L19 (pumps-nits.md §8.14 bullet 7; §11.5): a shared label named its pumps in the
+	// pumps' order, so in the four-speeds view "Pump P1, Pump P2, Pump P3" read over dots lying P3,
+	// P2, P1 from left to right. Now in the dots' order; dots 3 px apart or closer keep the pumps'.
+	it('names the pumps of a shared label in their dots’ order from left to right (leftover L19)', () => {
+		// About 10 px apart, within the 12 px cluster, Pump P1 rightmost.
+		const spread = [
+			member(220, 200, 'Pump P1'),
+			member(210, 201, 'Pump P2'),
+			member(200, 202, 'Pump P3')
+		];
+		const placed = placePointLabels(spread, [], plot, measure, SIZE);
+		checkPlacement('spread', spread, [], plot, placed);
+		expect(placed.labels.map((l) => [l.text, l.items])).toEqual([
+			['Pump P3, Pump P2, Pump P1', [0, 1, 2]]
+		]);
+		// Dots 3 px apart or closer keep the pumps' order: a run is the dots within 3 px of its first
+		// (from the left), so P3 at 200 and P2 at 203 are one run, in the pumps' order (P2, P3), and
+		// P1 at 206, 6 px from that run's first, starts the next (a chained tolerance would have
+		// joined it and given the pumps' order whole).
+		const close = [
+			member(206, 200, 'Pump P1'),
+			member(203, 201, 'Pump P2'),
+			member(200, 202, 'Pump P3')
+		];
+		const runs = placePointLabels(close, [], plot, measure, SIZE);
+		checkPlacement('close', close, [], plot, runs);
+		expect(runs.labels.map((l) => l.text)).toEqual(['Pump P2, Pump P3, Pump P1']);
 	});
 
 	it('names rings that coincide in one label, their numbers ascending in one box', () => {

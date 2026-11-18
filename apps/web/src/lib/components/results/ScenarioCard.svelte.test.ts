@@ -56,6 +56,25 @@ describe('the scenario card’s heading', () => {
 		expect(card()).toHaveAccessibleName('Scenario: Pump PA off (S1)');
 	});
 
+	// docs/proposals/pumps-nits.md §11.4, X4 (found by leftover L10's e2e test): a case's name may
+	// have no spaces; the heading breaks it inside its box, so the Results pane never scrolls
+	// sideways (at 320x640 the lineups' 40-character case shown made the pane's scroller hold 341 px).
+	it('breaks a case name with no spaces inside its heading', async () => {
+		const ws = setup();
+		ws.updateStored((p) => {
+			p.scenarios![0]!.name = 'PumpP1OffForMaintenanceNorthSideWinter01';
+		}, 'rename scenario');
+		ws.setCase('S1');
+		await ws.solve();
+		await tick();
+		const heading = within(card()).getByRole('heading', { level: 3 });
+		// The fixture's answer was solved under the case's first name, so the heading adds it.
+		expect(heading.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+			'Scenario: PumpP1OffForMaintenanceNorthSideWinter01 (S1) (solved as «Pump PA off»)'
+		);
+		expect(heading).toHaveClass('wrap-break-word');
+	});
+
 	it('after a pump’s rename the name follows, and the heading adds the name solved under', async () => {
 		const ws = setup();
 		ws.setCase('S1');

@@ -33,6 +33,7 @@ import type { ChartImageSource, FigureImageRequest } from '$lib/utils/export/cha
 import { fakeResizeObserver } from '$lib/testing/resize';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
 import type { PumpChartConfig } from '$lib/utils/pump-chart-config';
+import { CHART_MARKS } from '$lib/utils/chart-marks';
 import { caseTagOf, caseTags, ratedCurveRange } from '$lib/utils/pump-chart';
 import type { GroupMemberInput } from '$lib/utils/pump-group-chart';
 import { otherGroupCases, type OtherGroupCase } from '$lib/utils/pump-group-one-off';
@@ -284,7 +285,11 @@ describe('“Each pump’s point”: each pump its name (rules 1 and 2)', () => 
 });
 
 describe('a label left out is named in the notes, with its values (rule 7)', () => {
-	it('names each label its drawing left out, the ring by its case and name, never only a count', async () => {
+	// Leftover L13 (pumps-nits.md §11.5): moved from "each pump by its name and its point's values"
+	// in the notes. A point the chart leaves out that is this case's (a pump, the Group) is keyed in
+	// the legend by name, its own mark beside its values, a running pump's after its line's entry;
+	// the notes name only the rings (and a curve's tag). No number or character stands for a pump.
+	it('names each label its drawing left out: a pump and the Group in the legend’s key with their marks and values, the ring in the notes, never only a count', async () => {
 		await renderDrawn(oneOffProps());
 		const config = charts.at(-1)!.config as PumpChartConfig;
 		// A plot 20 px square: no label has a place, so every one is left out.
@@ -300,17 +305,60 @@ describe('a label left out is named in the notes, with its values (rule 7)', () 
 		const note = await screen.findByText(/^Not labelled on the chart: /);
 		expect(note).toBeVisible();
 		const words = note.textContent!;
-		// The plan's words for a ring: its case, its name, its place.
+		// The plan's words for a ring: its case, its name, its place; only rings and the tag named.
 		expect(words).toContain('case 2, Pump PB off, its ring at 40.75 L/s and 23.68 m');
-		// Each pump by its name and its point's values.
+		expect(words).not.toMatch(/its point at/);
+		// Each named one a ring by its case, or the group system curve's tag by its end.
+		for (const part of words
+			.replace(/^Not labelled on the chart: /, '')
+			.replace(/\.$/, '')
+			.split('; '))
+			expect(part).toMatch(/^(case \d+, .*, its ring at |Group system curve, its end at )/);
+		// Each pump by its name and its point's values, in the legend after its line's entry, its
+		// swatch its dot: chart-marks.ts's member mark in its line's colour.
 		const c = named('one-off');
+		const legend = within(screen.getByRole('figure')).getByRole('list', { name: 'Legend' });
+		const items = within(legend).getAllByRole('listitem');
+		const text = (li: HTMLElement) => li.textContent!.replace(/\s+/g, ' ').trim();
+		const sets = config.data.datasets as unknown as Record<string, unknown>[];
 		for (const id of ['PA', 'PB']) {
 			const r = c.solve.solvedState.pumpResults[id] as PumpResult;
 			const name = id === 'PA' ? 'Pump PA' : 'Pump PB';
-			expect(words, name).toMatch(
-				new RegExp(`${name}\\b[^;]*${f4(r.operatingFlow * 1000)} L/s and ${f4(r.operatingHead)} m`)
+			const k = items.findIndex(
+				(li) =>
+					text(li) ===
+					`${name}, its point at ${f4(r.operatingFlow * 1000)} L/s and ${f4(r.operatingHead)} m`
+			);
+			expect(k, name).toBeGreaterThan(0);
+			expect(text(items[k - 1]!), name).toMatch(new RegExp(`^${name}, \\d+ % speed`));
+			const svg = items[k]!.querySelector('svg')!;
+			expect(svg.getAttribute('aria-hidden'), name).toBe('true');
+			const circle = svg.querySelector('circle')!;
+			const dot = sets.find((d) => d.label === name)!;
+			expect(
+				{
+					r: Number(circle.getAttribute('r')),
+					border: Number(circle.getAttribute('stroke-width')),
+					fill: circle.getAttribute('fill'),
+					stroke: circle.getAttribute('stroke')
+				},
+				name
+			).toEqual({
+				r: CHART_MARKS.member.radius,
+				border: CHART_MARKS.member.border,
+				fill: dot.backgroundColor,
+				stroke: CHART_MARKS.member.stroke
+			});
+			// Its line's colour.
+			expect(dot.backgroundColor, name).toBe(
+				items[k - 1]!.querySelector('line')!.getAttribute('stroke')
 			);
 		}
+		// The Group's entry with its values.
+		expect(items.map(text).filter((t) => t.startsWith('Group duty'))).toEqual([
+			expect.stringMatching(/, its point at \S+ L\/s and \S+ m$/)
+		]);
+		expect(designators(legend)).toEqual([]);
 		expect(designators(words)).toEqual([]);
 	});
 });
@@ -348,5 +396,46 @@ describe('the image names the points its own drawing left unlabelled (rule 7)', 
 		// Drawn with room: every point labelled, no line.
 		drawnChart(request.config, { plot: { left: 50, right: 1500, top: 10, bottom: 900 } }).draw();
 		expect(unlabelled(request.drawnLines!())).toEqual([]);
+	});
+});
+
+// Leftover L15 (pumps-nits.md §8.14 bullet 3; §11.5): the card's run of notes reached its budget of
+// 5 paragraphs, and 8 in the four-speeds view, where three pumps each had a note. Two members'
+// notes or more are now one list, an item per pump starting with its name, as the ring notes are.
+describe('the members’ notes (leftover L15)', () => {
+	const squash = (t: string | null) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const notesOf = () => document.querySelector('[data-group-notes]')!;
+
+	it('lists two or more members’ notes as one list, an item per pump starting with its name', async () => {
+		const c = named('ladder');
+		render(PumpGroupChart, props(c));
+		const box = notesOf();
+		const lists = box.querySelectorAll(':scope > ul');
+		expect(lists).toHaveLength(1);
+		expect(lists[0]).toHaveClass('list-disc', 'pl-4', 'text-xs', 'text-slate-700');
+		const items = [...lists[0]!.querySelectorAll(':scope > li')].map((li) =>
+			squash(li.textContent)
+		);
+		expect(items).toHaveLength(2);
+		const names = pumpsOf(c).map((p) => p.name);
+		for (const item of items)
+			expect(
+				names.some((n) => item.startsWith(`${n} `)),
+				item
+			).toBe(true);
+		// Said once: no paragraph repeats an item.
+		const paragraphs = [...box.querySelectorAll('p')].map((p) => squash(p.textContent));
+		for (const item of items) expect(paragraphs).not.toContain(item);
+	});
+
+	it('keeps one member’s note a paragraph', async () => {
+		render(PumpGroupChart, props(named('dead-headed')));
+		const box = notesOf();
+		expect(box.querySelectorAll('ul')).toHaveLength(0);
+		expect(
+			[...box.querySelectorAll('p')].filter((p) =>
+				/^Pump PB delivers nothing/.test(squash(p.textContent))
+			)
+		).toHaveLength(1);
 	});
 });

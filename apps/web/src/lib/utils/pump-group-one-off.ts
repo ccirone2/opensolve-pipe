@@ -62,7 +62,7 @@ import {
 	stationPortWords,
 	type GroupSlot
 } from './pump-group-chart';
-import { caseTagOf, inCaseOrder, type CaseNumber } from './pump-chart';
+import { caseNamed, caseTagOf, inCaseOrder, type CaseNumber } from './pump-chart';
 import { MAX_GROUP_PUMPS, pressureControlOnly, refusalWords, wordsText } from './pump-groups';
 import { carriesFlow, lineupChartPriority, memberLabels } from './pump-lineups';
 import {
@@ -70,10 +70,14 @@ import {
 	flagsForElement,
 	hiddenByDefault,
 	npshRatioCell,
-	npshRatioCue,
+	npshRatioColumn,
+	npshRatioLimit,
+	npshRatioNote,
 	npshRatioSortKeys,
 	pumpStatusLabel,
-	type Column
+	pumpStatusParts,
+	type Column,
+	type PumpStatusParts
 } from './results';
 import type { CaseId } from './scenarios';
 
@@ -655,13 +659,20 @@ export interface CombinationRow {
 	/** The row header: the member's name, with its id where another member has it (memberLabels). */
 	name: string;
 	style: GroupSlot;
-	/** Text, or lines: a pump that cavitates with no NPSH margin ratio (npshRatioCell). */
+	/** Text, or lines: a pump with no NPSH margin ratio and words for it (npshRatioCell). */
 	cells: Record<string, string | string[]>;
 	/** The member has a flag of severity `invalid` in this case: its values are marked. */
 	invalid: boolean;
 	flags: readonly Flag[];
 	/** Its NPSH margin ratio's sort key where its text does not carry it (npshRatioSortKeys). */
 	sortKeys?: Readonly<Record<string, number>>;
+	/** That key's tie, its margin (npshRatioSortKeys). */
+	sortTies?: Readonly<Record<string, number>>;
+	/**
+	 * Its status as its State cell's pill draws it (pumpStatusParts; docs/proposals/pumps-nits.md
+	 * §11, leftover L22); none for a member with no result in the case, whose words stay plain.
+	 */
+	status?: PumpStatusParts;
 }
 
 export interface CombinationGroup {
@@ -787,7 +798,7 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 		f.column('head', 'Head', 'head'),
 		f.column('shaftPower', 'Shaft power', 'power'),
 		hiddenByDefault(f.column('npshMargin', 'NPSH margin', 'head')),
-		f.column('npshMarginRatio', 'NPSH margin ratio', 'dimensionless'),
+		npshRatioColumn(f),
 		{ key: 'inCurve', label: 'Inside curve data' },
 		...(checks ? [{ key: 'checks', label: 'Design checks' }] : [])
 	];
@@ -841,7 +852,8 @@ export function runningCombinations(input: CombinationsInput): CombinationsTable
 				cells,
 				invalid: flags.some((flag) => flag.severity === 'invalid'),
 				flags,
-				...npshRatioSortKeys(r)
+				...npshRatioSortKeys(r),
+				status: pumpStatusParts(r, flags)
 			};
 		});
 		return {
@@ -937,7 +949,10 @@ export interface ExtremeLine {
 	key: string;
 	/** "Pump PA, largest flow" ("Booster pump (PA), largest flow" where two share a name). */
 	term: string;
-	/** "40.75 L/s in Pump PB off; beyond its curve data (over 5 of 5 cases)". */
+	/**
+	 * "40.75 L/s in case 2: Pump PB off; beyond its curve data (over 5 of 5 cases)": its case by its
+	 * number in words (caseNamed; the base case its name alone; pumps-nits.md §11.4, leftover L10).
+	 */
 	value: string;
 	/** The case it is in has a flag of severity `invalid` for that pump. */
 	invalid: boolean;
@@ -946,15 +961,23 @@ export interface ExtremeLine {
 /**
  * One cell of the extremes table (pumps-results-layout.md §5.3, §9 S5): its line's value split
  * after the amount, so `${amount} ${rest}` is the line's `value` ("no case gives one" alone, with
- * no amount, where no current case gives one).
+ * no amount, where no current case gives one). On screen the case is its box beside its name
+ * (`where`, CaseNamed), then `after` (pumps-nits.md §11.4, leftover L10).
  */
 export interface ExtremeCell {
 	/** Its line's key: "PA:operatingFlow". */
 	key: string;
 	/** "40.75 L/s"; null for "no case gives one". */
 	amount: string | null;
-	/** "in Pump PB off; beyond its curve data (over 5 of 5 cases)", or "no case gives one". */
+	/**
+	 * "in case 2: Pump PB off; beyond its curve data (over 5 of 5 cases)", or "no case gives one":
+	 * `in ${caseNamed(where)}${after}`.
+	 */
 	rest: string;
+	/** The case it is in, its number and name; null for "no case gives one". */
+	where: { tag: CaseNumber; name: string } | null;
+	/** What follows the case's name: " and 1 other case; beyond its curve data (over 5 of 5 cases)". */
+	after: string;
 	/** The case it is in has a flag of severity `invalid` for that pump. */
 	invalid: boolean;
 }
@@ -975,6 +998,7 @@ export interface ExtremesTable {
 export interface CombinationExtremes {
 	lines: ExtremeLine[];
 	table: ExtremesTable;
+	/** The cases out of date, each by its number in words: "case 2: Pump PB off" (caseNamed). */
 	notCounted: string[];
 }
 
@@ -993,7 +1017,9 @@ interface MeasureReading {
  * NPSHr, a plain number, as Results per pump's (the owner's nit 4 and Q3, "Ratio everywhere";
  * docs/proposals/pumps-nits.md item 4, review E-1-4): a case where the pump cavitates with no ratio
  * (npshRatioCue: NPSHa below zero over an NPSHr of 0, tending to −∞) ranks below every ratio, the
- * most negative margin first, its amount those words.
+ * most negative margin first, and one where its NPSHr is 0 and it does not cavitate above every
+ * ratio, the smallest margin first (npshRatioLimit; §11, leftover L1), its amount their words
+ * (npshRatioNote).
  */
 const EXTREME_MEASURES: readonly {
 	what: string;
@@ -1018,8 +1044,9 @@ const EXTREME_MEASURES: readonly {
 		key: 'npshMarginRatio',
 		largest: false,
 		read: (r, f) => {
-			const cue = npshRatioCue(r, f);
-			if (cue) return { v: Number.NEGATIVE_INFINITY, tie: r.npshMargin!, amount: cue };
+			const limit = npshRatioLimit(r);
+			const note = npshRatioNote(r, f);
+			if (limit !== null && note) return { v: limit, tie: r.npshMargin!, amount: note };
 			return finiteReading(r.npshMarginRatio, (v) => f.plain(v));
 		}
 	}
@@ -1049,7 +1076,9 @@ export function combinationExtremes(input: CombinationsInput): CombinationExtrem
 		label: `${m.what.charAt(0).toUpperCase()}${m.what.slice(1)}`
 	}));
 	const current = input.cases.filter((c) => hasValues(c.response) && !c.stale);
-	const notCounted = input.cases.filter((c) => hasValues(c.response) && c.stale).map((c) => c.name);
+	const notCounted = input.cases
+		.filter((c) => hasValues(c.response) && c.stale)
+		.map((c) => caseNamed(c.tag, c.name));
 	if (current.length < 2) return { lines: [], table: { columns, rows: [] }, notCounted: [] };
 	const order = new Map(input.project.components.map((c, i) => [c.id, i]));
 	const members = [...input.members].sort(
@@ -1070,7 +1099,14 @@ export function combinationExtremes(input: CombinationsInput): CombinationExtrem
 				return reading ? [{ c, r: r!, ...reading }] : [];
 			});
 			if (!found.length) {
-				cells.push({ key, amount: null, rest: 'no case gives one', invalid: false });
+				cells.push({
+					key,
+					amount: null,
+					rest: 'no case gives one',
+					where: null,
+					after: '',
+					invalid: false
+				});
 				continue;
 			}
 			// The extreme by its number, then its tie (the smaller first, for either measure:
@@ -1082,9 +1118,7 @@ export function combinationExtremes(input: CombinationsInput): CombinationExtrem
 			const at = found.filter((x) => rank(x, best) === 0);
 			const first = at[0]!;
 			const others = at.length - 1;
-			const where = others
-				? `${first.c.name} and ${others} other ${others === 1 ? 'case' : 'cases'}`
-				: first.c.name;
+			const andOthers = others ? ` and ${others} other ${others === 1 ? 'case' : 'cases'}` : '';
 			const flags = flagsForElement(first.c.response!.solvedState.flags, {
 				kind: 'component',
 				id: m.id
@@ -1095,10 +1129,13 @@ export function combinationExtremes(input: CombinationsInput): CombinationExtrem
 				...(invalid ? ['physically invalid'] : [])
 			];
 			const missing = total - found.length;
+			const after = `${andOthers}${qualifiers.length ? `; ${qualifiers.join('; ')}` : ''} (over ${found.length} of ${total} cases${missing ? `; no value in ${missing}` : ''})`;
 			cells.push({
 				key,
 				amount: first.amount,
-				rest: `in ${where}${qualifiers.length ? `; ${qualifiers.join('; ')}` : ''} (over ${found.length} of ${total} cases${missing ? `; no value in ${missing}` : ''})`,
+				rest: `in ${caseNamed(first.c.tag, first.c.name)}${after}`,
+				where: { tag: first.c.tag, name: first.c.name },
+				after,
 				invalid
 			});
 		}

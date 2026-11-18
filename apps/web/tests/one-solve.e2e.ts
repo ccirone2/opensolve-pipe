@@ -892,6 +892,167 @@ for (const [width, height] of [
 	});
 }
 
+/**
+ * What is drawn over the pinned header where the Fields menu lies under it: each of the header's
+ * controls at its centre (Scenarios, the fluid chip, Solve, Share, Settings), and points of the
+ * header's row across the menu's width; for each, whether the header draws it.
+ */
+function headerOverMenu() {
+	const header = document.querySelector('header')!;
+	const menu = [
+		...document.querySelectorAll<HTMLElement>('[role="group"][aria-label^="Fields shown in"]')
+	].find((m) => m.checkVisibility());
+	const hb = header.getBoundingClientRect();
+	const points: { what: string; x: number; y: number }[] = [
+		...header.querySelectorAll<HTMLElement>(
+			'[role="toolbar"] button, button[aria-controls$="-cases"], header button'
+		)
+	]
+		.filter((el) => el.checkVisibility())
+		.map((el) => {
+			const r = el.getBoundingClientRect();
+			return {
+				what: el.getAttribute('aria-label') ?? el.textContent?.trim() ?? el.tagName,
+				x: r.left + r.width / 2,
+				y: r.top + r.height / 2
+			};
+		});
+	const mb = menu?.getBoundingClientRect();
+	if (mb) {
+		for (let x = mb.left + 8; x < mb.right - 8; x += 24) {
+			points.push({ what: `the row at ${Math.round(x)}`, x, y: hb.top + hb.height / 2 });
+		}
+	}
+	return {
+		menuTop: mb?.top ?? null,
+		headerBottom: hb.bottom,
+		hits: points.map((p) => {
+			const hit = document.elementFromPoint(p.x, p.y);
+			return {
+				what: p.what,
+				header: !!hit && header.contains(hit),
+				menu: !!hit?.closest('[role="group"][aria-label^="Fields shown in"]')
+			};
+		})
+	};
+}
+
+for (const [width, height] of [
+	[1024, 320],
+	[1280, 320]
+] as const) {
+	test(`short ${width}×${height}: a results table's Fields menu, the page scrolled by the wheel, never draws over the pinned row (pumps-nits.md §11, leftover L23)`, async ({
+		page
+	}) => {
+		test.setTimeout(180_000);
+		await page.setViewportSize({ width, height });
+		// The pump transfer example: its Nodes table short enough that the page can scroll its
+		// Fields menu up past the header's foot (design B's probe).
+		await open(page, exampleProject('pump-transfer')!);
+		await solveConverged(page);
+		const nodes = await resultsView(page, 'Nodes');
+		expect((await headerParts(page)).position, 'the header pinned').toBe('sticky');
+		const fields = nodes.getByRole('button', { name: /^Fields/ }).first();
+		await fields.scrollIntoViewIfNeeded();
+		await fields.click();
+		const menu = page.getByRole('group', { name: /^Fields shown in/ }).first();
+		await expect(menu).toBeVisible();
+		// The wheel beside the menu, at the window's foot: the page scrolls, the menu with it, until
+		// its top passes the header's foot (or the page ends).
+		let read = await page.evaluate(headerOverMenu);
+		for (let step = 0; step < 12 && read.menuTop! >= read.headerBottom; step++) {
+			const mb = (await menu.boundingBox())!;
+			await page.mouse.move(Math.min(width - 10, mb.x + mb.width + 40), height - 20);
+			await page.mouse.wheel(0, 60);
+			await page.waitForTimeout(150);
+			read = await page.evaluate(headerOverMenu);
+		}
+		await expect(menu, 'the menu still open').toBeVisible();
+		expect(read.menuTop!, "the menu's top past the header's foot").toBeLessThan(read.headerBottom);
+		const over = read.hits.filter((h) => !h.header);
+		expect(over, 'what the header does not draw, over the menu').toEqual([]);
+		expect(read.hits.length, 'points read').toBeGreaterThan(4);
+		await page.keyboard.press('Escape');
+	});
+}
+
+test('a Fields menu left open from the keyboard lies under the trace’s side panel that a name opens (pumps-nits.md §11, leftover L23)', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(isMobile, 'the side panel is from 1024 px');
+	test.setTimeout(120_000);
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await open(page, exampleProject('pump-transfer')!);
+	await solveConverged(page);
+	const pumps = await resultsView(page, 'Pumps');
+	const fields = pumps.getByRole('button', { name: /^Fields/ }).first();
+	await fields.click();
+	const menu = page.getByRole('group', { name: /^Fields shown in Results per pump/ });
+	await expect(menu).toBeVisible();
+	// From the menu's last box, the focus to the pump's name, and Enter: its trace opens beside.
+	await menu.getByRole('checkbox').last().focus();
+	const name = pumps.getByRole('button', { name: /^Transfer pump/ }).first();
+	await name.focus();
+	await page.keyboard.press('Enter');
+	const trace = traceOf(page, 'Transfer pump');
+	await expect(trace).toHaveAttribute('role', 'region');
+	await expect(menu, 'the menu left open').toBeVisible();
+	const mb = (await menu.boundingBox())!;
+	const tb = (await trace.boundingBox())!;
+	expect(
+		Math.min(mb.x + mb.width, tb.x + tb.width) - Math.max(mb.x, tb.x),
+		'the menu and the trace overlap'
+	).toBeGreaterThan(8);
+	// Which is drawn over the other, by CSS's paint order (CSS 2.1 Appendix E): both positioned
+	// in the root stacking context, the higher z-index on top, on equal ones the later in the
+	// document. Not by elementFromPoint: the results under the side panel are inert, and hit
+	// testing passes through inert elements whatever is drawn.
+	const order = await trace.evaluate((panel) => {
+		const menuEl = [
+			...document.querySelectorAll<HTMLElement>('[role="group"][aria-label^="Fields shown in"]')
+		].find((m) => m.checkVisibility())!;
+		/** The stacking contexts an element is painted in, itself first, to the root. */
+		const contexts = (el: Element) => {
+			const out: { el: Element; z: string }[] = [];
+			for (let e: Element | null = el; e && e !== document.documentElement; e = e.parentElement) {
+				const cs = getComputedStyle(e);
+				const positioned = cs.position !== 'static' && cs.zIndex !== 'auto';
+				if (
+					positioned ||
+					cs.isolation === 'isolate' ||
+					cs.opacity !== '1' ||
+					cs.transform !== 'none' ||
+					cs.filter !== 'none'
+				)
+					out.push({ el: e, z: cs.zIndex });
+			}
+			return out;
+		};
+		const m = contexts(menuEl);
+		const t = contexts(panel);
+		return {
+			menu: m.map((c) => c.z),
+			trace: t.map((c) => c.z),
+			menuZ: Number(m[0]?.z),
+			traceZ: Number(t[0]?.z),
+			traceLater: !!(
+				m[0] &&
+				t[0] &&
+				m[0].el.compareDocumentPosition(t[0].el) & Node.DOCUMENT_POSITION_FOLLOWING
+			)
+		};
+	});
+	console.log(`the Fields menu against the trace: ${JSON.stringify(order)}`);
+	// Each its own one stacking context in the root's, so their z-indices compare directly.
+	expect(order.menu, "the menu's stacking contexts").toHaveLength(1);
+	expect(order.trace, "the trace's stacking contexts").toHaveLength(1);
+	expect(
+		order.menuZ < order.traceZ || (order.menuZ === order.traceZ && order.traceLater),
+		`the trace drawn over the menu: menu z ${order.menuZ}, trace z ${order.traceZ}, trace later ${order.traceLater}`
+	).toBe(true);
+});
+
 for (const [width, height] of [
 	[320, 256],
 	[480, 320]

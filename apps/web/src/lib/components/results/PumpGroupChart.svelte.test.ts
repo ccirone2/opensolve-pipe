@@ -122,6 +122,41 @@ function overflowSideways(box: HTMLElement) {
 	sizeBox(box, { clientWidth: 452, scrollWidth: 900, clientHeight: 300, scrollHeight: 300 });
 	observers.resize(box);
 }
+
+/**
+ * Each State cell's status pill (docs/proposals/pumps-nits.md item 2, §11 leftover L22), as
+ * Results per pump draws it: exactly one `[data-status-pill]` holding its state word alone, tinted
+ * by the state (PUMP_STATUS_TONES), no border, icon or vertical padding, the qualifier after it as
+ * plain text in one element with it, and the cell's words the label's, word for word.
+ */
+function expectStatusPills(cells: HTMLElement[], expected: (readonly [string, string, string])[]) {
+	expect(cells.map((c) => c.textContent!.replace(/\s+/g, ' ').trim())).toEqual(
+		expected.map(([, , label]) => label)
+	);
+	cells.forEach((cell, i) => {
+		const [word, tone, label] = expected[i]!;
+		const pills = cell.querySelectorAll('[data-status-pill]');
+		expect(pills, label).toHaveLength(1);
+		const pill = pills[0] as HTMLElement;
+		expect(pill.textContent, label).toBe(word);
+		expect(pill.children, label).toHaveLength(0);
+		expect(pill, label).toHaveClass(...tone.split(' '));
+		expect(pill, label).toHaveClass(
+			'inline-block',
+			'align-top',
+			'rounded-full',
+			'px-2',
+			'text-xs',
+			'leading-5',
+			'font-medium',
+			'whitespace-nowrap'
+		);
+		expect(pill.className, label).not.toMatch(/\bborder\b|\bpy-/);
+		expect(pill.parentElement!.textContent, label).toBe(label);
+		expect(pill.parentElement!.parentElement, label).toBe(cell);
+		expect(pill.previousSibling, label).toBeNull();
+	});
+}
 /** A curve table's disclosure (CurveTable), by its table's name. */
 const disclosureOf = (name: string, scope: HTMLElement = document.body) =>
 	within(scope).getByRole('table', { name }).closest('details')!;
@@ -921,6 +956,41 @@ describe('the card', () => {
 		).toHaveAccessibleDescription(
 			'This solve did not converge: its values are not a solution, so no image is made.'
 		);
+	});
+
+	// docs/proposals/pumps-nits.md §11.4, leftover L10: the case shown's number on screen, its box
+	// beside its name as one unit (CaseNamed) in the caption and the group table's title; in words
+	// in the image's title, Download image's name and the table's caption, which names Fields and
+	// Sort by ("case 2: Winter"); the file named by the name alone.
+	it('names the case shown by its number: its box in the caption and the group table’s title, "case 2: Winter" in the image’s title, its button’s name and the table’s caption', async () => {
+		const c = named('parallel-crane');
+		render(PumpGroupChart, props(c, { image: image(), caseName: 'Winter', caseTag: 2 }));
+		expect(screen.getByRole('figure')).toHaveAccessibleName(
+			'Pump PA and Pump PB in parallel, Case 2: Winter'
+		);
+		const figure = screen.getByRole('figure');
+		const units = figure.querySelectorAll('figcaption [data-case-named]');
+		expect(units).toHaveLength(1);
+		expect(shownCaseTag(units[0]!)).toBe('2');
+		expect(besideCaseTag(units[0]!)).toBe('Winter');
+		const title = document.querySelector('[data-group-table] > p')!;
+		expect(title.querySelectorAll('[data-case-named]')).toHaveLength(1);
+		expect(shownCaseTag(title)).toBe('2');
+		expect(besideCaseTag(title)).toBe('The pumps in the group, Winter');
+		expect(spokenWords(title)).toBe('The pumps in the group, Case 2: Winter');
+		expect(
+			screen.getByRole('table', { name: 'The pumps in the group, case 2: Winter' })
+		).toBeTruthy();
+		const button = () =>
+			screen.getByRole('button', {
+				name: 'Download image of the pumps together: Pump PA, Pump PB, case 2: Winter'
+			});
+		await vi.waitFor(() => expect(button()).not.toHaveAttribute('aria-disabled', 'true'), {
+			timeout: 10_000
+		});
+		await fireEvent.click(button());
+		await vi.waitFor(() => expect(images.requests).toHaveLength(1));
+		expect(images.requests[0]).toMatchObject({ caseTitle: 'case 2: Winter', caseName: 'Winter' });
 	});
 
 	it('shows no values for results that are not a solution, or not the latest', () => {
@@ -2081,7 +2151,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		const add = within(block()).getByRole('button', { name: 'Add cases' });
 		expect(add).toHaveAttribute('aria-disabled', 'true');
 		expect(add).toHaveAccessibleDescription(
-			'Every case with one pump off already exists: Pump PA off and Pump PB off.'
+			'Every case with one pump off already exists: case 1 «Pump PA off» and case 2 «Pump PB off».'
 		);
 		// Every case made: the plan is drawn folded, its summary saying so; opened before the preview
 		// is read (pumps-results-layout.md §5.3 The fold, §10 S4).
@@ -2093,9 +2163,10 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		await fireEvent.click(folded.querySelector('summary')!);
 		expect(folded.open).toBe(true);
 		// §7.12: "{name} has its case already: {found.name}." becomes the preview item
-		// "{offName}: already a scenario, «{other}» ({id})", in §7.7's short form: the names are equal.
-		expect(block()).toHaveTextContent('Pump PA off: already a scenario (S1)');
-		expect(within(block()).getByText('Pump PA off: already a scenario (S1)')).toBeVisible();
+		// "{offName}: already case {n} «{other}»", in §7.7's short form: the names are equal; by the
+		// case's number since pumps-nits.md §11.4 (leftover L10), its id before.
+		expect(block()).toHaveTextContent('Pump PA off: already case 1');
+		expect(within(block()).getByText('Pump PA off: already case 1')).toBeVisible();
 		await fireEvent.click(add);
 		expect(onadd).not.toHaveBeenCalled();
 	});
@@ -2124,7 +2195,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(button).toHaveAccessibleName('Add cases');
 		expect(button).toHaveAttribute('aria-disabled', 'true');
 		expect(button).toHaveAccessibleDescription(
-			'Every case with one pump off already exists: Pump PA off and Pump PB off.'
+			'Every case with one pump off already exists: case 1 «Pump PA off» and case 2 «Pump PB off».'
 		);
 		await fireEvent.click(button);
 		expect(onadd).toHaveBeenCalledTimes(1);
@@ -3018,11 +3089,29 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		const flowColumn = within(extremes)
 			.getAllByRole('columnheader')
 			.findIndex((h) => h.textContent === 'Largest flow');
-		// The row header is the row's first cell, so a column's cell is that index less one.
-		expect(within(paRow).getAllByRole('cell')[flowColumn - 1]!.textContent).toBe(
+		// The row header is the row's first cell, so a column's cell is that index less one. Its
+		// case by its number since docs/proposals/pumps-nits.md §11.4 (leftover L10): the box and the
+		// name's first word one unit (CaseNamed), the rest of the name running on with the cell's
+		// words, heard "Case 9: Held (synthetic)"; the cases not counted in words with their numbers.
+		// Moved from the cell's whole text, which held the name alone.
+		const flowCell = within(paRow).getAllByRole('cell')[flowColumn - 1]!;
+		expect(spokenWords(flowCell)).toBe(
+			'40.75 L/s in Case 9: Held (synthetic); beyond its curve data (over 2 of 2 cases)'
+		);
+		expect(besideCaseTag(flowCell)).toBe(
 			'40.75 L/s in Held (synthetic); beyond its curve data (over 2 of 2 cases)'
 		);
-		expect(screen.getByText('Not counted (out of date): Pump PB off.')).toBeVisible();
+		const unit = flowCell.querySelectorAll('[data-case-named]');
+		expect(unit).toHaveLength(1);
+		expect(shownCaseTag(unit[0]!)).toBe('9');
+		expect(besideCaseTag(unit[0]!)).toBe('Held');
+		// The rest of the name after the unit, with the cell's words, in the unit's run of words.
+		const after = [...unit[0]!.parentElement!.childNodes]
+			.filter((n) => unit[0]!.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)
+			.map((n) => n.textContent)
+			.join('');
+		expect(after).toBe(' (synthetic); beyond its curve data (over 2 of 2 cases)');
+		expect(screen.getByText('Not counted (out of date): case 2: Pump PB off.')).toBeVisible();
 	});
 
 	/** FlagIcon's shapes (Icon.svelte): the invalid octagon, and the warning's triangle. */
@@ -3059,6 +3148,90 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		...values
 	});
 
+	it('Running combinations draws each State as its status pill, grouped and sorted; a member with no result keeps plain words (docs/proposals/pumps-nits.md §11, leftover L22)', async () => {
+		const dead = named('one-off-dead-headed') as unknown as OneOffCase;
+		// Made-up: the base case's solve without Pump PB's result (a member closed off).
+		const closed = structuredClone(c.solve);
+		delete (closed.solvedState.pumpResults as Record<string, unknown>).PB;
+		const input: CombinationsInput = {
+			members: [
+				{ id: 'PA', name: 'Pump PA', slot: 0 },
+				{ id: 'PB', name: 'Pump PB', slot: 1 }
+			],
+			cases: [
+				{
+					key: '',
+					name: 'Base case',
+					shown: true,
+					status: 'solved',
+					response: dead.solve,
+					stale: false,
+					station: null,
+					tag: 'Base'
+				},
+				{
+					key: 'S2',
+					name: 'Pump PB off',
+					shown: false,
+					status: 'solved',
+					response: c.scenarioCases.S2!.solve,
+					stale: false,
+					station: null,
+					tag: 2
+				},
+				{
+					key: 'S7',
+					name: 'Closed off (synthetic)',
+					shown: false,
+					status: 'solved',
+					response: closed,
+					stale: false,
+					station: null,
+					tag: 7
+				}
+			],
+			prefs: c.project.settings.units,
+			project: c.project
+		};
+		render(PumpGroupChart, base({ combinations: runningCombinations(input) }));
+		const table = screen.getByRole('table', { name: 'Running combinations' });
+		const states = () =>
+			[...table.querySelectorAll('td[data-label="State"]')].map((td) => td as HTMLElement);
+		const running = ['Running', 'bg-green-200 text-green-900', 'Running'] as const;
+		const noFlow = [
+			'No flow',
+			'bg-red-200 text-red-950',
+			'No flow (system head above shutoff)'
+		] as const;
+		const off = ['Off', 'bg-slate-200 text-slate-700', 'Off'] as const;
+		const cells = states();
+		expect(cells).toHaveLength(6);
+		// The members with a result: a pill each, in the groups' order.
+		expectStatusPills(
+			[cells[0]!, cells[1]!, cells[2]!, cells[3]!, cells[4]!],
+			[running, noFlow, running, off, running]
+		);
+		// No result: its words, no pill.
+		expect(cells[5]!.textContent!.trim()).toBe('No result (closed off)');
+		expect(cells[5]!.querySelector('[data-status-pill]')).toBeNull();
+		expect(table.querySelectorAll('[data-status-pill]')).toHaveLength(5);
+		// Sorted by Flow: one flat table, every pill still its row's.
+		const flow = within(table).getByRole('columnheader', { name: /^Flow/ });
+		await fireEvent.click(within(flow).getByRole('button'));
+		await tick();
+		const flat = states();
+		expect(flat).toHaveLength(6);
+		const words = flat.map((cell) => cell.textContent!.replace(/\s+/g, ' ').trim());
+		const pilled = flat.filter((cell) => cell.querySelector('[data-status-pill]'));
+		expect(pilled).toHaveLength(5);
+		expectStatusPills(
+			pilled,
+			pilled.map((cell) =>
+				[running, noFlow, off].find((e) => e[2] === cell.textContent!.replace(/\s+/g, ' ').trim())!
+			)
+		);
+		expect(words.filter((w) => w === 'No result (closed off)')).toHaveLength(1);
+	});
 	it('the extremes’ box and Running combinations’ box: each a Tab stop and a named region only while it overflows (§9 S7, §7 item 25)', () => {
 		const input = combinationsOf([
 			solvedCase('', 'Base case', c.solve),
@@ -3135,7 +3308,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			lead,
 			screen.getByRole('heading', { name: 'Extremes over these cases (current results)' }),
 			screen.getByRole('table', { name: 'Extremes over these cases' }),
-			screen.getByText('Not counted (out of date): Pump PB off.'),
+			screen.getByText('Not counted (out of date): case 2: Pump PB off.'),
 			screen.getByRole('table', { name: 'Running combinations' })
 		];
 		for (const [i, el] of order.entries()) {
@@ -3235,8 +3408,14 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				expect(line.term).toBe(
 					`${name}, ${labels[j]!.charAt(0).toLowerCase()}${labels[j]!.slice(1)}`
 				);
-				expect(cell.textContent).toBe(line.value);
 				const value = extremes.table.rows[i]!.cells[j]!;
+				// Its case's box beside the case's name since pumps-nits.md §11.4 (leftover L10): the
+				// words seen are the line's with the case's name for "case n: name", the box's number
+				// the case's. Moved from the cell's whole text, the line's value, at greater strictness.
+				expect(besideCaseTag(cell)).toBe(
+					value.where ? `${value.amount} in ${value.where.name}${value.after}` : line.value
+				);
+				expect(shownCaseTag(cell)).toBe(value.where ? String(value.where.tag) : null);
 				if (value.amount === null) {
 					// "no case gives one" fills its cell alone, with no value line.
 					expect(cell.children).toHaveLength(1);
@@ -3247,7 +3426,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					const [first, rest] = [...cell.children];
 					expect(first!.textContent).toBe(value.amount);
 					expect(first).toHaveClass('flex', 'font-medium', 'text-slate-900');
-					expect(rest!.textContent).toBe(value.rest);
+					expect(besideCaseTag(rest!)).toBe(`in ${value.where!.name}${value.after}`);
+					expect(rest!.querySelectorAll('[data-case-named]')).toHaveLength(1);
 					expect(rest).toHaveClass('text-slate-600');
 				}
 				// The red octagon before the value exactly where its case is physically invalid
@@ -3326,8 +3506,15 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			const marked = markedCells.includes(cell);
 			expect(shapes(cell)).toEqual(marked ? [OCTAGON] : []);
 			if (marked) {
-				expect(cell.querySelector('svg')).toHaveClass('text-red-700');
+				const icon = cell.querySelector('svg');
+				expect(icon).toHaveClass('text-red-700');
 				expect(within(cell).getByText('physically invalid:')).toHaveClass('sr-only');
+				// Beside its words' first line however they wrap: in a box one line tall at their top,
+				// out of the baseline alignment the words keep (review LO-CODE-1, LO-OWNER-2; it was
+				// `self-center` on the whole flex line, between a wrapped note's lines).
+				expect(icon).not.toHaveClass('self-center');
+				expect(icon!.parentElement).toHaveClass('flex', 'h-lh', 'items-center', 'self-start');
+				expect(icon!.parentElement!.parentElement).toHaveClass('inline-flex', 'items-baseline');
 			}
 		}
 	});
@@ -3842,10 +4029,34 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(lines(cavitating[0]!)).toEqual(['—', `physically invalid:${cue}`]);
 		expect(shapes(cavitating[0]!)).toEqual([OCTAGON]);
 		// The mark is the words' own: the octagon, then "physically invalid:", then the words.
-		const words = within(cavitating[0]!).getByText(cue);
+		// Moved (pumps-nits.md §11, leftover L3): the words' value and unit are their own span
+		// (never split), so the words are found as the element whose whole text they are, at the
+		// same strictness: one element, inside the mark's.
+		const matches = within(cavitating[0]!).queryAllByText(
+			(_, el) =>
+				!!el &&
+				squashed(el.textContent) === cue &&
+				![...el.children].some((child) => squashed(child.textContent) === cue)
+		);
+		expect(matches).toHaveLength(1);
+		const words = matches[0]!.parentElement!;
 		expect(shapes(words)).toEqual([OCTAGON]);
 		expect(words.querySelector('.sr-only')).toHaveTextContent('physically invalid:');
 		expect(words.closest('span.block')?.previousElementSibling).toHaveTextContent(/^—$/);
+		// The cue line is the cell's note line (§11, leftover L3), the octagon inside it, its value
+		// and unit one unbreakable span; the "—" line is not.
+		const note = words.closest('span.block')!;
+		expect(note).toHaveAttribute('data-cell-note');
+		expect(note.previousElementSibling).not.toHaveAttribute('data-cell-note');
+		expect(shapes(note)).toEqual([OCTAGON]);
+		const tails = note.querySelectorAll('[data-value-unit]');
+		expect(tails).toHaveLength(1);
+		expect(tails[0]).toHaveTextContent(/^-2\.521 m$/);
+		expect(tails[0]).toHaveClass('whitespace-nowrap');
+		expect(cavitating[0]).toHaveClass(
+			'sm:[&_[data-cell-note]]:whitespace-normal',
+			'sm:[&_[data-cell-note]]:min-w-44'
+		);
 		// Sorted by the ratio, smallest first: that pump first, below every ratio.
 		await sortBy(/^NPSH margin ratio/);
 		expect(drawnGroups()[0]!.rows[0]).toMatch(
@@ -3855,9 +4066,11 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		const extremes = screen.getByRole('table', { name: 'Extremes over these cases' });
 		const paRow = within(extremes).getByRole('rowheader', { name: 'Pump PA' }).closest('tr')!;
 		const smallest = paRow.querySelector('td[data-label="Smallest NPSH margin ratio"]')!;
-		expect(squashed(smallest.textContent)).toBe(
+		// Its case's box beside its name since pumps-nits.md §11.4 (leftover L10): the Base box.
+		expect(besideCaseTag(smallest)).toBe(
 			`${cue} in Base case; physically invalid (over 2 of 2 cases)`
 		);
+		expect(shownCaseTag(smallest)).toBe('Base');
 		expect(shapes(smallest)).toEqual([OCTAGON]);
 	});
 
@@ -4379,6 +4592,21 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			['6', `${NAMES.S6}: 3 running`]
 		]);
 		expect(headers[1]).toHaveAccessibleName(`Case 2: ${NAMES.S2}: 2 running`);
+		// The box and the words one unit (CaseNamed, docs/proposals/pumps-nits.md §11.4, leftover
+		// L12): one flex row, the box in a shrink-0 span, a space, the words in a min-w-0 span, so
+		// the box sits beside their first line and every line starts at one edge.
+		for (const h of headers) {
+			const unit = h.querySelector('[data-case-named]');
+			expect(unit, besideCaseTag(h)).not.toBeNull();
+			expect(unit).toHaveClass('flex', 'items-start');
+			expect(unit!.children).toHaveLength(2);
+			const [box, words] = [...unit!.children];
+			expect(box).toHaveClass('shrink-0');
+			expect(box!.firstElementChild).toHaveAttribute('data-case-tag');
+			expect(box!.nextSibling?.textContent).toBe(' ');
+			expect(words).toHaveClass('min-w-0');
+			expect(words!.querySelector('[data-case-tag]')).toBeNull();
+		}
 		expect(designators(table)).toEqual([]);
 		// A stale case's header as Running combinations marks one.
 		expect(headers[0]).toHaveClass('bg-amber-50/60');
@@ -4621,8 +4849,12 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 			'2 running',
 			'3 running'
 		]);
+		// Leftover L21a: each curve label's box filled with the surface (was unfilled, the default).
 		for (const text of ['1 running (this case)', '[1, 4, 5, 6] 3 running', '[2] 2 running'])
-			expect(imageChart.label(text), text).toMatchObject({ font: '14px system-ui, sans-serif' });
+			expect(imageChart.label(text, '#ffffff'), text).toMatchObject({
+				font: '14px system-ui, sans-serif'
+			});
+		expect(imageChart.label('[Base] 4 running', '#ffffff')).toBeUndefined();
 		expect(imageChart.label('[Base] 4 running')).toBeUndefined();
 		// The base's ring's tag: its box alone (its curve is drawn), its number at 14 − 2 px, bold.
 		expect(imageChart.label('[Base]', '#ffffff')).toMatchObject({
@@ -4634,19 +4866,17 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		// placed.leftOut. Review DOTS-LABELS-B1 (rule 7: the group system curve's tag comes last):
 		// the screen's narrow drawing has no place left for the tag by its curve's end, so its notes
 		// name it with that end's values; the image's own drawing writes it, so its notes do not.
+		// Leftover L14: moved from "the screen's narrow drawing has no place left for the tag by its
+		// curve's end, so its notes name it": the tag walks back along its curve to a free spot, so
+		// neither drawing's notes name it, and both write it.
 		expect(placed.leftOut).not.toBe(1);
-		const tagLine =
-			'Not labelled on the chart: Group system curve, its end at 67.07 L/s and 31.55 m.';
-		expect(placed.tagsLeftOut).toEqual([
-			{ name: 'Group system curve', mark: 'end', flow: '67.07 L/s', head: '31.55 m' }
-		]);
-		expect(request.lines).toContain(tagLine);
+		expect(placed.tags.map((t) => t.text)).toEqual(['Group system curve']);
+		expect(placed.tagsLeftOut).toEqual([]);
+		expect(request.lines.filter((l) => l.includes('Group system curve, its end'))).toEqual([]);
 		expect(imageChart.written.map((w) => w.text)).toContain('Group system curve');
 		const drawnLines = request.drawnLines!();
 		expect(drawnLines).toEqual(
-			request.lines
-				.filter((l) => l !== tagLine)
-				.map((l) => (l === sentence(placed.leftOut) ? sentence(1) : l))
+			request.lines.map((l) => (l === sentence(placed.leftOut) ? sentence(1) : l))
 		);
 		// The image's datasets carry the family with its full labels.
 		const sets = request.config.data.datasets as unknown as Record<string, unknown>[];
@@ -4830,6 +5060,27 @@ describe('the group table a ResultsTable (pumps-results-layout.md §5.3 Station,
 				return `flags of ${r.querySelector('[data-row-notes]')!.getAttribute('data-row-notes')}`;
 			});
 	const heading = (name: RegExp) => within(region()).getByRole('columnheader', { name });
+
+	it('draws each State as its status pill, as Results per pump’s Status, the cell’s words the label’s; sorted too (docs/proposals/pumps-nits.md §11, leftover L22)', async () => {
+		const c = named('dead-headed');
+		render(PumpGroupChart, props(c, { oninspect: () => {} }));
+		const states = () =>
+			[...region().querySelectorAll('td[data-label="State"]')].map((td) => td as HTMLElement);
+		const expected = [
+			['Running', 'bg-green-200 text-green-900', 'Running'],
+			['No flow', 'bg-red-200 text-red-950', 'No flow (system head above shutoff)']
+		] as const;
+		expectStatusPills(states(), [...expected]);
+		expect(region().querySelectorAll('[data-status-pill]')).toHaveLength(2);
+		// Sorted by State, the pills follow their rows.
+		await fireEvent.click(within(heading(/^State/)).getByRole('button'));
+		await tick();
+		expect(heading(/^State/)).toHaveAttribute('aria-sort', 'ascending');
+		expectStatusPills(
+			states(),
+			[...expected].sort((a, b) => a[2].localeCompare(b[2]))
+		);
+	});
 
 	it('its title visible, naming its box (a region and a Tab stop) and its table; FlagLine, not FlagBadge', () => {
 		const c = named('ladder');

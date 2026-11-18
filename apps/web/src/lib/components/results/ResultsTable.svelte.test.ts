@@ -126,6 +126,20 @@ describe('ResultsTable: a flag line, a name and a region of the caller’s (pump
 		expect(onselect).toHaveBeenCalledWith(expect.objectContaining({ key: 'PA' }));
 	});
 
+	it('keeps its own name button’s words inside its cell: name and detail at most the button’s width, wrapping inside it (docs/proposals/pumps-nits.md §11, X1)', () => {
+		const t = unflagged();
+		t.rows[0]!.detail = 'Pump · PA';
+		render(ResultsTable, { table: t, caption: 'Results', first: 'Pump', onselect: vi.fn() });
+		const button = within(within(rowOf('Pump PA')).getByRole('rowheader')).getByRole('button', {
+			name: /^Pump PA/
+		});
+		const [name, detail] = [...button.children] as HTMLElement[];
+		expect(name).toHaveTextContent('Pump PA');
+		expect(name).toHaveClass('max-w-full', 'break-words');
+		expect(detail).toHaveTextContent('Pump · PA');
+		expect(detail).toHaveClass('max-w-full', 'break-words');
+	});
+
 	it('makes its box a region named by the element given and a Tab stop while it overflows (§9 S7); else neither', () => {
 		const observers = fakeResizeObserver();
 		const label = document.createElement('p');
@@ -1197,6 +1211,97 @@ describe('S6, the CI fix: a press grows the table by whole pixels, so its box ca
 		expect(box.scrollLeft).toBe(71);
 		// Its words a quarter of a pixel from where they were: the nearest a whole pixel allows.
 		expect(wordsLeft(/^Flow/) - words).toBe(-0.25);
+	});
+});
+
+describe('the Fields menu’s layer (docs/proposals/pumps-nits.md §11, leftover L23)', () => {
+	afterEach(() => localStorage.clear());
+	it('is at z 50 below 640 px, a sheet over everything, and at z 40 from 640 px: under the pinned short header (z 45) and the trace’s later side panel', async () => {
+		render(ResultsTable, { table: unflagged(), caption: 'Pumps', first: 'Pump' });
+		await fireEvent.click(screen.getByRole('button', { name: /^Fields/ }));
+		const menu = screen.getByRole('group', { name: 'Fields shown in Pumps' });
+		expect(menu).toHaveClass('z-50', 'sm:z-40');
+		expect([...menu.classList].filter((c) => /(^|:)z-/.test(c)).sort()).toEqual([
+			'sm:z-40',
+			'z-50'
+		]);
+	});
+});
+
+describe('a column’s heading on two lines (docs/proposals/pumps-nits.md §11, leftover L4)', () => {
+	afterEach(() => localStorage.clear());
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	/** Two pumps, the NPSH margin ratio's heading "NPSH margin" over "ratio". */
+	function ratios(): Table {
+		const row = (key: string, ratio: string): Row => ({
+			key,
+			element: { kind: 'component', id: key },
+			name: `Pump ${key}`,
+			detail: '',
+			cells: { flow: '20', npshMarginRatio: ratio },
+			flags: []
+		});
+		return {
+			columns: [
+				{ key: 'flow', label: 'Flow', unit: 'L/s', numeric: true },
+				{
+					key: 'npshMarginRatio',
+					label: 'NPSH margin ratio',
+					numeric: true,
+					heading: ['NPSH margin', 'ratio']
+				}
+			],
+			rows: [row('PA', '1.282'), row('PB', '4')]
+		};
+	}
+
+	it('draws "NPSH margin" over "ratio" in its sort button, a space between them, its name and every other place its label', async () => {
+		render(ResultsTable, { table: ratios(), caption: 'Pumps', first: 'Pump' });
+		const header = screen.getByRole('columnheader', { name: 'NPSH margin ratio' });
+		const button = within(header).getByRole('button');
+		const words = button.firstElementChild!;
+		const blocks = [...words.children];
+		expect(blocks.map((b) => b.textContent)).toEqual(['NPSH margin', 'ratio']);
+		for (const b of blocks) expect(b).toHaveClass('block', 'whitespace-nowrap');
+		// A space between the lines, a text node of its own: read without CSS, the words do not
+		// run together.
+		expect(blocks[0]!.nextSibling?.nodeType).toBe(Node.TEXT_NODE);
+		expect(blocks[0]!.nextSibling?.textContent).toBe(' ');
+		expect(words.textContent!.trim()).toBe('NPSH margin ratio');
+		expect(squash(header.textContent)).toBe('NPSH margin ratio');
+		expect(header).toHaveAccessibleName('NPSH margin ratio');
+		// Every other place keeps the label: a phone's pair, Fields and Sort by.
+		for (const td of document.querySelectorAll('td[data-label^="NPSH"]')) {
+			expect(td).toHaveAttribute('data-label', 'NPSH margin ratio');
+		}
+		const sortBy = screen.getByRole('combobox', { name: /^Sort by/ }) as HTMLSelectElement;
+		expect([...sortBy.options].map((o) => o.text)).toContain('NPSH margin ratio');
+		await fireEvent.click(screen.getByRole('button', { name: /^Fields/ }));
+		expect(
+			within(screen.getByRole('group', { name: 'Fields shown in Pumps' })).getByRole('checkbox', {
+				name: 'NPSH margin ratio'
+			})
+		).toBeChecked();
+		// Sorted, the arrow after the two lines; the words unchanged.
+		await fireEvent.click(button);
+		await tick();
+		expect(header).toHaveAttribute('aria-sort', 'ascending');
+		expect([...button.firstElementChild!.children].map((b) => b.textContent)).toEqual([
+			'NPSH margin',
+			'ratio'
+		]);
+		expect(header).toHaveAccessibleName('NPSH margin ratio');
+	});
+
+	it('draws the two lines where the column cannot be sorted too', () => {
+		const t = ratios();
+		for (const r of t.rows) r.cells.npshMarginRatio = '—';
+		render(ResultsTable, { table: t, caption: 'Pumps', first: 'Pump' });
+		const header = screen.getByRole('columnheader', { name: 'NPSH margin ratio' });
+		expect(within(header).queryByRole('button')).toBeNull();
+		const lines = [...header.querySelectorAll('span.block')].map((b) => b.textContent);
+		expect(lines).toEqual(['NPSH margin', 'ratio']);
+		expect(squash(header.textContent)).toBe('NPSH margin ratio');
 	});
 });
 

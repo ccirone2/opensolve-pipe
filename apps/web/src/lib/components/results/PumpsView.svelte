@@ -81,7 +81,6 @@
 		flagsForElement,
 		Formatter,
 		markChanged,
-		PUMP_STATUS_TONES,
 		pumpStatusParts,
 		pumpTable,
 		resultsProject,
@@ -125,6 +124,7 @@
 	import PumpGroupChart from './PumpGroupChart.svelte';
 	import type { LineupsBlockProps } from './PumpLineupsBlock.svelte';
 	import PumpsNav from './PumpsNav.svelte';
+	import PumpStatus from './PumpStatus.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 	import { provideSectionNav, registerSection, type SectionTarget } from './section-nav.svelte';
 
@@ -975,26 +975,14 @@
 
 <!--
 	A per-pump cell (docs/proposals/pumps-nits.md item 2): Status is a pill holding the pump's state
-	word, tinted by the state alone (PUMP_STATUS_TONES), any qualifier after it as plain text, so the
-	cell says the label's words, word for word (pumpStatusLabel). No border, icon or glyph, so it
-	never reads as a flag pill or a control; `leading-5` with no padding above or below keeps the
-	row's 20 px line, and on a phone the qualifier wraps after the pill. Every other cell as
-	ResultsTable draws it.
+	word, tinted by the state alone, any qualifier after it as plain text (PumpStatus, the card's
+	two tables' too). Every other cell as ResultsTable draws it.
 -->
 {#snippet statusCell(row: Row, key: string)}
 	{@const cell = row.cells[key] ?? '—'}
 	{@const result = key === 'status' ? solved.pumpResults[row.key] : undefined}
 	{#if result}
-		{@const parts = pumpStatusParts(result, row.flags)}
-		<span class="min-w-0"
-			><span
-				data-status-pill
-				class={[
-					'inline-block rounded-full px-2 align-top text-xs leading-5 font-medium whitespace-nowrap',
-					PUMP_STATUS_TONES[parts.state]
-				]}>{parts.word}</span
-			>{parts.detail ? ` ${parts.detail}` : ''}</span
-		>
+		<PumpStatus parts={pumpStatusParts(result, row.flags)} />
 	{:else if typeof cell === 'string'}{cell}{:else}<CellValue {cell} />{/if}
 {/snippet}
 
@@ -1050,8 +1038,8 @@
 		Head is the rise in the energy grade line across the pump; for a pump held at zero flow it is
 		the head across it (its shutoff head when its discharge is closed off). NPSH margin ratio is
 		NPSHa ÷ NPSHr, below 1 where the pump would cavitate; it is not given where NPSHr is zero or
-		either is not computed (NPSHa needs the fluid's vapor pressure), and a pump that cavitates
-		without one says so, with its NPSH margin. An off pump has no speed.
+		either is not computed (NPSHa needs the fluid's vapor pressure); where NPSHr is zero the cell
+		gives the NPSH margin instead, and says so where the pump cavitates. An off pump has no speed.
 		{#if anyControlled}A speed-controlled pump's speed is the one it runs at: solved to hold its
 			setpoint, or its minimum or maximum speed when its drive is at a limit (its trace states the
 			rule that put it there).{/if}

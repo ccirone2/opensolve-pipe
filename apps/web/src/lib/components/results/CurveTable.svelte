@@ -36,6 +36,13 @@
 		 */
 		roles?: boolean;
 		tableClass?: string;
+		/**
+		 * The summary's words in place of the caption's, drawn: another case's system curve's
+		 * "System curve, [2] Winter", its case's box beside its name, where its caption, the table's
+		 * name, says "System curve, case 2: Winter" (docs/proposals/pumps-nits.md §11.4, leftover
+		 * L10).
+		 */
+		label?: Snippet;
 		/** The table's head and body. */
 		children: Snippet;
 	}
@@ -48,6 +55,7 @@
 		key,
 		roles = false,
 		tableClass = 'w-full text-sm',
+		label,
 		children
 	}: Props = $props();
 	const id = $props.id();
@@ -81,7 +89,8 @@
 			class="size-4 shrink-0 text-slate-500 transition-transform group-open/curve:rotate-90 motion-reduce:transition-none"
 		/>
 		<span class="min-w-0 flex-1 break-words"
-			>{caption} <span class="font-normal whitespace-nowrap text-slate-600">{count}</span></span
+			>{#if label}{@render label()}{:else}{caption}{/if}
+			<span class="font-normal whitespace-nowrap text-slate-600">{count}</span></span
 		>
 	</summary>
 	<div

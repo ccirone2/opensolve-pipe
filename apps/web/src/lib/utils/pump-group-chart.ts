@@ -74,9 +74,12 @@ import {
 	Formatter,
 	hiddenByDefault,
 	npshRatioCell,
+	npshRatioColumn,
 	npshRatioSortKeys,
 	pumpStatusLabel,
-	type Column
+	pumpStatusParts,
+	type Column,
+	type PumpStatusParts
 } from './results';
 import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
 import { displayUnit, formatNumber, fromSI, unitLabel, type UnitId } from './units';
@@ -771,10 +774,11 @@ export interface GroupLegendItem {
 	dash?: number[];
 	/**
 	 * A marker's mark (chart-marks.ts CHART_MARKS): the Group's ink dot, another case's slate ring,
-	 * or a held pump's diamond in `color`, its line's. Drawn from the canvas's own spec, never a
+	 * a held pump's diamond in `color`, its line's, or a running pump's dot in it (`member`: its
+	 * point left unlabelled on the chart, leftover L13). Drawn from the canvas's own spec, never a
 	 * character (nit 5, rules 1 and 8; slice 5c).
 	 */
-	mark?: 'group' | 'ring' | 'held';
+	mark?: 'group' | 'ring' | 'held' | 'member';
 	/**
 	 * An other case's ring: its cases' numbers, which `label` names ("Case 1: …", as the image's
 	 * legend does); no character stands for it (nit 5, slice 5b).
@@ -785,17 +789,61 @@ export interface GroupLegendItem {
 /**
  * The legend, in the chart's dataset order: one entry per line, then the marks that say a fact (a
  * pump held at zero flow, the Group's duty, the other cases' rings). A running member's point has
- * none: the chart names it beside its dot, and its line's entry names it (nit 5, rule 2; slice 5c).
+ * none while the chart names it beside its dot, and its line's entry names it (nit 5, rule 2;
+ * slice 5c).
+ *
+ * Leftover L13, the key by name (`keyed`: the points of this case the chart's drawing left
+ * unlabelled, as its notes would name them, each with its `key`): a running pump's point gets an
+ * entry right after its line's entry, its dot in the line's colour (`mark: 'member'`), "{name},
+ * its point at {flow} and {head}"; pumps of one line with equal values one entry, "{names},
+ * their points at …", in the pumps' order. A held pump's entry and the Group's gain ", its point at
+ * {flow} and {head}". No number or character stands for a pump (nit 5, Q1): its name, its mark.
  */
-export function groupLegend(data: GroupChartData): GroupLegendItem[] {
-	return [
-		...data.lines.map((line): GroupLegendItem => ({
-			key: `line-${line.ids.join()}`,
-			label: line.label,
-			kind: 'line',
+export function groupLegend(
+	data: GroupChartData,
+	keyed: readonly NotLabelledPoint[] = []
+): GroupLegendItem[] {
+	const keys = new Map(keyed.flatMap((p) => (p.key ? [[p.key, p] as const] : [])));
+	const at = (p: NotLabelledPoint) => `${p.flow} and ${p.head}`;
+	/** A running pump's point left out, after its line's entry; equal values in one entry. */
+	const pointsOf = (line: GroupLine): GroupLegendItem[] => {
+		const runs: { ids: string[]; names: string[]; values: string }[] = [];
+		for (const p of data.points) {
+			const left = keys.get(`point-${p.id}`);
+			if (p.held || !left || !line.ids.includes(p.id)) continue;
+			const run = runs.find((r) => r.values === at(left));
+			if (run) {
+				run.ids.push(p.id);
+				run.names.push(p.name);
+			} else runs.push({ ids: [p.id], names: [p.name], values: at(left) });
+		}
+		return runs.map((r) => ({
+			key: `point-${r.ids.join('-')}`,
+			label:
+				r.ids.length === 1
+					? `${r.names[0]}, its point at ${r.values}`
+					: `${andList(r.names)}, their points at ${r.values}`,
+			kind: 'marker',
 			color: line.style.color,
-			dash: line.style.dash
-		})),
+			mark: 'member'
+		}));
+	};
+	/** ", its point at {flow} and {head}" where `key`'s label is left out, else nothing. */
+	const valuesOf = (key: string) => {
+		const left = keys.get(key);
+		return left ? `, its point at ${at(left)}` : '';
+	};
+	return [
+		...data.lines.flatMap((line): GroupLegendItem[] => [
+			{
+				key: `line-${line.ids.join()}`,
+				label: line.label,
+				kind: 'line',
+				color: line.style.color,
+				dash: line.style.dash
+			},
+			...pointsOf(line)
+		]),
 		...(data.curve?.solid.length
 			? [
 					{
@@ -847,7 +895,7 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 			.filter((p) => p.held)
 			.map((p): GroupLegendItem => ({
 				key: `point-${p.id}`,
-				label: `${p.name}, held at zero flow`,
+				label: `${p.name}, held at zero flow${valuesOf(`point-${p.id}`)}`,
 				kind: 'marker',
 				color: p.style.color,
 				mark: 'held'
@@ -857,7 +905,7 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 			? [
 					{
 						key: 'station',
-						label: data.station.label,
+						label: `${data.station.label}${valuesOf('station')}`,
 						kind: 'marker' as const,
 						color: GROUP_INK,
 						mark: 'group' as const
@@ -926,8 +974,13 @@ const CURVE_LABEL_ROWS = 3;
 const CURVE_LABEL_OFFSET = 4;
 /** How far inside the plot's left edge a label is clamped (px), as the system curve's tag is. */
 const CURVE_LABEL_EDGE = 2;
-/** Labels closer than this side by side read as one (px; m4's spacing): they overlap. */
+/** A label this close or closer beside an obstacle overlaps it (px; m4's spacing). */
 const CURVE_LABEL_GAP = 3;
+/**
+ * Curve labels closer than this side by side on one row read as one (px; leftover L21b: "[1, 2] 1
+ * running" 4.2 px from "2 running (this case)" did): they overlap.
+ */
+export const CURVE_LABEL_APART = 6;
 
 /**
  * A curve's label (§9.3): another case's "[{numbers}] {k} running" (its case numbers in a box,
@@ -957,13 +1010,8 @@ export function curveAnchor(
 	return best;
 }
 
-function overlaps(a: PxBox, b: PxBox): boolean {
-	return (
-		a.left < b.right + CURVE_LABEL_GAP &&
-		b.left < a.right + CURVE_LABEL_GAP &&
-		a.top < b.bottom &&
-		b.top < a.bottom
-	);
+function overlaps(a: PxBox, b: PxBox, gap = CURVE_LABEL_GAP): boolean {
+	return a.left < b.right + gap && b.left < a.right + gap && a.top < b.bottom && b.top < a.bottom;
 }
 
 /**
@@ -974,9 +1022,10 @@ function overlaps(a: PxBox, b: PxBox): boolean {
  * - Labels of other cases' curves with equal k whose anchors are less than one label width apart
  *   (the width of the later one's own label) merge into one at the rightmost anchor, their numbers
  *   ascending: "[1, 4, 5, 6] 3 running". This case's label never merges.
- * - From left to right, a label that would overlap one placed before or an obstacle (a ring's
- *   tag, a marker, a member's label) moves up one 14 px row, at most twice; a row that would leave
- *   the plot's top does not fit either. A label that still overlaps is left out, and `leftOut`
+ * - From left to right, a label that would overlap one placed before (closer than
+ *   CURVE_LABEL_APART, 6 px, beside it on its row: leftover L21b) or an obstacle (a ring's tag, a
+ *   marker, a member's label; closer than 3 px) moves up one 14 px row, at most twice; a row that
+ *   would leave the plot's top does not fit either. A label that still overlaps is left out, and `leftOut`
  *   counts the curves it labels (the notes say so; the data table lists every curve).
  */
 export function placeCurveLabels(
@@ -1026,7 +1075,9 @@ export function placeCurveLabels(
 			const y = g.anchor.y - CURVE_LABEL_OFFSET - row * CURVE_LABEL_ROW;
 			const box = { left: x, right: x + width, top: y - CURVE_LABEL_ROW, bottom: y };
 			if (box.top < plot.top) break;
-			const taken = [...labels.map((l) => l.box), ...obstacles].some((b) => overlaps(box, b));
+			const taken =
+				labels.some((l) => overlaps(box, l.box, CURVE_LABEL_APART)) ||
+				obstacles.some((b) => overlaps(box, b));
 			if (!taken) placed = { text, curves: g.curves, shown: g.shown, x, y, row, box };
 		}
 		if (placed) labels.push(placed);
@@ -1903,11 +1954,18 @@ export interface GroupRow {
 	id: string;
 	name: string;
 	style: GroupSlot;
-	/** Text, or lines: a pump that cavitates with no NPSH margin ratio (npshRatioCell). */
+	/** Text, or lines: a pump with no NPSH margin ratio and words for it (npshRatioCell). */
 	cells: Record<string, string | string[]>;
 	flags: readonly Flag[];
 	/** Its NPSH margin ratio's sort key where its text does not carry it (npshRatioSortKeys). */
 	sortKeys?: Readonly<Record<string, number>>;
+	/** That key's tie, its margin (npshRatioSortKeys). */
+	sortTies?: Readonly<Record<string, number>>;
+	/**
+	 * Its status as its State cell's pill draws it (pumpStatusParts; docs/proposals/pumps-nits.md
+	 * §11, leftover L22); the cell's text stays pumpStatusLabel's, for the export and the sort.
+	 */
+	status: PumpStatusParts;
 }
 
 export interface GroupTable {
@@ -1952,7 +2010,7 @@ export function groupTable(
 		f.column('efficiency', 'η', 'fraction'),
 		f.column('shaftPower', 'Shaft power', 'power'),
 		hiddenByDefault(f.column('npshMargin', 'NPSH margin', 'head')),
-		f.column('npshMarginRatio', 'NPSH margin ratio', 'dimensionless'),
+		npshRatioColumn(f),
 		f.column('shutoff', 'Shutoff head', 'head'),
 		{ key: 'inCurve', label: 'Inside curve data' }
 	];
@@ -1975,6 +2033,7 @@ export function groupTable(
 				style: slotStyle(m.slot),
 				flags: m.flags,
 				...npshRatioSortKeys(r),
+				status: pumpStatusParts(r, m.flags),
 				cells: {
 					state: pumpStatusLabel(r, m.flags),
 					speed: r.status === 'off' ? '—' : f.num(r.speed, 'fraction'),

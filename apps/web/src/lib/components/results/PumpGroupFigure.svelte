@@ -33,6 +33,7 @@
 	import type { Chart as ChartInstance } from 'chart.js';
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import {
+		caseNamed,
 		caseTagOf,
 		chartHeightRem,
 		saveTableShown,
@@ -68,7 +69,7 @@
 	import type { OtherGroupCase } from '$lib/utils/pump-group-one-off';
 	import { formatNumber } from '$lib/utils/units';
 	import { sectionMark } from '$lib/utils/section-nav';
-	import CaseTag from '$lib/components/ui/CaseTag.svelte';
+	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import CurveTable from './CurveTable.svelte';
 	import IssueDetail from './IssueDetail.svelte';
@@ -121,6 +122,11 @@
 		 */
 		notes: GroupNotes;
 		notesWith: (leftOut: number, notLabelled?: readonly NotLabelledPoint[]) => GroupNotes;
+		/**
+		 * The points of this case (a pump, the Group) the chart on screen left unlabelled, keyed in the
+		 * legend by name with their values in place of the notes (leftover L13).
+		 */
+		keyed?: readonly NotLabelledPoint[];
 		/** Why the pumps are not a station, or their group curve not defined: the image's reasons. */
 		refusals: readonly Refusal[];
 		/** The members' names, in the station's order once known; and its arrangement. */
@@ -184,6 +190,7 @@
 		stationShown,
 		notes,
 		notesWith,
+		keyed = [],
 		refusals,
 		memberNames,
 		arrangement,
@@ -235,11 +242,14 @@
 	/** The section nav, for "Go to the pump chart" (§6.2); none in the card's own tests. */
 	const nav = useSectionNav();
 
-	const caption = $derived(
-		`${groupCaption(memberNames, arrangement)}${caseName ? `, ${caseName}` : ''}${stale ? ' (out of date)' : ''}`
-	);
+	/**
+	 * The case shown in words, by its number: "case 2: Winter", the base case its name alone
+	 * (caseNamed): the image's title and Download image's name, where the caption draws its box
+	 * beside its name (docs/proposals/pumps-nits.md §11.4, leftover L10).
+	 */
+	const caseTitle = $derived(caseName ? caseNamed(caseTag, caseName) : undefined);
 	const summary = $derived(groupSummary(data, members, shown, project, systemShown));
-	const legend = $derived(groupLegend(data));
+	const legend = $derived(groupLegend(data, keyed));
 	const samples = $derived(
 		shown ? groupSampleRows(shown, shown.station.memberIds, prefs, project) : []
 	);
@@ -490,11 +500,15 @@
 	/**
 	 * A marker entry's swatch (nit 5, rule 8; slice 5c): its mark as the canvas draws it, from the
 	 * one spec (chart-marks.ts): the Group's ink dot, another case's slate ring, a held pump's
-	 * hollow diamond in its line's colour; its box holds the whole mark, its border's outer half too.
+	 * hollow diamond in its line's colour, a running pump's dot in it where the key names its point
+	 * (leftover L13); its box holds the whole mark, its border's outer half too.
 	 */
-	const swatchOf = (item: { mark?: 'group' | 'ring' | 'held'; color: string }): ChartMark =>
-		item.mark === 'held'
-			? memberMark(item.color, true)
+	const swatchOf = (item: {
+		mark?: 'group' | 'ring' | 'held' | 'member';
+		color: string;
+	}): ChartMark =>
+		item.mark === 'held' || item.mark === 'member'
+			? memberMark(item.color, item.mark === 'held')
 			: item.mark === 'ring'
 				? CHART_MARKS.ring
 				: CHART_MARKS.group;
@@ -532,6 +546,7 @@
 				groupNoteLines(notesWith(data.otherCurves.length ? imageLeftOut : 0, imagePoints), reasons),
 			content: `Pumps together ${memberNames.join(', ')}`,
 			...(caseName ? { caseName } : {}),
+			...(caseTitle ? { caseTitle } : {}),
 			disclaimer: DISCLAIMER,
 			source: image
 		});
@@ -556,8 +571,13 @@
 		ancestor (§5.3 markup rules, §7).
 	-->
 	<figure bind:this={figure} class="space-y-2" aria-labelledby="{id}-caption" tabindex="-1">
-		<!-- Its names wrap, one with no space too (§5.3): the caption is the chart's title. -->
-		<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">{caption}</figcaption>
+		<!-- Its names wrap, one with no space too (§5.3): the caption is the chart's title. The case
+			shown by its number, its box beside its name, one unit (CaseNamed; pumps-nits.md §11.4,
+			leftover L10). -->
+		<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">
+			{groupCaption(memberNames, arrangement)}{#if caseName},
+				<CaseNamed tag={caseTag} name={caseName} />{/if}{stale ? ' (out of date)' : ''}
+		</figcaption>
 		{#if loadFailed}
 			<p class="text-sm text-slate-700" role="alert">
 				{STALE_CHUNK_MESSAGE} The tables below list its points.
@@ -734,8 +754,8 @@
 							type="button"
 							class="btn btn-quiet px-2 text-blue-800"
 							data-chart-image
-							aria-label="Download image of the pumps together: {memberNames.join(', ')}{caseName
-								? `, ${caseName}`
+							aria-label="Download image of the pumps together: {memberNames.join(', ')}{caseTitle
+								? `, ${caseTitle}`
 								: ''}"
 							aria-disabled={!!imageReason}
 							aria-describedby={imageReason ? `${id}-image-reason` : undefined}
@@ -857,10 +877,21 @@
 				{/if}
 			{/each}
 			{#if notes.frame}<p class="text-xs text-slate-700">{notes.frame}</p>{/if}
-			<!-- Keyed by index, never by words: a pump's name need not be unique. -->
-			{#each notes.members as note, i (i)}
-				<p class="text-xs text-slate-700">{note}</p>
-			{/each}
+			<!-- The members' notes: two or more as one list, an item per pump starting with its name,
+				as the ring notes are (leftover L15: three pumps' notes made the card's run of notes 7
+				paragraphs in the four-speeds view, against its budget of 5); one, a paragraph. Keyed
+				by index, never by words: a pump's name need not be unique. -->
+			{#if notes.members.length > 1}
+				<ul class="list-disc pl-4 text-xs text-slate-700">
+					{#each notes.members as note, i (i)}
+						<li>{note}</li>
+					{/each}
+				</ul>
+			{:else}
+				{#each notes.members as note, i (i)}
+					<p class="text-xs text-slate-700">{note}</p>
+				{/each}
+			{/if}
 			{#if notes.dashed}<p class="text-xs text-slate-700">{notes.dashed}</p>{/if}
 			<!-- A point whose label the chart left out, named with its values (nit 5, rule 7). -->
 			{#if notes.notLabelled}<p class="text-xs text-slate-700">{notes.notLabelled}</p>{/if}
@@ -1166,10 +1197,13 @@
 											scope="row"
 											class="px-2 py-1 text-left font-normal max-sm:block max-sm:w-full max-sm:p-0 max-sm:font-medium max-sm:wrap-anywhere"
 											><!-- Its case's number in a reserved column (2.5 rem), drawn or not, so
-												every name starts at one edge (nit 5, slice 5b). --><span
-												class="inline-block w-10"><CaseTag tag={caseTagOf(tags, other.key)} /></span
-											>
-											{other.name}{other.stale ? ' (out of date)' : ''}</th
+												every name starts at one edge (nit 5, slice 5b); the box and the name
+												one unit, the box beside the name's first line (pumps-nits.md §11.4,
+												leftover L12). --><CaseNamed
+												tag={caseTagOf(tags, other.key)}
+												name="{other.name}{other.stale ? ' (out of date)' : ''}"
+												form="column"
+											/></th
 										>
 										{#if ring}
 											<td
@@ -1251,9 +1285,9 @@
 											outOfDate ? 'bg-amber-50/60' : 'bg-slate-50/60'
 										]}
 									>
-										<!-- Its case's number in a box, then its words (nit 5, slice 5b). -->
-										<CaseTag tag={group.tag} />
-										{group.header}
+										<!-- Its case's number in a box, then its words (nit 5, slice 5b), one
+											unit (pumps-nits.md §11.4, leftover L12). -->
+										<CaseNamed tag={group.tag} name={group.header} form="block" />
 									</th>
 								</tr>
 								{#each group.rows as row, i (i)}

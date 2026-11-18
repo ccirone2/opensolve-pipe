@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SystemCurveState } from '$lib/state/project.svelte';
 import {
 	caseTags,
+	chartHeightRem,
 	chartNotes,
 	pumpChartData,
 	type OtherCaseInput,
@@ -234,6 +235,80 @@ describe('pump chart', () => {
 		).toBeInTheDocument();
 	});
 
+	// docs/proposals/pumps-nits.md §11.4, leftover L9 (critique CR-ENG-6): a chip pressed off with
+	// its pane at the top, which cannot scroll up by the panel, holds the canvas at the height that
+	// keeps the row where it was pressed; the hold is held against the natural height it was made
+	// at, so a new solve that adds panels drops it and the canvas is never below its natural height.
+	it('holds the canvas’s height where a chip pressed off at the pane’s top would lift its row, and drops the hold when the panels change (pumps-nits.md §11.4, leftover L9; critique CR-ENG-6)', async () => {
+		withCanvas();
+		// The pane that scrolls, at its top: it cannot scroll above it.
+		const pane = document.createElement('div');
+		pane.style.overflowY = 'auto';
+		document.body.append(pane);
+		sizeBox(pane, { clientHeight: 600, scrollHeight: 4000 });
+		let scrolled = 0;
+		Object.defineProperty(pane, 'scrollTop', {
+			configurable: true,
+			get: () => scrolled,
+			set: (v: number) => (scrolled = Math.max(0, v))
+		});
+		const efficiencyCurve = [
+			{ flow: 0.004, efficiency: 0.4 },
+			{ flow: 0.012, efficiency: 0.7 },
+			{ flow: 0.02, efficiency: 0.6 }
+		];
+		const props = { name: 'P', prefs: SI_UNITS, system: READY };
+		const view = render(PumpChart, {
+			target: pane,
+			props: { ...props, result: pumpResult({ efficiencyCurve }) }
+		});
+		await vi.waitFor(() => expect(charts.length).toBeGreaterThan(0));
+		const figure = screen.getByRole('figure');
+		const area = figure.querySelector<HTMLElement>('[role="img"]')!;
+		// The canvas as a browser lays it out: its height in px (16 px a rem).
+		const px = () => {
+			const h = area.style.height;
+			return h.endsWith('rem') ? parseFloat(h) * 16 : parseFloat(h);
+		};
+		area.getBoundingClientRect = () => ({ height: px() }) as DOMRect;
+		const chip = within(figure).getByRole('button', { name: 'Efficiency' });
+		// The Show row under the canvas, 100 px down the pane: lower by the canvas's height, higher
+		// by the pane's scroll.
+		chip.getBoundingClientRect = () => ({ top: 100 + px() - scrolled }) as DOMRect;
+		expect(area.style.height).toBe(`${chartHeightRem(['head', 'efficiency'], false)}rem`);
+		const pressed = chip.getBoundingClientRect().top;
+		await fireEvent.click(chip);
+		await vi.waitFor(() => expect(chip).toHaveAttribute('aria-pressed', 'false'));
+		// The panel gone, the pane at its top: the canvas held at its height before the press, the
+		// row where it was pressed.
+		await vi.waitFor(() =>
+			expect(chip.getBoundingClientRect().top, 'the row where it was pressed').toBe(pressed)
+		);
+		expect(scrolled).toBe(0);
+		expect(area.style.height).toBe(`${chartHeightRem(['head', 'efficiency'], false) * 16}px`);
+		// A new solve gives the pump shaft power and NPSHr curves: two more panels, a taller natural
+		// height than the height held. The hold is dropped: the canvas its natural height, in rem.
+		await view.rerender({
+			...props,
+			result: pumpResult({
+				efficiencyCurve,
+				powerCurve: [
+					{ flow: 0.004, shaftPower: 2000 },
+					{ flow: 0.02, shaftPower: 5000 }
+				],
+				npshrCurve: [
+					{ flow: 0, npshr: 1 },
+					{ flow: 0.015, npshr: 2 },
+					{ flow: 0.03, npshr: 4 }
+				]
+			})
+		});
+		expect(area.style.height).toBe(`${chartHeightRem(['head', 'power', 'npsh'], false)}rem`);
+		expect(px()).toBeGreaterThan(chartHeightRem(['head', 'efficiency'], false) * 16);
+		view.unmount();
+		pane.remove();
+	});
+
 	it('shows the data table on request', async () => {
 		withCanvas();
 		render(PumpChart, {
@@ -339,6 +414,10 @@ describe('pump chart', () => {
 	});
 
 	it('reports a failed or cancelled system curve and offers to compute it again', async () => {
+		// A canvas that draws, as a browser's: since the chart chunk's import is one per load (leftover
+		// L25), a drawing can come within the test, and with no context the chart would say it cannot
+		// be drawn.
+		withCanvas();
 		const onretry = vi.fn();
 		const view = render(PumpChart, {
 			result: pumpResult(),
@@ -432,6 +511,10 @@ describe('pump chart', () => {
 	});
 
 	it('moves the focus to Cancel when the curve is computed again from Compute or Try again', async () => {
+		// A canvas that draws, as a browser's: since the chart chunk's import is one per load (leftover
+		// L25), a drawing can come within the test, and with no context the chart would say it cannot
+		// be drawn.
+		withCanvas();
 		const props = {
 			result: pumpResult(),
 			name: 'P',
@@ -841,6 +924,93 @@ describe('pump chart', () => {
 			expect(button()).toHaveAccessibleName(
 				'Download image of the pump and system curves: Transfer pump, Base case'
 			);
+		});
+
+		// docs/proposals/pumps-nits.md §11.4, leftover L10: the case shown's number on screen, its
+		// box beside its name as one unit (CaseNamed), the Base box too; in words in the image's
+		// title and in Download image's name ("case 2: Winter", the base case its name alone); the
+		// file named by the name alone.
+		it('names the case shown by its number: its box in the caption, "case 2: Winter" in the image’s title and its button’s name', async () => {
+			withCanvas();
+			const props = {
+				result: pumpResult(),
+				name: 'Transfer pump',
+				prefs: SI_UNITS,
+				system: READY,
+				caseName: 'Winter',
+				caseTag: 2,
+				tags: TAGS,
+				image: image()
+			} as const;
+			const view = render(PumpChart, props);
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			const caption = document.querySelector('figcaption')!;
+			const units = caption.querySelectorAll('[data-case-named]');
+			expect(units).toHaveLength(1);
+			expect(units[0]).toHaveClass('inline-flex');
+			expect(shownCaseTag(units[0]!)).toBe('2');
+			expect(besideCaseTag(units[0]!)).toBe('Winter');
+			expect(
+				screen.getByRole('figure', {
+					name: 'Pump and system curves: Transfer pump, Case 2: Winter'
+				})
+			).toBeTruthy();
+			expect(button()).toHaveAccessibleName(
+				'Download image of the pump and system curves: Transfer pump, case 2: Winter'
+			);
+			await fireEvent.click(button());
+			await vi.waitFor(() => expect(images.requests).toHaveLength(1));
+			expect(images.requests[0]).toMatchObject({ caseTitle: 'case 2: Winter', caseName: 'Winter' });
+			// The base case shown: its Base box drawn, hidden from screen readers; its name alone in
+			// words.
+			await view.rerender({ ...props, caseName: 'Base case', caseTag: 'Base' });
+			const base = document.querySelector('figcaption [data-case-named]')!;
+			expect(shownCaseTag(base)).toBe('Base');
+			expect(base.querySelector('[data-case-tag]')).toHaveAttribute('aria-hidden', 'true');
+			expect(
+				screen.getByRole('figure', { name: 'Pump and system curves: Transfer pump, Base case' })
+			).toBeTruthy();
+			await vi.waitFor(() => expect(button()).not.toHaveAttribute('aria-disabled', 'true'));
+			await fireEvent.click(button());
+			await vi.waitFor(() => expect(images.requests).toHaveLength(2));
+			expect(images.requests[1]).toMatchObject({ caseTitle: 'Base case', caseName: 'Base case' });
+		});
+
+		// docs/proposals/pumps-nits.md §11.4, leftover L10: another case's system curve table is
+		// named by its case's number in words, "System curve, case 1: Winter", where its summary
+		// shows the box beside the name, as the legend and the tooltip say "System curve, case 1".
+		it('names another case’s system curve table by its case’s number: its box in the summary, "case 1: Winter" in its name', async () => {
+			withCanvas();
+			render(PumpChart, {
+				result: pumpResult(),
+				name: 'Transfer pump',
+				prefs: SI_UNITS,
+				system: READY,
+				caseName: 'Base case',
+				tags: TAGS,
+				others: [
+					{
+						key: 'S1',
+						name: 'Winter',
+						result: pumpResult(),
+						stale: false,
+						system: systemCurveResponse()
+					}
+				],
+				onoverlay: vi.fn()
+			});
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			await fireEvent.click(
+				screen.getByRole('button', { name: 'Show data table of the pump chart' })
+			);
+			expect(screen.queryByRole('table', { name: 'System curve, case 1: Winter' })).not.toBeNull();
+			const fold = disclosureOf('System curve, case 1: Winter');
+			const summary = fold.querySelector(':scope > summary')!;
+			const units = summary.querySelectorAll('[data-case-named]');
+			expect(units).toHaveLength(1);
+			expect(shownCaseTag(units[0]!)).toBe('1');
+			expect(besideCaseTag(units[0]!)).toBe('Winter');
+			expect(besideCaseTag(summary)).toBe('System curve, Winter (4 points)');
 		});
 
 		it('gives the image the line naming the cases that take no slot, as the screen shows it (pumps-results-layout.md §6.2 S8)', async () => {
@@ -1454,7 +1624,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			'Operating points by case',
 			'Pump curve at 100 % speed',
 			'System curve',
-			'System curve, Winter'
+			'System curve, case 1: Winter'
 		]);
 		// "Operating points by case": the case shown first, "Speed (%)" with bare numbers.
 		const byCase = within(region as HTMLElement).getByRole('table', {
@@ -1610,7 +1780,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			`NPSHr curve at ${at}`,
 			'Pump curve at 50 % speed (minimum)',
 			'Pump curve at 100 % speed (maximum)',
-			'System curve, Winter'
+			'System curve, case 1: Winter'
 		]);
 		// §5.3: every box gets scroll-shadow-x.
 		for (const box of boxes) expect(box).toHaveClass('scroll-shadow-x');
@@ -1654,14 +1824,16 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		);
 		// Both open by default: each Why no head column has an entry (§9 S7).
 		expect(disclosureOf('System curve').open).toBe(true);
-		expect(disclosureOf('System curve, Winter').open).toBe(true);
+		expect(disclosureOf('System curve, case 1: Winter').open).toBe(true);
 		const summaries = [
 			...screen.getByRole('table', { name: 'System curve' }).querySelectorAll('summary'),
-			...screen.getByRole('table', { name: 'System curve, Winter' }).querySelectorAll('summary')
+			...screen
+				.getByRole('table', { name: 'System curve, case 1: Winter' })
+				.querySelectorAll('summary')
 		].map((s) => squash(s.textContent));
 		expect(summaries).toEqual([
 			'Details of the point at 20 L/s',
-			'Details of the point at 20 L/s, Winter'
+			'Details of the point at 20 L/s, case 1: Winter'
 		]);
 		// Seen: the one word, as before.
 		for (const summary of screen.getAllByText('Details')) {
@@ -2212,14 +2384,30 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			await tick();
 			expect(observers.watched()).toBe(watchedBefore);
 		}
-		// The last curve answered: its table is drawn, the switch kept in place once more and let go.
+		// The last curve answered: its table is drawn, the switch kept in place once more, and held
+		// until the chart is drawn with what that answer brings (the Pumps view's update: the other
+		// cases anew, each with its curve), then let go (pumps-nits.md §11.4, leftover L25; moved
+		// from "let go once every curve has answered", asserted at the answer itself).
 		await switchOn();
 		answer();
 		expect(top()).toBe(300);
 		grown += 56;
-		await view.rerender({ ...props, overlayCurves: true, overlayProgress: null, onoverlay });
+		const drawnBefore = charts.length;
+		void view.rerender({
+			...props,
+			others: props.others.map((o) => ({ ...o, system: systemCurveResponse() })),
+			overlayCurves: true,
+			overlayProgress: null,
+			onoverlay
+		});
 		expect(top(), 'held as the last curve answers').toBe(300);
-		expect(observers.watched(), 'let go once every curve has answered').toBe(watchedBefore);
+		expect(observers.watched(), 'still held until the drawing that answer brings').toBe(
+			watchedBefore + 1
+		);
+		await vi.waitFor(() => expect(charts.length).toBeGreaterThan(drawnBefore));
+		await tick();
+		expect(top(), 'held as that drawing comes').toBe(300);
+		expect(observers.watched(), 'let go once the last answer is drawn').toBe(watchedBefore);
 		// Every curve computed: drawn at the press, which keeps the switch in place itself (S8
 		// review LAYOUT-1); nothing is held, since nothing is left to arrive.
 		await fireEvent.click(box);
@@ -2617,6 +2805,191 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		observers.restore();
 	});
 
+	/**
+	 * docs/proposals/pumps-nits.md §11.4, leftover L25: the hold lets go at the drawing of whatever
+	 * cases are current once the last answer is in, not at the answer itself, so a drawing that
+	 * takes the "Not labelled on the chart" line away above the switch (the last curve rescaling the
+	 * axes: every ring then labelled) still finds it held. The RACE-2 test's set-up: crowded, no
+	 * ring's label has a place; apart, each has.
+	 */
+	function holdUntilDrawn() {
+		withCanvas();
+		let crowd = false;
+		drawing.first = (config) =>
+			drawLabels(config as PumpChartConfig, crowd ? TINY : ROOMY, crowd ? crowded : apart);
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03] as [number, number],
+			system: READY,
+			tags: TAGS,
+			oncanceloverlay: vi.fn()
+		};
+		const others = [
+			other('S1', 'Winter', { operatingFlow: 0.012, operatingHead: 25 }),
+			other('S2', 'Summer', { operatingFlow: 0.015, operatingHead: 22 }),
+			other('S3', 'Spring', { operatingFlow: 0.018, operatingHead: 20 }),
+			other('S4', 'Autumn', { operatingFlow: 0.021, operatingHead: 18 })
+		];
+		return {
+			props,
+			others,
+			crowd: (on: boolean) => (crowd = on),
+			/** The pane that scrolls, the chart in it, the switch pressed and held. */
+			async mount(shown: boolean) {
+				localStorage.clear();
+				crowd = false;
+				const pane = document.createElement('div');
+				pane.style.overflowY = 'auto';
+				document.body.append(pane);
+				sizeBox(pane, { clientHeight: 600, scrollHeight: 4000 });
+				const scroll = { at: 0 };
+				Object.defineProperty(pane, 'scrollTop', {
+					configurable: true,
+					get: () => scroll.at,
+					set: (v: number) => (scroll.at = v)
+				});
+				const onoverlay = (on: boolean) =>
+					void view.rerender({
+						...props,
+						others,
+						overlayCurves: on,
+						overlayProgress: on ? { done: 0, total: 4 } : null,
+						onoverlay
+					});
+				/** The Pumps view's update: the other cases anew, those named with their curve. */
+				const update = (answered: string[]) =>
+					view.rerender({
+						...props,
+						others: others.map((o) =>
+							answered.includes(o.key) ? { ...o, system: systemCurveResponse() } : { ...o }
+						),
+						overlayCurves: true,
+						overlayProgress: answered.length < 4 ? { done: answered.length, total: 4 } : null,
+						onoverlay
+					});
+				const drawnAgain = async (before: number) => {
+					await vi.waitFor(() => expect(charts.length).toBeGreaterThan(before));
+					await tick();
+				};
+				const first = charts.length;
+				const view = render(PumpChart, {
+					target: pane,
+					props: { ...props, others, overlayCurves: false, overlayProgress: null, onoverlay }
+				});
+				await drawnAgain(first);
+				if (shown) {
+					await fireEvent.click(
+						screen.getByRole('button', { name: 'Show data table of the pump chart' })
+					);
+				}
+				const figure = screen.getByRole('figure');
+				const notes = figure.querySelector('[data-pump-notes]') as HTMLElement;
+				const noted = () => within(notes).queryByText(/^Not labelled on the chart: /) !== null;
+				const tables = () => figure.querySelectorAll('[data-curve-table^="system-"]').length;
+				const box = within(figure).getByRole('checkbox', {
+					name: "Also show the other cases' system curves"
+				});
+				// As in the RACE-2 test: lower by the line naming the rings left out (20 px), by each
+				// system curve's table (56 px) and by what else grows above it.
+				const grown = { by: 0 };
+				box.getBoundingClientRect = () =>
+					({
+						top: 300 + 20 * Number(noted()) + 56 * tables() + grown.by - scroll.at
+					}) as DOMRect;
+				const pressed = box.getBoundingClientRect().top;
+				const drawn = charts.length;
+				await fireEvent.click(box);
+				expect(box).toBeChecked();
+				await drawnAgain(drawn);
+				const top = () => box.getBoundingClientRect().top;
+				expect(top()).toBe(pressed);
+				return {
+					view,
+					pane,
+					scroll,
+					grown,
+					figure,
+					noted,
+					top,
+					pressed,
+					update,
+					drawnAgain,
+					onoverlay
+				};
+			}
+		};
+	}
+
+	it('keeps the switch in place through the drawing the last answer brings, which takes the “Not labelled on the chart” line away, and lets it go at that drawing (pumps-nits.md §11.4, leftover L25)', async () => {
+		const observers = fakeResizeObserver();
+		const race = holdUntilDrawn();
+		for (const shown of [true, false]) {
+			const where = `the data table ${shown ? 'shown' : 'hidden'}`;
+			const m = await race.mount(shown);
+			// Winter, Summer and Spring answer, crowded: the line comes with their drawings.
+			race.crowd(true);
+			let drawn = charts.length;
+			await m.update(['S1', 'S2', 'S3']);
+			await m.drawnAgain(drawn);
+			expect(m.noted()).toBe(true);
+			expect(m.top(), `in place with the line drawn, ${where}`).toBe(m.pressed);
+			// Autumn answers, the last, and the drawing it brings labels every ring: the line goes
+			// with that drawing, after the answer's update.
+			race.crowd(false);
+			drawn = charts.length;
+			void m.update(['S1', 'S2', 'S3', 'S4']);
+			expect(m.noted(), `the line kept as the last curve answers, ${where}`).toBe(true);
+			expect(m.top(), `in place as the last curve answers, ${where}`).toBe(m.pressed);
+			await m.drawnAgain(drawn);
+			expect(m.noted(), `the line taken away by that drawing, ${where}`).toBe(false);
+			expect(m.top(), `in place once the last answer is drawn, ${where}`).toBe(m.pressed);
+			// Let go at that drawing: a change of the figure's size after it scrolls nothing.
+			const at = m.scroll.at;
+			m.grown.by += 10;
+			observers.resize(m.figure);
+			expect(m.scroll.at, `let go once the last answer is drawn, ${where}`).toBe(at);
+			m.view.unmount();
+			m.pane.remove();
+		}
+		observers.restore();
+	});
+
+	it('lets the switch go at the drawing of the cases current once the last answer is in, when the cases change again before any drawing (pumps-nits.md §11.4, leftover L25; critique CR-ENG-5)', async () => {
+		const observers = fakeResizeObserver();
+		const race = holdUntilDrawn();
+		for (const shown of [true, false]) {
+			const where = `the data table ${shown ? 'shown' : 'hidden'}`;
+			const m = await race.mount(shown);
+			race.crowd(true);
+			let drawn = charts.length;
+			await m.update(['S1', 'S2', 'S3']);
+			await m.drawnAgain(drawn);
+			expect(m.noted()).toBe(true);
+			// The last answer, then the cases anew once more (a case solved again by a run), both
+			// before any drawing: the first update's drawing never comes, the second's takes the line
+			// away (every ring labelled).
+			race.crowd(false);
+			drawn = charts.length;
+			void m.update(['S1', 'S2', 'S3', 'S4']);
+			void m.update(['S1', 'S2', 'S3', 'S4']);
+			expect(m.top(), `in place as the cases change twice, ${where}`).toBe(m.pressed);
+			await m.drawnAgain(drawn);
+			expect(charts.length, `one drawing for the two updates, ${where}`).toBe(drawn + 1);
+			expect(m.noted()).toBe(false);
+			expect(m.top(), `in place once the second update is drawn, ${where}`).toBe(m.pressed);
+			// Let go at that drawing, the cases it drew being the current ones.
+			const at = m.scroll.at;
+			m.grown.by += 10;
+			observers.resize(m.figure);
+			expect(m.scroll.at, `let go at the second update's drawing, ${where}`).toBe(at);
+			m.view.unmount();
+			m.pane.remove();
+		}
+		observers.restore();
+	});
+
 	it('draws the other cases’ line empty before it speaks, when mounted with their curves being computed (F17)', async () => {
 		// A pump chosen whose own curve is ready, with the other cases' curves asked for: the chart is
 		// mounted as their requests start (§7 Live regions).
@@ -2684,7 +3057,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			'Operating points by case',
 			'Pump curve at 100 % speed',
 			'System curve',
-			'System curve, Winter'
+			'System curve, case 1: Winter'
 		]) {
 			const table = figure.getByRole('table', { name });
 			expect(table).toBeInTheDocument();
@@ -2964,14 +3337,23 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
  */
 describe('the pump chart’s data without scroll traps (pumps-results-layout.md §9 S7)', () => {
 	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
-	/** Every curve table's disclosure, in order: its table's name, its summary, open or not. */
+	/**
+	 * Every curve table's disclosure, in order: its table's name, its summary's words beside its
+	 * case's box and the box's number, if any (another case's, pumps-nits.md §11.4, leftover L10),
+	 * open or not.
+	 */
 	const disclosures = () =>
-		[...document.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')].map((d) => ({
-			table: squash(d.querySelector('caption')!.textContent),
-			summary: squash(d.querySelector(':scope > summary')!.textContent),
-			rows: d.querySelectorAll('tbody tr').length,
-			open: d.open
-		}));
+		[...document.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')].map((d) => {
+			const summary = d.querySelector(':scope > summary')!;
+			const tag = shownCaseTag(summary);
+			return {
+				table: squash(d.querySelector('caption')!.textContent),
+				summary: besideCaseTag(summary),
+				...(tag ? { tag } : {}),
+				rows: d.querySelectorAll('tbody tr').length,
+				open: d.open
+			};
+		});
 	/** A pump with every panel and a speed range (made-up test input), as the panels' tests use. */
 	const everyPanel = () =>
 		pumpResult({
@@ -3040,7 +3422,14 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 		const drawn = disclosures();
 		// Every curve table, in the region's order; the counts of the inputs: the system curve's 4
 		// points, 3 of efficiency, 2 of shaft power, 3 of NPSHr, the speed range's 2 and 5.
-		expect(drawn.map(({ table, summary, open }) => ({ table, summary, open }))).toEqual([
+		expect(
+			drawn.map(({ table, summary, tag, open }) => ({
+				table,
+				summary,
+				...(tag ? { tag } : {}),
+				open
+			}))
+		).toEqual([
 			{
 				table: 'Pump curve at 100 % speed',
 				summary: `Pump curve at 100 % speed (${drawn[0]!.rows} points)`,
@@ -3072,10 +3461,21 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 				summary: 'Pump curve at 100 % speed (maximum) (5 points)',
 				open: false
 			},
-			{ table: 'System curve, Winter', summary: 'System curve, Winter (4 points)', open: false }
+			// Another case's: named by its case's number in words, its summary its box (the tag)
+			// beside its name (pumps-nits.md §11.4, leftover L10).
+			{
+				table: 'System curve, case 1: Winter',
+				summary: 'System curve, Winter (4 points)',
+				tag: '1',
+				open: false
+			}
 		]);
-		// Each count is the rows its table lists (the pump curve's 4 points of data).
-		for (const d of drawn) expect(d.summary).toBe(`${d.table} (${d.rows} points)`);
+		// Each count is the rows its table lists (the pump curve's 4 points of data); each summary's
+		// words its table's name, but for the case's number, its box there.
+		for (const d of drawn) {
+			const name = d.tag ? d.table.replace(`case ${d.tag}: `, '') : d.table;
+			expect(d.summary).toBe(`${name} (${d.rows} points)`);
+		}
 		expect(drawn[0]!.rows).toBe(4);
 		// "Operating points by case" is no curve: a table, never folded.
 		const byCase = screen.getByRole('table', { name: 'Operating points by case' });
@@ -3089,7 +3489,10 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 			// title (S7 review W2, MUT-SUMMARY-HIDDEN).
 			const caption = squash(d.querySelector('caption')!.textContent);
 			const rows = d.querySelectorAll('tbody tr').length;
-			expect(squash(wordsInSight(summary))).toBe(`${caption} (${rows} points)`);
+			// Another case's: its number drawn as its box, "case 1: " in its name (leftover L10).
+			const tag = shownCaseTag(summary);
+			const seen = tag ? caption.replace(`case ${tag}: `, `${tag} `) : caption;
+			expect(squash(wordsInSight(summary))).toBe(`${seen} (${rows} points)`);
 			// Full height when open: its box scrolls sideways only, never down inside the pane.
 			const box = d.querySelector('table')!.parentElement!;
 			expect(box).toHaveClass('overflow-x-auto', 'scroll-shadow-x');
@@ -3157,8 +3560,8 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 		expect(disclosures().map(({ table, open }) => [table, open])).toEqual([
 			['Pump curve at 100 % speed', false],
 			['System curve', true],
-			['System curve, Winter', true],
-			['System curve, Summer', false]
+			['System curve, case 1: Winter', true],
+			['System curve, case 2: Summer', false]
 		]);
 		// Its reason in sight, one press away no more (D10's owner rule).
 		const reason = within(screen.getByRole('table', { name: 'System curve' })).getByText(
@@ -3246,14 +3649,14 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 		// case's system curve, open by default (a point without a head).
 		await openTable('Efficiency curve at 100 % speed');
 		await openTable('Pump curve at 50 % speed (minimum)');
-		const winterFold = disclosureOf('System curve, Winter');
+		const winterFold = disclosureOf('System curve, case 1: Winter');
 		expect(winterFold.open).toBe(true);
 		await fireEvent.click(winterFold.querySelector(':scope > summary')!);
 		expect(winterFold.open).toBe(false);
 		await new Promise((resolve) => setTimeout(resolve, 0)); // the toggle events' task
 		const hide = screen.getByRole('button', { name: 'Hide data table of the pump chart' });
 		await fireEvent.click(hide);
-		expect(screen.queryByRole('table', { name: 'System curve, Winter' })).toBeNull();
+		expect(screen.queryByRole('table', { name: 'System curve, case 1: Winter' })).toBeNull();
 		await fireEvent.click(hide);
 		expect(disclosures().map(({ table, open }) => [table, open])).toEqual([
 			['Pump curve at 100 % speed', false],
@@ -3263,7 +3666,7 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 			['NPSHr curve at 100 % speed', false],
 			['Pump curve at 50 % speed (minimum)', true],
 			['Pump curve at 100 % speed (maximum)', false],
-			['System curve, Winter', false]
+			['System curve, case 1: Winter', false]
 		]);
 	});
 

@@ -34,7 +34,7 @@
 		rowUnit,
 		type CompareColumn
 	} from '$lib/utils/compare';
-	import type { ElementRef } from '$lib/utils/results';
+	import { noteParts, type ElementRef } from '$lib/utils/results';
 	import type { CaseId } from '$lib/utils/scenarios';
 	import CompareRowsDialog from './CompareRowsDialog.svelte';
 
@@ -122,6 +122,14 @@
 			? 'Did not converge: no values shown'
 			: CASE_STATUS_LABELS[statuses[i] ?? 'not_solved'];
 </script>
+
+<!-- A cell's note under its value ("Cavitates (NPSHr 0): NPSH margin -2.833 m"): its trailing value
+	and unit one span that never wraps, as a results table's (noteParts; ui-guide; review LO-OWNER-3). -->
+{#snippet note(text: string)}
+	{@const [head, tail] = noteParts(text)}<span class="block text-xs text-slate-600"
+		>{head}{#if tail}<span data-value-unit class="whitespace-nowrap">{tail}</span>{/if}</span
+	>
+{/snippet}
 
 <section class="space-y-3" aria-labelledby="{id}-title">
 	<div class="flex flex-wrap items-start gap-2">
@@ -241,8 +249,7 @@
 											{/if}
 											{cell.text}
 										</span>
-										{#if cell.note}<span class="block text-xs text-slate-600">{cell.note}</span
-											>{/if}
+										{#if cell.note}{@render note(cell.note)}{/if}
 										{#if cell.where}<span class="block text-xs text-slate-600">{cell.where}</span
 											>{/if}
 										{#if cell.diff}
@@ -284,7 +291,12 @@
 							{/if}
 							{#if line.unit}<span class="font-normal text-slate-600"> ({line.unit})</span>{/if}
 						</h4>
-						<dl class="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 text-sm">
+						<!-- The names' column 6 rem at least, the values' no wider than the rest: a value's note
+							or its pipe's ends wrap beside a name rather than take its room (review LO-OWNER-3; at
+							`minmax(0,1fr)_auto` the cue's line left a name 10.7 px at 320, a letter a line). -->
+						<dl
+							class="mt-1 grid grid-cols-[minmax(6rem,1fr)_minmax(0,auto)] gap-x-3 gap-y-1 text-sm"
+						>
 							{#each line.cells as cell, i (i)}
 								<dt class="min-w-0 break-words text-slate-700">
 									{ws.caseName(cases[i] ?? null)}
@@ -292,7 +304,7 @@
 											({CASE_STATUS_LABELS[statuses[i] ?? 'not_solved'].toLowerCase()})</span
 										>{/if}
 								</dt>
-								<dd class="text-right tabular-nums">
+								<dd class="text-right wrap-anywhere tabular-nums">
 									<span class="inline-flex items-center gap-1">
 										{#if cell.invalid}
 											<Icon name="alert" class="size-3.5 text-red-700" /><span class="sr-only"
@@ -301,7 +313,7 @@
 										{/if}
 										{cell.text}
 									</span>
-									{#if cell.note}<span class="block text-xs text-slate-600">{cell.note}</span>{/if}
+									{#if cell.note}{@render note(cell.note)}{/if}
 									{#if cell.where}<span class="block text-xs text-slate-600">{cell.where}</span
 										>{/if}
 									{#if cell.diff}

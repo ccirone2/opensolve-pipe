@@ -643,6 +643,23 @@ describe('results pane', () => {
 			expect(button).not.toHaveAttribute('aria-describedby');
 		});
 
+		// docs/proposals/pumps-nits.md §11.4, X3 (found by leftover L10's test): a case's name may
+		// have no spaces, and its tab ran 21 px past the pane at 320 px (a 40-character name). The
+		// case's tab shrinks and wraps anywhere, its words at its start (ui-guide, Phones: a button
+		// whose label holds a name wraps); Compare cases keeps its width.
+		it('lets the case shown’s tab wrap a name with no spaces, Compare cases kept whole', async () => {
+			const name = 'PumpP1OffForMaintenanceNorthSideWinter01';
+			const project = withScenarios(pumpTransferExample(), [{ id: 'S1', name, overrides: [] }]);
+			const ws = testWorkspace(project);
+			render(WorkspaceView, { workspace: ws });
+			ws.setCase('S1');
+			const tabs = await results().findByRole('tablist', { name: 'Results of' });
+			const shown = within(tabs).getByRole('tab', { name });
+			expect(shown).toHaveClass('min-w-0', 'text-left', 'wrap-anywhere');
+			const compare = within(tabs).getByRole('tab', { name: 'Compare cases' });
+			expect(compare).toHaveClass('shrink-0', 'whitespace-nowrap');
+		});
+
 		it('names the case shown, and on Compare cases is shown when any case has a response', async () => {
 			const project = withScenarios(pumpTransferExample(), [
 				{ id: 'S1', name: 'Winter', overrides: [] }

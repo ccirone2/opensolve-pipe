@@ -95,11 +95,24 @@ describe('reservoir entrance and exit losses', () => {
 		ws.nav.showConnection('port_1');
 		render(WorkspaceView, { workspace: ws });
 
-		expect(
-			await screen.findByText(
-				/No entrance or exit loss is applied where this piping meets Discharge tank/
-			)
-		).toBeInTheDocument();
+		const sentence = await screen.findByText(
+			/No entrance or exit loss is applied where this piping meets Discharge tank/
+		);
+		expect(sentence).toBeInTheDocument();
+		// A reservoir's name may have no spaces: both buttons take all four of a named button's
+		// classes, their icon keeps its size, and the box wraps a long word (ui-guide, Phones: "A
+		// button whose label holds a name wraps"; docs/proposals/pumps-nits.md §11.4, leftover L24).
+		expect(sentence.parentElement).toHaveClass('wrap-break-word');
+		for (const name of [
+			'Sharp-edged entrance (flow leaves Discharge tank)',
+			'Exit (flow enters Discharge tank)'
+		]) {
+			const button = screen.getByRole('button', { name });
+			for (const c of ['whitespace-normal', 'text-left', 'py-1.5', 'wrap-anywhere']) {
+				expect(button, `${name}: ${c}`).toHaveClass(c);
+			}
+			expect(button.querySelector('svg'), name).toHaveClass('size-4', 'shrink-0');
+		}
 		await fireEvent.click(
 			screen.getByRole('button', { name: 'Exit (flow enters Discharge tank)' })
 		);

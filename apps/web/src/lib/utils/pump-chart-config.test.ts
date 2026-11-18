@@ -4,7 +4,9 @@
  * drawn at 2× and has larger fonts; other cases are slate rings named by their case numbers. Pump
  * results are made-up test inputs.
  */
+import { BasicPlatform } from 'chart.js';
 import { describe, expect, it } from 'vitest';
+import { Chart } from '$lib/components/results/chart-setup';
 import { pumpResult, systemCurveResponse } from '../testing/results';
 import { otherCasesData, pumpChartData, type OtherCaseData } from './pump-chart';
 import {
@@ -13,14 +15,18 @@ import {
 	labelTag,
 	pumpChartConfig,
 	type PointLabelsDrawn,
+	type PumpChartConfig,
+	type PumpChartConfigOptions,
 	pumpGroupConfig
 } from './pump-chart-config';
+import type { LegendItem } from 'chart.js';
 import { lineupView } from '../testing/curve-family';
 import {
 	GROUP_AQUA,
 	GROUP_BLUE,
 	GROUP_SLOTS,
 	groupChartData,
+	type GroupChartData,
 	type GroupMemberInput
 } from './pump-group-chart';
 import { formatNumber, SI_UNITS } from './units';
@@ -767,7 +773,9 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 	// condenser's case 1 at 1280×800, the lineups' case 2 at 390×844). A short label that would lie
 	// over a ring or over any mark but its own point's is left out, as one over a label is: the
 	// legend and the notes name the best efficiency point.
-	it('leaves a short label out where it would lie over a ring or another mark, as over a label', () => {
+	// Leftover L20 (pumps-nits.md §8.14 bullet 7; §11.5): moved from one place, above right, to the
+	// first clear of four, so "BEP" over a ring is written above left where that is free.
+	it('puts a short label at the first of four places clear of every ring, mark and label, else leaves it out (leftover L20)', () => {
 		const result = pumpResult({
 			bestEfficiencyPoint: { flow: 0.012, efficiency: 0.7, head: 18, headExtrapolated: false }
 		});
@@ -794,11 +802,37 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		// here; its box 206 to 224 across, 183 to 194 down, over its own cross (190.5 to 209.5).
 		expect(draw({ x: 600, y: 600 })).toEqual([{ text: 'BEP', x: 206, y: 194 }]);
 		// Case 2's ring (r 10 and half its 2 px border: 11) at (215, 180): 204 to 226 across, 169 to
-		// 191 down, over the box. Its own label goes right of it (228 on), clear of the box.
-		expect(draw({ x: 215, y: 180 })).toEqual([]);
+		// 191 down, over the box. Its own label goes right of it (228 on), clear of the box. Above
+		// left of the cross is free: 176 to 194 across, 183 to 194 down (leftover L20; was left out).
+		expect(draw({ x: 215, y: 180 })).toEqual([{ text: 'BEP', x: 176, y: 194 }]);
 		// The operating point's dot (r 6 and half its 2 px border: 7) at (230, 190): 223 to 237
-		// across, 183 to 197 down, over the box's right end.
-		expect(draw({ x: 600, y: 600 }, { x: 230, y: 190 })).toEqual([]);
+		// across, 183 to 197 down, over the box's right end; above left is free.
+		expect(draw({ x: 600, y: 600 }, { x: 230, y: 190 })).toEqual([{ text: 'BEP', x: 176, y: 194 }]);
+		// The third and fourth places, each where every place before it is taken (review LO-CODE-3:
+		// no test drew a label there, so deleting either place, or swapping them, passed). Case 2's
+		// ring at (215, 180) over above right and the duty's dot at (185, 185) (178 to 192 each way)
+		// over above left: below right, 206 to 224 across, 206 to 217 down.
+		expect(draw({ x: 215, y: 180 }, { x: 185, y: 185 })).toEqual([{ text: 'BEP', x: 206, y: 217 }]);
+		// The ring at (215, 200) (204 to 226 across, 189 to 211 down) over above right and below
+		// right, the dot over above left: below left, 176 to 194 across, 206 to 217 down.
+		expect(draw({ x: 215, y: 200 }, { x: 185, y: 185 })).toEqual([{ text: 'BEP', x: 176, y: 217 }]);
+		// Case 2's ring on the cross itself (189 to 211 each way) lies over all four places: above
+		// right, above left, below right (206 to 224, 206 to 217) and below left. Left out.
+		expect(draw({ x: 200, y: 200 })).toEqual([]);
+		// The three new places only inside the chart's area: a plot 195 to 230 across and 195 to 210
+		// down holds none of them (above left starts at 176, below ends at 217), so with the ring over
+		// above right "BEP" is left out; above right alone may leave the area, as before.
+		const edge = (ring: { x: number; y: number }) =>
+			drawCaseLabels(
+				config,
+				{ left: 195, right: 230, top: 195, bottom: 210 },
+				(tag) => (tag === '2' ? ring : { x: 700, y: 700 }),
+				(i) => (i === bep ? { x: 200, y: 200 } : far)
+			)
+				.written.filter((w) => w.text === 'BEP')
+				.map(({ x, y }) => [x, y]);
+		expect(edge({ x: 215, y: 180 })).toEqual([]);
+		expect(edge({ x: 600, y: 600 })).toEqual([[206, 194]]);
 		// Just clear of both: the ring's box ends at 182, above the box's top (183).
 		expect(draw({ x: 215, y: 171 }, { x: 232, y: 190 })).toEqual([{ text: 'BEP', x: 206, y: 194 }]);
 	});
@@ -833,8 +867,20 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		const ring = told[0]!.labels.find((l) => l.text === '[2]')!;
 		expect(ring.leader).toEqual({ x1: 215, y1: 180, x2: 215, y2: 194 });
 		// "BEP" would go 6 px right of its cross and 6 px above it: 206 to 224 across, 183 to 194
-		// down, the leader through it. Left out; the legend and the notes name the point.
-		expect(written.filter((w) => w.text === 'BEP')).toEqual([]);
+		// down, the leader through it. Leftover L20: moved from left out to its next place, above
+		// left, 176 to 194 across, clear of the leader, the ring and "[2]".
+		expect(
+			written.filter((w) => w.text === 'BEP').map(({ text, x, y }) => ({ text, x, y }))
+		).toEqual([{ text: 'BEP', x: 176, y: 194 }]);
+		// The canvas keeps each short label's place for measuring (`short`), its point too.
+		expect(told.at(-1)!.short).toEqual([
+			{
+				text: 'BEP',
+				at: { x: 200, y: 200 },
+				box: { left: 176, right: 194, top: 183, bottom: 194 },
+				drawn: true
+			}
+		]);
 	});
 
 	it('lists each ring in the legend where its dataset is, though it is drawn on top', () => {
@@ -1058,3 +1104,555 @@ describe('the group chart’s members as dots in their line’s colour (nit 5, s
 		);
 	});
 });
+
+// Leftover L16 (docs/proposals/pumps-nits.md §8.14 bullet 4; §11.5): the pump chart's legend drew
+// every curve's swatch solid, "Motor rated power (dashed)" and "Minimum flow (dash-dot)" among
+// them, since with usePointStyle Chart.js 4.5.1 takes an entry's style from its first point, which
+// has no dashes (the group chart's DOTS-LABELS-B3). Drawn here by Chart.js itself.
+describe('the pump chart’s legend draws each line in its dataset’s dashes (leftover L16)', () => {
+	const full = pumpResult({
+		efficiencyCurve: [
+			{ flow: 0.004, efficiency: 0.4 },
+			{ flow: 0.012, efficiency: 0.7 },
+			{ flow: 0.02, efficiency: 0.6 }
+		],
+		bestEfficiencyPoint: { flow: 0.012, efficiency: 0.7, head: 18, headExtrapolated: false },
+		powerCurve: [
+			{ flow: 0.004, shaftPower: 2000 },
+			{ flow: 0.02, shaftPower: 5000 }
+		],
+		npshrCurve: [
+			{ flow: 0, npshr: 1 },
+			{ flow: 0.03, npshr: 4 }
+		]
+	});
+	const checks = {
+		checks: {
+			npshMargin: { minimumMargin: 1, source: { kind: 'user' as const } },
+			operatingRegion: { preferredMin: 0.7, preferredMax: 1.2, source: { kind: 'user' as const } }
+		},
+		curve: {
+			id: 'C1',
+			name: 'Curve',
+			points: [
+				{ flow: 0, head: 30 },
+				{ flow: 0.02, head: 22 }
+			],
+			allowableOperatingRegion: { flowMin: 0.004, flowMax: 0.025 },
+			minimumContinuousStableFlow: 0.003,
+			motorRatedPower: 5500
+		},
+		sources: { npshMargin: 'your values', operatingRegion: 'your values' }
+	};
+
+	it('strokes each curve’s swatch with its own dashes, as drawn on the canvas, on screen and in the image', () => {
+		// Rated to 20 L/s, so the curve beyond it is dashed; a second case with its system curve.
+		const data = pumpChartData(full, SI_UNITS, [0, 0.02], systemCurveResponse(), null, checks);
+		const others = otherCasesData(
+			[
+				{
+					key: 'S1',
+					name: 'Winter',
+					result: pumpResult({ operatingFlow: 0.015, operatingHead: 25 }),
+					stale: false,
+					system: systemCurveResponse()
+				}
+			],
+			SI_UNITS,
+			[0, 0.02],
+			1,
+			null,
+			{ S1: 2 }
+		);
+		for (const forImage of [false, true]) {
+			const legend = drawnLegend(
+				pumpChartConfig(data, others, {
+					speedText: '100 % speed',
+					legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+					format: (v) => formatNumber(v, 4),
+					panels: ['head', 'efficiency', 'power', 'npsh'],
+					checks: true,
+					forImage
+				}),
+				900,
+				1100
+			);
+			const named = [
+				'Motor rated power (dashed)',
+				'Minimum flow (dash-dot)',
+				'Pump curve, extrapolated (dashed)',
+				'NPSHa required by the check (dotted)',
+				'NPSHr',
+				'System curve, case 2',
+				'Pump curve at 100 % speed',
+				'System curve'
+			];
+			expect(legend.items.map((i) => i.text)).toEqual(expect.arrayContaining(named));
+			const dash = (text: string) => legend.items.find((i) => i.text === text)!.lineDash;
+			expect(dash('Motor rated power (dashed)'), `forImage ${forImage}`).toEqual([6, 3]);
+			expect(dash('Minimum flow (dash-dot)')).toEqual([8, 3, 2, 3]);
+			expect(dash('Pump curve, extrapolated (dashed)')).toEqual([6, 4]);
+			expect(dash('NPSHa required by the check (dotted)')).toEqual([2, 2]);
+			expect(dash('NPSHr')).toEqual([8, 3]);
+			expect(dash('System curve, case 2')).toEqual([2, 3]);
+			// A solid curve stays solid.
+			expect(dash('Pump curve at 100 % speed')).toEqual([]);
+			expect(dash('System curve')).toEqual([]);
+			// Each line entry's dashes are its dataset's own, and its swatch is stroked with them, in
+			// the legend's order (the shutoff's dash, a point style, is one solid segment too).
+			const lines = legend.items.filter((i) => i.pointStyle === 'line');
+			for (const line of lines) expect(line.lineDash, line.text).toEqual(line.own);
+			expect(legend.swatches.map((s) => s.dash)).toEqual(
+				legend.items
+					.filter((i) => i.pointStyle === 'line' || i.pointStyle === 'dash')
+					.map((i) => (i.pointStyle === 'line' ? i.own : []))
+			);
+		}
+	});
+});
+
+// Leftover L21c (pumps-nits.md §8.14 bullet 8; §11.5): Chart.js gives each of the left stack's y
+// axes at most the canvas's width / 2 / their count, so on a phone the four panels' axes were
+// 42.5, 38.8 and 33.8 px wide at 390, 360 and 320 px where about 49 px is needed, and the ticks
+// overprinted the axis titles. Each stacked y axis now takes the width its title, tick, padding
+// and widest tick label need, as Chart.js's own fit sums them.
+describe('the pump chart’s stacked y axes as wide as their titles and ticks need (leftover L21c)', () => {
+	const full = pumpResult({
+		efficiencyCurve: [
+			{ flow: 0.004, efficiency: 0.4 },
+			{ flow: 0.012, efficiency: 0.7 },
+			{ flow: 0.02, efficiency: 0.6 }
+		],
+		powerCurve: [
+			{ flow: 0.004, shaftPower: 2000 },
+			{ flow: 0.02, shaftPower: 5000 }
+		],
+		npshrCurve: [
+			{ flow: 0, npshr: 1 },
+			{ flow: 0.03, npshr: 4 }
+		]
+	});
+	const data = pumpChartData(full, SI_UNITS, [0, 0.03], systemCurveResponse());
+	const ids = ['y', 'yEfficiency', 'yPower', 'yNpsh'];
+	/** Each y axis's width and what it needs, Chart.js laying the chart out at `width` × 544. */
+	const axes = (width: number, config = configOf()) => {
+		const chart = laidOut(config, width, 544);
+		try {
+			return ids.map((id) => {
+				const scale = chart.scales[id]!;
+				const widest = Math.max(...scale.ticks.map((t) => String(t.label).length * 6));
+				// Chart.js's fit, uncapped: the title (12 px × 1.2 line, 4 px above and below), the
+				// tick (8 px), the tick label's padding each side (3 px) and the widest label.
+				return { id, width: scale.width, needs: 12 * 1.2 + 8 + 8 + 2 * 3 + widest };
+			});
+		} finally {
+			chart.destroy();
+		}
+	};
+	const configOf = () =>
+		pumpChartConfig(data, [], {
+			speedText: '100 % speed',
+			legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+			format: (v) => formatNumber(v, 4),
+			panels: ['head', 'efficiency', 'power', 'npsh'],
+			compactLabels: true
+		});
+
+	it('gives each of the four panels’ y axes the width it needs on a 270 px phone canvas', () => {
+		const phone = axes(270);
+		// Chart.js's cap there: (270 − its padding) / 2 / 4 at most.
+		for (const axis of phone) {
+			expect(axis.needs, axis.id).toBeGreaterThan(270 / 2 / 4);
+			expect(axis.width, axis.id).toBeGreaterThanOrEqual(axis.needs - 1e-9);
+		}
+	});
+
+	it('leaves the axes as Chart.js fits them where they fit (454 px)', () => {
+		const own = configOf();
+		const plain = configOf();
+		for (const scale of Object.values(plain.options!.scales!))
+			delete (scale as { afterFit?: unknown }).afterFit;
+		expect(axes(454, own).map((a) => a.width)).toEqual(axes(454, plain).map((a) => a.width));
+	});
+});
+
+// Review LO-OWNER-1, LO-CODE-2 (pumps-nits.md §11.8): Chart.js gives each stacked panel its stack
+// weight's share of the plot (3, 1, 1 and 1.3) and draws each panel's rotated title centred on it,
+// so where a phone's canvas legend took the plot's height a lower panel was shorter than its title
+// and the titles ran together ("NPSH (m)P (kW)" at 320×640 in the one-off with its checks). Each
+// panel is now at least its title's length and 8 px tall, the height taken from the panels with
+// room in proportion to their weights; where every title fits, Chart.js's layout is kept.
+describe('the pump chart’s stacked panels at least as tall as their titles (review LO-OWNER-1)', () => {
+	const full = pumpResult({
+		efficiencyCurve: [
+			{ flow: 0.004, efficiency: 0.4 },
+			{ flow: 0.012, efficiency: 0.7 },
+			{ flow: 0.02, efficiency: 0.6 }
+		],
+		powerCurve: [
+			{ flow: 0.004, shaftPower: 2000 },
+			{ flow: 0.02, shaftPower: 5000 }
+		],
+		npshrCurve: [
+			{ flow: 0, npshr: 1 },
+			{ flow: 0.03, npshr: 4 }
+		]
+	});
+	const data = pumpChartData(full, SI_UNITS, [0, 0.03], systemCurveResponse());
+	/** Five other cases, each with its system curve: on a phone two legend entries more. */
+	const others = otherCasesData(
+		[1, 2, 3, 4, 5].map((n) => ({
+			key: `S${n}`,
+			name: `Case ${n}`,
+			result: pumpResult({ operatingFlow: 0.01 + 0.001 * n, operatingHead: 28 - n }),
+			stale: false,
+			system: systemCurveResponse()
+		})),
+		SI_UNITS,
+		[0, 0.03],
+		1,
+		null,
+		{ S1: 1, S2: 2, S3: 3, S4: 4, S5: 5 }
+	);
+	const configOf = (phone: boolean) =>
+		pumpChartConfig(data, others, {
+			speedText: '100 % speed',
+			legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+			format: (v) => formatNumber(v, 4),
+			panels: ['head', 'efficiency', 'power', 'npsh'],
+			compactLabels: phone
+		});
+	/**
+	 * Each stacked panel from the top, Chart.js laying the chart out at `width` × `height`: its
+	 * extent and its title's, the title centred on it and 6 px a character long (laidOut).
+	 */
+	const panelsOf = (width: number, height: number, phone: boolean) => {
+		const chart = laidOut(configOf(phone), width, height);
+		try {
+			return ['y', 'yEfficiency', 'yPower', 'yNpsh']
+				.map((id) => {
+					const s = chart.scales[id]!;
+					const title = String((s.options as unknown as { title: { text: string } }).title.text);
+					const middle = (s.top + s.bottom) / 2;
+					return {
+						id,
+						top: s.top,
+						bottom: s.bottom,
+						// Each scale configured for its extent: its pixels span it.
+						ends: [s.getPixelForDecimal(1), s.getPixelForDecimal(0)],
+						title: { top: middle - title.length * 3, bottom: middle + title.length * 3 }
+					};
+				})
+				.sort((a, b) => a.top - b.top);
+		} finally {
+			chart.destroy();
+		}
+	};
+	const gaps = (panels: ReturnType<typeof panelsOf>) =>
+		panels.slice(1).map((p, i) => p.title.top - panels[i]!.title.bottom);
+
+	// A 270 px phone canvas 420 px high: its legend and axis leave the four panels 213 px, the
+	// one-off's 250 px at 320×640 scaled to these titles (6 px a character). By the weights alone
+	// "η (%)" and "P (kW)" are 0.8 px apart and "P (kW)" and "NPSH (m)" overlap by 3.1 px.
+	it('keeps adjacent titles 8 px apart on a phone canvas whose legend takes the plot’s height', () => {
+		const panels = panelsOf(270, 420, true);
+		expect(gaps(panels).filter((gap) => gap < 8 - 1e-9)).toEqual([]);
+		// Still one stack: each panel from the one above's foot, the plot's height unchanged.
+		for (let i = 1; i < panels.length; i++)
+			expect(panels[i]!.top).toBeCloseTo(panels[i - 1]!.bottom, 9);
+		for (const p of panels) {
+			expect(p.ends[0]).toBeCloseTo(p.top, 9);
+			expect(p.ends[1]).toBeCloseTo(p.bottom, 9);
+		}
+	});
+
+	// Too short for every title and its 8 px (a 270 × 330 canvas, 123 px for the panels): each panel
+	// its floor's share, so each title overruns its panel by the same share of its floor.
+	it('gives each panel its title’s share where not every title fits', () => {
+		const panels = panelsOf(270, 330, true);
+		const floors = ['Head (m)', 'η (%)', 'P (kW)', 'NPSH (m)'].map((t) => t.length * 6 + 8);
+		const heights = panels.map((p) => p.bottom - p.top);
+		const total = heights.reduce((s, h) => s + h, 0);
+		expect(total).toBeLessThan(floors.reduce((s, f) => s + f, 0));
+		const sum = floors.reduce((s, f) => s + f, 0);
+		heights.forEach((h, i) => expect(h).toBeCloseTo((total * floors[i]!) / sum, 9));
+		for (let i = 1; i < panels.length; i++)
+			expect(panels[i]!.top).toBeCloseTo(panels[i - 1]!.bottom, 9);
+	});
+
+	it('leaves Chart.js’s layout as it is where every title fits (454 × 624)', () => {
+		const panels = panelsOf(454, 624, false);
+		for (const gap of gaps(panels)) expect(gap).toBeGreaterThanOrEqual(8);
+		// The weights' shares, 3 : 1 : 1 : 1.3, untouched.
+		const heights = panels.map((p) => p.bottom - p.top);
+		const total = heights.reduce((s, h) => s + h, 0);
+		expect(heights.map((h) => (h / total) * 6.3)).toEqual([
+			expect.closeTo(3, 9),
+			expect.closeTo(1, 9),
+			expect.closeTo(1, 9),
+			expect.closeTo(1.3, 9)
+		]);
+	});
+});
+
+// Leftovers L17 and L18 (pumps-nits.md §8.14 bullets 5 and 6; §11.5): Chart.js 4.5.1's horizontal
+// legend lays each entry out as one line, so an entry wider than the canvas was cut ("Case 3: 1
+// of 4 running (…)" at 390 px), and it draws at most half the canvas high, so rows past that were
+// not drawn (the condenser's five rings listed as one at 320 px). Laid out here by Chart.js itself
+// (BasicPlatform, 6 px a character), its hit boxes being where it draws each entry.
+describe('the canvas legends fit their canvas (leftovers L17 and L18)', () => {
+	const RINGS = 'Other cases (a numbered ring each)';
+	const SYSTEMS = "Other cases' system curves (dotted)";
+	const NAMES = [
+		'3 of 4 running (Pump P4 off)',
+		'2 of 4 running (Pump P3, Pump P4 off)',
+		'1 of 4 running (Pump P2, Pump P3, Pump P4 off)',
+		'Pump P1 off with the discharge valve throttled',
+		'Pump P2 off with the discharge valve throttled'
+	];
+	const pumpWith = (names: readonly string[], options: Partial<PumpChartConfigOptions> = {}) => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], systemCurveResponse());
+		const others = otherCasesData(
+			names.map((name, i) => ({
+				key: `S${i + 1}`,
+				name,
+				result: pumpResult({ operatingFlow: 0.012 + 0.002 * i, operatingHead: 27 - i }),
+				stale: false,
+				system: systemCurveResponse()
+			})),
+			SI_UNITS,
+			[0, 0.03],
+			1,
+			null,
+			Object.fromEntries(names.map((_, i) => [`S${i + 1}`, i + 1]))
+		);
+		return pumpChartConfig(data, others, {
+			speedText: '100 % speed',
+			legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+			format: (v) => formatNumber(v, 4),
+			...options
+		});
+	};
+	/** The legend Chart.js laid out: its box, and each entry with its hit box and datasets. */
+	const legendOf = (chart: ReturnType<typeof laidOut>) => {
+		const legend = chart.legend as unknown as {
+			left: number;
+			top: number;
+			right: number;
+			bottom: number;
+			legendItems: (LegendItem & { datasetIndices?: number[] })[];
+			legendHitBoxes: { left: number; top: number; width: number; height: number }[];
+		};
+		return {
+			box: { left: legend.left, top: legend.top, right: legend.right, bottom: legend.bottom },
+			entries: legend.legendItems.map((item, k) => ({
+				item,
+				text: item.text,
+				swatch: item.lineWidth !== 0,
+				datasets: item.datasetIndices ?? [item.datasetIndex!],
+				hit: legend.legendHitBoxes[k]!
+			}))
+		};
+	};
+	/** Each entry drawn whole: inside the canvas and inside the legend's box (Chart.js clips it). */
+	const outside = (chart: ReturnType<typeof laidOut>, width: number) => {
+		const { box, entries } = legendOf(chart);
+		return entries
+			.filter(
+				({ hit }) =>
+					hit.left < Math.max(0, box.left) - 0.01 ||
+					hit.left + hit.width > Math.min(width, box.right) + 0.01 ||
+					hit.top < box.top - 0.01 ||
+					hit.top + hit.height > box.bottom + 0.01
+			)
+			.map(({ text, hit }) => `"${text}" at ${JSON.stringify(hit)} outside ${JSON.stringify(box)}`);
+	};
+	const ringsOf = (config: PumpChartConfig) =>
+		config.data.datasets.flatMap((d, i) => ((d as { otherCase?: boolean }).otherCase ? [i] : []));
+	const systemsOf = (config: PumpChartConfig) =>
+		config.data.datasets.flatMap((d, i) => (/^System curve, case /.test(d.label ?? '') ? [i] : []));
+
+	it('on a phone’s 270 px canvas lists five rings and five system curves as two entries, every entry whole and drawn', () => {
+		const config = pumpWith(NAMES, { compactLabels: true });
+		const chart = laidOut(config, 270, 544);
+		try {
+			expect(outside(chart, 270)).toEqual([]);
+			const { entries } = legendOf(chart);
+			const rings = entries.find((e) => e.text === RINGS);
+			const systems = entries.find((e) => e.text === SYSTEMS);
+			expect(rings?.datasets).toEqual(ringsOf(config));
+			expect(systems?.datasets).toEqual(systemsOf(config));
+			expect(ringsOf(config)).toHaveLength(5);
+			// Every other dataset Chart.js lists is an entry of its own, drawn.
+			const listed = entries.flatMap((e) => e.datasets);
+			for (const i of [...ringsOf(config), ...systemsOf(config)]) expect(listed).toContain(i);
+			expect(entries.some((e) => /^Case \d/.test(e.text))).toBe(false);
+		} finally {
+			chart.destroy();
+		}
+	});
+
+	// Critique CR-ENG-2: Chart.js's own click toggles the one dataset of an entry.
+	it('hides every ring with one press on the collapsed entry, and shows them all with the next', () => {
+		const config = pumpWith(NAMES, { compactLabels: true });
+		const chart = laidOut(config, 270, 544);
+		try {
+			const press = () => {
+				const entry = legendOf(chart).entries.find((e) => e.text === RINGS);
+				expect(entry, 'the rings’ one entry').toBeDefined();
+				if (!entry) return;
+				const click = chart.options.plugins!.legend!.onClick! as (...args: unknown[]) => void;
+				click.call(chart.legend, {}, entry.item, chart.legend);
+			};
+			press();
+			for (const i of ringsOf(config)) expect(chart.isDatasetVisible(i), `ring ${i}`).toBe(false);
+			expect(legendOf(chart).entries.find((e) => e.text === RINGS)?.item.hidden).toBe(true);
+			// The rest untouched.
+			for (const i of systemsOf(config)) expect(chart.isDatasetVisible(i)).toBe(true);
+			press();
+			for (const i of ringsOf(config)) expect(chart.isDatasetVisible(i), `ring ${i}`).toBe(true);
+			// Any other entry: Chart.js's own click, its one dataset.
+			const pump = legendOf(chart).entries.find((e) => e.text === 'Pump curve at 100 % speed')!;
+			const click = chart.options.plugins!.legend!.onClick! as (...args: unknown[]) => void;
+			click.call(chart.legend, {}, pump.item, chart.legend);
+			expect(chart.isDatasetVisible(pump.item.datasetIndex!)).toBe(false);
+		} finally {
+			chart.destroy();
+		}
+	});
+
+	// Critique CR-OWNER-7: from 640 px the entries name each case; a long one wraps.
+	it('keeps an entry per case at 454 px, a 70-character name written on two rows, its second without a swatch, none cut', () => {
+		// 70 characters: "Case 2: " and the name 468 px at 6 px a character, wider than the canvas.
+		const long = 'Summer peak with every pump of the north header at full speed on duty!';
+		expect(long).toHaveLength(70);
+		const config = pumpWith(['Winter', long]);
+		const chart = laidOut(config, 454, 544);
+		try {
+			expect(outside(chart, 454)).toEqual([]);
+			const { entries } = legendOf(chart);
+			expect(entries.some((e) => e.text === RINGS)).toBe(false);
+			expect(entries.map((e) => e.text)).toContain('Case 1: Winter');
+			const rows = entries.filter((e) => e.datasets[0] === ringsOf(config)[1]);
+			expect(rows.length).toBeGreaterThanOrEqual(2);
+			expect(rows.map((r) => r.text).join(' ')).toBe(`Case 2: ${long}`);
+			expect(rows.map((r) => r.swatch)).toEqual([true, ...rows.slice(1).map(() => false)]);
+			// Each row on a row of its own.
+			const tops = rows.map((r) => r.hit.top);
+			expect(new Set(tops).size).toBe(rows.length);
+		} finally {
+			chart.destroy();
+		}
+	});
+
+	it('draws the group image’s legend whole at 800 px with a merged ring entry and four 40-character pump names', () => {
+		const view = lineupView('');
+		const name = (c: string) => `${c.repeat(36)} P${c}x`;
+		const names = ['A', 'B', 'C', 'D'].map(name);
+		expect(names.every((n) => n.length === 40)).toBe(true);
+		const data: GroupChartData = {
+			...view.data,
+			lines: view.data.lines.map((line) => ({
+				...line,
+				label: `${names.slice(0, 3).join(', ')} and ${names[3]}, 100 % speed (each one's flow)`
+			})),
+			others: view.data.others.map((ring, i, all) =>
+				i === all.length - 1
+					? {
+							...ring,
+							label:
+								'Case 4: Pump P1 off with the discharge valve throttled, case 5: Pump P2 off with the discharge valve throttled and case 6: Pump P3 off with the discharge valve throttled (station duties, equal within the duty checks’ tolerances)'
+						}
+					: ring
+			)
+		};
+		const chart = laidOut(
+			pumpGroupConfig(data, {
+				legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+				format: (v) => formatNumber(v, 4),
+				forImage: true
+			}),
+			800,
+			440
+		);
+		try {
+			expect(outside(chart, 800)).toEqual([]);
+			const texts = legendOf(chart).entries.map((e) => e.text);
+			expect(texts.join(' ')).toContain(names[0]);
+		} finally {
+			chart.destroy();
+		}
+	});
+});
+
+/** Chart.js lays out `config` on a `width` × `height` canvas (BasicPlatform; 6 px a character). */
+function laidOut(config: ReturnType<typeof pumpChartConfig>, width: number, height: number) {
+	const ctx: Record<string | symbol, unknown> = new Proxy({} as Record<string | symbol, unknown>, {
+		get(target, prop) {
+			if (prop in target) return target[prop];
+			if (prop === 'measureText') return (text: string) => ({ width: String(text).length * 6 });
+			if (prop === 'getLineDash') return () => [];
+			return () => undefined;
+		}
+	});
+	const canvas = { width, height, style: {}, getContext: () => ctx };
+	ctx.canvas = canvas;
+	return new Chart(canvas as never, { ...config, platform: BasicPlatform } as never);
+}
+
+/**
+ * Chart.js lays out and draws `config` on a canvas of `width` × `height` in the `server` project
+ * (BasicPlatform, no DOM), the context recording each stroke's dashes and points (text measured at
+ * 6 px a character); then its legend is drawn again on its own. Its items with each one's dataset's
+ * own `borderDash`, and the 'line' swatches stroked (two points in their path), in order.
+ */
+function drawnLegend(
+	config: ReturnType<typeof pumpChartConfig>,
+	width: number,
+	height: number
+): {
+	items: {
+		text: string;
+		pointStyle: unknown;
+		lineDash: number[] | undefined;
+		hidden: boolean | undefined;
+		own: number[];
+	}[];
+	swatches: { dash: number[]; points: number }[];
+} {
+	const strokes: { dash: number[]; points: number }[] = [];
+	let dash: number[] = [];
+	let points = 0;
+	const ctx: Record<string | symbol, unknown> = new Proxy({} as Record<string | symbol, unknown>, {
+		get(target, prop) {
+			if (prop in target) return target[prop];
+			if (prop === 'measureText') return (text: string) => ({ width: String(text).length * 6 });
+			if (prop === 'setLineDash') return (d: number[]) => (dash = [...d]);
+			if (prop === 'getLineDash') return () => [...dash];
+			if (prop === 'beginPath') return () => (points = 0);
+			if (prop === 'moveTo' || prop === 'lineTo') return () => points++;
+			if (prop === 'stroke') return () => strokes.push({ dash: [...dash], points });
+			return () => undefined;
+		}
+	});
+	const canvas = { width, height, style: {}, getContext: () => ctx };
+	ctx.canvas = canvas;
+	const chart = new Chart(canvas as never, { ...config, platform: BasicPlatform } as never);
+	try {
+		const items = chart.legend!.legendItems!.map((item) => ({
+			text: item.text,
+			pointStyle: item.pointStyle,
+			lineDash: item.lineDash,
+			hidden: item.hidden,
+			own: [
+				...((chart.data.datasets[item.datasetIndex ?? -1] as { borderDash?: number[] } | undefined)
+					?.borderDash ?? [])
+			]
+		}));
+		strokes.length = 0;
+		chart.legend!.draw(chart.chartArea);
+		return { items, swatches: strokes.filter((s) => s.points === 2) };
+	} finally {
+		chart.destroy();
+	}
+}

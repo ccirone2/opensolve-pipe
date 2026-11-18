@@ -763,7 +763,12 @@ describe('the chart configuration', () => {
 			'Case 1: Pump PA off (station duty)',
 			'Case 2: Pump PB off (station duty)'
 		]);
-		expect(labels.slice(0, -2)).toEqual(sets.filter((d) => d.order !== -1).map((d) => d.label));
+		// Leftovers L17, L18: moved from every other dataset to those the legend lists (its
+		// `filter`'s): generateLabels leaves out what the filter would, so it fits what is drawn.
+		expect(labels.slice(0, -2)).toEqual(
+			sets.filter((d) => d.order !== -1 && d.legend !== false).map((d) => d.label)
+		);
+		expect(sets.some((d) => d.legend === false)).toBe(true);
 	});
 
 	// Nit 5, slice 5c (rule 7): moved from a stand-in chart with every point at (100, 100), where
@@ -1406,6 +1411,42 @@ describe('the curve family: labels on the curves', () => {
 			'Labels of 1 curve are left out for space; the data table lists every curve.'
 		);
 		expect(notesFor(lineupView('')).others.join(' ')).not.toContain('left out for space');
+	});
+
+	// Leftover L21b (pumps-nits.md §8.14 bullet 8; §11.5): curve labels 3 px apart on one row read
+	// as one ("[1, 2] 1 running" 4.2 px from "2 running (this case)" in the one-off at 1280 px).
+	// Curve labels on one row are now 6 px apart or more; the obstacles keep their 3 px.
+	it('keeps curve labels on one row 6 px apart or more: one 4.2 px from another moves up a row; an obstacle 4.2 px off does not move it (leftover L21b)', () => {
+		const fixed = (text: string) => text.length * 6;
+		const plot = { left: 0, right: 400, top: 0, bottom: 300 };
+		// "[1] 1 running" ends 4 px left of its anchor at 100: its box 18..96 on row 0. "[2] 2
+		// running" (another count, so never merged) starts 4.2 px right of it: its anchor at 182.2.
+		expect(fixed('[2] 2 running')).toBe(78);
+		const curves: CurveLabelInput[] = [
+			{ anchor: { x: 100, y: 200 }, k: 1, numbers: [1] },
+			{ anchor: { x: 182.2, y: 200 }, k: 2, numbers: [2] }
+		];
+		const placed = placeCurveLabels(curves, [], plot, fixed);
+		expect(placed.labels.map((l) => [l.text, l.row])).toEqual([
+			['[1] 1 running', 0],
+			['[2] 2 running', 1]
+		]);
+		expect(placed.labels[1]!.box.left - placed.labels[0]!.box.right).toBeCloseTo(4.2, 9);
+		// 6 px apart: both on row 0.
+		const apart = placeCurveLabels(
+			[curves[0]!, { anchor: { x: 184, y: 200 }, k: 2, numbers: [2] }],
+			[],
+			plot,
+			fixed
+		);
+		expect(apart.labels.map((l) => [l.text, l.row])).toEqual([
+			['[1] 1 running', 0],
+			['[2] 2 running', 0]
+		]);
+		// An obstacle 4.2 px right of a label: 3 px is enough there, the label stays on its row.
+		const box = placed.labels[0]!.box;
+		const near = { left: box.right + 4.2, right: box.right + 30, top: box.top, bottom: box.bottom };
+		expect(placeCurveLabels([curves[0]!], [near], plot, fixed).labels[0]!.row).toBe(0);
 	});
 
 	it('anchors a label at the curve’s drawn point of largest flow inside the plot', () => {
@@ -2351,6 +2392,41 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		expect(lineupView('', { without: true }).data.xMin).toBeNull();
 	});
 
+	// Leftover L21a (pumps-nits.md §8.14 bullet 8; §11.5): the curve labels' boxes were unfilled, so
+	// a dashed curve ran through the digits ("[5] 2 running" in the condenser at 1280 px), and the
+	// group system curve's tag had no halo. Now each curve label as a point's: its box filled with
+	// the surface, its words over a 3 px stroke of it; the tag haloed the same way.
+	it('fills each curve label’s box with the surface and haloes its words, and haloes the group system curve’s tag (leftover L21a)', () => {
+		const { data } = lineupView('');
+		const told: CurveLabelsDrawn[] = [];
+		const chart = drawnChart(
+			config(data, { curveLabels: tools, onlabels: (d: CurveLabelsDrawn) => told.push(d) })
+		);
+		chart.draw();
+		const drawn = told[0]!;
+		expect(drawn.labels.length).toBeGreaterThan(1);
+		expect(drawn.labels.some((l) => l.text.startsWith('['))).toBe(true);
+		const haloOf = (text: string, y: number) =>
+			chart.halos.filter(
+				(h) => h.text === text && h.y === y && h.color === '#ffffff' && h.lineWidth === 3
+			);
+		for (const label of drawn.labels) {
+			// Its numbers' box filled with the surface, with its slate edge.
+			expect(chart.label(label.text, '#ffffff'), label.text).toBeDefined();
+			// Its words over the halo, where they are written.
+			const words = label.text.replace(/^\[[^\]]+\] /, '');
+			const written = chart.written.filter((w) => w.text === words && w.y === label.y);
+			expect(written, label.text).toHaveLength(1);
+			expect(
+				haloOf(words, label.y).map((h) => h.x),
+				label.text
+			).toEqual([written[0]!.x]);
+		}
+		expect(drawn.tags.map((t) => t.text)).toEqual([GROUP_SYSTEM_TAG]);
+		const tag = drawn.tags[0]!;
+		expect(haloOf(GROUP_SYSTEM_TAG, tag.y).map((h) => h.x)).toEqual([tag.x]);
+	});
+
 	it('draws each curve’s label where placeCurveLabels puts it, clear of every marker, label and tag, in its colour, and tells where', () => {
 		const { data } = lineupView('');
 		const told: CurveLabelsDrawn[] = [];
@@ -2497,7 +2573,8 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		// Written where placed: other cases' in slate, this case's in ink; another case's numbers in
 		// a box before its words (nit 5, slice 5b: fillLabel, drawnChart's `label`).
 		for (const label of drawn.labels) {
-			expect(chart.label(label.text)).toEqual({
+			// Leftover L21a: moved from unfilled (the default `fill`, null) to the surface's fill.
+			expect(chart.label(label.text, '#ffffff')).toEqual({
 				text: label.text,
 				x: label.x,
 				y: label.y,
@@ -2567,6 +2644,74 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 			for (const label of drawn.labels)
 				expect(boxesMeet(tag.box, label.box), label.text).toBe(false);
 		}
+	});
+
+	// Leftover L14 (pumps-nits.md §8.14 bullet 2; §11.5): the group system curve's tag, placed last,
+	// tried four spots by its curve's end only, so it was left out where those were taken (the
+	// condenser at 1280 px, the lineups at 390), though its curve ran on clear. It now walks back
+	// along its own curve, the same four spots by each earlier drawn point.
+	it('walks the group system curve’s tag back along its curve where the spots by its end are taken; left out and named by its end where none is free (leftover L14)', () => {
+		const DESKTOP = { left: 55, right: 554, top: 8, bottom: 243 };
+		const { data } = lineupView('S3');
+		const told: CurveLabelsDrawn[] = [];
+		const chart = drawnChart(
+			config(data, { curveLabels: tools, onlabels: (d: CurveLabelsDrawn) => told.push(d) }),
+			{ plot: DESKTOP }
+		);
+		chart.draw();
+		const drawn = told[0]!;
+		// "1 of 4 running" on m4's desktop plot: the four spots by the curve's end are taken (its
+		// end at 67.07 L/s and 31.55 m, where the tag was left out); one by an earlier point is free.
+		const system = (data.system ?? []).filter((p): p is { x: number; y: number } => p.y !== null);
+		const px = (p: { x: number; y: number }) => ({ x: chart.px(p.x), y: chart.py(p.y) });
+		const inside = system
+			.map(px)
+			.filter(
+				(p) =>
+					p.x >= DESKTOP.left && p.x <= DESKTOP.right && p.y >= DESKTOP.top && p.y <= DESKTOP.bottom
+			);
+		const end = inside.at(-1)!;
+		expect(drawn.tagsLeftOut).toEqual([]);
+		expect(drawn.tags.map((t) => t.text)).toEqual([GROUP_SYSTEM_TAG]);
+		const tag = drawn.tags[0]!;
+		const width = GROUP_SYSTEM_TAG.length * 6;
+		/** The four spots by a drawn point (its row above, its row below; ending at it, or after it). */
+		const spots = (p: { x: number; y: number }) => {
+			const inX = (x: number) => Math.max(DESKTOP.left + 2, Math.min(x, DESKTOP.right - width - 2));
+			const row = Math.max(DESKTOP.top + 14, p.y - 8);
+			const below = p.y + 12 + 4;
+			return [
+				{ x: inX(p.x - width), y: row },
+				{ x: p.x + 4, y: row },
+				{ x: p.x + 4, y: below },
+				{ x: inX(p.x - width - 4), y: below }
+			];
+		};
+		// Not by its end: by an earlier drawn point of its own curve.
+		expect(spots(end).some((s) => s.x === tag.x && s.y === tag.y)).toBe(false);
+		const by = inside.findIndex((p) => spots(p).some((s) => s.x === tag.x && s.y === tag.y));
+		expect(by).toBeGreaterThanOrEqual(0);
+		expect(by).toBeLessThan(inside.length - 1);
+		// Clear of every point label, leader, mark and curve label, inside the plot.
+		for (const o of [...drawn.obstacles, ...drawn.labels])
+			expect(boxesMeet(tag.box, o.box), o.text).toBe(false);
+		expect(tag.box.left).toBeGreaterThanOrEqual(DESKTOP.left);
+		expect(tag.box.right).toBeLessThanOrEqual(DESKTOP.right);
+		// Nowhere free (a plot narrower than the tag): left out, named with its end's values.
+		const narrow: CurveLabelsDrawn[] = [];
+		drawnChart(
+			config(data, { curveLabels: tools, onlabels: (d: CurveLabelsDrawn) => narrow.push(d) }),
+			{ plot: { left: 50, right: 50 + width - 1, top: 8, bottom: 243 } }
+		).draw();
+		expect(narrow[0]!.tags).toEqual([]);
+		expect(narrow[0]!.tagsLeftOut).toEqual([
+			{
+				name: GROUP_SYSTEM_TAG,
+				mark: 'end',
+				flow: expect.stringMatching(/ L\/s$/),
+				head: expect.stringMatching(/ m$/)
+			}
+		]);
 	});
 
 	it('keeps each label off every ring’s tag, marker and point’s label where they are in the way, or leaves it out', () => {
@@ -2684,10 +2829,11 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		]);
 		expect(s3Desktop.placed.leftOut).toBe(0);
 		expect(rowsOf(s3Desktop, [1, 4, 5, 6], 3, false)[0]).toEqual([]);
-		expect(s3Desktop.placed.tags).toEqual([]);
-		expect(s3Desktop.placed.tagsLeftOut).toEqual([
-			{ name: GROUP_SYSTEM_TAG, mark: 'end', flow: '67.07 L/s', head: '31.55 m' }
-		]);
+		// Leftover L14: moved from "left out and named with its end's values" (67.07 L/s, 31.55 m):
+		// the spots by its end are still taken, and it walks back along its curve to a free one (the
+		// L14 test above pins where).
+		expect(s3Desktop.placed.tags.map((t) => t.text)).toEqual([GROUP_SYSTEM_TAG]);
+		expect(s3Desktop.placed.tagsLeftOut).toEqual([]);
 		expect(
 			s3Desktop.placed.obstacles
 				.filter((o) => o.kind === 'ring')
@@ -2732,7 +2878,8 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 			const labels = told[0]!.labels;
 			return {
 				texts: labels.map((l) => l.text).sort(),
-				fonts: [...new Set(labels.map((l) => chart.label(l.text)!.font))]
+				// Leftover L21a: each label's box filled with the surface (was unfilled).
+				fonts: [...new Set(labels.map((l) => chart.label(l.text, '#ffffff')?.font))]
 			};
 		};
 		expect(texts({ compactLabels: true })).toEqual({

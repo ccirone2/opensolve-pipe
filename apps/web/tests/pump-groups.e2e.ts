@@ -699,7 +699,7 @@ async function addAndSolve(page: Page) {
 	await block.getByRole('button', { name: 'Add 2 cases' }).click();
 	await expect(
 		page.getByText(
-			'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+			'Added 2 cases with one pump off: case 1 «Pump PA off» and case 2 «Pump PB off». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		)
 	).toBeVisible();
 	// The focus stays on Add, which then reads "Add cases"; the menu's Solve all counts the two.
@@ -780,8 +780,10 @@ test('one pump off: the cases added in one step, solved, each pump listed and ea
 	const paExtremes = extremes
 		.getByRole('row')
 		.filter({ has: page.getByRole('rowheader', { name: 'Pump PA', exact: true }) });
+	// Its case by its number since pumps-nits.md §11.4 (leftover L10): the box's hidden words and
+	// number ("Case 2:", "2"), then the case's name.
 	await expect(paExtremes.locator('[data-label="Largest flow"]')).toHaveText(
-		/^[\d.]+ L\/s in Pump PB off; beyond its curve data/
+		/^[\d.]+ L\/s in Case 2:\s*2\s*Pump PB off; beyond its curve data/
 	);
 
 	// Each case's station duty, a slate ring on the base case's group system curve, named by its
@@ -1001,7 +1003,7 @@ test('add cases by number running: the stop order moved, three cases added and s
 	await block.getByRole('button', { name: 'Add 3 cases' }).click();
 	await expect(
 		page.getByText(
-			`Added 3 cases by number running: ${andList(names.map((n) => `«${n}»`))}. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.`
+			`Added 3 cases by number running: ${andList(names.map((n, i) => `case ${i + 1} «${n}»`))}. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.`
 		)
 	).toBeVisible();
 	await expect(block.getByRole('button', { name: /^Add( \d+)? cases?$/ })).toBeFocused();

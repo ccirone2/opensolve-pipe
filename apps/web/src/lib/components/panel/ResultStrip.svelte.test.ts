@@ -100,6 +100,30 @@ describe('results in context', () => {
 		expect(text).toMatch(/[-−]2\.521/);
 	});
 
+	it('gives the NPSH margin of a pump with NPSHr 0 that does not cavitate as its fourth item, "—" and then its words (pumps-nits.md §11, leftover L1)', async () => {
+		// Made-up: NPSHr 0 at the operating flow and NPSHa 5 m: a margin of 5 m, no ratio, no flag.
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ npshAvailable: 5, npshRequired: 0, npshMargin: 5, npshMarginRatio: null })
+			}
+		});
+		const { ws } = mount(() => Promise.resolve(response(solved)));
+		await ws.solve();
+		ws.nav.jumpTo('P1');
+		ws.pane = 'build';
+		await tick();
+		const [strip] = strips();
+		const items = [...strip!.querySelectorAll('dl > div')];
+		expect(items).toHaveLength(4);
+		const fourth = items[3]!;
+		expect(fourth.querySelector('dt')?.textContent?.trim()).toBe('NPSH margin ratio');
+		// Its two lines, each a block of its own (CellValue).
+		const lines = [...fourth.querySelector('dd')!.querySelectorAll(':scope > span')].map((s) =>
+			s.textContent?.replace(/\s+/g, ' ').trim()
+		);
+		expect(lines).toEqual(['—', 'NPSHr 0: NPSH margin 5 m']);
+	});
+
 	it('shows a connection’s flow, velocity and head loss in Piping', async () => {
 		const { ws } = mount();
 		await ws.solve();

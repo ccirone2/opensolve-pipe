@@ -44,6 +44,7 @@ import {
 	stopRise,
 	type GroupMemberInput
 } from './pump-group-chart';
+import { pumpStatusParts } from './results';
 import { formatNumber, fromSI, SI_UNITS } from './units';
 
 interface FixtureCase {
@@ -423,6 +424,99 @@ describe('the chart configuration', () => {
 	});
 });
 
+// Leftover L13 (pumps-nits.md §8.14 bullet 1; §11.5): a point the group chart leaves unlabelled
+// was named only in the notes ("Not labelled on the chart: Pump PA, its point at …"), the
+// condenser's six pumps and the one-off's Pump PA at 320×640. The owner's later answer was "a
+// numbered key under the chart"; nit 5 rules out numbers and characters for pumps, so the key is by
+// name: each such point an entry in the legend, its own mark, its name and its values, a running
+// pump's right after its line's entry (its dot beside its line's colour and pattern).
+describe('the legend’s key by name for the points left out (leftover L13)', () => {
+	const at = (data: ReturnType<typeof groupChartData>, p: { x: number; y: number }) => ({
+		flow: `${f4(p.x)} ${data.flowUnit}`,
+		head: `${f4(p.y)} ${data.headUnit}`
+	});
+
+	it('keys each point its notes would name: a pump by its id, the Group as the station, a ring not at all', () => {
+		const c = named('one-off');
+		const data = groupChartData(membersOf(c), prefsOf(c), responseOf(c));
+		const sets = datasets(config(data)) as (Dataset & { notLabelled?: unknown[] })[];
+		const pa = data.points.find((p) => p.id === 'PA')!;
+		expect(sets.find((d) => d.label === 'Pump PA')!.notLabelled).toEqual([
+			{ name: 'Pump PA', mark: 'point', ...at(data, pa.point), key: 'point-PA' }
+		]);
+		expect(sets.find((d) => d.label === data.station!.label)!.notLabelled).toEqual([
+			{ name: 'Group', mark: 'point', ...at(data, data.station!.point), key: 'station' }
+		]);
+	});
+
+	it('puts a running pump left out right after its line’s entry: its dot in the line’s colour, its name and values', () => {
+		const c = named('one-off');
+		const data = groupChartData(membersOf(c), prefsOf(c), responseOf(c));
+		const pa = data.points.find((p) => p.id === 'PA')!;
+		const keyed = [
+			{ name: 'Pump PA', mark: 'point' as const, ...at(data, pa.point), key: 'point-PA' }
+		];
+		const legend = groupLegend(data, keyed);
+		const line = legend.findIndex((i) => i.kind === 'line' && i.label.startsWith('Pump PA, '));
+		expect(line).toBeGreaterThanOrEqual(0);
+		expect(legend[line + 1]).toEqual({
+			key: 'point-PA',
+			label: 'Pump PA, its point at 37.37 L/s and 29.55 m',
+			kind: 'marker',
+			color: GROUP_BLUE,
+			mark: 'member'
+		});
+		// Nothing else changes; with no point left out, no entry for a running pump's point.
+		expect(legend.filter((_, k) => k !== line + 1)).toEqual(groupLegend(data));
+		expect(groupLegend(data).some((i) => i.mark === 'member')).toBe(false);
+	});
+
+	it('merges the pumps of one line with equal values into one entry, “their points at …”, in the pumps’ order', () => {
+		const c = named('lineups');
+		const data = groupChartData(membersOf(c), prefsOf(c), responseOf(c));
+		expect(data.lines).toHaveLength(1);
+		const keyed = (values: (id: string) => { flow: string; head: string }) =>
+			['P1', 'P2', 'P3', 'P4'].map((id) => ({
+				name: `Pump ${id}`,
+				mark: 'point' as const,
+				...values(id),
+				key: `point-${id}`
+			}));
+		const same = groupLegend(
+			data,
+			keyed(() => ({ flow: '21.5 L/s', head: '30 m' }))
+		);
+		expect(same.filter((i) => i.mark === 'member').map((i) => [i.label, i.color])).toEqual([
+			['Pump P1, Pump P2, Pump P3 and Pump P4, their points at 21.5 L/s and 30 m', GROUP_BLUE]
+		]);
+		expect(same[1]!.mark).toBe('member');
+		const apart = groupLegend(
+			data,
+			keyed((id) => ({ flow: id === 'P4' ? '20.1 L/s' : '21.5 L/s', head: '30 m' }))
+		);
+		expect(apart.slice(1, 3).map((i) => i.label)).toEqual([
+			'Pump P1, Pump P2 and Pump P3, their points at 21.5 L/s and 30 m',
+			'Pump P4, its point at 20.1 L/s and 30 m'
+		]);
+	});
+
+	it('gives a held pump’s entry and the Group’s their values where their labels are left out', () => {
+		const c = named('dead-headed');
+		const data = groupChartData(membersOf(c), prefsOf(c), responseOf(c));
+		const pb = data.points.find((p) => p.id === 'PB')!;
+		const legend = groupLegend(data, [
+			{ name: 'Pump PB, held at zero flow', mark: 'point', ...at(data, pb.point), key: 'point-PB' },
+			{ name: 'Group', mark: 'point', ...at(data, data.station!.point), key: 'station' }
+		]);
+		const values = (p: { x: number; y: number }) =>
+			`its point at ${at(data, p).flow} and ${at(data, p).head}`;
+		expect(legend.filter((i) => i.kind === 'marker').map((i) => [i.label, i.mark])).toEqual([
+			[`Pump PB, held at zero flow, ${values(pb.point)}`, 'held'],
+			[`Group duty, on the curve, ${values(data.station!.point)}`, 'group']
+		]);
+	});
+});
+
 describe('the notes (screen and image)', () => {
 	it('parallel: the rise between the outer ports and each pump’s loss on its way', () => {
 		const c = named('parallel-crane');
@@ -749,6 +843,29 @@ describe('the group table', () => {
 		]);
 	});
 
+	it('gives each row its status’s parts, the pill’s word, tint and qualifier, its State cell still the label’s words (docs/proposals/pumps-nits.md §11, leftover L22)', () => {
+		const c = named('dead-headed');
+		const members = membersOf(c);
+		const table = groupTable(
+			members,
+			c.solve.solvedState.nodeResults,
+			responseOf(c),
+			prefsOf(c),
+			c.project
+		);
+		expect(table.rows.map((r) => r.status)).toEqual(
+			members.map((m) => pumpStatusParts(m.result, m.flags))
+		);
+		expect(table.rows.map((r) => r.status)).toEqual([
+			{ state: 'running', word: 'Running', detail: '' },
+			{ state: 'no_flow', word: 'No flow', detail: '(system head above shutoff)' }
+		]);
+		expect(table.rows.map((r) => r.cells.state)).toEqual([
+			'Running',
+			'No flow (system head above shutoff)'
+		]);
+	});
+
 	it('its NPSH reading the margin ratio, the margin hidden by default; a pump that cavitates with no ratio says so with its margin and sorts below every ratio (the owner’s nit 4 and Q3; docs/proposals/pumps-nits.md item 4; review E-1-4)', () => {
 		const c = named('one-off');
 		const sig4 = (v: number) => String(Number(v.toPrecision(4)));
@@ -762,10 +879,12 @@ describe('the group table', () => {
 		);
 		const keys = table.columns.map((col) => col.key);
 		expect(keys.indexOf('npshMarginRatio')).toBe(keys.indexOf('npshMargin') + 1);
+		// Its heading on two lines (pumps-nits.md §11, leftover L4; moved: `heading` added).
 		expect(table.columns.find((col) => col.key === 'npshMarginRatio')).toEqual({
 			key: 'npshMarginRatio',
 			label: 'NPSH margin ratio',
-			numeric: true
+			numeric: true,
+			heading: ['NPSH margin', 'ratio']
 		});
 		expect(table.columns.filter((col) => col.hiddenByDefault).map((col) => col.key)).toEqual([
 			'npshMargin'

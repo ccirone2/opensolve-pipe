@@ -673,6 +673,10 @@
 					tabindex={comparing === compare ? 0 : -1}
 					class={[
 						'-mb-px min-h-9 border-b-2 px-3 text-sm font-medium',
+						// A case's name may have no spaces: its tab shrinks and wraps anywhere, its words
+						// at its start; Compare cases keeps its width (ui-guide, Phones: a button whose
+						// label holds a name wraps; docs/proposals/pumps-nits.md §11.4, X3).
+						compare ? 'shrink-0 whitespace-nowrap' : 'min-w-0 text-left wrap-anywhere',
 						comparing === compare
 							? 'border-teal-700 text-teal-900'
 							: 'border-transparent text-slate-600 hover:text-slate-900'

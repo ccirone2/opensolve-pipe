@@ -317,7 +317,7 @@ test('solve one case and all of them, read the comparison and the other cases on
 	await resultsPane(page).getByRole('tab', { name: 'Slower pump' }).click();
 	const pumps = await resultsView(page, 'Pumps');
 	const figure = pumps.getByRole('figure', {
-		name: 'Pump and system curves: Transfer pump, Slower pump'
+		name: 'Pump and system curves: Transfer pump, Case 2: Slower pump'
 	});
 	await expect(figure.getByRole('img')).toHaveAccessibleName(
 		/other cases' operating points: Base case .* at .*; case 1: Higher tank /
@@ -365,7 +365,7 @@ test('solve one case and all of them, read the comparison and the other cases on
 	await overlay.uncheck();
 	await overlay.check();
 	await expect(await openCurveTable(figure, 'System curve, Base case')).toBeVisible();
-	await expect(await openCurveTable(figure, 'System curve, Higher tank')).toBeVisible();
+	await expect(await openCurveTable(figure, 'System curve, case 1: Higher tank')).toBeVisible();
 });
 
 /** Hold every solve request at the network, unanswered, until the page aborts it. */

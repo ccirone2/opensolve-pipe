@@ -11,6 +11,14 @@
 import type { Chart as ChartInstance, ChartConfiguration, LegendItem, Plugin } from 'chart.js';
 import { CHART_MARKS, memberMark, SURFACE } from './chart-marks';
 import {
+	collapseLegend,
+	legendHeight,
+	wrapLegend,
+	type FitItem,
+	type LegendFamily,
+	type LegendMetrics
+} from './legend-fit';
+import {
 	leaderCrosses,
 	placePointLabels,
 	POINT_LABEL_HALO,
@@ -97,9 +105,174 @@ export interface PumpChartConfigOptions {
 	 * 7; slice 5c): the notes name those, the canvas keeps the placement (absent: not told).
 	 */
 	onlabels?: (drawn: PointLabelsDrawn) => void;
+	/**
+	 * Told after every drawing where the legend's entries went (the canvas's `data-legend`, for
+	 * measuring the layout: leftovers L16 to L18; absent: not told).
+	 */
+	onlegend?: (drawn: LegendDrawn) => void;
+}
+
+/**
+ * The canvas legend as one drawing laid it out (leftovers L16 to L18), in CSS px: the canvas, the
+ * legend's box (Chart.js draws nothing of it outside) and each entry's words, its swatch's dashes
+ * and its dataset's own, whether it is struck through, whether it has a swatch (a wrapped entry's
+ * later rows have none), the datasets it toggles and its hit box.
+ */
+export interface LegendDrawn {
+	canvas: { width: number; height: number };
+	box: PxBox;
+	entries: {
+		text: string;
+		dash: number[];
+		own: number[];
+		hidden: boolean;
+		swatch: boolean;
+		datasets: number[];
+		box: PxBox;
+	}[];
+}
+
+/** The other cases' rings' one legend entry where they collapse (leftovers L17, L18). */
+export const OTHER_RINGS_LEGEND = 'Other cases (a numbered ring each)';
+/** The other cases' system curves' one legend entry where they collapse (leftovers L17, L18). */
+export const OTHER_SYSTEMS_LEGEND = "Other cases' system curves (dotted)";
+
+/**
+ * The legend's measures from the chart as Chart.js lays it out (Legend.fit, getBoxSize): its width
+ * and the most it is drawn high, the labels' font (each field from the chart's own where the
+ * labels' leave it out), the swatch's width, the padding, the row's height, and a measure of text
+ * in that font with the chart's context. Null before Chart.js has given the legend its room.
+ */
+function legendMetrics(chart: ChartInstance): LegendMetrics | null {
+	const legend = chart.legend as
+		(ChartInstance['legend'] & { maxWidth?: number; maxHeight?: number }) | undefined;
+	const ctx = chart.ctx as CanvasRenderingContext2D | undefined;
+	if (!legend?.maxWidth || !legend.maxHeight || !ctx) return null;
+	const labels = legend.options.labels as {
+		font?: FontSpec;
+		padding?: number;
+		boxWidth?: number;
+		boxHeight?: number;
+		pointStyleWidth?: number;
+		usePointStyle?: boolean;
+	};
+	const font = canvasFont(labels.font, (chart.options as { font?: FontSpec }).font);
+	const boxHeight = Math.min(labels.boxHeight ?? font.size, font.size);
+	return {
+		width: legend.maxWidth,
+		maxHeight: legend.maxHeight,
+		boxWidth: labels.usePointStyle
+			? labels.pointStyleWidth || Math.min(labels.boxWidth ?? font.size, font.size)
+			: (labels.boxWidth ?? font.size),
+		fontSize: font.size,
+		padding: labels.padding ?? 10,
+		itemHeight: Math.max(font.size, boxHeight),
+		measure: (text) => {
+			const was = ctx.font;
+			ctx.font = font.string;
+			const width = ctx.measureText(text).width;
+			ctx.font = was;
+			return width;
+		}
+	};
+}
+
+/**
+ * The legend's entries made to fit (leftovers L17, L18): on `collapse` (a phone's screen) each of
+ * `families` of two entries or more as one entry; then every entry too wide for a row written on
+ * as many rows as it needs; and where the rows would still pass the most the legend is drawn high
+ * (half the canvas: Chart.js clips the rest), the families collapsed too (the images' footers and
+ * the lists name each case). Unchanged before Chart.js has given the legend its room.
+ */
+function fittedLegend<T extends FitItem>(
+	chart: ChartInstance,
+	items: readonly T[],
+	families: readonly LegendFamily[],
+	collapse: boolean
+): T[] {
+	const m = legendMetrics(chart);
+	if (!m) return [...items];
+	const visible = (i: number) => chart.isDatasetVisible(i);
+	const collapsed = () => collapseLegend(items, families, visible);
+	const wrapped = wrapLegend(collapse ? collapsed() : items, m);
+	if (collapse || legendHeight(wrapped, m) <= m.maxHeight) return wrapped;
+	return wrapLegend(collapsed(), m);
+}
+
+/**
+ * A legend entry pressed (leftovers L17, L18; critique CR-ENG-2): a collapsed one hides all its
+ * datasets, or shows them all where every one is hidden; any other, Chart.js's own click
+ * (`Chart.defaults.plugins.legend.onClick`, read from the chart's class: this module loads no
+ * Chart.js code), which toggles its one dataset.
+ */
+function legendClick(
+	this: unknown,
+	event: unknown,
+	item: LegendItem & { datasetIndices?: number[] },
+	legend: { chart: ChartInstance }
+): void {
+	const chart = legend.chart;
+	const indices = item.datasetIndices;
+	if (!indices) {
+		const own = (
+			chart.constructor as unknown as {
+				defaults: { plugins: { legend: { onClick: (...args: unknown[]) => void } } };
+			}
+		).defaults.plugins.legend.onClick;
+		own.call(this, event, item, legend);
+		return;
+	}
+	const show = indices.every((i) => !chart.isDatasetVisible(i));
+	for (const i of indices) chart.setDatasetVisibility(i, show);
+	chart.update();
+}
+
+/** Reports the legend as drawn (LegendDrawn) to `onlegend`, after every drawing. */
+function legendReport(onlegend: (drawn: LegendDrawn) => void): Plugin<'line'> {
+	return {
+		id: 'legendReport',
+		afterDraw(chart) {
+			const legend = chart.legend as unknown as
+				| {
+						left: number;
+						top: number;
+						right: number;
+						bottom: number;
+						legendItems?: (LegendItem & { datasetIndices?: number[] })[];
+						legendHitBoxes?: { left: number; top: number; width: number; height: number }[];
+				  }
+				| undefined;
+			if (!legend?.legendItems) return;
+			const hits = legend.legendHitBoxes ?? [];
+			onlegend({
+				canvas: { width: chart.width, height: chart.height },
+				box: { left: legend.left, top: legend.top, right: legend.right, bottom: legend.bottom },
+				entries: legend.legendItems.map((item, k) => {
+					const hit = hits[k] ?? { left: 0, top: 0, width: 0, height: 0 };
+					const ds = chart.data.datasets[item.datasetIndex ?? -1] as
+						{ borderDash?: number[] } | undefined;
+					return {
+						text: item.text,
+						dash: [...(item.lineDash ?? [])],
+						own: [...(ds?.borderDash ?? [])],
+						hidden: !!item.hidden,
+						swatch: item.lineWidth !== 0,
+						datasets: item.datasetIndices ?? [item.datasetIndex ?? -1],
+						box: {
+							left: hit.left,
+							top: hit.top,
+							right: hit.left + hit.width,
+							bottom: hit.top + hit.height
+						}
+					};
+				})
+			});
+		}
+	};
 }
 
 /** Each panel's y-axis id and share of the height (proposal pump-chart.md §4.1). */
+
 const PANEL_AXES: Readonly<Record<PanelKey, { id: string; weight: number }>> = {
 	head: { id: 'y', weight: 3 },
 	efficiency: { id: 'yEfficiency', weight: 1 },
@@ -108,8 +281,8 @@ const PANEL_AXES: Readonly<Record<PanelKey, { id: string; weight: number }>> = {
 };
 
 /**
- * Legend markers: curves as a line (drawn solid: a point-style line swatch takes no dash), points
- * as their marker.
+ * Legend markers: curves as a line (its swatch stroked with its dataset's dashes: the legend's
+ * `generateLabels` sets them, leftover L16), points as their marker.
  */
 function legendStyle(dataset: {
 	label?: string;
@@ -147,11 +320,12 @@ export function labelTag(text: string): { tag: string | null; words: string } {
  * words after it in the fill colour set. The font, fill and alignment are set back as they were.
  * Called only with labels the code tags (labelTag); a pump's name goes to fillText as typed.
  *
- * Without `halo` the box is not filled, as the curves' labels are drawn (D24 §9.3): they are placed
- * clear of the marks, but a white box hid the mark under a label that fell on one (slice 5b). With
- * `halo`, a point's label (placePointLabels, which keeps it off every mark but its own: nit 5, rule
- * 7; slice 5c), the box is filled with it and the words drawn over a POINT_LABEL_HALO px stroke of
- * it, so the label reads over a curve under it.
+ * With `halo`, a point's label (placePointLabels, which keeps it off every mark but its own: nit 5,
+ * rule 7; slice 5c) or a curve's (placeCurveLabels, clear of every mark too: leftover L21a), the box
+ * is filled with it and the words drawn over a POINT_LABEL_HALO px stroke of it, so the label reads
+ * over a curve under it. (Slice 5b drew the curves' labels unfilled, since a white box hid a mark a
+ * label fell on; they are placed clear of the marks since, and a dashed curve ran through their
+ * digits.) Without `halo` the box is not filled.
  */
 export function fillLabel(
 	ctx: CanvasRenderingContext2D,
@@ -257,6 +431,11 @@ export interface PointLabelsDrawn {
 	obstacles: PxBox[];
 	labels: PlacedPointLabel[];
 	leftOut: NotLabelledPoint[];
+	/**
+	 * The pump chart's short labels ("BEP", "70 %"; leftover L20): each one's words, its point, its
+	 * box where it is drawn (else the first place tried), and whether it is drawn.
+	 */
+	short?: { text: string; at: { x: number; y: number }; box: PxBox; drawn: boolean }[];
 }
 
 /**
@@ -537,6 +716,187 @@ function trim(value: number): string {
 	return String(Number(value.toFixed(1)));
 }
 
+/** A scale as its `afterFit` sees it: the parts of Chart.js's Scale read here, all public. */
+interface FittedScale {
+	ctx: CanvasRenderingContext2D;
+	width: number;
+	chart: { options: { font?: FontSpec } };
+	ticks: { label?: string | string[] | number }[];
+	options: {
+		display?: boolean | 'auto';
+		title: { display?: boolean; text?: string | string[]; font?: FontSpec; padding?: unknown };
+		grid: { drawTicks?: boolean; tickLength?: number };
+		ticks: { display?: boolean; padding?: number; font?: FontSpec; mirror?: boolean };
+	};
+}
+
+/** A font as Chart.js's options give it: any field left out is the chart's own (`font`). */
+export interface FontSpec {
+	family?: string;
+	size?: number;
+	style?: string;
+	weight?: string | number | null;
+	lineHeight?: number | string;
+}
+
+/**
+ * A font's fields, each from `font` or else from `fallback` (the chart's `options.font`, Chart.js's
+ * defaults), as Chart.js's toFont fills them: the canvas's `font` string ("normal 12px 'Helvetica
+ * Neue', …") and the line height in px. Read field by field: Chart.js's options are proxies whose
+ * fields do not spread.
+ */
+export function canvasFont(
+	font: FontSpec | undefined,
+	fallback: FontSpec | undefined
+): { string: string; size: number; lineHeight: number } {
+	const size = font?.size ?? fallback?.size ?? 12;
+	const style = font?.style ?? fallback?.style;
+	const weight = font?.weight ?? fallback?.weight;
+	const family = font?.family ?? fallback?.family ?? 'sans-serif';
+	const h = font?.lineHeight ?? fallback?.lineHeight ?? 1.2;
+	const lineHeight =
+		typeof h === 'string' && h.endsWith('px')
+			? Number.parseFloat(h)
+			: (typeof h === 'number' ? h : Number.parseFloat(h)) * size;
+	return {
+		string: `${style ? `${style} ` : ''}${weight ? `${weight} ` : ''}${size}px ${family}`,
+		size,
+		lineHeight
+	};
+}
+
+/**
+ * A stacked y axis's `afterFit` (leftover L21c): Chart.js gives each axis of the left stack at most
+ * the canvas's width / 2 / their count (its layout's vBoxMaxWidth), so on a phone the four panels'
+ * axes were 34 to 43 px wide where about 49 px is needed, and their tick labels overprinted their
+ * titles. Raised to what Chart.js's own fit sums uncapped: the title's band (its lines at the
+ * font's line height, and its padding), the tick's length, the tick label's padding each side and
+ * the widest tick label, measured with the chart's context in the scale's tick font (never
+ * Chart.js's internal label sizes). Never narrowed: where the axis fits it is as Chart.js made it.
+ */
+function fitStackedAxis(axis: unknown): void {
+	const scale = axis as FittedScale;
+	const { title, grid, ticks } = scale.options;
+	if (scale.options.display === false || ticks.display === false || ticks.mirror) return;
+	const chartFont = scale.chart.options.font;
+	const padding = (p: unknown): number => {
+		if (typeof p === 'number') return 2 * p;
+		const box = (p ?? {}) as { top?: number; bottom?: number; y?: number };
+		return (box.top ?? box.y ?? 0) + (box.bottom ?? box.y ?? 0);
+	};
+	const band = title.display
+		? (Array.isArray(title.text) ? title.text.length : 1) *
+				canvasFont(title.font, chartFont).lineHeight +
+			padding(title.padding)
+		: 0;
+	const tick = grid.drawTicks === false ? 0 : (grid.tickLength ?? 8);
+	const { ctx } = scale;
+	const font = ctx.font;
+	ctx.font = canvasFont(ticks.font, chartFont).string;
+	const widest = Math.max(
+		0,
+		...scale.ticks.flatMap((t) =>
+			(Array.isArray(t.label) ? t.label : [t.label ?? '']).map(
+				(l) => ctx.measureText(String(l)).width
+			)
+		)
+	);
+	ctx.font = font;
+	scale.width = Math.max(scale.width, band + tick + 2 * (ticks.padding ?? 3) + widest);
+}
+
+/** Each stacked panel at least its rotated title's length and this much tall (px; LO-OWNER-1). */
+export const PANEL_TITLE_CLEAR = 8;
+
+/**
+ * The stacked panels' heights from the top down, `total` shared by their `weights` with each at
+ * least its `floor` (water-filling): a panel whose share is under its floor takes its floor, and
+ * the rest share what is left by their weights, until none is under. Where the floors together
+ * pass `total`, each panel takes its floor's share of it, so each title overruns its panel by the
+ * same share (review LO-OWNER-1).
+ */
+export function panelHeights(
+	total: number,
+	weights: readonly number[],
+	floors: readonly number[]
+): number[] {
+	const fixed = new Set<number>();
+	for (;;) {
+		const free = weights.reduce((sum, w, i) => (fixed.has(i) ? sum : sum + w), 0);
+		const left = total - [...fixed].reduce((sum, i) => sum + floors[i]!, 0);
+		const heights = weights.map((w, i) => (fixed.has(i) ? floors[i]! : (left * w) / free));
+		const short = heights.flatMap((h, i) => (!fixed.has(i) && h < floors[i]! ? [i] : []));
+		if (!short.length) return heights;
+		for (const i of short) fixed.add(i);
+		if (fixed.size === weights.length) {
+			const sum = floors.reduce((s, f) => s + f, 0);
+			return floors.map((f) => (total * f) / sum);
+		}
+	}
+}
+
+/** A stacked y scale as `panelFloors` reads and moves it: the parts of Chart.js's Scale, public. */
+interface StackedScale {
+	top: number;
+	bottom: number;
+	height: number;
+	isHorizontal(): boolean;
+	configure(): void;
+	options: {
+		display?: boolean | 'auto';
+		stack?: string;
+		stackWeight?: number;
+		title: { display?: boolean; text?: string | string[]; font?: FontSpec };
+	};
+}
+
+/**
+ * The pump chart's stacked panels each at least as tall as its rotated title and
+ * PANEL_TITLE_CLEAR (review LO-OWNER-1, LO-CODE-2; docs/proposals/pumps-nits.md §11.8). Chart.js
+ * gives each panel its stack weight's share of the plot (PANEL_AXES) and draws its title centred
+ * on it, so where a phone's canvas legend took the plot's height a lower panel was shorter than its
+ * title and the titles ran together: in the one-off with its design checks "P (kW)" and "NPSH (m)"
+ * overlapped by 1.6 px at 320×640 with the other cases' system curves on (9.3 px on main 21230f0),
+ * and were 2.4 px apart at 390 and 360, less than a word's space. After Chart.js's layout the
+ * panels are stacked again from the plot's top with panelHeights (each title measured in its own
+ * font with the chart's context), and each scale configured for its new extent, so its ticks,
+ * grid, title and data follow it; Chart.js reads the boxes' extents only when it draws. Where every
+ * panel is as tall as its floor, nothing moves.
+ */
+const panelFloors: Plugin = {
+	id: 'panelFloors',
+	afterLayout(chart) {
+		const panels = (Object.values(chart.scales) as unknown as StackedScale[])
+			.filter((s) => s.options.stack && s.options.display !== false && !s.isHorizontal())
+			.sort((a, b) => a.top - b.top);
+		if (panels.length < 2) return;
+		const { ctx } = chart;
+		const font = ctx.font;
+		const floors = panels.map((s) => {
+			const { title } = s.options;
+			if (!title.display) return PANEL_TITLE_CLEAR;
+			ctx.font = canvasFont(title.font, chart.options.font as FontSpec | undefined).string;
+			const lines = Array.isArray(title.text) ? title.text : [title.text ?? ''];
+			return Math.max(0, ...lines.map((l) => ctx.measureText(String(l)).width)) + PANEL_TITLE_CLEAR;
+		});
+		ctx.font = font;
+		if (panels.every((s, i) => s.height >= floors[i]! - 1e-6)) return;
+		const heights = panelHeights(
+			panels.reduce((sum, s) => sum + s.height, 0),
+			panels.map((s) => s.options.stackWeight ?? 1),
+			floors
+		);
+		let top = panels[0]!.top;
+		panels.forEach((s, i) => {
+			s.top = top;
+			s.height = heights[i]!;
+			s.bottom = top + heights[i]!;
+			top = s.bottom;
+			s.configure();
+		});
+	}
+};
+
 /**
  * The panels below the head (proposal pump-chart.md §4.2), for those shown: efficiency and shaft
  * power in the pump's colour (they are the pump's curves), NPSHr in the pump's colour and NPSHa
@@ -607,7 +967,8 @@ export function pumpChartConfig(
 		speedRange = false,
 		checks = false,
 		compactLabels = false,
-		onlabels
+		onlabels,
+		onlegend
 	}: PumpChartConfigOptions
 ): PumpChartConfig {
 	const shown = (key: PanelKey) => panels.includes(key);
@@ -738,7 +1099,9 @@ export function pumpChartConfig(
 							borderDash: [2, 3],
 							pointRadius: 0,
 							pointHitRadius: 4,
-							spanGaps: false
+							spanGaps: false,
+							// Collapsed with the others into one legend entry where they must be (leftover L17).
+							otherSystem: true
 						}
 					]
 				: []),
@@ -823,10 +1186,11 @@ export function pumpChartConfig(
 			ctx.textAlign = 'left';
 			ctx.textBaseline = 'alphabetic';
 			for (const label of placed.labels) drawPointLabel(ctx, label, caseSize, SLATE);
-			onlabels?.(placed);
-			// Short labels at one point of a line or marker ("BEP", "70 %"), in dataset order; a
-			// label that would overlap one already drawn, or a mark, is left out (the legend and notes
-			// name it).
+			// Short labels at one point of a line or marker ("BEP", "70 %"), in dataset order, each
+			// at the first of four places 6 px off its point that is clear (leftover L20; was the
+			// first alone): above right, as before and unbounded as before, then above left, below
+			// right and below left, those three inside the chart's area only. A label with no clear
+			// place is left out (the legend and notes name it).
 			const size = forImage ? 13 : 11;
 			ctx.font = `${size}px system-ui, sans-serif`;
 			ctx.fillStyle = SLATE;
@@ -844,40 +1208,63 @@ export function pumpChartConfig(
 			const ringMarks = placed.items.map(({ x, y, r }) => markBox(x, y, r));
 			// Nor across a ring label's leader (review DOTS-LABELS-A1), which would seem to run from it.
 			const leaders = placed.labels.flatMap((l) => (l.leader ? [l.leader] : []));
+			const short: NonNullable<PointLabelsDrawn['short']> = [];
 			chart.data.datasets.forEach((dataset, i) => {
 				const { pointLabel, labelAt } = dataset as { pointLabel?: string; labelAt?: number };
 				const points = chart.getDatasetMeta(i).data;
 				const point = points[labelAt === -1 ? points.length - 1 : (labelAt ?? 0)];
 				if (!pointLabel || !point || !chart.isDatasetVisible(i)) return;
-				const box = {
-					x: point.x + 6,
-					y: point.y - 6 - size,
-					w: ctx.measureText(pointLabel).width,
-					h: size
+				const w = ctx.measureText(pointLabel).width;
+				const tries = [
+					{ x: point.x + 6, y: point.y - 6 - size, bounded: false },
+					{ x: point.x - 6 - w, y: point.y - 6 - size, bounded: true },
+					{ x: point.x + 6, y: point.y + 6, bounded: true },
+					{ x: point.x - 6 - w, y: point.y + 6, bounded: true }
+				].map((t) => ({ ...t, w, h: size }));
+				const clear = (box: (typeof tries)[number]) => {
+					if (
+						box.bounded &&
+						(box.x < area.left ||
+							box.x + box.w > area.right ||
+							box.y < area.top ||
+							box.y + box.h > area.bottom)
+					)
+						return false;
+					const overlaps = taken.some(
+						(o) =>
+							box.x < o.x + o.w + 2 &&
+							o.x < box.x + box.w + 2 &&
+							box.y < o.y + o.h &&
+							o.y < box.y + box.h
+					);
+					const overMark = [...ringMarks, ...marks.filter((m) => m.i !== i).map((m) => m.box)].some(
+						(m) =>
+							box.x < m.right && m.left < box.x + box.w && box.y < m.bottom && m.top < box.y + box.h
+					);
+					const crossed = leaders.some((leader) =>
+						leaderCrosses(leader, {
+							left: box.x,
+							right: box.x + box.w,
+							top: box.y,
+							bottom: box.y + box.h
+						})
+					);
+					return !overlaps && !overMark && !crossed;
 				};
-				const overlaps = taken.some(
-					(o) =>
-						box.x < o.x + o.w + 2 &&
-						o.x < box.x + box.w + 2 &&
-						box.y < o.y + o.h &&
-						o.y < box.y + box.h
-				);
-				const overMark = [...ringMarks, ...marks.filter((m) => m.i !== i).map((m) => m.box)].some(
-					(m) =>
-						box.x < m.right && m.left < box.x + box.w && box.y < m.bottom && m.top < box.y + box.h
-				);
-				const crossed = leaders.some((leader) =>
-					leaderCrosses(leader, {
-						left: box.x,
-						right: box.x + box.w,
-						top: box.y,
-						bottom: box.y + box.h
-					})
-				);
-				if (overlaps || overMark || crossed) return;
+				const box = tries.find(clear);
+				const at = box ?? tries[0]!;
+				short.push({
+					text: pointLabel,
+					at: { x: point.x, y: point.y },
+					box: { left: at.x, right: at.x + at.w, top: at.y, bottom: at.y + at.h },
+					drawn: !!box
+				});
+				if (!box) return;
 				taken.push(box);
-				ctx.fillText(pointLabel, point.x + 6, point.y - 6);
+				ctx.fillText(pointLabel, box.x, box.y + size);
 			});
+			// The canvas keeps the placement, the short labels' too (leftover L20).
+			onlabels?.({ ...placed, short });
 			ctx.restore();
 		}
 	};
@@ -985,7 +1372,12 @@ export function pumpChartConfig(
 		grid: { color: GRID },
 		ticks: { color: TEXT, ...(key === 'head' ? {} : { maxTicksLimit: 4 }), ...font(14) },
 		...(panels.length > 1
-			? { stack: 'panels', stackWeight: PANEL_AXES[key].weight, offset: true }
+			? {
+					stack: 'panels',
+					stackWeight: PANEL_AXES[key].weight,
+					offset: true,
+					afterFit: fitStackedAxis
+				}
 			: {})
 	});
 	// Chart.js stacks axes in the order given from the bottom up: the head panel goes last.
@@ -1003,9 +1395,18 @@ export function pumpChartConfig(
 						: `NPSH (${d.headUnit})`
 			)
 		]);
+	/** A dataset the legend lists: not a lower panel's duty dot, which repeats the operating point's. */
+	const listed = (i: number) => !(datasets[i] as { duty?: boolean } | undefined)?.duty;
 	return {
 		type: 'line',
-		plugins: [checkMarks, caseLabels, lines],
+		// panelFloors moves the panels after the layout, before anything is drawn on them.
+		plugins: [
+			panelFloors,
+			checkMarks,
+			caseLabels,
+			lines,
+			...(onlegend ? [legendReport(onlegend)] : [])
+		],
 		data: { datasets },
 		options: {
 			animation: false,
@@ -1028,30 +1429,56 @@ export function pumpChartConfig(
 			plugins: {
 				legend: {
 					position: 'bottom',
+					// A collapsed entry toggles all its datasets (leftover L17; critique CR-ENG-2).
+					onClick: legendClick,
 					labels: {
 						color: CHART_COLORS.legend,
 						usePointStyle: true,
 						boxHeight: 12,
 						// The panels' duty dots repeat the operating point's entry.
-						filter: (item, chartData) =>
-							!(chartData.datasets[item.datasetIndex ?? -1] as { duty?: boolean } | undefined)
-								?.duty,
+						filter: (item) => listed(item.datasetIndex ?? -1),
 						...font(14),
-						// Curves as a line (solid: Chart.js gives a point-style line swatch no dash), the
-						// operating point as a dot, an other case as its ring. Chart.js lists datasets by
-						// `order`: the rings (−1, drawn on top) are listed where their datasets are, as before.
+						// Curves as a line, the operating point as a dot, an other case as its ring. A line's
+						// swatch is dashed as its line (leftover L16, as the group chart's since review
+						// DOTS-LABELS-B3): under usePointStyle Chart.js takes an entry's style from its first
+						// point, which has no dashes, so it drew "Motor rated power (dashed)" and "Minimum flow
+						// (dash-dot)" solid. Chart.js lists datasets by `order`: the rings (−1, drawn on top) are
+						// listed where their datasets are, as before.
+						// Then made to fit (leftovers L17, L18): on a phone's screen the other cases' rings and
+						// their system curves one entry each; every entry too wide for a row on rows of its own;
+						// from 640 px and in the image, the other cases one entry each only where the rows would
+						// pass half the canvas.
 						generateLabels: (c) =>
-							legendLabels(c)
-								.map((item) => ({
-									...item,
-									pointStyle: legendStyle(c.data.datasets[item.datasetIndex ?? -1] ?? {}) as
-										'circle' | 'line'
-								}))
-								.sort(
-									(a, b) =>
-										legendOrder(c, a) - legendOrder(c, b) ||
-										(a.datasetIndex ?? 0) - (b.datasetIndex ?? 0)
-								)
+							fittedLegend(
+								c,
+								legendLabels(c)
+									.filter((item) => listed(item.datasetIndex ?? -1))
+									.map((item) => {
+										const ds = (c.data.datasets[item.datasetIndex ?? -1] ?? {}) as Parameters<
+											typeof legendStyle
+										>[0] & { borderDash?: number[] };
+										const style = legendStyle(ds) as 'circle' | 'line';
+										return {
+											...item,
+											pointStyle: style,
+											...(style === 'line' ? { lineDash: [...(ds.borderDash ?? [])] } : {})
+										};
+									})
+									.sort(
+										(a, b) =>
+											legendOrder(c, a) - legendOrder(c, b) ||
+											(a.datasetIndex ?? 0) - (b.datasetIndex ?? 0)
+									),
+								[
+									{ text: OTHER_RINGS_LEGEND, belongs: (i) => !!datasetOf(c, i)?.otherCase },
+									{
+										text: OTHER_SYSTEMS_LEGEND,
+										belongs: (i) => !!datasetOf(c, i)?.otherSystem,
+										lineDash: [2, 3]
+									}
+								],
+								compactLabels && !forImage
+							)
 					}
 				},
 				tooltip: forImage
@@ -1373,12 +1800,14 @@ export function pumpGroupConfig(
 				showLine: false,
 				caseLabel: p.name,
 				pointItem: { kind: 'member' as const, id: p.id, name: p.name },
+				// Keyed: the legend names it where its label is left out (leftover L13).
 				notLabelled: [
 					{
 						name: p.held ? `${p.name}, held at zero flow` : p.name,
 						mark: 'point' as const,
 						flow: `${fmt(p.point.x)} ${d.flowUnit}`,
-						head: `${fmt(p.point.y)} ${d.headUnit}`
+						head: `${fmt(p.point.y)} ${d.headUnit}`,
+						key: `point-${p.id}`
 					}
 				],
 				...(p.held ? {} : { legend: false }),
@@ -1409,7 +1838,8 @@ export function pumpGroupConfig(
 								name: 'Group',
 								mark: 'point' as const,
 								flow: `${fmt(d.station.flow)} ${d.flowUnit}`,
-								head: `${fmt(d.station.point.y)} ${d.headUnit}`
+								head: `${fmt(d.station.point.y)} ${d.headUnit}`,
+								key: 'station'
 							}
 						]
 					}
@@ -1528,14 +1958,17 @@ export function pumpGroupConfig(
 			ctx.textBaseline = 'alphabetic';
 			for (const label of placement.labels) {
 				ctx.fillStyle = label.shown ? INK : SLATE;
-				// Another case's: its numbers in a box, then "3 running" (fillLabel).
-				fillLabel(ctx, label.text, label.x, label.y, size);
+				// Another case's: its numbers in a box, then "3 running" (fillLabel), over the surface
+				// (its box filled, its words haloed: leftover L21a), so a dashed curve under it does not
+				// run through its digits.
+				fillLabel(ctx, label.text, label.x, label.y, size, SURFACE);
 			}
 			// A curve's tag, last (rule 7), near its last drawn point inside the plot: above the line
 			// and ending there (as before), else right of that point, else under it to its right or to
-			// its left; inside the plot, over no point label (as the points' labels kept off it before:
-			// it has no halo to keep apart) or leader, mark, curve label or tag before it. With none, it
-			// is left out and named in the notes with that point's values.
+			// its left; then the same four spots by each earlier drawn point, walking back along its own
+			// curve (leftover L14); inside the plot, over no point label or leader, mark, curve label or
+			// tag before it. With none, it is left out and named in the notes with its end's values.
+			// Its words over a halo of the surface, as every label's (leftover L21a).
 			const tags: CurveTagDrawn[] = [];
 			const tagsLeftOut: NotLabelledPoint[] = [];
 			const marks = obstacles.filter((o) => o.kind === 'marker').map((o) => o.box);
@@ -1543,19 +1976,18 @@ export function pumpGroupConfig(
 			chart.data.datasets.forEach((dataset, i) => {
 				const tag = (dataset as { curveTag?: string }).curveTag;
 				if (!tag || !chart.isDatasetVisible(i)) return;
-				let end: { x: number; y: number; datum: ChartPoint } | null = null;
+				/** Its drawn points inside the plot, in the curve's order; the last is its end. */
+				const along: { x: number; y: number; datum: ChartPoint }[] = [];
 				chart.getDatasetMeta(i).data.forEach((el, k) => {
 					const datum = dataset.data[k] as ChartDatum | undefined;
 					if (datum?.y == null) return;
 					const inside =
 						el.x >= area.left && el.x <= area.right && el.y >= area.top && el.y <= area.bottom;
-					if (inside) end = { x: el.x, y: el.y, datum: { x: datum.x, y: datum.y } };
+					if (inside) along.push({ x: el.x, y: el.y, datum: { x: datum.x, y: datum.y } });
 				});
-				const at = end as { x: number; y: number; datum: ChartPoint } | null;
+				const at = along.at(-1);
 				if (!at) return;
 				const width = ctx.measureText(tag).width;
-				const row = Math.max(area.top + 14, at.y - 8);
-				const below = at.y + size + 4;
 				const inX = (x: number) => Math.max(area.left + 2, Math.min(x, area.right - width - 2));
 				const taken = [
 					...placed.labels.map((l) => l.box),
@@ -1569,14 +2001,24 @@ export function pumpGroupConfig(
 					box.bottom <= area.bottom &&
 					![...taken, ...marks].some((b) => boxesOverlap(b, box)) &&
 					!leaders.some((l) => leaderCrosses(l, box));
-				const spot = [
-					{ x: inX(at.x - width), y: row },
-					{ x: at.x + 4, y: row },
-					{ x: at.x + 4, y: below },
-					{ x: inX(at.x - width - 4), y: below }
-				]
-					.map((p) => ({ ...p, box: textBox(p.x, p.y, width) }))
-					.find((p) => clear(p.box));
+				/** The four spots by a drawn point, in the order tried. */
+				const spotsBy = (pt: { x: number; y: number }) => {
+					const row = Math.max(area.top + 14, pt.y - 8);
+					const below = pt.y + size + 4;
+					return [
+						{ x: inX(pt.x - width), y: row },
+						{ x: pt.x + 4, y: row },
+						{ x: pt.x + 4, y: below },
+						{ x: inX(pt.x - width - 4), y: below }
+					];
+				};
+				// Its end's four spots first, then each earlier drawn point's, walking back along its
+				// own curve (leftover L14), the first clear one taken.
+				let spot: { x: number; y: number; box: PxBox } | undefined;
+				for (let k = along.length - 1; k >= 0 && !spot; k--)
+					spot = spotsBy(along[k]!)
+						.map((p) => ({ ...p, box: textBox(p.x, p.y, width) }))
+						.find((p) => clear(p.box));
 				if (!spot) {
 					tagsLeftOut.push({
 						name: tag,
@@ -1587,6 +2029,7 @@ export function pumpGroupConfig(
 					return;
 				}
 				ctx.fillStyle = (dataset as { labelColor?: string }).labelColor ?? INK;
+				haloText(ctx, tag, spot.x, spot.y, SURFACE);
 				ctx.fillText(tag, spot.x, spot.y);
 				tags.push({ text: tag, x: spot.x, y: spot.y, box: spot.box });
 			});
@@ -1695,6 +2138,9 @@ export function pumpGroupConfig(
 			ctx.restore();
 		}
 	};
+	/** A dataset the image's legend lists: not a running pump's point, nor a line's beyond-data part. */
+	const listedInGroup = (i: number) =>
+		(datasets[i] as { legend?: boolean } | undefined)?.legend !== false;
 	return {
 		type: 'line',
 		plugins: forImage || !readout ? [pointLabels] : [pointLabels, readoutMark],
@@ -1731,32 +2177,38 @@ export function pumpGroupConfig(
 				legend: {
 					display: !htmlLegend,
 					position: 'bottom',
+					// A collapsed entry toggles all its datasets (leftover L17; critique CR-ENG-2).
+					onClick: legendClick,
 					labels: {
 						color: CHART_COLORS.legend,
 						usePointStyle: true,
 						boxHeight: 12,
-						filter: (item, chartData) =>
-							(chartData.datasets[item.datasetIndex ?? -1] as { legend?: boolean } | undefined)
-								?.legend !== false,
+						filter: (item) => listedInGroup(item.datasetIndex ?? -1),
 						...font(14),
 						generateLabels: (c) => {
-							const items = legendLabels(c).map((item) => {
-								const ds = c.data.datasets[item.datasetIndex ?? -1] as
-									{ showLine?: boolean; pointStyle?: unknown; borderDash?: number[] } | undefined;
-								const point = ds?.showLine === false && typeof ds.pointStyle === 'string';
-								return {
-									...item,
-									pointStyle: (point ? ds.pointStyle : 'line') as 'circle' | 'line',
-									// A line's swatch dashed as its line (rule 2: a slot's pattern is its second
-									// cue): Chart.js takes an entry's style from its first point under
-									// usePointStyle, which has no dashes, so it drew every line solid (review
-									// DOTS-LABELS-B3).
-									...(point ? {} : { lineDash: [...(ds?.borderDash ?? [])] })
-								};
-							});
+							const items = legendLabels(c)
+								.filter((item) => listedInGroup(item.datasetIndex ?? -1))
+								.map((item) => {
+									const ds = c.data.datasets[item.datasetIndex ?? -1] as
+										{ showLine?: boolean; pointStyle?: unknown; borderDash?: number[] } | undefined;
+									const point = ds?.showLine === false && typeof ds.pointStyle === 'string';
+									return {
+										...item,
+										pointStyle: (point ? ds.pointStyle : 'line') as 'circle' | 'line',
+										// A line's swatch dashed as its line (rule 2: a slot's pattern is its second
+										// cue): Chart.js takes an entry's style from its first point under
+										// usePointStyle, which has no dashes, so it drew every line solid (review
+										// DOTS-LABELS-B3).
+										...(point ? {} : { lineDash: [...(ds?.borderDash ?? [])] })
+									};
+								});
 							// Other cases' own group curves as one entry, a solid slate line (D24 §9.6).
 							const first = items.find((item) => curveFamily(c, item));
-							return (
+							// Then made to fit (leftovers L17, L18; only the image draws it): every entry too
+							// wide for a row on rows of its own (a merged ring's names, long pump names), and
+							// the other cases' rings one entry only where the rows would pass half the canvas.
+							return fittedLegend(
+								c,
 								items
 									.filter((item) => item === first || !curveFamily(c, item))
 									.map((item) =>
@@ -1776,7 +2228,9 @@ export function pumpGroupConfig(
 										(a, b) =>
 											otherCase(c, a) - otherCase(c, b) ||
 											(a.datasetIndex ?? 0) - (b.datasetIndex ?? 0)
-									)
+									),
+								[{ text: OTHER_RINGS_LEGEND, belongs: (i) => !!datasetOf(c, i)?.otherCase }],
+								false
 							);
 						}
 					}
@@ -1795,6 +2249,14 @@ export function pumpGroupConfig(
 			}
 		}
 	};
+}
+
+/** A dataset's flags the legends read (leftovers L17, L18). */
+function datasetOf(
+	chart: ChartInstance,
+	i: number
+): { otherCase?: boolean; otherSystem?: boolean } | undefined {
+	return chart.data.datasets[i] as { otherCase?: boolean; otherSystem?: boolean } | undefined;
 }
 
 /**

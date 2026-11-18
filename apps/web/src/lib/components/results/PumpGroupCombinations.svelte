@@ -18,7 +18,8 @@
 	shown, then every other case in number order, owner, 2026-11-12, nit 5, Q2 "By list place";
 	docs/proposals/pumps-nits.md item 5, slice 5b), which no untick and no "Also show …" moves, each
 	group's heading and its name in the flat form's Case column led by its case's number in a box
-	(CaseTag); the box a size container (§5.5), so each line of a group's
+	(CaseTag, with its name one unit since pumps-nits.md §11.4: CaseNamed); the box a size
+	container (§5.5), so each line of a group's
 	heading is sticky at the box's visible width and wraps in view; a flag line under each flagged
 	pump's row in place of the Flags column, as the group table's (§15 item 92), so a phone's list
 	has no "Flags None" line; the names wrap at 12 rem, trace buttons in the shown case's group
@@ -35,7 +36,6 @@
 -->
 <script lang="ts">
 	import type { Flag } from '$lib/api/types';
-	import { andList } from '$lib/utils/pump-group-chart';
 	import {
 		combinationsLead,
 		INVALID_MARKED,
@@ -45,12 +45,13 @@
 		type CombinationRow,
 		type CombinationsTable
 	} from '$lib/utils/pump-group-one-off';
-	import { cellLines, type Row, type RowGroup, type Table } from '$lib/utils/results';
+	import { cellLines, noteParts, type Row, type RowGroup, type Table } from '$lib/utils/results';
 	import { sectionMark } from '$lib/utils/section-nav';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
-	import CaseTag from '$lib/components/ui/CaseTag.svelte';
+	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import FlagIcon from './FlagIcon.svelte';
 	import FlagLine from './FlagLine.svelte';
+	import PumpStatus from './PumpStatus.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 	import { registerSection } from './section-nav.svelte';
 
@@ -67,6 +68,20 @@
 
 	let { combinations, extremes = null, flagText, oninspect }: Props = $props();
 	const id = $props.id();
+
+	/**
+	 * An extreme's case's name split after its first word (docs/proposals/pumps-nits.md §11.4,
+	 * leftover L10): the box and the first word are one unit (CaseNamed), so the box never ends a
+	 * line apart from its name, and an unbroken name wraps beside the box at one edge; the rest of
+	 * the name runs on with the cell's words, as a sentence wraps. A unit holding the whole name
+	 * set every later word of the cell at the box's edge or under the unit: the condenser's extremes
+	 * 933 px tall at 1280×800 against EXTREMES_HEIGHT's 797, and 917 to 1,093 px for the other
+	 * hanging layouts measured; 757 px so.
+	 */
+	function nameLead(name: string): [string, string] {
+		const cut = name.search(/\s/);
+		return cut < 0 ? [name, ''] : [name.slice(0, cut), name.slice(cut)];
+	}
 
 	/**
 	 * A line of a group's heading (§5.3 Group heading lines): sticky at the box's visible width
@@ -97,8 +112,10 @@
 				detail: '',
 				cells: r.cells,
 				flags: [...r.flags],
-				// A pump that cavitates with no NPSH margin ratio sorts below every ratio.
-				...(r.sortKeys ? { sortKeys: r.sortKeys } : {})
+				// A pump with no NPSH margin ratio that cavitates sorts below every ratio, one with
+				// NPSHr 0 above, each tie by its margin (npshRatioSortKeys).
+				...(r.sortKeys ? { sortKeys: r.sortKeys } : {}),
+				...(r.sortTies ? { sortTies: r.sortTies } : {})
 			}))
 		)
 	});
@@ -134,14 +151,18 @@
 </script>
 
 <!-- A case's heading (§5.3 Group heading lines): its case's number in a box, then its name with
-	"(shown)" and "(out of date)" (nit 5, slice 5b: no " · ring n"), its lineup line and its station
-	line, each sticky at the box's visible width (the box a size container, §5.5), so it wraps in
-	view, an unbroken name inside it; a list's line on a phone. -->
+	"(shown)" and "(out of date)" (nit 5, slice 5b: no " · ring n"), the box and the name one unit,
+	the box beside the name's first line (pumps-nits.md §11.4, leftover L12), its lineup line and
+	its station line, each sticky at the box's visible width (the box a size container, §5.5), so
+	it wraps in view, an unbroken name inside it; a list's line on a phone. -->
 {#snippet caseHeading(rowGroup: RowGroup)}
 	{@const group = groups.get(rowGroup.key)}
 	<span class={[GROUP_LINE, 'font-medium']}
-		>{#if group}<CaseTag tag={group.tag} />{/if}
-		{rowGroup.label}</span
+		>{#if group}<CaseNamed
+				tag={group.tag}
+				name={rowGroup.label}
+				form="block"
+			/>{:else}{rowGroup.label}{/if}</span
 	>
 	{#if group?.lineup}<span class={[GROUP_LINE, 'text-xs text-slate-700']}>{group.lineup}</span>{/if}
 	{#if group?.detail}<span class={[GROUP_LINE, 'text-xs text-slate-600']}>{group.detail}</span>{/if}
@@ -171,11 +192,14 @@
 {/snippet}
 
 <!-- A row's case in the flat form's Case column (§9 S6b): its number in a box, then its name, as
-	its group's heading (nit 5, slice 5b). -->
+	its group's heading (nit 5, slice 5b), one unit (pumps-nits.md §11.4, leftover L12). -->
 {#snippet caseName(rowGroup: RowGroup)}
 	{@const group = groups.get(rowGroup.key)}
-	{#if group}<CaseTag tag={group.tag} />{/if}
-	{rowGroup.label}
+	{#if group}<CaseNamed
+			tag={group.tag}
+			name={rowGroup.label}
+			form="block"
+		/>{:else}{rowGroup.label}{/if}
 {/snippet}
 
 <!-- A flagged member's flag line (§5.3 Flags): the pills and their text, read once (FlagLine). -->
@@ -184,31 +208,52 @@
 {/snippet}
 
 <!-- A value, marked where the pump is physically invalid in that case (§5.2): the red octagon
-	before it, then "physically invalid:" for a screen reader. On the value's baseline by its text,
-	the octagon centred beside it, so a phone's line keeps one baseline (§15 item 157; EXT-2). -->
-{#snippet marked(text: string, mark: boolean)}
+	before it, then "physically invalid:" for a screen reader. On the value's baseline by its text
+	alone, so a phone's line keeps one baseline (§15 item 157; EXT-2). The octagon is centred in a
+	box one line tall at the top of the words (`self-start`: out of the baseline alignment), so it
+	stands beside their first line however they wrap, as CaseNamed's box does (ui-guide: a mark at
+	the sentence's first line). Centred on the whole flex line, it sat between a two-line note's
+	lines from 640 px once the cue wrapped (leftover L3), and on a phone between them or by the
+	second of three (review LO-CODE-1, LO-OWNER-2; docs/proposals/pumps-nits.md §11.8). A note line's
+	words (`note`) are one flex item, their trailing value and unit one span that never wraps
+	(noteParts; §11, leftover L3). -->
+{#snippet marked(text: string, mark: boolean, note = false)}
 	{#if mark}<span class="inline-flex items-baseline gap-1"
-			><FlagIcon severity="invalid" class="size-3.5 self-center" /><span class="sr-only"
-				>physically invalid:</span
-			>{text}</span
-		>{:else}{text}{/if}
+			><span class="flex h-lh shrink-0 items-center self-start"
+				><FlagIcon severity="invalid" class="size-3.5" /></span
+			><span class="sr-only">physically invalid:</span>{#if note}<span class="min-w-0"
+					>{@render noteWords(text)}</span
+				>{:else}{text}{/if}</span
+		>{:else if note}{@render noteWords(text)}{:else}{text}{/if}
 {/snippet}
 
-<!-- A cell's value, or its lines as ResultsTable draws them, a line each (CellValue): a pump that
-	cavitates with no NPSH margin ratio reads "—", then its words with its margin (npshRatioCell;
-	docs/proposals/pumps-nits.md item 4, review E-1-4). The mark goes before its first line that is
-	not "—", so before those words. -->
+<!-- A note line's words, as CellValue draws them: its value and unit one unbreakable span. -->
+{#snippet noteWords(text: string)}
+	{@const [head, tail] = noteParts(text)}{head}{#if tail}<span
+			data-value-unit
+			class="whitespace-nowrap">{tail}</span
+		>{/if}
+{/snippet}
+
+<!-- A cell's value, or its lines as ResultsTable draws them, a line each (CellValue): a pump with
+	no NPSH margin ratio that cavitates, or whose NPSHr is 0, reads "—", then its words with its
+	margin (npshRatioCell; docs/proposals/pumps-nits.md item 4, review E-1-4, §11 leftover L1). The
+	mark goes before its first line that is not "—", so before those words. A member's State is its
+	status pill (PumpStatus, §11 leftover L22), never marked; a member with no result in the case
+	keeps its plain words. -->
 {#snippet markedCell(row: Row, key: string)}
 	{@const value = row.cells[key] ?? '—'}
+	{@const status = key === 'state' ? members.get(rowKey(row))?.status : undefined}
 	{@const lines = cellLines(value)}
 	{@const at =
 		members.get(rowKey(row))?.invalid && (INVALID_MARKED as readonly string[]).includes(key)
 			? lines.findIndex((line) => line !== '—')
 			: -1}
-	{#if lines.length === 1}{@render marked(
+	{#if status}<PumpStatus parts={status} />{:else if lines.length === 1}{@render marked(
 			lines[0]!,
 			at === 0
-		)}{:else}{#each lines as line, i (i)}<span class="block">{@render marked(line, at === i)}</span
+		)}{:else}{#each lines as line, i (i)}<span class="block" data-cell-note={i > 0 ? '' : undefined}
+				>{@render marked(line, at === i, i > 0)}</span
 			>{/each}{/if}
 {/snippet}
 
@@ -298,7 +343,10 @@
 									>{row.name}</th
 								>
 								{#each row.cells as cell, i (cell.key)}
-									<!-- The value on its cell's first line, medium; the rest under it (§5.3).
+									<!-- The value on its cell's first line, medium; the rest under it (§5.3), its
+										case's box and the first word of the case's name one unit (CaseNamed;
+										pumps-nits.md §11.4, leftover L10: nameLead), the rest of the name running
+										on with the cell's words, breaking anywhere as the cell does.
 										A long unbroken word (a case's name) breaks inside its cell, so the
 										table never runs past its box, which has no Tab stop. Below 26 rem one
 										line, headed by the column's words and a space as ::before content
@@ -317,9 +365,14 @@
 														severity="invalid"
 														class="inline size-3.5 self-center"
 													/>{/if}{cell.amount}</span
-											> <span class="text-slate-600">{cell.rest}</span>{:else}<span
-												class="text-slate-600">{cell.rest}</span
-											>{/if}</td
+											>
+											<span class="text-slate-600"
+												>{#if cell.where}{@const [lead, tail] = nameLead(cell.where.name)}in <CaseNamed
+														tag={cell.where.tag}
+														name={lead}
+														nameClass=""
+													/>{tail}{cell.after}{:else}{cell.rest}{/if}</span
+											>{:else}<span class="text-slate-600">{cell.rest}</span>{/if}</td
 									>
 								{/each}
 							</tr>
@@ -328,8 +381,10 @@
 				</table>
 			</div>
 			{#if extremes.notCounted.length}
+				<!-- Each case by its number in words, "case 2: Pump PB off", one from the next by a
+					semicolon, as the off cases' line (pumps-nits.md §11.4, leftover L10). -->
 				<p class="text-xs text-slate-600">
-					Not counted (out of date): {andList(extremes.notCounted)}.
+					Not counted (out of date): {extremes.notCounted.join('; ')}.
 				</p>
 			{/if}
 		</div>

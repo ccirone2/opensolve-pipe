@@ -274,7 +274,12 @@
 <section aria-labelledby="{id}-title" class="space-y-2">
 	<h3 id="{id}-title" class="section-title">Fittings</h3>
 	{#each bareEnds as reservoir (reservoir.end)}
-		<div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+		<!-- A reservoir's name may have no spaces: the box wraps a long word, and both buttons take
+			all four of a named button's classes (ui-guide, Phones; docs/proposals/pumps-nits.md §11.4,
+			leftover L24). -->
+		<div
+			class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm wrap-break-word text-amber-950"
+		>
 			<p>
 				No entrance or exit loss is applied where this piping meets {reservoir.name}{ws.inScenario
 					? ', in every case.'
@@ -283,17 +288,17 @@
 			<div class={['mt-2 flex flex-wrap gap-2', ws.inScenario && 'hidden']}>
 				<button
 					type="button"
-					class="btn py-1.5 text-left whitespace-normal"
+					class="btn py-1.5 text-left wrap-anywhere whitespace-normal"
 					onclick={() => addReservoirLoss(DEFAULT_ENTRANCE, reservoir.end)}
 				>
-					<Icon name="plus" class="size-4" /> Sharp-edged entrance (flow leaves {reservoir.name})
+					<Icon name="plus" class="size-4 shrink-0" /> Sharp-edged entrance (flow leaves {reservoir.name})
 				</button>
 				<button
 					type="button"
-					class="btn py-1.5 text-left whitespace-normal"
+					class="btn py-1.5 text-left wrap-anywhere whitespace-normal"
 					onclick={() => addReservoirLoss(DEFAULT_EXIT, reservoir.end)}
 				>
-					<Icon name="plus" class="size-4" /> Exit (flow enters {reservoir.name})
+					<Icon name="plus" class="size-4 shrink-0" /> Exit (flow enters {reservoir.name})
 				</button>
 			</div>
 		</div>

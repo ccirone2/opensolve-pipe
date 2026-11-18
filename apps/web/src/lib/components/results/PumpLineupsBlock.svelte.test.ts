@@ -457,18 +457,18 @@ describe('the Add cases block in the workspace', () => {
 		).toBeChecked();
 		expect(ws.notice).toMatchObject({
 			kind: 'info',
-			text: 'Added 3 cases by number running: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+			text: 'Added 3 cases by number running: case 1 «3 of 4 running (Pump P4 off)», case 2 «2 of 4 running (Pump P3, Pump P4 off)» and case 3 «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		});
 		expect(screen.getByText(ws.notice!.text)).toBeVisible();
 		// The focus stays on Add, the same node (build-density.md §19: no Solve all to move to).
 		await waitFor(() => expect(add).toHaveFocus());
 		// Every case is a scenario now: the cases say so, and Add is refused.
-		expect(cases()).toEqual(NAMES.map((name, i) => `${name}: already a scenario (S${i + 1})`));
+		expect(cases()).toEqual(NAMES.map((name, i) => `${name}: already case ${i + 1}`));
 		const refused = inBlock().getByRole('button', { name: 'Add cases' });
 		expect(refused).toBe(add);
 		expect(refused).toHaveAttribute('aria-disabled', 'true');
 		expect(refused).toHaveAccessibleDescription(
-			'Every case by number running already exists: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)».'
+			'Every case by number running already exists: case 1 «3 of 4 running (Pump P4 off)», case 2 «2 of 4 running (Pump P3, Pump P4 off)» and case 3 «1 of 4 running (Pump P2, Pump P3, Pump P4 off)».'
 		);
 		// Solve all, the Scenarios menu's: the three cases, then each case's group curve (most
 		// running first), three rings.
@@ -623,7 +623,7 @@ describe('the Add cases block, drawn alone', () => {
 	const off = (...ids: string[]): Override[] =>
 		ids.map((componentId) => ({ kind: 'component', componentId, field: 'status', value: 'off' }));
 
-	it('words each kind of case in the preview: added, already a scenario (both forms), another case with its name', () => {
+	it('words each kind of case in the preview: added, already a case (both forms), another case with its name, each by its number', () => {
 		const project = withScenarios(withoutScenarios(), [
 			// The same case, the same name: the short form.
 			{ id: 'S1', name: NAMES[0]!, overrides: off('P4') },
@@ -641,9 +641,9 @@ describe('the Add cases block, drawn alone', () => {
 		]);
 		draw(planOn(lineups, { project }));
 		expect(items()).toEqual([
-			'3 of 4 running (Pump P4 off): already a scenario (S1)',
-			'2 of 4 running (Pump P3, Pump P4 off): already a scenario, «Two off (hand)» (S2)',
-			'1 of 4 running (Pump P2, Pump P3, Pump P4 off): scenario S3 has this name too but is another case'
+			'3 of 4 running (Pump P4 off): already case 1',
+			'2 of 4 running (Pump P3, Pump P4 off): already case 2 «Two off (hand)»',
+			'1 of 4 running (Pump P2, Pump P3, Pump P4 off): case 3 has this name too but is another case'
 		]);
 		expect(alone().getByText('Cases:')).toBeVisible();
 		const add = alone().getByRole('button', { name: 'Add 1 case' });
@@ -1304,7 +1304,7 @@ describe('the block has no Solve all: the Scenarios menu’s is the one (build-d
 		expect(add).toHaveAccessibleName('Add cases');
 		expect(add).toHaveAttribute('aria-disabled', 'true');
 		expect(add).toHaveAccessibleDescription(
-			'Every case by number running already exists: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)».'
+			'Every case by number running already exists: case 1 «3 of 4 running (Pump P4 off)», case 2 «2 of 4 running (Pump P3, Pump P4 off)» and case 3 «1 of 4 running (Pump P2, Pump P3, Pump P4 off)».'
 		);
 		// Its visible refusal, on screen.
 		const refusal = document.getElementById(add.getAttribute('aria-describedby')!)!;
@@ -1314,7 +1314,7 @@ describe('the block has no Solve all: the Scenarios menu’s is the one (build-d
 		);
 		// The notice names the Scenarios menu's Solve all.
 		expect(ws.notice?.text).toBe(
-			'Added 3 cases by number running: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+			'Added 3 cases by number running: case 1 «3 of 4 running (Pump P4 off)», case 2 «2 of 4 running (Pump P3, Pump P4 off)» and case 3 «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
 		// Tab from Add: the table button next, and last in the block.
 		const stops = [

@@ -288,6 +288,65 @@ test('at 400 % zoom (320×256) the form is reached by scrolling the page, never 
 	expect(sideways).toBe(0);
 });
 
+test('a reservoir named with no spaces: its entrance and exit buttons wrap inside their box, and nothing scrolls sideways, at 390, 360 and 320 px', async ({
+	page
+}, info) => {
+	// docs/proposals/pumps-nits.md §11.4, leftover L24; ui-guide, Phones: a button whose label holds
+	// a name takes `wrap-anywhere`, since a name may have no spaces.
+	test.skip(DESKTOP(info.project.name), 'a phone’s widths; the laptop’s pane is wide enough');
+	const LONG = 'DischargeTankNorthSideOfTheBoilerHouse01';
+	const project = exampleProject('pump-transfer')!;
+	const l3 = project.connections.find((c) => c.id === 'L3')!;
+	l3.piping.fittings = l3.piping.fittings.filter((f) => f.type !== 'exit');
+	project.components.find((c) => c.id === 'R2')!.name = LONG;
+	await open(page, project);
+	await showPane(page, 'Build');
+	await jumpTo(page, LONG);
+	const panel = buildPane(page);
+	await panel.getByRole('tab', { name: 'Piping' }).click();
+	const exit = panel.getByRole('button', { name: `Exit (flow enters ${LONG})` });
+	await expect(exit).toBeVisible();
+	for (const size of [
+		{ width: 390, height: 844 },
+		{ width: 360, height: 740 },
+		{ width: 320, height: 640 }
+	]) {
+		await page.setViewportSize(size);
+		await exit.scrollIntoViewIfNeeded();
+		const m = await exit.evaluate((button) => {
+			const pane = document.querySelector('section[aria-label="Build"]')!;
+			const box = button.closest('.rounded-md')!.getBoundingClientRect();
+			const inside = (e: Element) => {
+				const r = e.getBoundingClientRect();
+				return r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
+			};
+			const sentence = button.closest('.rounded-md')!.querySelector('p')!;
+			const range = document.createRange();
+			range.selectNodeContents(sentence);
+			const words = [...range.getClientRects()];
+			const buttons = [...button.parentElement!.querySelectorAll('button')];
+			const sideways = [...pane.querySelectorAll<HTMLElement>('*')]
+				.filter((e) => /(auto|scroll)/.test(getComputedStyle(e).overflowX))
+				.filter((e) => e.scrollWidth > e.clientWidth + 1)
+				// The path's own row scrolls sideways by design (Breadcrumb.svelte).
+				.filter((e) => !e.closest('nav[aria-label="Path"]'))
+				.map((e) => `${e.tagName} ${e.scrollWidth}/${e.clientWidth}`);
+			const root = document.scrollingElement!;
+			return {
+				buttons: buttons.map((b) => inside(b)),
+				sentence: words.every((r) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5),
+				sideways,
+				page: root.scrollWidth - root.clientWidth
+			};
+		});
+		const at = `${size.width}×${size.height}`;
+		expect.soft(m.buttons, `${at}: both buttons inside the box`).toEqual([true, true]);
+		expect.soft(m.sentence, `${at}: the sentence inside the box`).toBe(true);
+		expect.soft(m.sideways, `${at}: no scroller of the Build pane scrolls sideways`).toEqual([]);
+		expect.soft(m.page, `${at}: the page does not scroll sideways`).toBe(0);
+	}
+});
+
 test('axe finds no violation in Build, with its disclosures open', async ({ page }) => {
 	const project = everyKind();
 	await open(page, project);

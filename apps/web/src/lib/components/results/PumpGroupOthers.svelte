@@ -27,6 +27,7 @@
 	import { caseTagOf, type CaseNumber } from '$lib/utils/pump-chart';
 	import type { OtherNoteParts } from '$lib/utils/pump-group-chart';
 	import { MAX_GROUP_CASES, type OtherGroupCase } from '$lib/utils/pump-group-one-off';
+	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import CaseTag from '$lib/components/ui/CaseTag.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useSectionNav } from './section-nav.svelte';
@@ -174,10 +175,11 @@
 			<!-- An auto-fill grid, 13 rem at least, as the pump chart's (§5.3, §15 item 35). -->
 			<div class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-3">
 				<!-- The case shown: a tag, not a control (§5.2 Tags); its number in a box, then its words,
-					no ● before them (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5). -->
+					no ● before them (owner, 2026-11-12, nit 5; docs/proposals/pumps-nits.md item 5), the
+					box and the words one unit (§11.4, leftover L12). -->
 				<span
 					class="col-span-full mt-1 justify-self-start rounded bg-slate-100 px-1.5 text-xs text-slate-700"
-					><CaseTag tag={caseTag} /> {caseName ?? 'This case'} (shown)</span
+					><CaseNamed tag={caseTag} name="{caseName ?? 'This case'} (shown)" /></span
 				>
 				{#each others as other (other.key)}
 					{@const capped = !other.onChart && othersFull}

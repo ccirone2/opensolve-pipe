@@ -33,6 +33,7 @@
 	import type { Chart as ChartInstance } from 'chart.js';
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import {
+		caseNamed,
 		caseTagOf,
 		chartHeightRem,
 		saveTableShown,
@@ -235,9 +236,12 @@
 	/** The section nav, for "Go to the pump chart" (§6.2); none in the card's own tests. */
 	const nav = useSectionNav();
 
-	const caption = $derived(
-		`${groupCaption(memberNames, arrangement)}${caseName ? `, ${caseName}` : ''}${stale ? ' (out of date)' : ''}`
-	);
+	/**
+	 * The case shown in words, by its number: "case 2: Winter", the base case its name alone
+	 * (caseNamed): the image's title and Download image's name, where the caption draws its box
+	 * beside its name (docs/proposals/pumps-nits.md §11.4, leftover L10).
+	 */
+	const caseTitle = $derived(caseName ? caseNamed(caseTag, caseName) : undefined);
 	const summary = $derived(groupSummary(data, members, shown, project, systemShown));
 	const legend = $derived(groupLegend(data));
 	const samples = $derived(
@@ -532,6 +536,7 @@
 				groupNoteLines(notesWith(data.otherCurves.length ? imageLeftOut : 0, imagePoints), reasons),
 			content: `Pumps together ${memberNames.join(', ')}`,
 			...(caseName ? { caseName } : {}),
+			...(caseTitle ? { caseTitle } : {}),
 			disclaimer: DISCLAIMER,
 			source: image
 		});
@@ -556,8 +561,13 @@
 		ancestor (§5.3 markup rules, §7).
 	-->
 	<figure bind:this={figure} class="space-y-2" aria-labelledby="{id}-caption" tabindex="-1">
-		<!-- Its names wrap, one with no space too (§5.3): the caption is the chart's title. -->
-		<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">{caption}</figcaption>
+		<!-- Its names wrap, one with no space too (§5.3): the caption is the chart's title. The case
+			shown by its number, its box beside its name, one unit (CaseNamed; pumps-nits.md §11.4,
+			leftover L10). -->
+		<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">
+			{groupCaption(memberNames, arrangement)}{#if caseName},
+				<CaseNamed tag={caseTag} name={caseName} />{/if}{stale ? ' (out of date)' : ''}
+		</figcaption>
 		{#if loadFailed}
 			<p class="text-sm text-slate-700" role="alert">
 				{STALE_CHUNK_MESSAGE} The tables below list its points.
@@ -734,8 +744,8 @@
 							type="button"
 							class="btn btn-quiet px-2 text-blue-800"
 							data-chart-image
-							aria-label="Download image of the pumps together: {memberNames.join(', ')}{caseName
-								? `, ${caseName}`
+							aria-label="Download image of the pumps together: {memberNames.join(', ')}{caseTitle
+								? `, ${caseTitle}`
 								: ''}"
 							aria-disabled={!!imageReason}
 							aria-describedby={imageReason ? `${id}-image-reason` : undefined}

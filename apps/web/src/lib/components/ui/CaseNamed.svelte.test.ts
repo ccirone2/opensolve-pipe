@@ -25,16 +25,18 @@ function unit() {
 }
 
 describe('CaseNamed', () => {
-	it('draws the box in a shrink-0 span, a space, then the name in a min-w-0 span, in one inline flex row on the words’ baseline; heard "Case 2: Winter"', () => {
+	it('draws the box in a shrink-0 span one line tall, centred, a space, then the name in a min-w-0 span on the words’ baseline, in one inline flex row; heard "Case 2: Winter"', () => {
 		render(CaseNamed, { tag: 2, name: 'Winter' });
 		const { root, box, name } = unit();
-		expect(root).toHaveClass('inline-flex', 'max-w-full', 'items-baseline', 'gap-1');
+		expect(root).toHaveClass('inline-flex', 'max-w-full', 'items-start', 'gap-1');
 		expect(root).toHaveClass('align-baseline');
-		expect(box).toHaveClass('shrink-0');
+		// The box centred in one line of the row's font (leftover L10: a 16 px box on a 16 px line
+		// grows no line); the name alone on the baseline, the row's.
+		expect(box).toHaveClass('flex', 'h-lh', 'shrink-0', 'items-center');
 		expect(box).not.toHaveClass('w-10');
 		expect(box.firstElementChild).toHaveAttribute('data-case-tag');
 		expect(shownCaseTag(box)).toBe('2');
-		expect(name).toHaveClass('min-w-0', 'sm:wrap-break-word');
+		expect(name).toHaveClass('min-w-0', 'self-baseline', 'sm:wrap-break-word');
 		expect(name.textContent).toBe('Winter');
 		// The space between them: a text node, so the words heard keep it where no layout adds one.
 		expect(box.nextSibling?.nodeType).toBe(Node.TEXT_NODE);
@@ -47,15 +49,15 @@ describe('CaseNamed', () => {
 	it('is a line of its own in block form, and keeps the reserved 2.5 rem column for the box in column form', () => {
 		const block = render(CaseNamed, { tag: 3, name: 'Delivery tank 5 m higher', form: 'block' });
 		let parts = unit();
-		expect(parts.root).toHaveClass('flex', 'items-baseline', 'gap-1');
+		expect(parts.root).toHaveClass('flex', 'items-start', 'gap-1');
 		expect(parts.root).not.toHaveClass('inline-flex');
 		expect(parts.box).toHaveClass('shrink-0');
 		expect(parts.box).not.toHaveClass('w-10');
 		block.unmount();
 		render(CaseNamed, { tag: 3, name: 'Delivery tank 5 m higher', form: 'column' });
 		parts = unit();
-		expect(parts.root).toHaveClass('flex', 'items-baseline');
-		expect(parts.box).toHaveClass('w-10', 'shrink-0');
+		expect(parts.root).toHaveClass('flex', 'items-start');
+		expect(parts.box).toHaveClass('w-10', 'h-lh', 'shrink-0');
 		expect(spokenWords(parts.root)).toBe('Case 3: Delivery tank 5 m higher');
 	});
 
@@ -74,7 +76,7 @@ describe('CaseNamed', () => {
 		render(CaseNamed, { tag: 2, children, nameClass: 'font-medium', class: 'text-xs' });
 		const { root, name } = unit();
 		expect(root).toHaveClass('text-xs');
-		expect(name).toHaveClass('min-w-0', 'font-medium');
+		expect(name).toHaveClass('min-w-0', 'self-baseline', 'font-medium');
 		expect(name).not.toHaveClass('sm:wrap-break-word');
 		expect(name.textContent).toBe('Winter (shown)');
 		expect(spokenWords(root)).toBe('Case 2: Winter (shown)');

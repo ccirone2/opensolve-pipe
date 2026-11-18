@@ -36,7 +36,6 @@
 -->
 <script lang="ts">
 	import type { Flag } from '$lib/api/types';
-	import { andList } from '$lib/utils/pump-group-chart';
 	import {
 		combinationsLead,
 		INVALID_MARKED,
@@ -69,6 +68,20 @@
 
 	let { combinations, extremes = null, flagText, oninspect }: Props = $props();
 	const id = $props.id();
+
+	/**
+	 * An extreme's case's name split after its first word (docs/proposals/pumps-nits.md §11.4,
+	 * leftover L10): the box and the first word are one unit (CaseNamed), so the box never ends a
+	 * line apart from its name, and an unbroken name wraps beside the box at one edge; the rest of
+	 * the name runs on with the cell's words, as a sentence wraps. A unit holding the whole name
+	 * set every later word of the cell at the box's edge or under the unit: the condenser's extremes
+	 * 933 px tall at 1280×800 against EXTREMES_HEIGHT's 797, and 917 to 1,093 px for the other
+	 * hanging layouts measured; 757 px so.
+	 */
+	function nameLead(name: string): [string, string] {
+		const cut = name.search(/\s/);
+		return cut < 0 ? [name, ''] : [name.slice(0, cut), name.slice(cut)];
+	}
 
 	/**
 	 * A line of a group's heading (§5.3 Group heading lines): sticky at the box's visible width
@@ -323,7 +336,10 @@
 									>{row.name}</th
 								>
 								{#each row.cells as cell, i (cell.key)}
-									<!-- The value on its cell's first line, medium; the rest under it (§5.3).
+									<!-- The value on its cell's first line, medium; the rest under it (§5.3), its
+										case's box and the first word of the case's name one unit (CaseNamed;
+										pumps-nits.md §11.4, leftover L10: nameLead), the rest of the name running
+										on with the cell's words, breaking anywhere as the cell does.
 										A long unbroken word (a case's name) breaks inside its cell, so the
 										table never runs past its box, which has no Tab stop. Below 26 rem one
 										line, headed by the column's words and a space as ::before content
@@ -342,9 +358,14 @@
 														severity="invalid"
 														class="inline size-3.5 self-center"
 													/>{/if}{cell.amount}</span
-											> <span class="text-slate-600">{cell.rest}</span>{:else}<span
-												class="text-slate-600">{cell.rest}</span
-											>{/if}</td
+											>
+											<span class="text-slate-600"
+												>{#if cell.where}{@const [lead, tail] = nameLead(cell.where.name)}in <CaseNamed
+														tag={cell.where.tag}
+														name={lead}
+														nameClass=""
+													/>{tail}{cell.after}{:else}{cell.rest}{/if}</span
+											>{:else}<span class="text-slate-600">{cell.rest}</span>{/if}</td
 									>
 								{/each}
 							</tr>
@@ -353,8 +374,10 @@
 				</table>
 			</div>
 			{#if extremes.notCounted.length}
+				<!-- Each case by its number in words, "case 2: Pump PB off", one from the next by a
+					semicolon, as the off cases' line (pumps-nits.md §11.4, leftover L10). -->
 				<p class="text-xs text-slate-600">
-					Not counted (out of date): {andList(extremes.notCounted)}.
+					Not counted (out of date): {extremes.notCounted.join('; ')}.
 				</p>
 			{/if}
 		</div>

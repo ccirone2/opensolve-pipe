@@ -958,6 +958,41 @@ describe('the card', () => {
 		);
 	});
 
+	// docs/proposals/pumps-nits.md §11.4, leftover L10: the case shown's number on screen, its box
+	// beside its name as one unit (CaseNamed) in the caption and the group table's title; in words
+	// in the image's title, Download image's name and the table's caption, which names Fields and
+	// Sort by ("case 2: Winter"); the file named by the name alone.
+	it('names the case shown by its number: its box in the caption and the group table’s title, "case 2: Winter" in the image’s title, its button’s name and the table’s caption', async () => {
+		const c = named('parallel-crane');
+		render(PumpGroupChart, props(c, { image: image(), caseName: 'Winter', caseTag: 2 }));
+		expect(screen.getByRole('figure')).toHaveAccessibleName(
+			'Pump PA and Pump PB in parallel, Case 2: Winter'
+		);
+		const figure = screen.getByRole('figure');
+		const units = figure.querySelectorAll('figcaption [data-case-named]');
+		expect(units).toHaveLength(1);
+		expect(shownCaseTag(units[0]!)).toBe('2');
+		expect(besideCaseTag(units[0]!)).toBe('Winter');
+		const title = document.querySelector('[data-group-table] > p')!;
+		expect(title.querySelectorAll('[data-case-named]')).toHaveLength(1);
+		expect(shownCaseTag(title)).toBe('2');
+		expect(besideCaseTag(title)).toBe('The pumps in the group, Winter');
+		expect(spokenWords(title)).toBe('The pumps in the group, Case 2: Winter');
+		expect(
+			screen.getByRole('table', { name: 'The pumps in the group, case 2: Winter' })
+		).toBeTruthy();
+		const button = () =>
+			screen.getByRole('button', {
+				name: 'Download image of the pumps together: Pump PA, Pump PB, case 2: Winter'
+			});
+		await vi.waitFor(() => expect(button()).not.toHaveAttribute('aria-disabled', 'true'), {
+			timeout: 10_000
+		});
+		await fireEvent.click(button());
+		await vi.waitFor(() => expect(images.requests).toHaveLength(1));
+		expect(images.requests[0]).toMatchObject({ caseTitle: 'case 2: Winter', caseName: 'Winter' });
+	});
+
 	it('shows no values for results that are not a solution, or not the latest', () => {
 		const c = named('parallel-ideal');
 		render(
@@ -2116,7 +2151,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		const add = within(block()).getByRole('button', { name: 'Add cases' });
 		expect(add).toHaveAttribute('aria-disabled', 'true');
 		expect(add).toHaveAccessibleDescription(
-			'Every case with one pump off already exists: Pump PA off and Pump PB off.'
+			'Every case with one pump off already exists: case 1 «Pump PA off» and case 2 «Pump PB off».'
 		);
 		// Every case made: the plan is drawn folded, its summary saying so; opened before the preview
 		// is read (pumps-results-layout.md §5.3 The fold, §10 S4).
@@ -2128,9 +2163,10 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		await fireEvent.click(folded.querySelector('summary')!);
 		expect(folded.open).toBe(true);
 		// §7.12: "{name} has its case already: {found.name}." becomes the preview item
-		// "{offName}: already a scenario, «{other}» ({id})", in §7.7's short form: the names are equal.
-		expect(block()).toHaveTextContent('Pump PA off: already a scenario (S1)');
-		expect(within(block()).getByText('Pump PA off: already a scenario (S1)')).toBeVisible();
+		// "{offName}: already case {n} «{other}»", in §7.7's short form: the names are equal; by the
+		// case's number since pumps-nits.md §11.4 (leftover L10), its id before.
+		expect(block()).toHaveTextContent('Pump PA off: already case 1');
+		expect(within(block()).getByText('Pump PA off: already case 1')).toBeVisible();
 		await fireEvent.click(add);
 		expect(onadd).not.toHaveBeenCalled();
 	});
@@ -2159,7 +2195,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		expect(button).toHaveAccessibleName('Add cases');
 		expect(button).toHaveAttribute('aria-disabled', 'true');
 		expect(button).toHaveAccessibleDescription(
-			'Every case with one pump off already exists: Pump PA off and Pump PB off.'
+			'Every case with one pump off already exists: case 1 «Pump PA off» and case 2 «Pump PB off».'
 		);
 		await fireEvent.click(button);
 		expect(onadd).toHaveBeenCalledTimes(1);
@@ -3053,11 +3089,29 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		const flowColumn = within(extremes)
 			.getAllByRole('columnheader')
 			.findIndex((h) => h.textContent === 'Largest flow');
-		// The row header is the row's first cell, so a column's cell is that index less one.
-		expect(within(paRow).getAllByRole('cell')[flowColumn - 1]!.textContent).toBe(
+		// The row header is the row's first cell, so a column's cell is that index less one. Its
+		// case by its number since docs/proposals/pumps-nits.md §11.4 (leftover L10): the box and the
+		// name's first word one unit (CaseNamed), the rest of the name running on with the cell's
+		// words, heard "Case 9: Held (synthetic)"; the cases not counted in words with their numbers.
+		// Moved from the cell's whole text, which held the name alone.
+		const flowCell = within(paRow).getAllByRole('cell')[flowColumn - 1]!;
+		expect(spokenWords(flowCell)).toBe(
+			'40.75 L/s in Case 9: Held (synthetic); beyond its curve data (over 2 of 2 cases)'
+		);
+		expect(besideCaseTag(flowCell)).toBe(
 			'40.75 L/s in Held (synthetic); beyond its curve data (over 2 of 2 cases)'
 		);
-		expect(screen.getByText('Not counted (out of date): Pump PB off.')).toBeVisible();
+		const unit = flowCell.querySelectorAll('[data-case-named]');
+		expect(unit).toHaveLength(1);
+		expect(shownCaseTag(unit[0]!)).toBe('9');
+		expect(besideCaseTag(unit[0]!)).toBe('Held');
+		// The rest of the name after the unit, with the cell's words, in the unit's run of words.
+		const after = [...unit[0]!.parentElement!.childNodes]
+			.filter((n) => unit[0]!.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)
+			.map((n) => n.textContent)
+			.join('');
+		expect(after).toBe(' (synthetic); beyond its curve data (over 2 of 2 cases)');
+		expect(screen.getByText('Not counted (out of date): case 2: Pump PB off.')).toBeVisible();
 	});
 
 	/** FlagIcon's shapes (Icon.svelte): the invalid octagon, and the warning's triangle. */
@@ -3254,7 +3308,7 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			lead,
 			screen.getByRole('heading', { name: 'Extremes over these cases (current results)' }),
 			screen.getByRole('table', { name: 'Extremes over these cases' }),
-			screen.getByText('Not counted (out of date): Pump PB off.'),
+			screen.getByText('Not counted (out of date): case 2: Pump PB off.'),
 			screen.getByRole('table', { name: 'Running combinations' })
 		];
 		for (const [i, el] of order.entries()) {
@@ -3354,8 +3408,14 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 				expect(line.term).toBe(
 					`${name}, ${labels[j]!.charAt(0).toLowerCase()}${labels[j]!.slice(1)}`
 				);
-				expect(cell.textContent).toBe(line.value);
 				const value = extremes.table.rows[i]!.cells[j]!;
+				// Its case's box beside the case's name since pumps-nits.md §11.4 (leftover L10): the
+				// words seen are the line's with the case's name for "case n: name", the box's number
+				// the case's. Moved from the cell's whole text, the line's value, at greater strictness.
+				expect(besideCaseTag(cell)).toBe(
+					value.where ? `${value.amount} in ${value.where.name}${value.after}` : line.value
+				);
+				expect(shownCaseTag(cell)).toBe(value.where ? String(value.where.tag) : null);
 				if (value.amount === null) {
 					// "no case gives one" fills its cell alone, with no value line.
 					expect(cell.children).toHaveLength(1);
@@ -3366,7 +3426,8 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 					const [first, rest] = [...cell.children];
 					expect(first!.textContent).toBe(value.amount);
 					expect(first).toHaveClass('flex', 'font-medium', 'text-slate-900');
-					expect(rest!.textContent).toBe(value.rest);
+					expect(besideCaseTag(rest!)).toBe(`in ${value.where!.name}${value.after}`);
+					expect(rest!.querySelectorAll('[data-case-named]')).toHaveLength(1);
 					expect(rest).toHaveClass('text-slate-600');
 				}
 				// The red octagon before the value exactly where its case is physically invalid
@@ -3998,9 +4059,11 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 		const extremes = screen.getByRole('table', { name: 'Extremes over these cases' });
 		const paRow = within(extremes).getByRole('rowheader', { name: 'Pump PA' }).closest('tr')!;
 		const smallest = paRow.querySelector('td[data-label="Smallest NPSH margin ratio"]')!;
-		expect(squashed(smallest.textContent)).toBe(
+		// Its case's box beside its name since pumps-nits.md §11.4 (leftover L10): the Base box.
+		expect(besideCaseTag(smallest)).toBe(
 			`${cue} in Base case; physically invalid (over 2 of 2 cases)`
 		);
+		expect(shownCaseTag(smallest)).toBe('Base');
 		expect(shapes(smallest)).toEqual([OCTAGON]);
 	});
 
@@ -4528,7 +4591,7 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		for (const h of headers) {
 			const unit = h.querySelector('[data-case-named]');
 			expect(unit, besideCaseTag(h)).not.toBeNull();
-			expect(unit).toHaveClass('flex', 'items-baseline');
+			expect(unit).toHaveClass('flex', 'items-start');
 			expect(unit!.children).toHaveLength(2);
 			const [box, words] = [...unit!.children];
 			expect(box).toHaveClass('shrink-0');

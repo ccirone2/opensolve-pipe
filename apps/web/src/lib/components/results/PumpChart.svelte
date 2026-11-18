@@ -273,6 +273,12 @@
 	/** The other cases with a system curve: each has its table last in the data region (§5.3). */
 	const othersWithCurves = $derived(otherData.filter((o) => o.system));
 	/**
+	 * The case shown in words, by its number: "case 2: Winter", the base case its name alone
+	 * (caseNamed): the image's title and Download image's name, where the caption draws its box
+	 * beside its name (docs/proposals/pumps-nits.md §11.4, leftover L10).
+	 */
+	const caseTitle = $derived(caseName ? caseNamed(caseTag, caseName) : undefined);
+	/**
 	 * What is drawn above the switch that the other cases can change while it is held, as one
 	 * string, so it changes only as that layout does, not at every state of a case's curve: each
 	 * listed case's box with its words (its name, "(out of date)") and its off line, the line naming
@@ -814,6 +820,7 @@
 			offCases: offNote,
 			pumpName: name,
 			...(caseName ? { caseName } : {}),
+			...(caseTitle ? { caseTitle } : {}),
 			disclaimer: DISCLAIMER,
 			source: image
 		});
@@ -836,9 +843,11 @@
 	tabindex="-1"
 >
 	<!-- Its words wrap, a 40-character unbroken name too, as the group chart's figcaption (§7
-		Targets: text reflows at 320 px; S7 review LAYOUT-5). -->
+		Targets: text reflows at 320 px; S7 review LAYOUT-5). The case shown by its number, its box
+		beside its name, one unit (CaseNamed; pumps-nits.md §11.4, leftover L10). -->
 	<figcaption id="{id}-caption" class="text-sm font-medium wrap-break-word">
-		Pump and system curves: {name}{caseName ? `, ${caseName}` : ''}
+		Pump and system curves: {name}{#if caseName},
+			<CaseNamed tag={caseTag} name={caseName} />{/if}
 	</figcaption>
 	{#if loadFailed}
 		<p bind:this={canvasArea} class="text-sm text-slate-700" role="alert">
@@ -1027,8 +1036,8 @@
 						type="button"
 						class="btn btn-quiet px-2 text-blue-800"
 						data-chart-image
-						aria-label="Download image of the pump and system curves: {name}{caseName
-							? `, ${caseName}`
+						aria-label="Download image of the pump and system curves: {name}{caseTitle
+							? `, ${caseTitle}`
 							: ''}"
 						aria-disabled={!!imageReason}
 						aria-describedby={imageReason ? `${id}-image-reason` : undefined}
@@ -1310,11 +1319,18 @@
 				</div>
 			</div>
 			<!-- The other cases' system curves, on this chart's flow grid, last (§5.3, F33); each open
-				by default when one of its points has no head (§9 S7). -->
+				by default when one of its points has no head (§9 S7). Each named by its case's number:
+				its box beside its name in the summary, "case 2: Winter" in the table's name, as the
+				legend and the tooltip say "System curve, case 2" (pumps-nits.md §11.4, leftover L10). -->
 			{#each othersWithCurves as other (other.key)}
+				{#snippet systemLabel()}System curve, <CaseNamed
+						tag={other.tag}
+						name={other.label}
+					/>{/snippet}
 				<CurveTable
 					key="system-{caseId(other.key)}"
-					caption="System curve, {other.label}"
+					caption="System curve, {caseNamed(other.tag, other.label)}"
+					label={systemLabel}
 					points={other.systemRows.length}
 					openByDefault={cannotDraw || other.systemRows.some((row) => row.head === '—')}
 					bind:choice={tablesOpen[`system-${caseId(other.key)}`]}
@@ -1334,7 +1350,10 @@
 								<td class="px-2 py-1 text-xs text-slate-600"
 									>{row.note}{#if row.detail}<IssueDetail
 											detail={row.detail}
-											subject="the point at {row.flow} {data.flowUnit}, {other.label}"
+											subject="the point at {row.flow} {data.flowUnit}, {caseNamed(
+												other.tag,
+												other.label
+											)}"
 										/>{/if}</td
 								>
 							</tr>

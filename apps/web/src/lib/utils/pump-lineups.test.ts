@@ -36,6 +36,7 @@ import {
 } from '$lib/testing/lineups';
 import fixture from './__fixtures__/pump-groups-input.json';
 import { condenserWaterExample, pumpTransferExample } from './examples';
+import { caseTags } from './pump-chart';
 import { chartKeys, offName } from './pump-group-one-off';
 import { suggestGroups } from './pump-groups';
 import {
@@ -1331,7 +1332,7 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		expect(plan.label).toBe('Add 3 cases');
 		expect(plan.undoLabel).toBe('add cases by number running');
 		expect(plan.notice).toBe(
-			'Added 3 cases by number running: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+			'Added 3 cases by number running: case 1 «3 of 4 running (Pump P4 off)», case 2 «2 of 4 running (Pump P3, Pump P4 off)» and case 3 «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
 		// Exactly the fixture's S1 to S3, the scenarios the API solved.
 		const made = withLineupCases(project, plan.add);
@@ -1351,7 +1352,7 @@ describe('lineupPlan: By number running (§7.4)', () => {
 			'Pump P1 off',
 			'Pump P2 off',
 			'Pump P3 off',
-			'Pump P4 off: already a scenario, «3 of 4 running (Pump P4 off)» (S1)'
+			'Pump P4 off: already case 1 «3 of 4 running (Pump P4 off)»'
 		]);
 		expect(withLineupCases(made, each.add).scenarios).toEqual(
 			lineups.project.scenarios!.slice(0, 6)
@@ -1503,7 +1504,7 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		]);
 	});
 
-	it('finds an existing case in any order of its changes and with a change equal to the base, named with its id', () => {
+	it('finds an existing case in any order of its changes and with a change equal to the base, named with its number (its id before pumps-nits.md §11.4)', () => {
 		const project = withScenarios(withoutScenarios(lineups.project), [
 			{ id: 'S1', name: 'Winter', overrides: [...off('P3', 'P4'), level('R2', 5)] },
 			{ id: 'S2', name: 'Pump P4 off (hand)', overrides: [status('P1', 'on'), ...off('P4')] },
@@ -1518,8 +1519,8 @@ describe('lineupPlan: By number running (§7.4)', () => {
 			['add', 'S5', null]
 		]);
 		expect(items(plan)).toEqual([
-			'3 of 4 running (Pump P4 off): already a scenario, «Pump P4 off (hand)» (S2)',
-			'2 of 4 running (Pump P3, Pump P4 off): already a scenario, «Two off» (S3)',
+			'3 of 4 running (Pump P4 off): already case 2 «Pump P4 off (hand)»',
+			'2 of 4 running (Pump P3, Pump P4 off): already case 3 «Two off»',
 			'1 of 4 running (Pump P2, Pump P3, Pump P4 off)'
 		]);
 		expect(plan.existing).toEqual([
@@ -1528,11 +1529,11 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		]);
 		expect(plan.label).toBe('Add 1 case');
 		expect(plan.notice).toBe(
-			'Added 1 case by number running: «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+			'Added 1 case by number running: case 5 «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
 		// The same name: the short form.
 		expect(items(planOn(lineups, { project: lineups.project }))[0]).toBe(
-			'3 of 4 running (Pump P4 off): already a scenario (S1)'
+			'3 of 4 running (Pump P4 off): already case 1'
 		);
 	});
 
@@ -1551,7 +1552,34 @@ describe('lineupPlan: By number running (§7.4)', () => {
 			['add', 'S4', null]
 		]);
 		expect(items(plan)[1]).toBe(
-			'2 of 4 running (Pump P3, Pump P4 off): scenario S1 has this name too but is another case'
+			'2 of 4 running (Pump P3, Pump P4 off): case 1 has this name too but is another case'
+		);
+	});
+
+	it('names the cases of By number running by their numbers: the plan, another case of the same name, the refusal and the notice (docs/proposals/pumps-nits.md §11.4, leftover L10)', () => {
+		// Winter first, then a copy of the lineup with P4 off and another case named as the second.
+		const project = withScenarios(withoutScenarios(lineups.project), [
+			{ id: 'S3', name: 'Winter', overrides: [level('R2', 5)] },
+			{ id: 'S1', name: 'Pump P4 off (hand)', overrides: off('P4') },
+			{
+				id: 'S2',
+				name: '2 of 4 running (Pump P3, Pump P4 off)',
+				overrides: [...off('P3', 'P4'), level('R2', 5)]
+			}
+		]);
+		const plan = planOn(lineups, { project });
+		expect(items(plan)).toEqual([
+			'3 of 4 running (Pump P4 off): already case 2 «Pump P4 off (hand)»',
+			'2 of 4 running (Pump P3, Pump P4 off): case 3 has this name too but is another case',
+			'1 of 4 running (Pump P2, Pump P3, Pump P4 off)'
+		]);
+		expect(plan.add.map((a) => a.id)).toEqual(['S4', 'S5']);
+		expect(plan.notice).toBe(
+			'Added 2 cases by number running: case 4 «2 of 4 running (Pump P3, Pump P4 off)» and case 5 «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+		);
+		// Every case exists: the refusal numbers each.
+		expect(planOn(lineups, { project: lineups.project }).refusal).toBe(
+			'Every case by number running already exists: case 1 «3 of 4 running (Pump P4 off)», case 2 «2 of 4 running (Pump P3, Pump P4 off)» and case 3 «1 of 4 running (Pump P2, Pump P3, Pump P4 off)».'
 		);
 	});
 
@@ -1594,7 +1622,7 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		const every = planOn(lineups, { project: lineups.project });
 		expect(every.add).toEqual([]);
 		expect(every.refusal).toBe(
-			'Every case by number running already exists: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)».'
+			'Every case by number running already exists: case 1 «3 of 4 running (Pump P4 off)», case 2 «2 of 4 running (Pump P3, Pump P4 off)» and case 3 «1 of 4 running (Pump P2, Pump P3, Pump P4 off)».'
 		);
 		expect(every.label).toBe('Add cases');
 		// Existing and base-state cases only.
@@ -1807,10 +1835,17 @@ describe('lineupPlan: By number running (§7.4)', () => {
 		expect(w.later('Pump P1')).toBe('Stop Pump P1 later');
 		expect(w.moved('Pump P1', 2, 4)).toBe('Pump P1 is now number 2 of 4 to stop.');
 		expect(w.resetDone('Pump P4')).toBe('Default order: Pump P4 stops first.');
-		expect(lineupNotice('running', ['A, B', 'C'])).toBe(
-			'Added 2 cases by number running: «A, B» and «C». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+		expect(
+			lineupNotice('running', [
+				{ tag: 1, name: 'A, B' },
+				{ tag: 2, name: 'C' }
+			])
+		).toBe(
+			'Added 2 cases by number running: case 1 «A, B» and case 2 «C». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
-		expect(lineupNotice('each', ['Pump PA off'])).toBe(addedNotice(['Pump PA off']));
+		expect(lineupNotice('each', [{ tag: 1, name: 'Pump PA off' }])).toBe(
+			addedNotice([{ tag: 1, name: 'Pump PA off' }])
+		);
 	});
 });
 
@@ -1984,13 +2019,16 @@ describe('lineupPlan: Each pump off (4d’s cases; 4d’s plan tests moved here)
 		// Exactly the fixture's S1 and S2, the scenarios the API solved.
 		expect(made.scenarios).toEqual(oneOffCase.project.scenarios!.slice(0, 2));
 		expect(made.scenarios!.map((s) => s.id)).toEqual(plan.add.map((a) => a.id));
-		expect(addedNotice(plan.add.map((a) => a.name))).toBe(
-			'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+		// Each case by its number in the project after the add and its name (pumps-nits.md §11.4,
+		// leftover L10): S1 and S2 are cases 1 and 2.
+		const numbered = plan.add.map((a, i) => ({ tag: i + 1, name: a.name }));
+		expect(addedNotice(numbered)).toBe(
+			'Added 2 cases with one pump off: case 1 «Pump PA off» and case 2 «Pump PB off». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
-		expect(addedNotice(['Pump PA off'])).toBe(
-			'Added 1 case with one pump off: Pump PA off. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+		expect(addedNotice([{ tag: 1, name: 'Pump PA off' }])).toBe(
+			'Added 1 case with one pump off: case 1 «Pump PA off». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 		);
-		expect(plan.notice).toBe(addedNotice(['Pump PA off', 'Pump PB off']));
+		expect(plan.notice).toBe(addedNotice(numbered));
 		expect(plan.undoLabel).toBe('add cases with one pump off');
 		expect(plan.stopOrder).toBeNull();
 	});
@@ -2003,14 +2041,11 @@ describe('lineupPlan: Each pump off (4d’s cases; 4d’s plan tests moved here)
 			{ stopped: ['PB'], scenarioId: 'S2', scenarioName: 'Pump PB off' }
 		]);
 		// §7.12: the note "{name} has its case already: {found.name}." becomes the preview item
-		// "{offName}: already a scenario, «{other}» ({id})", its short form when the names are equal
-		// (§7.7).
-		expect(notesOf(plan)).toEqual([
-			'Pump PA off: already a scenario (S1)',
-			'Pump PB off: already a scenario (S2)'
-		]);
+		// "{offName}: already case {n} «{other}»", its short form when the names are equal (§7.7);
+		// by the case's number, not its id, since pumps-nits.md §11.4 (leftover L10).
+		expect(notesOf(plan)).toEqual(['Pump PA off: already case 1', 'Pump PB off: already case 2']);
 		expect(plan.refusal).toBe(
-			'Every case with one pump off already exists: Pump PA off and Pump PB off.'
+			'Every case with one pump off already exists: case 1 «Pump PA off» and case 2 «Pump PB off».'
 		);
 		// §7.12: "Add cases with one pump off" becomes "Add cases".
 		expect(plan.label).toBe('Add cases');
@@ -2022,7 +2057,35 @@ describe('lineupPlan: Each pump off (4d’s cases; 4d’s plan tests moved here)
 			scenarioId: 'S1',
 			scenarioName: 'N-1 (PA)'
 		});
-		expect(notesOf(each(renamed))[0]).toBe('Pump PA off: already a scenario, «N-1 (PA)» (S1)');
+		expect(notesOf(each(renamed))[0]).toBe('Pump PA off: already case 1 «N-1 (PA)»');
+	});
+
+	it('names a case that exists by its number, ids apart from numbers, in one form, case 2 «name», in the plan, its refusal and its notice (docs/proposals/pumps-nits.md §11.4, leftover L10)', () => {
+		// The one-off with S1 deleted: Pump PB off (S2) is case 1, the tank (S3) case 2, Both pumps
+		// off (S4) case 3.
+		const project = withScenarios(
+			oneOffCase.project,
+			scenariosOf(oneOffCase.project).filter((s) => s.id !== 'S1')
+		);
+		const plan = each(project);
+		expect(notesOf(plan)).toEqual(['Pump PB off: already case 1']);
+		expect(plan.add).toEqual([{ stopped: ['PA'], id: 'S1', name: 'Pump PA off' }]);
+		// The notice numbers the cases as the project after the add does: S1, added last, is case 4.
+		expect(caseTags(withLineupCases(project, plan.add))['S1']).toBe(4);
+		expect(plan.notice).toBe(
+			'Added 1 case with one pump off: case 4 «Pump PA off». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+		);
+		// Another name: the plan line names it after its number.
+		const renamed = structuredClone(project);
+		renamed.scenarios![0]!.name = 'N-1 (PB)';
+		expect(notesOf(each(renamed))).toEqual(['Pump PB off: already case 1 «N-1 (PB)»']);
+		// Every case exists, listed out of id order (S4, S2, S3, S1): PA's case is 4, PB's 2.
+		const byId = (id: string) => scenariosOf(oneOffCase.project).find((s) => s.id === id)!;
+		const full = each(withScenarios(oneOffCase.project, ['S4', 'S2', 'S3', 'S1'].map(byId)));
+		expect(notesOf(full)).toEqual(['Pump PA off: already case 4', 'Pump PB off: already case 2']);
+		expect(full.refusal).toBe(
+			'Every case with one pump off already exists: case 4 «Pump PA off» and case 2 «Pump PB off».'
+		);
 	});
 
 	it('takes the first free ids on the growing project', () => {
@@ -2078,8 +2141,8 @@ describe('lineupPlan: Each pump off (4d’s cases; 4d’s plan tests moved here)
 		// §7.12: "{name} has its case already: {found.name}." becomes the preview item (§7.7's short
 		// form: the names are equal).
 		expect(notesOf(again)).toEqual([
-			'Booster pump (PA) off: already a scenario (S1)',
-			'Booster pump (PB) off: already a scenario (S2)'
+			'Booster pump (PA) off: already case 1',
+			'Booster pump (PB) off: already case 2'
 		]);
 		expect(new Set(notesOf(again)).size).toBe(2);
 		// A name only one member has keeps its plain words.
@@ -2224,18 +2287,23 @@ describe('the words that name the one Solve and the one Solve all (build-density
 		const tail =
 			'Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.';
 		expect(planOn(lineups).notice).toBe(
-			`Added 3 cases by number running: «3 of 4 running (Pump P4 off)», «2 of 4 running (Pump P3, Pump P4 off)» and «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». ${tail}`
+			`Added 3 cases by number running: case 1 «3 of 4 running (Pump P4 off)», case 2 «2 of 4 running (Pump P3, Pump P4 off)» and case 3 «1 of 4 running (Pump P2, Pump P3, Pump P4 off)». ${tail}`
 		);
-		expect(lineupNotice('running', ['A, B', 'C'])).toBe(
-			`Added 2 cases by number running: «A, B» and «C». ${tail}`
-		);
+		expect(
+			lineupNotice('running', [
+				{ tag: 1, name: 'A, B' },
+				{ tag: 2, name: 'C' }
+			])
+		).toBe(`Added 2 cases by number running: case 1 «A, B» and case 2 «C». ${tail}`);
 		expect(planOn(oneOffCase, { preset: 'each' }).notice).toBe(
-			`Added 2 cases with one pump off: Pump PA off and Pump PB off. ${tail}`
+			`Added 2 cases with one pump off: case 1 «Pump PA off» and case 2 «Pump PB off». ${tail}`
 		);
-		expect(addedNotice(['Pump PA off'])).toBe(
-			`Added 1 case with one pump off: Pump PA off. ${tail}`
+		expect(addedNotice([{ tag: 1, name: 'Pump PA off' }])).toBe(
+			`Added 1 case with one pump off: case 1 «Pump PA off». ${tail}`
 		);
-		expect(lineupNotice('each', ['Pump PA off'])).toBe(addedNotice(['Pump PA off']));
+		expect(lineupNotice('each', [{ tag: 1, name: 'Pump PA off' }])).toBe(
+			addedNotice([{ tag: 1, name: 'Pump PA off' }])
+		);
 	});
 
 	it('says in gate 4 that Solve, at the top, solves the base case again; no plan offers a Solve all', () => {

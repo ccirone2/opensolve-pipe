@@ -843,6 +843,93 @@ describe('pump chart', () => {
 			);
 		});
 
+		// docs/proposals/pumps-nits.md §11.4, leftover L10: the case shown's number on screen, its
+		// box beside its name as one unit (CaseNamed), the Base box too; in words in the image's
+		// title and in Download image's name ("case 2: Winter", the base case its name alone); the
+		// file named by the name alone.
+		it('names the case shown by its number: its box in the caption, "case 2: Winter" in the image’s title and its button’s name', async () => {
+			withCanvas();
+			const props = {
+				result: pumpResult(),
+				name: 'Transfer pump',
+				prefs: SI_UNITS,
+				system: READY,
+				caseName: 'Winter',
+				caseTag: 2,
+				tags: TAGS,
+				image: image()
+			} as const;
+			const view = render(PumpChart, props);
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			const caption = document.querySelector('figcaption')!;
+			const units = caption.querySelectorAll('[data-case-named]');
+			expect(units).toHaveLength(1);
+			expect(units[0]).toHaveClass('inline-flex');
+			expect(shownCaseTag(units[0]!)).toBe('2');
+			expect(besideCaseTag(units[0]!)).toBe('Winter');
+			expect(
+				screen.getByRole('figure', {
+					name: 'Pump and system curves: Transfer pump, Case 2: Winter'
+				})
+			).toBeTruthy();
+			expect(button()).toHaveAccessibleName(
+				'Download image of the pump and system curves: Transfer pump, case 2: Winter'
+			);
+			await fireEvent.click(button());
+			await vi.waitFor(() => expect(images.requests).toHaveLength(1));
+			expect(images.requests[0]).toMatchObject({ caseTitle: 'case 2: Winter', caseName: 'Winter' });
+			// The base case shown: its Base box drawn, hidden from screen readers; its name alone in
+			// words.
+			await view.rerender({ ...props, caseName: 'Base case', caseTag: 'Base' });
+			const base = document.querySelector('figcaption [data-case-named]')!;
+			expect(shownCaseTag(base)).toBe('Base');
+			expect(base.querySelector('[data-case-tag]')).toHaveAttribute('aria-hidden', 'true');
+			expect(
+				screen.getByRole('figure', { name: 'Pump and system curves: Transfer pump, Base case' })
+			).toBeTruthy();
+			await vi.waitFor(() => expect(button()).not.toHaveAttribute('aria-disabled', 'true'));
+			await fireEvent.click(button());
+			await vi.waitFor(() => expect(images.requests).toHaveLength(2));
+			expect(images.requests[1]).toMatchObject({ caseTitle: 'Base case', caseName: 'Base case' });
+		});
+
+		// docs/proposals/pumps-nits.md §11.4, leftover L10: another case's system curve table is
+		// named by its case's number in words, "System curve, case 1: Winter", where its summary
+		// shows the box beside the name, as the legend and the tooltip say "System curve, case 1".
+		it('names another case’s system curve table by its case’s number: its box in the summary, "case 1: Winter" in its name', async () => {
+			withCanvas();
+			render(PumpChart, {
+				result: pumpResult(),
+				name: 'Transfer pump',
+				prefs: SI_UNITS,
+				system: READY,
+				caseName: 'Base case',
+				tags: TAGS,
+				others: [
+					{
+						key: 'S1',
+						name: 'Winter',
+						result: pumpResult(),
+						stale: false,
+						system: systemCurveResponse()
+					}
+				],
+				onoverlay: vi.fn()
+			});
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			await fireEvent.click(
+				screen.getByRole('button', { name: 'Show data table of the pump chart' })
+			);
+			expect(screen.queryByRole('table', { name: 'System curve, case 1: Winter' })).not.toBeNull();
+			const fold = disclosureOf('System curve, case 1: Winter');
+			const summary = fold.querySelector(':scope > summary')!;
+			const units = summary.querySelectorAll('[data-case-named]');
+			expect(units).toHaveLength(1);
+			expect(shownCaseTag(units[0]!)).toBe('1');
+			expect(besideCaseTag(units[0]!)).toBe('Winter');
+			expect(besideCaseTag(summary)).toBe('System curve, Winter (4 points)');
+		});
+
 		it('gives the image the line naming the cases that take no slot, as the screen shows it (pumps-results-layout.md §6.2 S8)', async () => {
 			withCanvas();
 			const off = { status: 'off', operatingFlow: 0, operatingHead: 0 } as const;
@@ -1454,7 +1541,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			'Operating points by case',
 			'Pump curve at 100 % speed',
 			'System curve',
-			'System curve, Winter'
+			'System curve, case 1: Winter'
 		]);
 		// "Operating points by case": the case shown first, "Speed (%)" with bare numbers.
 		const byCase = within(region as HTMLElement).getByRole('table', {
@@ -1610,7 +1697,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			`NPSHr curve at ${at}`,
 			'Pump curve at 50 % speed (minimum)',
 			'Pump curve at 100 % speed (maximum)',
-			'System curve, Winter'
+			'System curve, case 1: Winter'
 		]);
 		// §5.3: every box gets scroll-shadow-x.
 		for (const box of boxes) expect(box).toHaveClass('scroll-shadow-x');
@@ -1654,14 +1741,16 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		);
 		// Both open by default: each Why no head column has an entry (§9 S7).
 		expect(disclosureOf('System curve').open).toBe(true);
-		expect(disclosureOf('System curve, Winter').open).toBe(true);
+		expect(disclosureOf('System curve, case 1: Winter').open).toBe(true);
 		const summaries = [
 			...screen.getByRole('table', { name: 'System curve' }).querySelectorAll('summary'),
-			...screen.getByRole('table', { name: 'System curve, Winter' }).querySelectorAll('summary')
+			...screen
+				.getByRole('table', { name: 'System curve, case 1: Winter' })
+				.querySelectorAll('summary')
 		].map((s) => squash(s.textContent));
 		expect(summaries).toEqual([
 			'Details of the point at 20 L/s',
-			'Details of the point at 20 L/s, Winter'
+			'Details of the point at 20 L/s, case 1: Winter'
 		]);
 		// Seen: the one word, as before.
 		for (const summary of screen.getAllByText('Details')) {
@@ -2684,7 +2773,7 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			'Operating points by case',
 			'Pump curve at 100 % speed',
 			'System curve',
-			'System curve, Winter'
+			'System curve, case 1: Winter'
 		]) {
 			const table = figure.getByRole('table', { name });
 			expect(table).toBeInTheDocument();
@@ -2964,14 +3053,23 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
  */
 describe('the pump chart’s data without scroll traps (pumps-results-layout.md §9 S7)', () => {
 	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
-	/** Every curve table's disclosure, in order: its table's name, its summary, open or not. */
+	/**
+	 * Every curve table's disclosure, in order: its table's name, its summary's words beside its
+	 * case's box and the box's number, if any (another case's, pumps-nits.md §11.4, leftover L10),
+	 * open or not.
+	 */
 	const disclosures = () =>
-		[...document.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')].map((d) => ({
-			table: squash(d.querySelector('caption')!.textContent),
-			summary: squash(d.querySelector(':scope > summary')!.textContent),
-			rows: d.querySelectorAll('tbody tr').length,
-			open: d.open
-		}));
+		[...document.querySelectorAll<HTMLDetailsElement>('details[data-curve-table]')].map((d) => {
+			const summary = d.querySelector(':scope > summary')!;
+			const tag = shownCaseTag(summary);
+			return {
+				table: squash(d.querySelector('caption')!.textContent),
+				summary: besideCaseTag(summary),
+				...(tag ? { tag } : {}),
+				rows: d.querySelectorAll('tbody tr').length,
+				open: d.open
+			};
+		});
 	/** A pump with every panel and a speed range (made-up test input), as the panels' tests use. */
 	const everyPanel = () =>
 		pumpResult({
@@ -3040,7 +3138,14 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 		const drawn = disclosures();
 		// Every curve table, in the region's order; the counts of the inputs: the system curve's 4
 		// points, 3 of efficiency, 2 of shaft power, 3 of NPSHr, the speed range's 2 and 5.
-		expect(drawn.map(({ table, summary, open }) => ({ table, summary, open }))).toEqual([
+		expect(
+			drawn.map(({ table, summary, tag, open }) => ({
+				table,
+				summary,
+				...(tag ? { tag } : {}),
+				open
+			}))
+		).toEqual([
 			{
 				table: 'Pump curve at 100 % speed',
 				summary: `Pump curve at 100 % speed (${drawn[0]!.rows} points)`,
@@ -3072,10 +3177,21 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 				summary: 'Pump curve at 100 % speed (maximum) (5 points)',
 				open: false
 			},
-			{ table: 'System curve, Winter', summary: 'System curve, Winter (4 points)', open: false }
+			// Another case's: named by its case's number in words, its summary its box (the tag)
+			// beside its name (pumps-nits.md §11.4, leftover L10).
+			{
+				table: 'System curve, case 1: Winter',
+				summary: 'System curve, Winter (4 points)',
+				tag: '1',
+				open: false
+			}
 		]);
-		// Each count is the rows its table lists (the pump curve's 4 points of data).
-		for (const d of drawn) expect(d.summary).toBe(`${d.table} (${d.rows} points)`);
+		// Each count is the rows its table lists (the pump curve's 4 points of data); each summary's
+		// words its table's name, but for the case's number, its box there.
+		for (const d of drawn) {
+			const name = d.tag ? d.table.replace(`case ${d.tag}: `, '') : d.table;
+			expect(d.summary).toBe(`${name} (${d.rows} points)`);
+		}
 		expect(drawn[0]!.rows).toBe(4);
 		// "Operating points by case" is no curve: a table, never folded.
 		const byCase = screen.getByRole('table', { name: 'Operating points by case' });
@@ -3089,7 +3205,10 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 			// title (S7 review W2, MUT-SUMMARY-HIDDEN).
 			const caption = squash(d.querySelector('caption')!.textContent);
 			const rows = d.querySelectorAll('tbody tr').length;
-			expect(squash(wordsInSight(summary))).toBe(`${caption} (${rows} points)`);
+			// Another case's: its number drawn as its box, "case 1: " in its name (leftover L10).
+			const tag = shownCaseTag(summary);
+			const seen = tag ? caption.replace(`case ${tag}: `, `${tag} `) : caption;
+			expect(squash(wordsInSight(summary))).toBe(`${seen} (${rows} points)`);
 			// Full height when open: its box scrolls sideways only, never down inside the pane.
 			const box = d.querySelector('table')!.parentElement!;
 			expect(box).toHaveClass('overflow-x-auto', 'scroll-shadow-x');
@@ -3157,8 +3276,8 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 		expect(disclosures().map(({ table, open }) => [table, open])).toEqual([
 			['Pump curve at 100 % speed', false],
 			['System curve', true],
-			['System curve, Winter', true],
-			['System curve, Summer', false]
+			['System curve, case 1: Winter', true],
+			['System curve, case 2: Summer', false]
 		]);
 		// Its reason in sight, one press away no more (D10's owner rule).
 		const reason = within(screen.getByRole('table', { name: 'System curve' })).getByText(
@@ -3246,14 +3365,14 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 		// case's system curve, open by default (a point without a head).
 		await openTable('Efficiency curve at 100 % speed');
 		await openTable('Pump curve at 50 % speed (minimum)');
-		const winterFold = disclosureOf('System curve, Winter');
+		const winterFold = disclosureOf('System curve, case 1: Winter');
 		expect(winterFold.open).toBe(true);
 		await fireEvent.click(winterFold.querySelector(':scope > summary')!);
 		expect(winterFold.open).toBe(false);
 		await new Promise((resolve) => setTimeout(resolve, 0)); // the toggle events' task
 		const hide = screen.getByRole('button', { name: 'Hide data table of the pump chart' });
 		await fireEvent.click(hide);
-		expect(screen.queryByRole('table', { name: 'System curve, Winter' })).toBeNull();
+		expect(screen.queryByRole('table', { name: 'System curve, case 1: Winter' })).toBeNull();
 		await fireEvent.click(hide);
 		expect(disclosures().map(({ table, open }) => [table, open])).toEqual([
 			['Pump curve at 100 % speed', false],
@@ -3263,7 +3382,7 @@ describe('the pump chart’s data without scroll traps (pumps-results-layout.md 
 			['NPSHr curve at 100 % speed', false],
 			['Pump curve at 50 % speed (minimum)', true],
 			['Pump curve at 100 % speed (maximum)', false],
-			['System curve, Winter', false]
+			['System curve, case 1: Winter', false]
 		]);
 	});
 

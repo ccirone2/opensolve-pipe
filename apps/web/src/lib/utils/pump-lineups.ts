@@ -48,6 +48,7 @@ import type {
 } from '../api/types';
 import { componentById } from './graph';
 import { canonicalJson } from './json';
+import { caseTags } from './pump-chart';
 import { andList, DUTY_CHECK_FLOOR } from './pump-group-chart';
 import { MAX_GROUP_PUMPS, suggestGroups } from './pump-groups';
 import {
@@ -799,19 +800,38 @@ export function carriesFlow(
 const ADDED_TAIL =
 	'Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.';
 
+/**
+ * A case Add cases names: its number (pump-chart.ts caseTags: its place in the Scenarios list)
+ * and its name.
+ */
+export interface NumberedCase {
+	tag: number;
+	name: string;
+}
+
+/**
+ * "case 2 «Pump PB off»": Add cases' one form for a case (pumps-nits.md §11.4, leftover L10), its
+ * number as the Pumps tab shows it and its name in «», since names hold commas, parentheses and
+ * colons (decision 22).
+ */
+export const numberedCase = (c: NumberedCase) => `case ${c.tag} «${c.name}»`;
+
+/** "case 1 «A», case 2 «B» and case 3 «C»". */
+const numberedList = (cases: readonly NumberedCase[]) => andList(cases.map(numberedCase));
+
 /** 4d's notice after Each pump off's add, its tail naming the Scenarios menu's Solve all (§19). */
-export function addedNotice(names: readonly string[]): string {
-	return `Added ${names.length} ${plural(names.length, 'case', 'cases')} with one pump off: ${andList(names)}. ${ADDED_TAIL}`;
+export function addedNotice(cases: readonly NumberedCase[]): string {
+	return `Added ${cases.length} ${plural(cases.length, 'case', 'cases')} with one pump off: ${numberedList(cases)}. ${ADDED_TAIL}`;
 }
 
-/** The notice after the add (§7.8): By number running's, names in «», or 4d's addedNotice. */
-export function lineupNotice(preset: LineupPreset, names: readonly string[]): string {
-	if (preset === 'each') return addedNotice(names);
-	return `Added ${names.length} ${plural(names.length, 'case', 'cases')} by number running: ${quotedList(names)}. ${ADDED_TAIL}`;
+/**
+ * The notice after the add (§7.8): By number running's, or 4d's addedNotice; each case by its
+ * number in the project after the add and its name (numberedCase).
+ */
+export function lineupNotice(preset: LineupPreset, cases: readonly NumberedCase[]): string {
+	if (preset === 'each') return addedNotice(cases);
+	return `Added ${cases.length} ${plural(cases.length, 'case', 'cases')} by number running: ${numberedList(cases)}. ${ADDED_TAIL}`;
 }
-
-/** "«A», «B» and «C»": names hold commas and parentheses (decision 22). */
-const quotedList = (names: readonly string[]) => andList(names.map((n) => `«${n}»`));
 
 // ---- The stop order (§7.5) --------------------------------------------------------------------
 
@@ -1203,6 +1223,10 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 	}
 
 	const scenarios = scenariosOf(project);
+	// Each existing case by its number, as the Pumps tab shows it (pumps-nits.md §11.4, leftover
+	// L10): its place in the Scenarios list, never its id.
+	const tags = caseTags(project);
+	const numberOf = (id: string) => tags[id] as number;
 	const cases: LineupPlanCase[] = [];
 	for (const w of wanted) {
 		const item = { stopped: w.stopped, name: w.name, existingName: null, sameNameId: null };
@@ -1226,8 +1250,8 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 				existingName: found.name,
 				words:
 					found.name === w.name
-						? `${w.name}: already a scenario (${found.id})`
-						: `${w.name}: already a scenario, «${found.name}» (${found.id})`
+						? `${w.name}: already case ${numberOf(found.id)}`
+						: `${w.name}: already ${numberedCase({ tag: numberOf(found.id), name: found.name })}`
 			});
 			continue;
 		}
@@ -1238,7 +1262,7 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 			id: null,
 			sameNameId: named?.id ?? null,
 			words: named
-				? `${w.name}: scenario ${named.id} has this name too but is another case`
+				? `${w.name}: case ${numberOf(named.id)} has this name too but is another case`
 				: w.name
 		});
 	}
@@ -1253,13 +1277,13 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 	const total = scenarios.length + add.length;
 	let refusal: string | null = null;
 	if (!add.length) {
-		const names = existing.map((e) => e.scenarioName);
+		const named = existing.map((e) => ({ tag: numberOf(e.scenarioId), name: e.scenarioName }));
 		refusal =
 			preset === 'each'
-				? `Every case with one pump off already exists: ${andList(names)}.`
+				? `Every case with one pump off already exists: ${numberedList(named)}.`
 				: cases.some((c) => c.kind === 'base_state')
 					? "Nothing to add: each case by number running already exists or is the base case's state."
-					: `Every case by number running already exists: ${quotedList(names)}.`;
+					: `Every case by number running already exists: ${numberedList(named)}.`;
 	} else if (total > MAX_SCENARIOS) {
 		refusal = `Adding ${add.length} ${plural(add.length, 'case', 'cases')} would make ${total} scenarios; a project holds at most ${MAX_SCENARIOS} scenarios.`;
 	}
@@ -1309,13 +1333,17 @@ export function lineupPlan(input: LineupPlanInput): LineupPlan {
 		refusal,
 		label: add.length ? `Add ${add.length} ${plural(add.length, 'case', 'cases')}` : 'Add cases',
 		undoLabel: LINEUP_UNDO_LABELS[preset],
-		notice: add.length
-			? lineupNotice(
-					preset,
-					add.map((a) => a.name)
-				)
-			: null
+		notice: add.length ? lineupNotice(preset, addedCases(project, add)) : null
 	};
+}
+
+/**
+ * The cases an add makes, each by its number in the project after the add (its place in the
+ * Scenarios list there: pumps-nits.md §11.4, leftover L10) and its name, for the notice.
+ */
+function addedCases(project: Project, add: readonly LineupCaseToAdd[]): NumberedCase[] {
+	const after = caseTags(withLineupCases(project, add));
+	return add.map((a) => ({ tag: after[a.id] as number, name: a.name }));
 }
 
 /**

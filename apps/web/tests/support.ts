@@ -200,17 +200,30 @@ export async function tableTexts(table: Locator): Promise<string[]> {
 
 /**
  * A chart's curve table: since S7 each in its own disclosure, "{caption} ({n} points)"
- * (proposal pumps-results-layout.md §9 S7). The disclosure, by its table's caption.
+ * (proposal pumps-results-layout.md §9 S7). The disclosure, by its table's caption, the table's
+ * name, and by its summary's words. Since pumps-nits.md §11.4 (leftover L10) another case's
+ * table is named "System curve, case 2: Winter" while its summary draws the case's box beside its
+ * name, whose text is the box's hidden words and number, "Case 2:" and "2", then the name (the
+ * base case's box "Base", then "Base case").
  */
 export function curveTableFold(scope: Locator, caption: string): Locator {
+	const words = caption.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	// Its own summary, by its whole words (a regular expression meets the text as it is, the
 	// space before and after included): they match no Details summary inside its table.
-	const words = caption.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-	return scope.locator('details[data-curve-table]').filter({
-		has: scope.page().locator('summary', {
-			hasText: new RegExp(`^\\s*${words} \\(\\d+ points?\\)\\s*$`)
+	// The base case's box draws "Base", hidden from screen readers, before its name.
+	const seen = words
+		.replace(/case (\d+): /, 'Case $1:\\s*$1\\s*')
+		.replace(/, Base case$/, ', Base\\s*Base case');
+	return scope
+		.locator('details[data-curve-table]')
+		.filter({
+			has: scope.page().locator('caption', { hasText: new RegExp(`^\\s*${words}\\s*$`) })
 		})
-	});
+		.filter({
+			has: scope.page().locator('summary', {
+				hasText: new RegExp(`^\\s*${seen} \\(\\d+ points?\\)\\s*$`)
+			})
+		});
 }
 
 /**

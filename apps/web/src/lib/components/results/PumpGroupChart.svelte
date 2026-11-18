@@ -543,6 +543,7 @@
 				<PumpGroupStation
 					{table}
 					{caseName}
+					{caseTag}
 					{oninspect}
 					{flagText}
 					sharesPending={!shown && groupCurve?.status !== 'refused' && members.length > 1}

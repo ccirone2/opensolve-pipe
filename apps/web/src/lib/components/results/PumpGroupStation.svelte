@@ -23,11 +23,13 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import type { Flag, TopologyIssue } from '$lib/api/types';
+	import { caseNamed, type CaseNumber } from '$lib/utils/pump-chart';
 	import type { GroupNotes, GroupTable } from '$lib/utils/pump-group-chart';
 	import { wordsText, type Words } from '$lib/utils/pump-groups';
 	import type { Row, Table } from '$lib/utils/results';
 	import CellValue from './CellValue.svelte';
 	import { flagSeverities, sectionMark } from '$lib/utils/section-nav';
+	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import FlagLine from './FlagLine.svelte';
 	import IssueDetail from './IssueDetail.svelte';
@@ -38,8 +40,10 @@
 	interface Props {
 		/** The group table (groupTable): its columns, a row per member and the station's footer. */
 		table: GroupTable;
-		/** The case shown, in a project with scenarios: named in the table's caption. */
+		/** The case shown, in a project with scenarios: named in the table's title and caption. */
 		caseName?: string;
+		/** The case shown's number (pump-chart.ts caseTags): its box in the title. */
+		caseTag?: CaseNumber;
 		/** Open an element's results and trace. */
 		oninspect?: (componentId: string) => void;
 		/** A flag's words (names, display units). */
@@ -65,6 +69,7 @@
 	let {
 		table,
 		caseName,
+		caseTag = 'Base',
 		oninspect,
 		flagText,
 		sharesPending = false,
@@ -135,9 +140,14 @@
 	/**
 	 * The group table as a results table (§9 S6a): a row per member in the table's order, keyed
 	 * by its id, named by its name alone (nit 5: no slot symbol). The title names the case shown,
-	 * in a project with scenarios.
+	 * in a project with scenarios: on screen its box beside its name (CaseNamed), in the table's
+	 * caption, which names Fields and Sort by too, in words, "case 2: Winter" (caseNamed; the base
+	 * case its name alone; pumps-nits.md §11.4, leftover L10). Fields keeps its key, so a choice
+	 * stored keeps.
 	 */
-	const title = $derived(`The pumps in the group${caseName ? `, ${caseName}` : ''}`);
+	const title = $derived(
+		`The pumps in the group${caseName ? `, ${caseNamed(caseTag, caseName)}` : ''}`
+	);
 	const resultsTable = $derived<Table>({
 		columns: table.columns,
 		rows: table.rows.map((row): Row => ({
@@ -310,7 +320,10 @@
 		button, wrapping at 12 rem; each flagged pump's flag line its pills and their text
 		(FlagLine), not FlagBadge, which reads the workspace. -->
 	<div class="space-y-1" data-group-table>
-		<p id="{id}-table-title" class="text-xs font-semibold text-slate-700">{title}</p>
+		<p id="{id}-table-title" class="text-xs font-semibold text-slate-700">
+			The pumps in the group{#if caseName},
+				<CaseNamed tag={caseTag} name={caseName} />{/if}
+		</p>
 		<ResultsTable
 			table={resultsTable}
 			caption={title}

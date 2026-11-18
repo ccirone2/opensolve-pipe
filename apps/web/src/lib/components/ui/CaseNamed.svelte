@@ -6,13 +6,17 @@
 	second line of a long name started under the box.
 
 	One flex row: the box (CaseTag) in a `shrink-0` span, a space, then the name in a `min-w-0`
-	span that wraps. The row aligns its items on their baselines: the box's span is a line box of
-	the row's own font, the box set on it as CaseTag sets it in a run of text, so the box lies on
-	the name's first line exactly as it did inline. The space (the template's own whitespace between
-	the two spans, one text node) renders nothing between flex items; it keeps the words heard
-	"Case 2: Winter" wherever the box's span is not laid out as a block (jsdom, a name computed
-	from the markup), as CaseTag asks of the words after it. The Base box is drawn too: CaseTag
-	hides it from screen readers, whose "Base case" beside it says it.
+	span that wraps. The box's span is one line of the row's own font tall (`h-lh`) and centres the
+	box in it, both spans at the row's top, so the box sits in the middle of the name's first line
+	and never makes that line taller: a 16 px box on a 12 px text's 16 px line grew it to 17 px
+	when it sat on the text's bottom, as CaseTag sets it in a run of words (§11.4, leftover L10).
+	The name's span alone is aligned on its baseline (`self-baseline`), so the row's baseline is
+	the name's and, inline, the name's words sit on the line of the words around it. The space
+	(the template's own whitespace between the two spans, one text node) renders nothing between
+	flex items; it keeps the words heard "Case 2: Winter" wherever the box's span is not laid out
+	as a block (jsdom, a name computed from the markup), as CaseTag asks of the words after it.
+	The Base box is drawn too: CaseTag hides it from screen readers, whose "Base case" beside it
+	says it.
 
 	Forms: `inline` in a run of words (an inline flex box, at most its line's width), `block` a line
 	of its own, `column` with the box in the reserved 2.5 rem column of "Operating points by case"
@@ -54,11 +58,13 @@
 	data-case-named
 	class={[
 		form === 'inline' ? 'inline-flex max-w-full align-baseline' : 'flex',
-		'items-baseline gap-1',
+		'items-start gap-1',
 		className
 	]}
-	><span class={[form === 'column' && 'w-10', 'shrink-0']}><CaseTag {tag} /></span>
-	<span class={['min-w-0', nameClass]}
+	><span class={['flex h-lh shrink-0 items-center', form === 'column' && 'w-10']}
+		><CaseTag {tag} /></span
+	>
+	<span class={['min-w-0 self-baseline', nameClass]}
 		>{#if children}{@render children()}{:else}{name}{/if}</span
 	></span
 >

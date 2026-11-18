@@ -190,7 +190,7 @@ describe('one pump off on the Pumps together card', () => {
 		expect(ws.pumpGroupOthers).toBe(true);
 		expect(
 			screen.getByText(
-				'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
+				'Added 2 cases with one pump off: case 1 «Pump PA off» and case 2 «Pump PB off». Solve all, in the Scenarios menu at the top, solves every case not yet solved; Undo removes them.'
 			)
 		).toBeVisible();
 		// The focus stays on Add, the same node, now refused (build-density.md §19: the block has
@@ -1166,15 +1166,13 @@ describe('one pump off on the Pumps together card', () => {
 			['S2', 'Booster pump (PB) off']
 		]);
 		// §7.12: the note "{name} has its case already: {found.name}." becomes the preview item
-		// "{offName}: already a scenario, «{other}» ({id})", in §7.7's short form: the names are equal.
+		// "{offName}: already case {n} «{other}»", in §7.7's short form: the names are equal; by the
+		// case's number since pumps-nits.md §11.4 (leftover L10), its id before.
 		expect(
 			within(block())
-				.getAllByText(/: already a scenario/)
+				.getAllByText(/: already case /)
 				.map((p) => p.textContent)
-		).toEqual([
-			'Booster pump (PA) off: already a scenario (S1)',
-			'Booster pump (PB) off: already a scenario (S2)'
-		]);
+		).toEqual(['Booster pump (PA) off: already case 1', 'Booster pump (PB) off: already case 2']);
 		// Solve all, the Scenarios menu's (build-density.md §19).
 		await fireEvent.click(within(await openMenu()).getByRole('button', { name: 'Solve all (2)' }));
 		await waitFor(() => expect(solves).toEqual([null, 'S1', 'S2']));
@@ -2330,22 +2328,22 @@ describe('case numbers on both charts (nit 5, slice 5b)', () => {
 
 	/**
 	 * A case's box and its name as one unit (CaseNamed; docs/proposals/pumps-nits.md §11.4, leftover
-	 * L12): one flex row (inline-flex in a run of words), the box in a `shrink-0` span (`w-10`, the
-	 * reserved 2.5 rem, in a column), a space, then the name in a `min-w-0` span, so the box sits
-	 * beside the name's first line and every line of the name starts at one edge. The space renders
+	 * L12): one flex row (inline-flex in a run of words), the box in a `shrink-0` span one line tall
+	 * (`w-10`, the reserved 2.5 rem, in a column), a space, then the name in a `min-w-0` span, so
+	 * the box sits beside the name's first line and every line of the name starts at one edge. The space renders
 	 * nothing between flex items and keeps the name heard ("Case 4: Both pumps off").
 	 */
 	function caseNamedIn(el: Element, form: 'inline' | 'block' | 'column', what: string) {
 		const units = el.querySelectorAll('[data-case-named]');
 		expect(units, `${what}: one unit`).toHaveLength(1);
 		const unit = units[0]!;
-		expect(unit, what).toHaveClass(form === 'inline' ? 'inline-flex' : 'flex', 'items-baseline');
+		expect(unit, what).toHaveClass(form === 'inline' ? 'inline-flex' : 'flex', 'items-start');
 		expect(unit.children, `${what}: the box and the name`).toHaveLength(2);
 		const [box, name] = [...unit.children] as [HTMLElement, HTMLElement];
-		expect(box, `${what}: the box's span`).toHaveClass('shrink-0');
+		expect(box, `${what}: the box's span`).toHaveClass('shrink-0', 'h-lh', 'items-center');
 		if (form === 'column') expect(box, `${what}: the reserved column`).toHaveClass('w-10');
 		expect(box.firstElementChild, `${what}: the box`).toHaveAttribute('data-case-tag');
-		expect(name, `${what}: the name's span`).toHaveClass('min-w-0');
+		expect(name, `${what}: the name's span`).toHaveClass('min-w-0', 'self-baseline');
 		expect(name.querySelector('[data-case-tag]'), `${what}: no box in the name`).toBeNull();
 		expect(box.nextSibling?.nodeType, `${what}: a text node after the box`).toBe(Node.TEXT_NODE);
 		expect(box.nextSibling?.textContent, `${what}: a space after the box`).toBe(' ');

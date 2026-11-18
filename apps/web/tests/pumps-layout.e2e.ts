@@ -2772,15 +2772,22 @@ async function extremesNames(page: Page, list: boolean, where: string) {
 
 /**
  * Each cell's accessible name (soft): in a list form, whose line header is ::before content, its
- * column's words, a space, then its words; in a table its words alone.
+ * column's words, a space, then its words; in a table its words alone. Its words are its text
+ * without its aria-hidden marks: since pumps-nits.md §11.4 (leftover L10) an extreme names its
+ * case by its box, whose number is seen and hidden ("Case 3:" heard before it); a cell with no
+ * such mark reads as its whole text, as before.
  */
 async function cellNames(cells: Locator, list: boolean, where: string) {
 	const soft = expect.configure({ soft: true });
 	const said = await cells.evaluateAll((all) =>
-		all.map((td) => ({
-			label: (td as HTMLElement).dataset.label ?? '',
-			text: (td.textContent ?? '').replace(/\s+/g, ' ').trim()
-		}))
+		all.map((td) => {
+			const copy = td.cloneNode(true) as HTMLElement;
+			for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+			return {
+				label: (td as HTMLElement).dataset.label ?? '',
+				text: (copy.textContent ?? '').replace(/\s+/g, ' ').trim()
+			};
+		})
 	);
 	for (const [i, c] of said.entries()) {
 		await soft(
@@ -3785,7 +3792,20 @@ function readGroupTable() {
 	const headings = [...(table?.querySelectorAll('thead th') ?? [])];
 	const rows = [...(table?.querySelectorAll('tbody > tr') ?? [])];
 	return {
-		title: title ? { id: title.id, text: squash(title.textContent), seen: seen(title) } : null,
+		title: title
+			? {
+					id: title.id,
+					text: squash(title.textContent),
+					// Its words heard: its case's box's number is seen and hidden, "Case 2:" heard
+					// before it (pumps-nits.md §11.4, leftover L10).
+					heard: (() => {
+						const copy = title.cloneNode(true) as HTMLElement;
+						for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+						return squash(copy.textContent);
+					})(),
+					seen: seen(title)
+				}
+			: null,
 		box: box
 			? {
 					labelledby: box.getAttribute('aria-labelledby'),
@@ -3899,7 +3919,13 @@ async function groupTablePart(page: Page, where: string) {
 	soft(m.box?.role, `the group table's box a region, ${where}`).toBe(stop ? 'region' : null);
 	soft(m.box?.tabindex, `the group table's box a Tab stop, ${where}`).toBe(stop ? '0' : null);
 	console.log(`${where}: the group table's box ${stop ? 'overflows: a Tab stop' : 'fits'}`);
-	soft(m.box?.caption, `the group table named as its title, ${where}`).toBe(m.title?.text);
+	// Named as its title says it: since pumps-nits.md §11.4 (leftover L10) the title draws the
+	// case's box (heard "Case 2:") and the caption, in words, reads "case 2: Winter" (caseNamed);
+	// the base case its name alone in both. Moved from the title's whole text, which held the name
+	// alone.
+	soft(m.box?.caption, `the group table named as its title, ${where}`).toBe(
+		m.title?.heard.replace(/, Case (\d+):/, ', case $1:')
+	);
 	soft(m.list, `the group table a list below 640 px only, ${where}`).toBe(phone);
 	soft(m.fields?.seen, `Fields in sight, ${where}`).toBe(true);
 	soft(m.group, `the Fields group drawn, ${where}`).toBe(true);
@@ -4011,11 +4037,19 @@ function readScrollBoxes() {
 			(/(auto|scroll)/.test(css.overflowY) && el.scrollHeight > el.clientHeight + 1)
 		);
 	};
+	// Its name as heard: the words of the elements naming it, without their aria-hidden parts (a
+	// case's box, whose number "Case 2:" says, since pumps-nits.md §11.4, leftover L10).
+	const heard = (el: Element | null) => {
+		if (!el) return '';
+		const copy = el.cloneNode(true) as Element;
+		for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+		return copy.textContent ?? '';
+	};
 	const named = (el: Element) =>
 		squash(
 			(el.getAttribute('aria-labelledby') ?? '')
 				.split(/\s+/)
-				.map((id) => document.getElementById(id)?.textContent ?? '')
+				.map((id) => heard(document.getElementById(id)))
 				.join(' ')
 		);
 	const read = (box: HTMLElement) => {
@@ -4072,8 +4106,12 @@ async function scrollBoxesPart(page: Page, view: string, where: string) {
 		);
 		if (stop && box.holds !== 'div') {
 			// Named by what it holds: the caption, or the group table's and Running combinations'
-			// titles, the same words.
-			soft(box.name, `"${box.holds}" named by what it holds, ${where}`).toBe(box.holds);
+			// titles, the same words. The group table's title draws the case shown's box, heard
+			// "Case 2:", where its caption says "case 2:" in words (pumps-nits.md §11.4, leftover L10).
+			soft(
+				box.name.replace(/, Case (\d+):/, ', case $1:'),
+				`"${box.holds}" named by what it holds, ${where}`
+			).toBe(box.holds);
 		}
 	}
 	const size = sizeOf(page);
@@ -4986,7 +5024,7 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 			name: "Also show the other cases' system curves"
 		});
 		await curves.check();
-		await expect(curveTableFold(figure, `System curve, ${LONG_CASE}`)).toHaveCount(1, {
+		await expect(curveTableFold(figure, `System curve, case 4: ${LONG_CASE}`)).toHaveCount(1, {
 			timeout: 120_000
 		});
 		await settle(page);
@@ -5573,7 +5611,20 @@ test('S6 review: in the card’s tables a focus is never under what they pin, a 
 	const soft = expect.configure({ soft: true });
 	const groupBlock = card.locator('[data-group-table]');
 	const combos = card.locator('[data-running-combinations]');
-	const groupTitle = (await groupBlock.locator('p').first().innerText()).trim();
+	// The group table's name: its title's words as heard, in the caption's words. Since
+	// pumps-nits.md §11.4 (leftover L10) the title draws the case shown's box (the Base box
+	// hidden; a scenario's heard "Case 2:"), where the caption says "case 2:" in words; moved from
+	// the title's visible text, which held the name alone.
+	const groupTitle = (
+		await groupBlock
+			.locator('p')
+			.first()
+			.evaluate((p) => {
+				const copy = p.cloneNode(true) as HTMLElement;
+				for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+				return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+			})
+	).replace(/, Case (\d+):/, ', case $1:');
 	expect(groupTitle).toMatch(/^The pumps in the group, /);
 
 	// Each table's Fields and, on a phone, its "Sort by" named apart: the visible words, then the
@@ -6965,14 +7016,14 @@ test('Add cases in one structure: the plan, its fold and its new lines, no Solve
 	await expect(plan).toHaveAttribute('open', '');
 	await expect(summary).toHaveText('The plan: 3 cases by number running: all 3 made');
 	const refusal = block.getByText(
-		'Every case by number running already exists: «3 of 4 running (P4 off)», «2 of 4 running (P3, P4 off)» and «1 of 4 running (P2, P3, P4 off)».',
+		'Every case by number running already exists: case 1 «3 of 4 running (P4 off)», case 2 «2 of 4 running (P3, P4 off)» and case 3 «1 of 4 running (P2, P3, P4 off)».',
 		{ exact: true }
 	);
 	await expect(refusal).toBeVisible();
 	expect.soft(await seenLine(refusal), 'the refusal on screen').toBe(true);
 	await expect(added).toHaveAttribute('aria-disabled', 'true');
 	await expect(added).toHaveAccessibleDescription(
-		'Every case by number running already exists: «3 of 4 running (P4 off)», «2 of 4 running (P3, P4 off)» and «1 of 4 running (P2, P3, P4 off)».'
+		'Every case by number running already exists: case 1 «3 of 4 running (P4 off)», case 2 «2 of 4 running (P3, P4 off)» and case 3 «1 of 4 running (P2, P3, P4 off)».'
 	);
 	await expect(solveAlls).toHaveCount(0);
 	// The Scenarios menu's Solve all counts the three (build-density.md §19).
@@ -7566,7 +7617,7 @@ test('S7 review: a 40-character unbroken case name ends inside the pump chart’
 	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
 	await figure.getByRole('button', { name: 'Show data table of the pump chart' }).click();
 	await figure.getByRole('checkbox', { name: "Also show the other cases' system curves" }).check();
-	const fold = curveTableFold(figure, `System curve, ${LONG_CASE}`);
+	const fold = curveTableFold(figure, `System curve, case 3: ${LONG_CASE}`);
 	await expect(fold).toHaveCount(1, { timeout: 120_000 });
 	await settle(page);
 	const header = figure
@@ -10111,4 +10162,172 @@ test('Reviews DOTS-LABELS-B4 and B5: four member lines, every two swatches apart
 		`Pump P1's, the group curve's and the group system curve's lines, ${where}`
 	).toBe(true);
 	soft(new Set(three).size, `their colours apart under forced colours, ${where}`).toBe(3);
+});
+
+// ---- Leftover L10: every case named by its number (pumps-nits.md §11.4) -------------------------
+
+/**
+ * The places on the Pumps tab that named a case in words before leftover L10, each with the
+ * CaseNamed units it holds: both figcaptions, the group table's title, each extreme with a case
+ * (a cell with an amount), each other case's system curve's summary; the captions' and the
+ * title's heights and lines.
+ */
+function readCaseUnits() {
+	const pane = document.querySelector('section[aria-label="Results"]')!;
+	const units = (e: Element | null | undefined) =>
+		e ? e.querySelectorAll('[data-case-named]').length : null;
+	const height = (e: Element | null | undefined) =>
+		e ? Math.round(e.getBoundingClientRect().height * 10) / 10 : null;
+	// Its lines of words: each text node's boxes seen (none in a visually hidden one), one line per
+	// run of boxes whose middles lie within 6 px (a line is 16 px; the box's number sits in its
+	// line's middle, and a flex item's box starts at its own top, not the line's).
+	const lines = (e: Element | null) => {
+		if (!e) return null;
+		const middles: number[] = [];
+		const walker = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			if (n.parentElement?.closest('.sr-only')) continue;
+			const range = document.createRange();
+			range.selectNodeContents(n);
+			for (const r of range.getClientRects()) {
+				if (r.width > 0.5 && r.height > 1) middles.push(r.top + r.height / 2);
+			}
+		}
+		middles.sort((a, b) => a - b);
+		let count = 0;
+		let last = -Infinity;
+		for (const y of middles) {
+			if (y - last > 6) count += 1;
+			last = y;
+		}
+		return count;
+	};
+	const pump = [...pane.querySelectorAll('figure')].find((f) =>
+		/^Pump and system curves/.test(f.querySelector('figcaption')?.textContent?.trim() ?? '')
+	);
+	const group = pane.querySelector('[data-pumps-together] figure');
+	const title = pane.querySelector('[data-pumps-together] [data-group-table] > p');
+	const cells = [
+		...pane.querySelectorAll('[data-pumps-together] [data-combination-extremes] td')
+	].filter((td) => !/no case gives one/.test(td.textContent ?? ''));
+	const summaries = [...pane.querySelectorAll('details[data-curve-table^="system-"] > summary')];
+	return {
+		pumpCaption: {
+			units: units(pump?.querySelector('figcaption')),
+			height: height(pump?.querySelector('figcaption'))
+		},
+		groupCaption: {
+			units: units(group?.querySelector('figcaption')),
+			height: height(group?.querySelector('figcaption'))
+		},
+		title: { units: units(title), height: height(title), lines: lines(title) },
+		extremes: cells.map((td) => units(td)),
+		// An extreme's unit holds its box and the first word of its case's name, the rest of the
+		// name running on with the cell's words (PumpGroupCombinations nameLead): one word each.
+		extremeLeads: cells.map((td) =>
+			(td.querySelector('[data-case-named] > :last-child')?.textContent ?? '').trim()
+		),
+		summaries: summaries.map((s) => units(s))
+	};
+}
+
+/**
+ * readCaseUnits at the size shown (soft): one unit in each place, and every box beside its name
+ * (readBoxedNames). An extreme's unit is its box and its name's first word, so its box never ends
+ * a line apart from its name and an unbroken name wraps beside it at one edge; the rest of the
+ * name runs on as the cell's sentence wraps (EXTREMES_HEIGHT; PumpGroupCombinations nameLead).
+ */
+async function caseUnitsPart(page: Page, where: string, summaries: boolean) {
+	const m = await page.evaluate(readCaseUnits);
+	console.log(`${where}: ${JSON.stringify(m)}`);
+	expect.soft(m.pumpCaption.units, `the pump chart's caption's unit, ${where}`).toBe(1);
+	expect.soft(m.groupCaption.units, `the group chart's caption's unit, ${where}`).toBe(1);
+	expect.soft(m.title.units, `the group table's title's unit, ${where}`).toBe(1);
+	expect.soft(m.extremes.length, `the extremes with a case, ${where}`).toBeGreaterThan(0);
+	expect
+		.soft(
+			m.extremes.every((n) => n === 1),
+			`one unit in each extreme with a case, ${where}`
+		)
+		.toBe(true);
+	expect
+		.soft(
+			m.extremeLeads.filter((lead) => !lead || /\s/.test(lead)),
+			`each extreme's unit its box and one word of its case's name, ${where}`
+		)
+		.toEqual([]);
+	if (summaries) {
+		expect.soft(m.summaries.length, `the other cases' curve tables, ${where}`).toBeGreaterThan(0);
+		expect
+			.soft(
+				m.summaries.every((n) => n === 1),
+				`one unit in each other case's curve table's summary, ${where}`
+			)
+			.toBe(true);
+	}
+	// A box on a 12 px text's 16 px line grows no line (the title).
+	expect
+		.soft(m.title.height, `the group table's title 16 px a line, ${where}`)
+		.toBe(16 * (m.title.lines ?? 0));
+	await boxedNamesPart(page, where);
+	await noSidewaysScroll(page, where);
+	return m;
+}
+
+test('Leftover L10: the Pumps tab names each case by its number, its box beside its name as one unit: both figcaptions, the group table’s title, the extremes and the other cases’ curve tables; captions as tall as before, the title 16 px a line, nothing sideways, axe clean (pumps-nits.md §11.4, leftover L10)', async ({
+	page
+}, info) => {
+	test.setTimeout(900_000);
+	const viewport = page.viewportSize()!;
+	const sizes =
+		info.project.name === 'mobile'
+			? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
+			: [viewport];
+	// The one-off, "Delivery tank 5 m higher" (case 3) shown, its other cases' station duties and
+	// system curves and the pump chart's data table shown.
+	await oneOff(page);
+	await chooseCase(page, 'Delivery tank 5 m higher (1 change)');
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	await card.getByRole('checkbox', { name: "Also show the other cases' station duties" }).check();
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	await figure.getByRole('checkbox', { name: "Also show the other cases' system curves" }).check();
+	await tab.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	await settle(page, 2500);
+	// The captions as tall as with the case's name alone (measured on 25b45c5): one line at 1280,
+	// two on a phone.
+	const CAPTION: Readonly<Record<string, number>> = {
+		'1280x800': 20,
+		'390x844': 40,
+		'360x740': 40,
+		'320x640': 40
+	};
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		const where = `the one-off, case 3 shown, at ${sizeOf(page)}`;
+		const m = await caseUnitsPart(page, where, true);
+		expect
+			.soft(m.pumpCaption.height, `the pump chart's caption, ${where}`)
+			.toBe(CAPTION[sizeOf(page)]);
+		expect
+			.soft(m.groupCaption.height, `the group chart's caption, ${where}`)
+			.toBe(CAPTION[sizeOf(page)]);
+	}
+	await page.setViewportSize(viewport);
+	await axeClean(page, `the one-off, case 3 shown, at ${sizeOf(page)}`);
+
+	// The lineups, the 40-character case name shown (case 4).
+	const project = projectOf('lineups');
+	project.scenarios!.find((s) => s.id === 'S4')!.name = LONG_CASE;
+	await lineups(page, project);
+	await chooseCase(page, `${LONG_CASE} (1 change)`);
+	await settle(page, 2500);
+	for (const size of sizes) {
+		await page.setViewportSize(size);
+		await settle(page, 1000);
+		await caseUnitsPart(page, `the lineups, the long case shown, at ${sizeOf(page)}`, false);
+	}
+	await page.setViewportSize(viewport);
+	await axeClean(page, `the lineups, the long case shown, at ${sizeOf(page)}`);
 });

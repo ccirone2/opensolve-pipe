@@ -401,6 +401,40 @@ describe('downloading the image', () => {
 		expect(plain).toEqual([undefined]);
 	});
 
+	// docs/proposals/pumps-nits.md §11.4, leftover L10: the image's title names the case by its
+	// number in words ("case 2: Winter", the base case its name alone), the file name its name
+	// alone, so no colon reaches a file name.
+	it('titles the image with the case by its number in words, its file named by the case’s name alone', async () => {
+		expect(
+			chartImageCaption(input({ caseTitle: 'case 2: Winter', caseName: 'Winter' })).title
+		).toBe('Pump and system curves: Transfer pump, case 2: Winter');
+		expect(
+			chartImageCaption(
+				input({
+					title: 'Pumps together: PA, PB (parallel)',
+					caseTitle: 'case 2: Winter',
+					caseName: 'Winter'
+				})
+			).title
+		).toBe('Pumps together: PA, PB (parallel), case 2: Winter');
+		const drawn: ChartImageCaption[] = [];
+		const saved: string[] = [];
+		await downloadChartImage(
+			FakeChart,
+			{ ...request([]), caseTitle: 'case 2: Winter' },
+			{
+				now,
+				render: async (_chart, _config, caption) => {
+					drawn.push(caption);
+					return new Blob(['x']);
+				},
+				save: (_blob, name) => void saved.push(name)
+			}
+		);
+		expect(drawn[0]!.title).toBe('Pump and system curves: Transfer pump, case 2: Winter');
+		expect(saved[0]).toMatch(/^Booster station - Winter - Transfer pump chart /);
+	});
+
 	it('draws the chart’s configuration at a fixed size with its caption, saves it and says so', async () => {
 		const notices: { kind: string; text: string }[] = [];
 		const drawn: { config: unknown; caption: ChartImageCaption }[] = [];

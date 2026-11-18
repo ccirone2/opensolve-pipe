@@ -61,7 +61,7 @@ import {
 	stationPortWords,
 	type GroupSlot
 } from './pump-group-chart';
-import { caseTagOf, inCaseOrder, type CaseNumber } from './pump-chart';
+import { caseNamed, caseTagOf, inCaseOrder, type CaseNumber } from './pump-chart';
 import { MAX_GROUP_PUMPS, pressureControlOnly, refusalWords, wordsText } from './pump-groups';
 import { carriesFlow, lineupChartPriority, memberLabels } from './pump-lineups';
 import {
@@ -948,7 +948,10 @@ export interface ExtremeLine {
 	key: string;
 	/** "Pump PA, largest flow" ("Booster pump (PA), largest flow" where two share a name). */
 	term: string;
-	/** "40.75 L/s in Pump PB off; beyond its curve data (over 5 of 5 cases)". */
+	/**
+	 * "40.75 L/s in case 2: Pump PB off; beyond its curve data (over 5 of 5 cases)": its case by its
+	 * number in words (caseNamed; the base case its name alone; pumps-nits.md §11.4, leftover L10).
+	 */
 	value: string;
 	/** The case it is in has a flag of severity `invalid` for that pump. */
 	invalid: boolean;
@@ -957,15 +960,23 @@ export interface ExtremeLine {
 /**
  * One cell of the extremes table (pumps-results-layout.md §5.3, §9 S5): its line's value split
  * after the amount, so `${amount} ${rest}` is the line's `value` ("no case gives one" alone, with
- * no amount, where no current case gives one).
+ * no amount, where no current case gives one). On screen the case is its box beside its name
+ * (`where`, CaseNamed), then `after` (pumps-nits.md §11.4, leftover L10).
  */
 export interface ExtremeCell {
 	/** Its line's key: "PA:operatingFlow". */
 	key: string;
 	/** "40.75 L/s"; null for "no case gives one". */
 	amount: string | null;
-	/** "in Pump PB off; beyond its curve data (over 5 of 5 cases)", or "no case gives one". */
+	/**
+	 * "in case 2: Pump PB off; beyond its curve data (over 5 of 5 cases)", or "no case gives one":
+	 * `in ${caseNamed(where)}${after}`.
+	 */
 	rest: string;
+	/** The case it is in, its number and name; null for "no case gives one". */
+	where: { tag: CaseNumber; name: string } | null;
+	/** What follows the case's name: " and 1 other case; beyond its curve data (over 5 of 5 cases)". */
+	after: string;
 	/** The case it is in has a flag of severity `invalid` for that pump. */
 	invalid: boolean;
 }
@@ -986,6 +997,7 @@ export interface ExtremesTable {
 export interface CombinationExtremes {
 	lines: ExtremeLine[];
 	table: ExtremesTable;
+	/** The cases out of date, each by its number in words: "case 2: Pump PB off" (caseNamed). */
 	notCounted: string[];
 }
 
@@ -1063,7 +1075,9 @@ export function combinationExtremes(input: CombinationsInput): CombinationExtrem
 		label: `${m.what.charAt(0).toUpperCase()}${m.what.slice(1)}`
 	}));
 	const current = input.cases.filter((c) => hasValues(c.response) && !c.stale);
-	const notCounted = input.cases.filter((c) => hasValues(c.response) && c.stale).map((c) => c.name);
+	const notCounted = input.cases
+		.filter((c) => hasValues(c.response) && c.stale)
+		.map((c) => caseNamed(c.tag, c.name));
 	if (current.length < 2) return { lines: [], table: { columns, rows: [] }, notCounted: [] };
 	const order = new Map(input.project.components.map((c, i) => [c.id, i]));
 	const members = [...input.members].sort(
@@ -1084,7 +1098,14 @@ export function combinationExtremes(input: CombinationsInput): CombinationExtrem
 				return reading ? [{ c, r: r!, ...reading }] : [];
 			});
 			if (!found.length) {
-				cells.push({ key, amount: null, rest: 'no case gives one', invalid: false });
+				cells.push({
+					key,
+					amount: null,
+					rest: 'no case gives one',
+					where: null,
+					after: '',
+					invalid: false
+				});
 				continue;
 			}
 			// The extreme by its number, then its tie (the smaller first, for either measure:
@@ -1096,9 +1117,7 @@ export function combinationExtremes(input: CombinationsInput): CombinationExtrem
 			const at = found.filter((x) => rank(x, best) === 0);
 			const first = at[0]!;
 			const others = at.length - 1;
-			const where = others
-				? `${first.c.name} and ${others} other ${others === 1 ? 'case' : 'cases'}`
-				: first.c.name;
+			const andOthers = others ? ` and ${others} other ${others === 1 ? 'case' : 'cases'}` : '';
 			const flags = flagsForElement(first.c.response!.solvedState.flags, {
 				kind: 'component',
 				id: m.id
@@ -1109,10 +1128,13 @@ export function combinationExtremes(input: CombinationsInput): CombinationExtrem
 				...(invalid ? ['physically invalid'] : [])
 			];
 			const missing = total - found.length;
+			const after = `${andOthers}${qualifiers.length ? `; ${qualifiers.join('; ')}` : ''} (over ${found.length} of ${total} cases${missing ? `; no value in ${missing}` : ''})`;
 			cells.push({
 				key,
 				amount: first.amount,
-				rest: `in ${where}${qualifiers.length ? `; ${qualifiers.join('; ')}` : ''} (over ${found.length} of ${total} cases${missing ? `; no value in ${missing}` : ''})`,
+				rest: `in ${caseNamed(first.c.tag, first.c.name)}${after}`,
+				where: { tag: first.c.tag, name: first.c.name },
+				after,
 				invalid
 			});
 		}

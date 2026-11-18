@@ -1,6 +1,6 @@
 # Landing page
 
-**Status: built (2026-11-01), web only, on `web/landing`; §5 is the as-built record.** No API, model or solver change; `METHOD_VERSION` unchanged (1.6.0). The owner set the goals in an interview (§2). Their answers are product decisions. The page's layout and wording are reversible web defaults under D14. Follows [`../ui-guide.md`](../ui-guide.md).
+**Status: built (2026-11-01), web only, on `web/landing`; §5 is the as-built record; the How it works shots retaken on 2026-11-18 (§7, "Retaken").** No API, model or solver change; `METHOD_VERSION` unchanged (1.6.0). The owner set the goals in an interview (§2). Their answers are product decisions. The page's layout and wording are reversible web defaults under D14. Follows [`../ui-guide.md`](../ui-guide.md).
 
 ## 1. Scope
 
@@ -108,7 +108,7 @@ A phone shows slides 2, 4, 6 and 7, because laptop shots are too small to read t
 - The phone shots are crops: a 390×560 window over the 390×844 screen, its top just above the element the step is about. A phone shows them at full width, 356×512 on a 390 px screen (91 % of real size), with the caption and the dots still on one screen.
 - The e2e test asserts, at both sizes and on every step, that the image's drawn box has the image's own ratio within 1 %, that the shot is the one made for the screen, and that a phone's is at least 85 % of the screen's width.
 
-**The story.** Seven steps, from an empty network to a shared one. Each step has a laptop shot (1280×800) and a phone shot (the crop, at 2× density) of the same moment. A `<picture>` serves the phone's below 640 px and the laptop's from there, so each screen downloads only its own seven (436 KB for laptops, 352 KB for phones, all but the first loaded lazily). The section is headed **How it works**, after the opening buttons and recent projects, before the examples.
+**The story.** Seven steps, from an empty network to a shared one. Each step has a laptop shot (1280×800) and a phone shot (the crop, at 2× density) of the same moment. A `<picture>` serves the phone's below 640 px and the laptop's from there, so each screen downloads only its own seven (436 KB for laptops, 352 KB for phones, all but the first loaded lazily; the eight of §8, as retaken on 2026-11-18, are 490 KB and 399 KB). The section is headed **How it works**, after the opening buttons and recent projects, before the examples.
 
 | # | Step | The caption's line | Shown (both screens) |
 |---|---|---|---|
@@ -121,6 +121,13 @@ A phone shows slides 2, 4, 6 and 7, because laptop shots are too small to read t
 | 7 | Share the link | The whole project in the link, nothing on a server; or export | The Share dialog |
 
 The captions state only what the app does, checked against D5, D10, D15, D17 and the build-density proposal (More, "default"). Files: `static/landing/<step>-laptop.webp` and `<step>-phone.webp`. To retake them, open each state at 1280×800 and at 390×844 (2× or 3× density), and crop the phone's to 390×560 from just above the step's element.
+
+**Retaken (2026-11-18, on `web/pumps-leftovers`; `pumps-nits.md` §11.9, leftover L26).** Due since the Pumps nits' item 4 (`pumps-nits.md` §7.6, review E-1-5): the shots showed the absolute NPSH margin ("NPSH margin 9.701 m", "Smallest NPSH margin", Compare's default row "· NPSH margin", Build's strip "NPSH margin (m)") where the app shows the ratio. Every laptop shot was out of date besides: one Solve (`build-density.md` §19: the Results pane's hint, no Solve all in Compare cases) and the Pumps tab's restructure with item 2's status pill; and the phone's Check the pumps had its axis titles over their ticks (`pumps-nits.md` §11.5, L21).
+- **How:** all sixteen in one session at the branch's head `8864bee`, with Playwright from the built app (`pnpm build`, then `pnpm preview`) against the e2e API (`tests.e2e_app`), in the states of the table above with §8's order and goal seek. Laptops at 1280×800. Phones at 390×844 at 2× density with the e2e mobile project's touch emulation (a selected link is drawn in a phone's light blue), each cropped to 390×560 from just above its step's element. WebP at quality 82.
+- **Phone crops that moved:** Describe each element now starts at the pump's heading, so its rating and head curve are in view; Solve starts at "Converged" and runs to the extremes' highest pressure; Compare scenarios starts at the view's heading, so the first pump's NPSH margin ratio card is whole.
+- **Sizes:** 490 KB for the eight laptop shots and 399 KB for the eight phone shots (485 KB and 397 KB before).
+- **Alt texts** (`ScreenshotCarousel.svelte`): Solve's now names the NPSH margin ratio, and Compare scenarios' each pump's flow, head and NPSH margin ratio, since both new shots show that row. The other six still describe their shots and are unchanged. No test pins an alt text.
+- **Verified:** `home.e2e.ts` on both projects (each shot loaded, drawn in its own proportion within 1 %, the phone's at least 85 % of the screen's width, axe clean).
 
 **The carousel**, besides the frames:
 - The dots and the announcement name the step ("Step 4 of 7: Check the pumps"), and the dot shown is `aria-current="step"`.
@@ -152,5 +159,5 @@ The captions state only what the app does, checked against D5, D10, D15, D17 and
 
 ## 9. Later
 
-- Retake the screenshots after a visible UI change (by hand, §3). Due since the Pumps nits' item 4 (`pumps-nits.md` §7.6, review E-1-5): where the app now shows the NPSH margin ratio by default, the shots still show the absolute margin. Solve (`solve-laptop.webp`, `solve-phone.webp`): the Summary's line "NPSH margin 9.701 m", and on the laptop "Smallest NPSH margin 9.701 m". Compare scenarios (`compare-laptop.webp`, `compare-phone.webp`): the default row "Condenser water pump CWP-1 · NPSH margin". Check the pumps (`chart-laptop.webp`): Build's strip, "NPSH margin (m) 9.701", and the note under Results per pump with its old sentence, "NPSH available is computed from the absolute suction pressure…"; also out of date since the Pumps tab's restructure and the status pill of `pumps-nits.md` item 2. `chart-phone.webp` is the pump chart alone and shows no margin. In the commit that retakes them, the Solve slide's alt text (`ScreenshotCarousel.svelte`) changes from "…the pump's flow, head and NPSH margin…" to "…NPSH margin ratio…", and the Check the pumps alt text is checked against its new shot; the alt text describes the shot, so it does not change before.
+- Retake the screenshots after a visible UI change (by hand, §3; the last retake, 2026-11-18, in §7).
 - A recent project shows the time it was last seen here; a summary (component count, last solve) would need more stored data, so it waits for a request.

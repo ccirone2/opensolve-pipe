@@ -14,7 +14,8 @@
 
 	Each frame has its shots' exact aspect ratio (390:560 for a phone's crop, 16:10 for a laptop) and
 	the image fills it absolutely with object-fit: contain, so no browser can stretch or squash it.
-	The shots were taken by hand; retake them after a visible UI change (§7–§8).
+	The shots were taken by hand and last retaken on 2026-11-18; retake them after a visible UI change
+	(§7–§8).
 -->
 <script lang="ts">
 	import { asset } from '$app/paths';
@@ -46,7 +47,7 @@
 			file: 'solve',
 			title: 'Solve',
 			text: 'Flows, pressures and each pump’s duty, with anything physically invalid flagged.',
-			alt: "The solved pump transfer example: converged, with a summary of the pump's flow, head and NPSH margin and the network's extreme pressures."
+			alt: "The solved pump transfer example: converged, with a summary of the pump's flow, head and NPSH margin ratio and the network's extreme pressures."
 		},
 		{
 			file: 'chart',
@@ -70,7 +71,7 @@
 			file: 'compare',
 			title: 'Compare scenarios',
 			text: 'Named cases, such as winter operation, solved and compared with the base case side by side.',
-			alt: "The chiller plant example's base case and its winter scenario (tower bypassed) compared: each pump's flow and head in both, with the scenario's difference from the base case."
+			alt: "The chiller plant example's base case and its winter scenario (tower bypassed) compared: each pump's flow, head and NPSH margin ratio in both, with the scenario's difference from the base case."
 		},
 		{
 			file: 'goal',

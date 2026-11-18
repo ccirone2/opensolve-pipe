@@ -2646,6 +2646,74 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		}
 	});
 
+	// Leftover L14 (pumps-nits.md §8.14 bullet 2; §11.5): the group system curve's tag, placed last,
+	// tried four spots by its curve's end only, so it was left out where those were taken (the
+	// condenser at 1280 px, the lineups at 390), though its curve ran on clear. It now walks back
+	// along its own curve, the same four spots by each earlier drawn point.
+	it('walks the group system curve’s tag back along its curve where the spots by its end are taken; left out and named by its end where none is free (leftover L14)', () => {
+		const DESKTOP = { left: 55, right: 554, top: 8, bottom: 243 };
+		const { data } = lineupView('S3');
+		const told: CurveLabelsDrawn[] = [];
+		const chart = drawnChart(
+			config(data, { curveLabels: tools, onlabels: (d: CurveLabelsDrawn) => told.push(d) }),
+			{ plot: DESKTOP }
+		);
+		chart.draw();
+		const drawn = told[0]!;
+		// "1 of 4 running" on m4's desktop plot: the four spots by the curve's end are taken (its
+		// end at 67.07 L/s and 31.55 m, where the tag was left out); one by an earlier point is free.
+		const system = (data.system ?? []).filter((p): p is { x: number; y: number } => p.y !== null);
+		const px = (p: { x: number; y: number }) => ({ x: chart.px(p.x), y: chart.py(p.y) });
+		const inside = system
+			.map(px)
+			.filter(
+				(p) =>
+					p.x >= DESKTOP.left && p.x <= DESKTOP.right && p.y >= DESKTOP.top && p.y <= DESKTOP.bottom
+			);
+		const end = inside.at(-1)!;
+		expect(drawn.tagsLeftOut).toEqual([]);
+		expect(drawn.tags.map((t) => t.text)).toEqual([GROUP_SYSTEM_TAG]);
+		const tag = drawn.tags[0]!;
+		const width = GROUP_SYSTEM_TAG.length * 6;
+		/** The four spots by a drawn point (its row above, its row below; ending at it, or after it). */
+		const spots = (p: { x: number; y: number }) => {
+			const inX = (x: number) => Math.max(DESKTOP.left + 2, Math.min(x, DESKTOP.right - width - 2));
+			const row = Math.max(DESKTOP.top + 14, p.y - 8);
+			const below = p.y + 12 + 4;
+			return [
+				{ x: inX(p.x - width), y: row },
+				{ x: p.x + 4, y: row },
+				{ x: p.x + 4, y: below },
+				{ x: inX(p.x - width - 4), y: below }
+			];
+		};
+		// Not by its end: by an earlier drawn point of its own curve.
+		expect(spots(end).some((s) => s.x === tag.x && s.y === tag.y)).toBe(false);
+		const by = inside.findIndex((p) => spots(p).some((s) => s.x === tag.x && s.y === tag.y));
+		expect(by).toBeGreaterThanOrEqual(0);
+		expect(by).toBeLessThan(inside.length - 1);
+		// Clear of every point label, leader, mark and curve label, inside the plot.
+		for (const o of [...drawn.obstacles, ...drawn.labels])
+			expect(boxesMeet(tag.box, o.box), o.text).toBe(false);
+		expect(tag.box.left).toBeGreaterThanOrEqual(DESKTOP.left);
+		expect(tag.box.right).toBeLessThanOrEqual(DESKTOP.right);
+		// Nowhere free (a plot narrower than the tag): left out, named with its end's values.
+		const narrow: CurveLabelsDrawn[] = [];
+		drawnChart(
+			config(data, { curveLabels: tools, onlabels: (d: CurveLabelsDrawn) => narrow.push(d) }),
+			{ plot: { left: 50, right: 50 + width - 1, top: 8, bottom: 243 } }
+		).draw();
+		expect(narrow[0]!.tags).toEqual([]);
+		expect(narrow[0]!.tagsLeftOut).toEqual([
+			{
+				name: GROUP_SYSTEM_TAG,
+				mark: 'end',
+				flow: expect.stringMatching(/ L\/s$/),
+				head: expect.stringMatching(/ m$/)
+			}
+		]);
+	});
+
 	it('keeps each label off every ring’s tag, marker and point’s label where they are in the way, or leaves it out', () => {
 		// m4_labels.py's plots: a 390 px phone and a 1280 × 800 desktop.
 		const PHONE = { left: 50, right: 328, top: 8, bottom: 211 };
@@ -2761,10 +2829,11 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		]);
 		expect(s3Desktop.placed.leftOut).toBe(0);
 		expect(rowsOf(s3Desktop, [1, 4, 5, 6], 3, false)[0]).toEqual([]);
-		expect(s3Desktop.placed.tags).toEqual([]);
-		expect(s3Desktop.placed.tagsLeftOut).toEqual([
-			{ name: GROUP_SYSTEM_TAG, mark: 'end', flow: '67.07 L/s', head: '31.55 m' }
-		]);
+		// Leftover L14: moved from "left out and named with its end's values" (67.07 L/s, 31.55 m):
+		// the spots by its end are still taken, and it walks back along its curve to a free one (the
+		// L14 test above pins where).
+		expect(s3Desktop.placed.tags.map((t) => t.text)).toEqual([GROUP_SYSTEM_TAG]);
+		expect(s3Desktop.placed.tagsLeftOut).toEqual([]);
 		expect(
 			s3Desktop.placed.obstacles
 				.filter((o) => o.kind === 'ring')

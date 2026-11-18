@@ -10087,6 +10087,18 @@ for (const [view, setUp] of [
 					.map((b) => `"${a.text}" ${boxGap(a.box, b.box).toFixed(1)} px from "${b.text}"`)
 			);
 			soft(tooClose, `curve labels on one row 6 px apart, ${where}`).toEqual([]);
+			// Leftover L14 (pumps-nits.md §11.5): the group system curve's tag walks back along its
+			// curve where the spots by its end are taken; it was left out in the condenser at 1280 and
+			// the lineups at 390 (the condenser at 320 may still leave it out, named in the notes).
+			const tagsOut = m.group?.curves?.tagsLeftOut.map((t) => t.name) ?? [];
+			console.log(
+				`${where}: tags ${JSON.stringify(m.group?.curves?.tags.map((t) => t.text))}; left out ${JSON.stringify(tagsOut)}`
+			);
+			if (
+				(view === 'the condenser' && sizeOf(page) === '1280x800') ||
+				(view === 'lineups' && sizeOf(page) === '390x844')
+			)
+				soft(tagsOut, `the group system curve's tag left out, ${where}`).toEqual([]);
 			const pumpPlot = m.pump?.points?.plot;
 			console.log(
 				`${where}: the pump chart's plot ${pumpPlot?.left.toFixed(1)}..${pumpPlot?.right.toFixed(1)} (${((pumpPlot?.right ?? 0) - (pumpPlot?.left ?? 0)).toFixed(1)} px) of ${m.pump?.canvas.width}`

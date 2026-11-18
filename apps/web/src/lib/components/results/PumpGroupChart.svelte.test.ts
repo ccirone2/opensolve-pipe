@@ -4859,19 +4859,17 @@ describe('the curve family (D24 slice L3, pump-lineups.md §9.6, §10.3 Componen
 		// placed.leftOut. Review DOTS-LABELS-B1 (rule 7: the group system curve's tag comes last):
 		// the screen's narrow drawing has no place left for the tag by its curve's end, so its notes
 		// name it with that end's values; the image's own drawing writes it, so its notes do not.
+		// Leftover L14: moved from "the screen's narrow drawing has no place left for the tag by its
+		// curve's end, so its notes name it": the tag walks back along its curve to a free spot, so
+		// neither drawing's notes name it, and both write it.
 		expect(placed.leftOut).not.toBe(1);
-		const tagLine =
-			'Not labelled on the chart: Group system curve, its end at 67.07 L/s and 31.55 m.';
-		expect(placed.tagsLeftOut).toEqual([
-			{ name: 'Group system curve', mark: 'end', flow: '67.07 L/s', head: '31.55 m' }
-		]);
-		expect(request.lines).toContain(tagLine);
+		expect(placed.tags.map((t) => t.text)).toEqual(['Group system curve']);
+		expect(placed.tagsLeftOut).toEqual([]);
+		expect(request.lines.filter((l) => l.includes('Group system curve, its end'))).toEqual([]);
 		expect(imageChart.written.map((w) => w.text)).toContain('Group system curve');
 		const drawnLines = request.drawnLines!();
 		expect(drawnLines).toEqual(
-			request.lines
-				.filter((l) => l !== tagLine)
-				.map((l) => (l === sentence(placed.leftOut) ? sentence(1) : l))
+			request.lines.map((l) => (l === sentence(placed.leftOut) ? sentence(1) : l))
 		);
 		// The image's datasets carry the family with its full labels.
 		const sets = request.config.data.datasets as unknown as Record<string, unknown>[];

@@ -1863,9 +1863,10 @@ export function pumpGroupConfig(
 			}
 			// A curve's tag, last (rule 7), near its last drawn point inside the plot: above the line
 			// and ending there (as before), else right of that point, else under it to its right or to
-			// its left; inside the plot, over no point label or leader, mark, curve label or tag before
-			// it. With none, it is left out and named in the notes with that point's values. Its words
-			// over a halo of the surface, as every label's (leftover L21a).
+			// its left; then the same four spots by each earlier drawn point, walking back along its own
+			// curve (leftover L14); inside the plot, over no point label or leader, mark, curve label or
+			// tag before it. With none, it is left out and named in the notes with its end's values.
+			// Its words over a halo of the surface, as every label's (leftover L21a).
 			const tags: CurveTagDrawn[] = [];
 			const tagsLeftOut: NotLabelledPoint[] = [];
 			const marks = obstacles.filter((o) => o.kind === 'marker').map((o) => o.box);
@@ -1873,19 +1874,18 @@ export function pumpGroupConfig(
 			chart.data.datasets.forEach((dataset, i) => {
 				const tag = (dataset as { curveTag?: string }).curveTag;
 				if (!tag || !chart.isDatasetVisible(i)) return;
-				let end: { x: number; y: number; datum: ChartPoint } | null = null;
+				/** Its drawn points inside the plot, in the curve's order; the last is its end. */
+				const along: { x: number; y: number; datum: ChartPoint }[] = [];
 				chart.getDatasetMeta(i).data.forEach((el, k) => {
 					const datum = dataset.data[k] as ChartDatum | undefined;
 					if (datum?.y == null) return;
 					const inside =
 						el.x >= area.left && el.x <= area.right && el.y >= area.top && el.y <= area.bottom;
-					if (inside) end = { x: el.x, y: el.y, datum: { x: datum.x, y: datum.y } };
+					if (inside) along.push({ x: el.x, y: el.y, datum: { x: datum.x, y: datum.y } });
 				});
-				const at = end as { x: number; y: number; datum: ChartPoint } | null;
+				const at = along.at(-1);
 				if (!at) return;
 				const width = ctx.measureText(tag).width;
-				const row = Math.max(area.top + 14, at.y - 8);
-				const below = at.y + size + 4;
 				const inX = (x: number) => Math.max(area.left + 2, Math.min(x, area.right - width - 2));
 				const taken = [
 					...placed.labels.map((l) => l.box),
@@ -1899,14 +1899,24 @@ export function pumpGroupConfig(
 					box.bottom <= area.bottom &&
 					![...taken, ...marks].some((b) => boxesOverlap(b, box)) &&
 					!leaders.some((l) => leaderCrosses(l, box));
-				const spot = [
-					{ x: inX(at.x - width), y: row },
-					{ x: at.x + 4, y: row },
-					{ x: at.x + 4, y: below },
-					{ x: inX(at.x - width - 4), y: below }
-				]
-					.map((p) => ({ ...p, box: textBox(p.x, p.y, width) }))
-					.find((p) => clear(p.box));
+				/** The four spots by a drawn point, in the order tried. */
+				const spotsBy = (pt: { x: number; y: number }) => {
+					const row = Math.max(area.top + 14, pt.y - 8);
+					const below = pt.y + size + 4;
+					return [
+						{ x: inX(pt.x - width), y: row },
+						{ x: pt.x + 4, y: row },
+						{ x: pt.x + 4, y: below },
+						{ x: inX(pt.x - width - 4), y: below }
+					];
+				};
+				// Its end's four spots first, then each earlier drawn point's, walking back along its
+				// own curve (leftover L14), the first clear one taken.
+				let spot: { x: number; y: number; box: PxBox } | undefined;
+				for (let k = along.length - 1; k >= 0 && !spot; k--)
+					spot = spotsBy(along[k]!)
+						.map((p) => ({ ...p, box: textBox(p.x, p.y, width) }))
+						.find((p) => clear(p.box));
 				if (!spot) {
 					tagsLeftOut.push({
 						name: tag,

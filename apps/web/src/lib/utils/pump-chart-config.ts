@@ -108,8 +108,8 @@ const PANEL_AXES: Readonly<Record<PanelKey, { id: string; weight: number }>> = {
 };
 
 /**
- * Legend markers: curves as a line (drawn solid: a point-style line swatch takes no dash), points
- * as their marker.
+ * Legend markers: curves as a line (its swatch stroked with its dataset's dashes: the legend's
+ * `generateLabels` sets them, leftover L16), points as their marker.
  */
 function legendStyle(dataset: {
 	label?: string;
@@ -1037,16 +1037,25 @@ export function pumpChartConfig(
 							!(chartData.datasets[item.datasetIndex ?? -1] as { duty?: boolean } | undefined)
 								?.duty,
 						...font(14),
-						// Curves as a line (solid: Chart.js gives a point-style line swatch no dash), the
-						// operating point as a dot, an other case as its ring. Chart.js lists datasets by
-						// `order`: the rings (−1, drawn on top) are listed where their datasets are, as before.
+						// Curves as a line, the operating point as a dot, an other case as its ring. A line's
+						// swatch is dashed as its line (leftover L16, as the group chart's since review
+						// DOTS-LABELS-B3): under usePointStyle Chart.js takes an entry's style from its first
+						// point, which has no dashes, so it drew "Motor rated power (dashed)" and "Minimum flow
+						// (dash-dot)" solid. Chart.js lists datasets by `order`: the rings (−1, drawn on top) are
+						// listed where their datasets are, as before.
 						generateLabels: (c) =>
 							legendLabels(c)
-								.map((item) => ({
-									...item,
-									pointStyle: legendStyle(c.data.datasets[item.datasetIndex ?? -1] ?? {}) as
-										'circle' | 'line'
-								}))
+								.map((item) => {
+									const ds = (c.data.datasets[item.datasetIndex ?? -1] ?? {}) as {
+										borderDash?: number[];
+									};
+									const style = legendStyle(ds) as 'circle' | 'line';
+									return {
+										...item,
+										pointStyle: style,
+										...(style === 'line' ? { lineDash: [...(ds.borderDash ?? [])] } : {})
+									};
+								})
 								.sort(
 									(a, b) =>
 										legendOrder(c, a) - legendOrder(c, b) ||

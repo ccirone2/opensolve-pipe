@@ -4,7 +4,9 @@
  * drawn at 2× and has larger fonts; other cases are slate rings named by their case numbers. Pump
  * results are made-up test inputs.
  */
+import { BasicPlatform } from 'chart.js';
 import { describe, expect, it } from 'vitest';
+import { Chart } from '$lib/components/results/chart-setup';
 import { pumpResult, systemCurveResponse } from '../testing/results';
 import { otherCasesData, pumpChartData, type OtherCaseData } from './pump-chart';
 import {
@@ -1058,3 +1060,166 @@ describe('the group chart’s members as dots in their line’s colour (nit 5, s
 		);
 	});
 });
+
+// Leftover L16 (docs/proposals/pumps-nits.md §8.14 bullet 4; §11.5): the pump chart's legend drew
+// every curve's swatch solid, "Motor rated power (dashed)" and "Minimum flow (dash-dot)" among
+// them, since with usePointStyle Chart.js 4.5.1 takes an entry's style from its first point, which
+// has no dashes (the group chart's DOTS-LABELS-B3). Drawn here by Chart.js itself.
+describe('the pump chart’s legend draws each line in its dataset’s dashes (leftover L16)', () => {
+	const full = pumpResult({
+		efficiencyCurve: [
+			{ flow: 0.004, efficiency: 0.4 },
+			{ flow: 0.012, efficiency: 0.7 },
+			{ flow: 0.02, efficiency: 0.6 }
+		],
+		bestEfficiencyPoint: { flow: 0.012, efficiency: 0.7, head: 18, headExtrapolated: false },
+		powerCurve: [
+			{ flow: 0.004, shaftPower: 2000 },
+			{ flow: 0.02, shaftPower: 5000 }
+		],
+		npshrCurve: [
+			{ flow: 0, npshr: 1 },
+			{ flow: 0.03, npshr: 4 }
+		]
+	});
+	const checks = {
+		checks: {
+			npshMargin: { minimumMargin: 1, source: { kind: 'user' as const } },
+			operatingRegion: { preferredMin: 0.7, preferredMax: 1.2, source: { kind: 'user' as const } }
+		},
+		curve: {
+			id: 'C1',
+			name: 'Curve',
+			points: [
+				{ flow: 0, head: 30 },
+				{ flow: 0.02, head: 22 }
+			],
+			allowableOperatingRegion: { flowMin: 0.004, flowMax: 0.025 },
+			minimumContinuousStableFlow: 0.003,
+			motorRatedPower: 5500
+		},
+		sources: { npshMargin: 'your values', operatingRegion: 'your values' }
+	};
+
+	it('strokes each curve’s swatch with its own dashes, as drawn on the canvas, on screen and in the image', () => {
+		// Rated to 20 L/s, so the curve beyond it is dashed; a second case with its system curve.
+		const data = pumpChartData(full, SI_UNITS, [0, 0.02], systemCurveResponse(), null, checks);
+		const others = otherCasesData(
+			[
+				{
+					key: 'S1',
+					name: 'Winter',
+					result: pumpResult({ operatingFlow: 0.015, operatingHead: 25 }),
+					stale: false,
+					system: systemCurveResponse()
+				}
+			],
+			SI_UNITS,
+			[0, 0.02],
+			1,
+			null,
+			{ S1: 2 }
+		);
+		for (const forImage of [false, true]) {
+			const legend = drawnLegend(
+				pumpChartConfig(data, others, {
+					speedText: '100 % speed',
+					legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+					format: (v) => formatNumber(v, 4),
+					panels: ['head', 'efficiency', 'power', 'npsh'],
+					checks: true,
+					forImage
+				}),
+				900,
+				1100
+			);
+			const named = [
+				'Motor rated power (dashed)',
+				'Minimum flow (dash-dot)',
+				'Pump curve, extrapolated (dashed)',
+				'NPSHa required by the check (dotted)',
+				'NPSHr',
+				'System curve, case 2',
+				'Pump curve at 100 % speed',
+				'System curve'
+			];
+			expect(legend.items.map((i) => i.text)).toEqual(expect.arrayContaining(named));
+			const dash = (text: string) => legend.items.find((i) => i.text === text)!.lineDash;
+			expect(dash('Motor rated power (dashed)'), `forImage ${forImage}`).toEqual([6, 3]);
+			expect(dash('Minimum flow (dash-dot)')).toEqual([8, 3, 2, 3]);
+			expect(dash('Pump curve, extrapolated (dashed)')).toEqual([6, 4]);
+			expect(dash('NPSHa required by the check (dotted)')).toEqual([2, 2]);
+			expect(dash('NPSHr')).toEqual([8, 3]);
+			expect(dash('System curve, case 2')).toEqual([2, 3]);
+			// A solid curve stays solid.
+			expect(dash('Pump curve at 100 % speed')).toEqual([]);
+			expect(dash('System curve')).toEqual([]);
+			// Each line entry's dashes are its dataset's own, and its swatch is stroked with them, in
+			// the legend's order (the shutoff's dash, a point style, is one solid segment too).
+			const lines = legend.items.filter((i) => i.pointStyle === 'line');
+			for (const line of lines) expect(line.lineDash, line.text).toEqual(line.own);
+			expect(legend.swatches.map((s) => s.dash)).toEqual(
+				legend.items
+					.filter((i) => i.pointStyle === 'line' || i.pointStyle === 'dash')
+					.map((i) => (i.pointStyle === 'line' ? i.own : []))
+			);
+		}
+	});
+});
+
+/**
+ * Chart.js lays out and draws `config` on a canvas of `width` × `height` in the `server` project
+ * (BasicPlatform, no DOM), the context recording each stroke's dashes and points (text measured at
+ * 6 px a character); then its legend is drawn again on its own. Its items with each one's dataset's
+ * own `borderDash`, and the 'line' swatches stroked (two points in their path), in order.
+ */
+function drawnLegend(
+	config: ReturnType<typeof pumpChartConfig>,
+	width: number,
+	height: number
+): {
+	items: {
+		text: string;
+		pointStyle: unknown;
+		lineDash: number[] | undefined;
+		hidden: boolean;
+		own: number[];
+	}[];
+	swatches: { dash: number[]; points: number }[];
+} {
+	const strokes: { dash: number[]; points: number }[] = [];
+	let dash: number[] = [];
+	let points = 0;
+	const ctx: Record<string | symbol, unknown> = new Proxy({} as Record<string | symbol, unknown>, {
+		get(target, prop) {
+			if (prop in target) return target[prop];
+			if (prop === 'measureText') return (text: string) => ({ width: String(text).length * 6 });
+			if (prop === 'setLineDash') return (d: number[]) => (dash = [...d]);
+			if (prop === 'getLineDash') return () => [...dash];
+			if (prop === 'beginPath') return () => (points = 0);
+			if (prop === 'moveTo' || prop === 'lineTo') return () => points++;
+			if (prop === 'stroke') return () => strokes.push({ dash: [...dash], points });
+			return () => undefined;
+		}
+	});
+	const canvas = { width, height, style: {}, getContext: () => ctx };
+	ctx.canvas = canvas;
+	const chart = new Chart(canvas as never, { ...config, platform: BasicPlatform } as never);
+	try {
+		const items = chart.legend!.legendItems!.map((item) => ({
+			text: item.text,
+			pointStyle: item.pointStyle,
+			lineDash: item.lineDash,
+			hidden: item.hidden,
+			own: [
+				...((chart.data.datasets[item.datasetIndex ?? -1] as { borderDash?: number[] } | undefined)
+					?.borderDash ?? [])
+			]
+		}));
+		strokes.length = 0;
+		chart.legend!.draw(chart.chartArea);
+		return { items, swatches: strokes.filter((s) => s.points === 2) };
+	} finally {
+		chart.destroy();
+	}
+}

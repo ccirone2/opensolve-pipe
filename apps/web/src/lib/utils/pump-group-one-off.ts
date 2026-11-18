@@ -50,6 +50,7 @@ import type {
 import type { CaseStatus, GroupCurveState, GroupSystemCurveState } from '../state/project.svelte';
 import { CHECK_TITLES, OUTCOME_ORDER, OUTCOME_TITLES } from './design-checks';
 import type { Calculating } from './goal-seek';
+import { componentById } from './graph';
 import { canonicalJson } from './json';
 import { CASE_STATUS_LABELS } from './labels';
 import {
@@ -214,7 +215,7 @@ export function sameInside(
 	}
 	const statuses = (project: Project) =>
 		station.memberIds.map((id) => {
-			const c = project.components.find((x) => x.id === id);
+			const c = componentById(project, id);
 			return c?.type === 'pump' ? c.status : null;
 		});
 	const a = statuses(shown);

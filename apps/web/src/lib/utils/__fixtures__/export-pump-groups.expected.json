@@ -831,7 +831,7 @@
 		{ "sheet": "About", "ref": "C68", "type": "n", "value": 0.125 },
 		{ "sheet": "About", "ref": "A69", "type": "s", "value": "Case: Base case" },
 		{ "sheet": "About", "ref": "B69", "type": "s", "value": "Calculation methods version" },
-		{ "sheet": "About", "ref": "C69", "type": "s", "value": "1.6.0" },
+		{ "sheet": "About", "ref": "C69", "type": "s", "value": "1.6.1" },
 		{ "sheet": "About", "ref": "A70", "type": "s", "value": "Case: Base case" },
 		{ "sheet": "About", "ref": "B70", "type": "s", "value": "Server library: CoolProp" },
 		{ "sheet": "About", "ref": "C70", "type": "s", "value": "8.0.0" },
@@ -979,7 +979,7 @@
 		{ "sheet": "About", "ref": "C108", "type": "n", "value": 0.125 },
 		{ "sheet": "About", "ref": "A109", "type": "s", "value": "Case: PB off (S1)" },
 		{ "sheet": "About", "ref": "B109", "type": "s", "value": "Calculation methods version" },
-		{ "sheet": "About", "ref": "C109", "type": "s", "value": "1.6.0" },
+		{ "sheet": "About", "ref": "C109", "type": "s", "value": "1.6.1" },
 		{ "sheet": "About", "ref": "A110", "type": "s", "value": "Case: PB off (S1)" },
 		{ "sheet": "About", "ref": "B110", "type": "s", "value": "Server library: CoolProp" },
 		{ "sheet": "About", "ref": "C110", "type": "s", "value": "8.0.0" },
@@ -4950,7 +4950,7 @@
 		},
 		{ "sheet": "Pump groups", "ref": "Z4", "type": "s", "value": "Included (42 points)" },
 		{ "sheet": "Pump groups", "ref": "AA4", "type": "s", "value": "Included (42 points)" },
-		{ "sheet": "Pump groups", "ref": "AB4", "type": "s", "value": "1.6.0" },
+		{ "sheet": "Pump groups", "ref": "AB4", "type": "s", "value": "1.6.1" },
 		{ "sheet": "Pump groups", "ref": "A5", "type": "s", "value": "S1" },
 		{ "sheet": "Pump groups", "ref": "B5", "type": "s", "value": "PB off" },
 		{ "sheet": "Pump groups", "ref": "C5", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -4988,7 +4988,7 @@
 			"type": "s",
 			"value": "Not computed: open the Pumps together card on this case, with these pumps ticked"
 		},
-		{ "sheet": "Pump groups", "ref": "AB5", "type": "s", "value": "1.6.0" },
+		{ "sheet": "Pump groups", "ref": "AB5", "type": "s", "value": "1.6.1" },
 		{
 			"sheet": "Pump group members",
 			"ref": "A1",
@@ -9569,7 +9569,7 @@
 			"sheet": "Methods",
 			"ref": "E7",
 			"type": "s",
-			"value": "OpenSolve Pipe calculation methods version 1.6.0"
+			"value": "OpenSolve Pipe calculation methods version 1.6.1"
 		},
 		{ "sheet": "Methods", "ref": "B8", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C8", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -10387,7 +10387,7 @@
 			"sheet": "Methods",
 			"ref": "E119",
 			"type": "s",
-			"value": "Pump group (calculation methods 1.6.0)"
+			"value": "Pump group (calculation methods 1.6.1)"
 		},
 		{ "sheet": "Methods", "ref": "B120", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C120", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -10459,7 +10459,7 @@
 			"sheet": "Methods",
 			"ref": "E127",
 			"type": "s",
-			"value": "- Method version 1.6.0: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
+			"value": "- Method version 1.6.1: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
 		},
 		{ "sheet": "Methods", "ref": "B128", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C128", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -10512,7 +10512,7 @@
 			"sheet": "Methods",
 			"ref": "E134",
 			"type": "s",
-			"value": "Pump group (calculation methods 1.6.0)"
+			"value": "Pump group (calculation methods 1.6.1)"
 		},
 		{ "sheet": "Methods", "ref": "B135", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C135", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -10584,7 +10584,7 @@
 			"sheet": "Methods",
 			"ref": "E142",
 			"type": "s",
-			"value": "- Method version 1.6.0: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
+			"value": "- Method version 1.6.1: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
 		},
 		{ "sheet": "Methods", "ref": "B143", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C143", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -10663,7 +10663,7 @@
 			"sheet": "Methods",
 			"ref": "E152",
 			"type": "s",
-			"value": "OpenSolve Pipe calculation methods version 1.6.0"
+			"value": "OpenSolve Pipe calculation methods version 1.6.1"
 		},
 		{ "sheet": "Methods", "ref": "A153", "type": "s", "value": "S1" },
 		{ "sheet": "Methods", "ref": "B153", "type": "s", "value": "PB off" },
@@ -11638,7 +11638,7 @@
 			"sheet": "Methods",
 			"ref": "E270",
 			"type": "s",
-			"value": "Pump group (calculation methods 1.6.0)"
+			"value": "Pump group (calculation methods 1.6.1)"
 		},
 		{ "sheet": "Methods", "ref": "A271", "type": "s", "value": "S1" },
 		{ "sheet": "Methods", "ref": "B271", "type": "s", "value": "PB off" },
@@ -11718,7 +11718,7 @@
 			"sheet": "Methods",
 			"ref": "E278",
 			"type": "s",
-			"value": "- Method version 1.6.0: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
+			"value": "- Method version 1.6.1: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
 		},
 		{ "sheet": "Methods", "ref": "A279", "type": "s", "value": "S1" },
 		{ "sheet": "Methods", "ref": "B279", "type": "s", "value": "PB off" },

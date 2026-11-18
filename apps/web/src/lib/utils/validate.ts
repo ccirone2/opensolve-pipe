@@ -25,7 +25,7 @@ import type {
 	ResistanceSpec,
 	UnitPreferences
 } from '../api/types';
-import { componentName, fieldLabel, fittingFallbackName, portLabel } from './labels';
+import { fieldLabel, fittingFallbackName, portLabel } from './labels';
 import {
 	capacitySchemaName,
 	componentSchemaName,
@@ -309,6 +309,107 @@ export function schemaProblems(value: unknown): string[] {
 	return schemaIssues(value).map((issue) => issue.text);
 }
 
+/** The Project schema's lists whose elements schemaValid() can take as known to be valid. */
+export const ELEMENT_LISTS = ['components', 'connections'] as const;
+
+/** Elements known to be valid in each of the lists (schemaValid). */
+export type KnownElements = Readonly<Record<(typeof ELEMENT_LISTS)[number], WeakSet<object>>>;
+
+/**
+ * Keywords of a list's schema that schemaValid() checks itself (the items aside); another one (a
+ * minItems, which the empty list of its shell would fail) turns it off.
+ */
+const LIST_KEYWORDS = new Set(['type', 'items', 'maxItems', 'title', 'description']);
+
+/**
+ * Keywords of the Project schema that see its lists only through `properties` (another one, an
+ * allOf or a dependentSchemas, could read them, and the shell's empty lists would answer it
+ * otherwise): any other turns schemaValid() off.
+ */
+const PROJECT_KEYWORDS = new Set([
+	'type',
+	'properties',
+	'required',
+	'additionalProperties',
+	'title',
+	'description'
+]);
+
+/**
+ * The Project schema split for schemaValid(): its lists' bounds and their elements' validators.
+ * Null when the Project schema or a list's schema has a keyword schemaValid() does not check: then
+ * it never answers.
+ */
+let elementChecks:
+	| { key: (typeof ELEMENT_LISTS)[number]; maxItems: number; validate: ValidateFunction }[]
+	| null
+	| undefined;
+
+function getElementChecks() {
+	if (elementChecks !== undefined) return elementChecks;
+	const project = openapi.components.schemas.Project as unknown as JsonObject;
+	if (!Object.keys(project).every((k) => PROJECT_KEYWORDS.has(k))) {
+		elementChecks = null;
+		return elementChecks;
+	}
+	const properties = project.properties as Record<string, JsonObject>;
+	const checks = ELEMENT_LISTS.map((key) => {
+		const list = properties[key];
+		if (!list || list.type !== 'array' || !Object.keys(list).every((k) => LIST_KEYWORDS.has(k))) {
+			return null;
+		}
+		return {
+			key,
+			maxItems: typeof list.maxItems === 'number' ? list.maxItems : Infinity,
+			validate: getAjv().getSchema(
+				`${SCHEMA_ID}#/components/schemas/Project/properties/${key}/items`
+			) as ValidateFunction
+		};
+	});
+	elementChecks = checks.every((c) => c !== null && c.validate)
+		? (checks as NonNullable<(typeof checks)[number]>[])
+		: null;
+	return elementChecks;
+}
+
+/** Compile what schemaValid() uses (the first edit of a project would otherwise). */
+export function prepareSchemaValid(): void {
+	getElementChecks();
+}
+
+/**
+ * Whether `value` passes the `Project` schema, as `schemaProblems(value).length === 0` says, with
+ * each component in `known.components` and connection in `known.connections` taken as valid (the
+ * store's elements of projects that passed, which are frozen and shared with later versions:
+ * utils/sharing.ts): only the others are checked, with the rest of the project. Null when it
+ * cannot tell that way (the schema has a keyword it does not check, or `value` is not an object):
+ * use schemaProblems().
+ *
+ * The answer is schemaProblems()'s: an element's validity does not depend on its place or its
+ * neighbours (each is checked by the list's `items` schema alone), and the rest of the project is
+ * checked by the whole schema with each list that is a list emptied, their bounds checked here.
+ * A value that is not a list (absent, undefined, anything else) stays in the shell for the whole
+ * schema to answer: Ajv takes an undefined value as missing.
+ */
+export function schemaValid(value: unknown, known: KnownElements): boolean | null {
+	const checks = getElementChecks();
+	if (!checks || !isRecord(value)) return null;
+	const shell: JsonObject = { ...value };
+	for (const { key } of checks) if (Array.isArray(shell[key])) shell[key] = [];
+	if (!validatorFor('Project')(shell)) return false;
+	for (const { key, maxItems, validate } of checks) {
+		const list = value[key];
+		if (!Array.isArray(list)) continue; // the shell's check passed it: absent and optional
+		if (list.length > maxItems) return false;
+		const valid = known[key];
+		for (const element of list) {
+			const isObject = typeof element === 'object' && element !== null;
+			if (!(isObject && valid.has(element)) && !validate(element)) return false;
+		}
+	}
+	return true;
+}
+
 /**
  * Problems of a project library pipe spec as a form holds it (CLAUDE.md D22): the `PipeSpec`
  * schema's (required fields, bounds, the source's length), then the model rules it breaks
@@ -530,10 +631,28 @@ function fieldList(fields: readonly string[], as: 'ids' | 'words' | 'bare' = 'wo
 		: `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
 }
 
-function pipingIssues(project: Project, connection: PipeConnection): ModelRuleIssue[] {
+/** What pipingIssues() reads of the whole project, found once for all its connections. */
+interface PipingContext {
+	specIds: ReadonlySet<string>;
+	entryIds: ReadonlySet<string>;
+	/** labels.ts componentName(): the name of the first component with the id, else the id. */
+	name: (componentId: string) => string;
+}
+
+function pipingContext(project: Project): PipingContext {
+	const names = new Map<string, string>();
+	for (const c of project.components) if (!names.has(c.id)) names.set(c.id, c.name);
+	return {
+		specIds: new Set(pipeSpecs(project).map((s) => s.id)),
+		entryIds: new Set(resistanceEntries(project).map((e) => e.id)),
+		name: (id) => names.get(id) ?? id
+	};
+}
+
+function pipingIssues(connection: PipeConnection, context: PipingContext): ModelRuleIssue[] {
 	const issues: ModelRuleIssue[] = [];
 	const where = `Connection "${connection.id}"`;
-	const named = `Piping ${componentName(project, connection.fromComponentId)} → ${componentName(project, connection.toComponentId)}`;
+	const named = `Piping ${context.name(connection.fromComponentId)} → ${context.name(connection.toComponentId)}`;
 	const at = {
 		componentId: connection.fromComponentId,
 		portId: connection.fromPortId,
@@ -547,8 +666,7 @@ function pipingIssues(project: Project, connection: PipeConnection): ModelRuleIs
 			...at,
 			...(pipeIndex === undefined ? {} : { pipeIndex })
 		});
-	const specIds = new Set(pipeSpecs(project).map((s) => s.id));
-	const entryIds = new Set(resistanceEntries(project).map((e) => e.id));
+	const { specIds, entryIds } = context;
 	const { pipes, fittings } = connection.piping;
 	pipes.forEach((pipe, i) => {
 		// A reference to a project library spec (x-reference-fields): only the length beside it.
@@ -728,7 +846,10 @@ export function modelRuleIssues(
 			});
 		}
 	}
-	for (const connection of project.connections) issues.push(...pipingIssues(project, connection));
+	const piping = pipingContext(project);
+	for (const connection of project.connections) {
+		issues.push(...pipingIssues(connection, piping));
+	}
 	for (const id of duplicates(project.pumpLibrary.map((c) => c.id))) {
 		const text = `Pump curve id "${id}" is used more than once.`;
 		issues.push({ text, message: text });

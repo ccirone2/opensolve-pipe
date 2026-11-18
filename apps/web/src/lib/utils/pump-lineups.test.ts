@@ -131,6 +131,13 @@ function edited(project: Project, id: string, change: (c: Component) => Componen
 		components: project.components.map((c) => (c.id === id ? change(c) : c))
 	};
 }
+/** The project with an unconnected port `portId` added to tank A1: a frame key not seen before
+ * (the finder reads every component's ports), the same frame. */
+const unseen = (project: Project, portId: string) =>
+	edited(project, 'A1', (c) => ({
+		...c,
+		ports: [...c.ports, { id: portId, nominalSize: 0.1016, direction: 'bidirectional' }]
+	}));
 const renamedPump = (project: Project, id: string, name: string) =>
 	edited(project, id, (c) => ({ ...c, name }));
 const baseStatus = (project: Project, id: string, value: 'on' | 'off') =>
@@ -290,9 +297,9 @@ describe('lineupGroups', () => {
 	});
 
 	it('is memoised on what the finder reads: connections alone find the frame again, a rename does not', () => {
-		// A project not seen before (its own elevation).
+		// A project not seen before (an extra port of its own on A1: the finder reads ports).
 		const before = withCases(
-			edited(station(3), 'A1', (c) => ({ ...c, elevation: 31.4159 })),
+			unseen(station(3), 'port_31'),
 			scenario(off('P3'), '2 of 3 running (Pump P3 off)')
 		);
 		// P3's discharge pipe removed: P3 leaves the station, and only the connections changed.
@@ -310,11 +317,9 @@ describe('lineupGroups', () => {
 	});
 
 	it('is memoised: the finder runs once across a press', () => {
-		// A project not seen before (its own elevation), so nothing is remembered yet.
-		const before = withCases(
-			edited(station(3), 'A1', (c) => ({ ...c, elevation: 12.345 })),
-			scenario([], 'Scenario 1')
-		);
+		// A project not seen before (an extra port of its own on A1: the finder reads ports), so
+		// nothing is remembered yet.
+		const before = withCases(unseen(station(3), 'port_12'), scenario([], 'Scenario 1'));
 		const after = pressed(before, 'S1', off('P3'));
 		const finder = vi.mocked(suggestGroups);
 		finder.mockClear();
@@ -323,6 +328,38 @@ describe('lineupGroups', () => {
 		lineupName(after, scenario(off('P2')));
 		lineupGroups(before);
 		expect(finder).toHaveBeenCalledTimes(1);
+	});
+
+	it('is memoised on what the finder reads alone: a value edit never runs it again', () => {
+		// Review of 1.6.1 (ST-RECORDS-4): the key held every value but the components' names, so on
+		// a project with a name the app made (a 4d name, or a default "Scenario n") every pipe
+		// length, elevation or level edit ran the finder again inside the store's update.
+		for (const [name, changes] of [
+			['Pump P1 off', off('P1')],
+			['Scenario 1', []]
+		] as const) {
+			const before = withCases(station(3), scenario([...changes], name));
+			expect(frameKey(lineupGroups(before))).toBe('parallel:P1,P2,P3');
+			const finder = vi.mocked(suggestGroups);
+			finder.mockClear();
+			const longer: Project = {
+				...before,
+				connections: before.connections.map((c) =>
+					c.id === 'SP1'
+						? {
+								...c,
+								piping: { ...c.piping, pipes: c.piping.pipes.map((p) => ({ ...p, length: 25 })) }
+							}
+						: c
+				)
+			};
+			const higher = edited(before, 'P2', (c) => ({ ...c, elevation: 3 }));
+			const fuller = edited(before, 'A1', (c) => ({ ...c, liquidLevel: 4 }) as Component);
+			for (const after of [longer, higher, fuller]) {
+				expect(followLineupNames(before, after)).toEqual({ project: after, renamed: [] });
+			}
+			expect(finder).not.toHaveBeenCalled();
+		}
 	});
 });
 

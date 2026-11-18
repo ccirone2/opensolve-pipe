@@ -117,7 +117,7 @@ function componentOrder(project: Project): Map<string, number> {
 }
 
 function isPump(project: Project, id: string): boolean {
-	return project.components.some((c) => c.id === id && c.type === 'pump');
+	return componentById(project, id)?.type === 'pump';
 }
 
 /** The pumps among `ids`, each once, in component order. */
@@ -130,7 +130,7 @@ function pumpsInOrder(project: Project, ids: readonly string[]): string[] {
 
 /** A pump's status in the base ('on' unless it is off). */
 function baseStatus(project: Project, id: string): PumpStatus {
-	const pump = project.components.find((c) => c.id === id);
+	const pump = componentById(project, id);
 	return pump?.type === 'pump' && pump.status === 'off' ? 'off' : 'on';
 }
 
@@ -239,13 +239,24 @@ const FRAMES_KEPT = 8;
 const framesByProject = new WeakMap<Project, readonly LineupGroup[]>();
 
 /**
- * What the finder reads: the components without their names, and the connections. Names only
- * label a group, and a scenario never changes these (D15), so every case has the base's frame.
+ * What the finder reads (pump-groups.ts suggestGroups), and nothing else: each component's id,
+ * type, valve type, status and port ids, in component order, and each connection's two ends, in
+ * order. A value edit (a pipe's length, an elevation, a level, a setpoint) or a rename leaves it,
+ * so it never runs the finder again (review of 1.6.1, ST-RECORDS-4: the key was every value but
+ * the names, which ran the finder on every such edit of a project with a name the app made).
+ * Names only label a group, and a scenario never changes these (D15), so every case has the
+ * base's frame.
  */
 function finderInputs(project: Project): string {
 	return JSON.stringify([
-		project.components.map((c) => ({ ...c, name: undefined })),
-		project.connections
+		project.components.map((c) => [
+			c.id,
+			c.type,
+			'valveType' in c ? c.valveType : null,
+			'status' in c ? c.status : null,
+			c.ports.map((p) => p.id)
+		]),
+		project.connections.map((c) => [c.fromComponentId, c.fromPortId, c.toComponentId, c.toPortId])
 	]);
 }
 
@@ -292,8 +303,9 @@ function findFrame(project: Project): LineupGroup[] {
  * inside it) goes last, in one 'other' group. The finder reads values too (an active PRV or PSV
  * ends a station), so a base edit of a valve's status can change the frame.
  *
- * Memoised on what the finder reads (the components without their names, and the connections, a
- * part of the base's hydraulic fingerprint), so a scenario edit or a rename never runs it again.
+ * Memoised on what the finder reads (`finderInputs`: the components' ids, types, valve types,
+ * statuses and ports, and the connections' ends), so a scenario edit, a rename or a value edit
+ * never runs it again.
  */
 export function lineupGroups(project: Project): readonly LineupGroup[] {
 	const known = framesByProject.get(project);
@@ -596,7 +608,7 @@ function appMade(project: Project, scenario: Scenario): AppMade | null {
 	const only = statuses.length === 1 ? statuses[0]! : null;
 	const lineup = lineupName(project, scenario);
 	if (only?.value === 'off') {
-		const name = project.components.find((c) => c.id === only.id)?.name ?? only.id;
+		const name = componentById(project, only.id)?.name ?? only.id;
 		const pure = pureLineupName(project, scenario);
 		for (const withId of [false, true]) {
 			const form = offName(name, withId ? only.id : undefined);
@@ -647,7 +659,7 @@ function followedName(
 	const ownAfter = (id: string) =>
 		lineupGroups(after).some((g) => g.kind !== 'parallel' && g.pumpIds.includes(id));
 	if (made.form === 'off' && only && only.id === made.pump && only.value === 'off') {
-		const name = after.components.find((c) => c.id === only.id)?.name ?? only.id;
+		const name = componentById(after, only.id)?.name ?? only.id;
 		const form = offName(name, made.withId ? only.id : undefined);
 		const alsoLineup =
 			(made.alsoLineup && ownAfter(only.id)) || form === pureLineupName(after, now);
@@ -696,7 +708,7 @@ export function followLineupNames(
 				!sameSet(effectiveChanges(before, old), effectiveChanges(after, now))
 			);
 		}) ||
-		frameKey(lineupGroups(before)) !== frameKey(lineupGroups(after));
+		frameChanged(before, after);
 	if (!touched) return unchanged;
 	const renamed: Rename[] = [];
 	const scenarios = scenariosOf(after).map((s) => {
@@ -709,6 +721,15 @@ export function followLineupNames(
 		return { ...s, name };
 	});
 	return renamed.length ? { project: withScenarios(after, scenarios), renamed } : unchanged;
+}
+
+/** Whether an edit changed the frame: never when it kept the stored components and connections
+ * (the store's update shares what an edit left as it was), else by the frames' keys. */
+function frameChanged(before: Project, after: Project): boolean {
+	if (after.components === before.components && after.connections === before.connections) {
+		return false;
+	}
+	return frameKey(lineupGroups(before)) !== frameKey(lineupGroups(after));
 }
 
 /**

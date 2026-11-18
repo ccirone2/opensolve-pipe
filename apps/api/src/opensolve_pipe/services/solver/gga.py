@@ -109,8 +109,24 @@ from scipy.sparse.csgraph import connected_components
 from scipy.sparse.linalg import splu
 
 from .budget import check_budget
-from .elements import HeadOffsetArrays, HeadOffsetLaw
-from .network import HEAD_FIXING_MODES, LinkKind, LinkMode, LinkState, SolverNetwork, law_of
+from .elements import (
+    HeadOffsetArrays,
+    HeadOffsetLaw,
+    PipeConnectionLaw,
+    QuadraticLossLaw,
+    ValveLaw,
+)
+from .network import (
+    HEAD_FIXING_MODES,
+    LinkKind,
+    LinkLaw,
+    LinkMode,
+    LinkState,
+    SolverLink,
+    SolverNetwork,
+    law_of,
+)
+from .orifice import OrificeLaw
 
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
@@ -177,6 +193,127 @@ the iteration diverges; this solver keeps the statuses fixed during an inner sol
 outer loop applies the rules to this early iterate instead (``status._open_bad_valves``)."""
 
 
+DIVERGED = "the iteration diverged (non-finite head loss)"
+"""The start of the message of an inner solve stopped because a value of its iterate was not a
+finite number; ``diverged_message`` adds the laws that gave one."""
+
+
+@dataclass(frozen=True)
+class NonFiniteLaw:
+    """A link whose own law gave a value that is not a finite number at the iterate where the
+    iteration diverged (``diverged_message``; CLAUDE.md D7: the NOT_CONVERGED flag names where
+    the solve failed). A Newton link's law: its head loss h, its slope dh/dQ, or both, or its
+    computation raised (``evaluate_each``); a head offset (a branch leg): its offset; an active
+    PRV's or PSV's held head (its setpoint head with the port's velocity head,
+    ``LinkState.head``)."""
+
+    link: int
+    """The link's index in the network."""
+    element_id: str
+    """The connection or component the link belongs to (the id results, traces and flags use)."""
+    flow: float
+    """m³/s: the link's flow in that iterate; for a head offset or a held head, the flow of the
+    link its value depends on (``HeadOffsetLaw.reference``, ``LinkState.reference_link``)."""
+    value: str
+    """What was not a finite number: 'head loss', 'slope dh/dQ', 'head loss and slope dh/dQ',
+    'head offset' or 'held head'; for a law that raised (``evaluate_each``), 'head loss and
+    slope dh/dQ, whose computation raised <exception name>,'."""
+    coefficient: float | None = None
+    """s²/m⁵: the law's loss coefficient c at that flow (h = c Q|Q|; ``law_coefficient``), where
+    its law has one and it is a finite number; None otherwise."""
+    coefficient_name: str = ""
+    """What ``coefficient`` is, in words ('loss coefficient K/(2 g A²)', ...)."""
+
+
+def law_coefficient(law: LinkLaw, flow: float) -> tuple[str, float] | None:
+    """The loss coefficient c of a law at ``flow``, h = c Q|Q| (+ a constant), and its name, for
+    a divergence message: a valve's K/(2 g A²), an equipment item's c, an orifice plate's
+    K/(2 g A²) at that flow, and a pipe connection's fittings' Σ n K/(2 g A²) for the flow's
+    direction where the fittings' term of its law is not a finite number there (a pipe's
+    friction has no single coefficient). None for other laws, or where it is not a finite
+    number."""
+    found: tuple[str, float] | None = None
+    if isinstance(law, ValveLaw):
+        found = ("loss coefficient K/(2 g A²)", law.coefficient)
+    elif isinstance(law, QuadraticLossLaw):
+        found = ("loss coefficient c", law.coefficient)
+    elif isinstance(law, OrificeLaw):
+        try:
+            found = ("loss coefficient K/(2 g A²)", law.loss_coefficient(flow))
+        except (ArithmeticError, ValueError):  # fluids' C at a runaway flow
+            found = None
+    elif isinstance(law, PipeConnectionLaw):
+        minor = law.minor_coefficient(flow)
+        q_abs = abs(flow)
+        terms = (minor * flow * q_abs, 2.0 * minor * q_abs)  # its fitting term, as evaluate's
+        if minor > 0.0 and not all(math.isfinite(t) for t in terms):
+            found = ("fittings' loss coefficient Σ n K/(2 g A²)", minor)
+    if found is None or not math.isfinite(found[1]):
+        return None
+    return found
+
+
+def _element_id(link: SolverLink) -> str:
+    return link.connection_id or link.component_id or link.key
+
+
+def nonfinite_law(link: SolverLink, law: LinkLaw | None, flow: float, value: str) -> NonFiniteLaw:
+    """A ``NonFiniteLaw`` for ``link``, with its law's coefficient where it has one."""
+    named = law_coefficient(law, flow) if law is not None else None
+    return NonFiniteLaw(
+        link=link.index,
+        element_id=_element_id(link),
+        flow=flow,
+        value=value,
+        coefficient=named[1] if named else None,
+        coefficient_name=named[0] if named else "",
+    )
+
+
+def diverged_message(found: Sequence[NonFiniteLaw]) -> str:
+    """``DIVERGED``, then each law that gave a value that is not a finite number, with the flow
+    and its coefficient: "...: not a finite number in the law of 'V1' (slope dh/dQ at a flow
+    of 0.00239 m³/s; loss coefficient K/(2 g A²) = 1.69351e+308 s²/m⁵)". Ids are quoted, as
+    every element a message names (the web app gives each its name and links it). With none
+    found (a head that overflowed by itself), ``DIVERGED`` alone."""
+    if not found:
+        return DIVERGED
+    terms = []
+    for item in found:
+        coefficient = (
+            f"; {item.coefficient_name} = {item.coefficient:.6g} s²/m⁵"
+            if item.coefficient is not None
+            else ""
+        )
+        terms.append(
+            f"'{item.element_id}' ({item.value} at a flow of {item.flow:.3g} m³/s{coefficient})"
+        )
+    listed = terms[0] if len(terms) == 1 else ", ".join(terms[:-1]) + " and " + terms[-1]
+    laws = "law" if len(terms) == 1 else "laws"
+    return f"{DIVERGED}: not a finite number in the {laws} of {listed}"
+
+
+def evaluate_each(
+    laws: Sequence[LinkLaw], flows: FloatArray
+) -> tuple[list[tuple[float, float]], dict[int, str]]:
+    """Each law's (h, dh/dQ) at its flow, as the iteration evaluates them, where one of them
+    raised ArithmeticError or ValueError: a correlation evaluated outside the arithmetic it
+    can do at an extreme iterate (fluids' Clamond near Re 1e308, its ISO 5167-2 C at an
+    infinite Re), at a fluid or a size at the schema's bounds. That law's values are NaN, so
+    the iteration stops as diverged and names it (``NonFiniteLaw``), with the exception's name
+    (its text is not quoted); an internal error (500) before 2026-11-03. Positions are the
+    laws' (the Newton links'); a law that did not raise keeps its own values."""
+    evaluated: list[tuple[float, float]] = []
+    failed: dict[int, str] = {}
+    for pos, (law, flow) in enumerate(zip(laws, flows, strict=True)):
+        try:
+            evaluated.append(law.evaluate(float(flow)))
+        except (ArithmeticError, ValueError) as exc:
+            evaluated.append((math.nan, math.nan))
+            failed[pos] = type(exc).__name__
+    return evaluated, failed
+
+
 @dataclass
 class GgaResult:
     heads: FloatArray
@@ -227,6 +364,11 @@ class GgaResult:
     """The link of the largest energy residual, of the iterate the result reports, that
     exceeds its stop tolerance (``energy_tolerances``; counted as for
     ``continuity_exceeded_node``); None when every one is within it."""
+
+    nonfinite_laws: list[NonFiniteLaw] = field(default_factory=list)
+    """Where the iteration diverged (``DIVERGED``): every link whose own law gave a value that
+    is not a finite number at the iterate the result reports, in link order, each element once
+    (``diverged_message`` names them); [] otherwise, and where only a head overflowed."""
 
     check_heads: FloatArray | None = None
     """EGL per node at the last finite iterate within CHECK_ITERATIONS (None if none)."""
@@ -949,6 +1091,46 @@ def _solve_gga(
     continuity_tol = CONTINUITY_ATOL
     check_heads: FloatArray | None = None
     check_flows: FloatArray | None = None
+    nonfinite: list[NonFiniteLaw] = []
+
+    def nonfinite_laws(
+        h: FloatArray,
+        d: FloatArray,
+        q_all: FloatArray,
+        link_offsets: FloatArray,
+        failed: dict[int, str],
+    ) -> list[NonFiniteLaw]:
+        """The links whose own law is not a finite number in this iterate (``NonFiniteLaw``),
+        in link order, each element once (a branch's legs are one component); ``failed``: the
+        Newton positions whose law raised (``evaluate_each``)."""
+        found: dict[int, NonFiniteLaw] = {}
+        for pos, k in enumerate(newton.tolist()):
+            bad_h, bad_d = not math.isfinite(h[pos]), not math.isfinite(d[pos])
+            if bad_h or bad_d:
+                value = (
+                    f"head loss and slope dh/dQ, whose computation raised {failed[pos]},"
+                    if pos in failed
+                    else "head loss and slope dh/dQ"
+                    if bad_h and bad_d
+                    else "head loss"
+                    if bad_h
+                    else "slope dh/dQ"
+                )
+                found[k] = nonfinite_law(links[k], laws[pos], float(q_all[k]), value)
+        for law, k in zip(offset_laws, offset_links.tolist(), strict=True):
+            if not math.isfinite(link_offsets[k]):
+                q_ref = float(q_all[law.reference if law.reference >= 0 else k])
+                found[k] = nonfinite_law(links[k], None, q_ref, "head offset")
+        for k in live_head_fixing:
+            if not math.isfinite(states[k].head(q_all)):
+                r = states[k].reference_link
+                found[k] = nonfinite_law(
+                    links[k], None, float(q_all[r if r >= 0 else k]), "held head"
+                )
+        named: dict[str, NonFiniteLaw] = {}
+        for k in sorted(found):
+            named.setdefault(found[k].element_id, found[k])
+        return list(named.values())
 
     for it in range(max_iterations + 1):
         check_budget()  # a request's deadline or cancellation (budget.py)
@@ -959,7 +1141,11 @@ def _solve_gga(
         q_prev = q_all
         link_offsets, known = known_heads(q_all)
         h0 = known[e] - known[s]
-        evaluated = [law.evaluate(float(qk)) for law, qk in zip(laws, q, strict=True)]
+        failed: dict[int, str] = {}
+        try:
+            evaluated = [law.evaluate(float(qk)) for law, qk in zip(laws, q, strict=True)]
+        except (ArithmeticError, ValueError):
+            evaluated, failed = evaluate_each(laws, q)
         h = np.fromiter((v[0] for v in evaluated), dtype=np.float64, count=nl)
         d = np.fromiter((v[1] for v in evaluated), dtype=np.float64, count=nl)
         energy = h + a12 @ h_free + h0
@@ -983,7 +1169,10 @@ def _solve_gga(
         q_scale = float(np.max(np.abs(q_all)))  # the current iterate's flows (see above)
         continuity_tol = CONTINUITY_RTOL * q_scale + CONTINUITY_ATOL
         if not (np.all(np.isfinite(energy_all)) and np.all(np.isfinite(d))):
-            message = "the iteration diverged (non-finite head loss)"
+            # Name the laws that gave the values that are not finite numbers (CLAUDE.md D7: the
+            # flag names where the solve failed; the largest residual can lie elsewhere).
+            nonfinite = nonfinite_laws(h, d, q_all, link_offsets, failed)
+            message = diverged_message(nonfinite)
             break
         if 0 < it <= CHECK_ITERATIONS and np.all(np.isfinite(h_all[reaches_head])):
             check_heads, check_flows = h_all.copy(), q_all.copy()
@@ -1065,6 +1254,7 @@ def _solve_gga(
         disconnected_sections=disconnected_sections,
         continuity_exceeded_node=int(free_nodes[jc]) if jc is not None else None,
         energy_exceeded_link=int(solve_links[je]) if je is not None else None,
+        nonfinite_laws=nonfinite,
         check_heads=check_heads,
         check_flows=check_flows,
     )

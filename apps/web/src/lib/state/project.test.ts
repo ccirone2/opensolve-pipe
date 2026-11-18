@@ -4,8 +4,9 @@ import type { Project, Pump, SolveResponse, SystemCurveResponse } from '../api/t
 import { referentialIssues } from '../testing/helpers';
 import { systemCurvePoint } from '../testing/results';
 import { addBranch, deleteComponent, insertComponentInConnection } from '../utils/edit';
-import { decodeProject, encodeProject, fragmentOf } from '../utils/encoding';
-import { EXAMPLES } from '../utils/examples';
+import { decodeProject, ENCODE_STEP_CHARS, encodeProject, fragmentOf } from '../utils/encoding';
+import { condenserWaterExample, EXAMPLES } from '../utils/examples';
+import { canonicalJson, canonicalJsonByReplacer } from '../utils/json';
 import { createComponent } from '../utils/factory';
 import { schemaProblems } from '../utils/validate';
 import { IMPERIAL_UNITS } from '../utils/units';
@@ -13,8 +14,10 @@ import {
 	hydraulicFingerprint,
 	MAX_HISTORY,
 	ProjectStore,
+	structuralProblems,
 	type ProjectStoreOptions,
-	type Solver
+	type Solver,
+	URL_SYNC_DELAY_MS
 } from './project.svelte';
 
 const T0 = '2026-03-01T00:00:00.000Z';
@@ -387,6 +390,130 @@ describe('URL sync', () => {
 	});
 });
 
+describe('URL sync in steps (a large project)', () => {
+	/** A project whose JSON takes several steps, with names that are not ASCII. */
+	function large(): Project {
+		const project = condenserWaterExample();
+		project.components.forEach((c, i) => (c.name = `${c.name} 😀 ${'é'.repeat(i % 7)}`));
+		project.metadata.description = 'é😀'.repeat(2500);
+		return project;
+	}
+
+	/** Run the URL write's tasks one by one; returns how many ran before the write. */
+	function runSteps(writes: string[]): number {
+		let tasks = 0;
+		while (!writes.length && vi.getTimerCount() > 0) {
+			vi.advanceTimersToNextTimer();
+			tasks++;
+		}
+		return tasks;
+	}
+
+	it('writes exactly encodeProject’s link, over several tasks after the pause', () => {
+		const { store, writes } = setup({ urlWriteSliceMs: 0 }, large());
+		expect(canonicalJson(store.project).length).toBeGreaterThan(ENCODE_STEP_CHARS);
+		store.update(rename('one'), 'One');
+		vi.advanceTimersByTime(URL_SYNC_DELAY_MS - 1);
+		expect(writes).toEqual([]);
+		const tasks = runSteps(writes);
+		expect(tasks).toBeGreaterThan(3);
+		expect(writes).toEqual([`/p#${encodeProject(store.project)}`]);
+		expect(store.encoded).toBe(encodeProject(store.project));
+		expect(store.syncPending).toBe(false);
+		expect(decodeProject(store.encoded)).toEqual(store.project);
+	});
+
+	it('is pending until the link is written; flush() writes it at once', () => {
+		const { store, writes } = setup({ urlWriteSliceMs: 0 }, large());
+		store.update(rename('one'), 'One');
+		vi.advanceTimersByTime(URL_SYNC_DELAY_MS);
+		vi.advanceTimersToNextTimer();
+		expect(writes).toEqual([]);
+		expect(store.syncPending).toBe(true);
+		store.flush();
+		expect(writes).toEqual([`/p#${encodeProject(store.project)}`]);
+		expect(store.syncPending).toBe(false);
+		vi.runAllTimers();
+		expect(writes).toHaveLength(1);
+	});
+
+	it('starts again after a change made while it runs, and stops when disposed', () => {
+		const { store, writes } = setup({ urlWriteSliceMs: 0 }, large());
+		store.update(rename('one'), 'One');
+		vi.advanceTimersByTime(URL_SYNC_DELAY_MS);
+		vi.advanceTimersToNextTimer();
+		store.update(rename('two'), 'Two');
+		vi.runAllTimers();
+		expect(writes).toEqual([`/p#${encodeProject(store.project)}`]);
+		expect(decodeProject(fragmentOf(writes[0]!)).metadata.name).toBe('two');
+		store.update(rename('three'), 'Three');
+		vi.advanceTimersByTime(URL_SYNC_DELAY_MS);
+		store.dispose();
+		vi.runAllTimers();
+		expect(writes).toHaveLength(1);
+	});
+
+	it('writes a small project in the task that ends the pause, as before', () => {
+		const { store, writes } = setup({ urlWriteSliceMs: 0 });
+		expect(canonicalJson(store.project).length).toBeLessThan(ENCODE_STEP_CHARS);
+		store.update(rename('one'), 'One');
+		vi.advanceTimersByTime(URL_SYNC_DELAY_MS);
+		// Its steps (the JSON, one part, the text) take the pause's task and the few after it.
+		expect(runSteps(writes)).toBeLessThanOrEqual(3);
+		expect(writes).toEqual([`/p#${encodeProject(store.project)}`]);
+	});
+});
+
+describe('versions share what an edit did not change', () => {
+	it('keeps the stored components and connections an edit left as they were', () => {
+		const { store } = setup({}, condenserWaterExample());
+		const before = store.project;
+		store.update((p) => {
+			p.components[2]!.name = 'Renamed';
+		}, 'Rename');
+		const after = store.project;
+		after.components.forEach((c, i) =>
+			i === 2 ? expect(c).not.toBe(before.components[i]) : expect(c).toBe(before.components[i])
+		);
+		expect(after.connections).toBe(before.connections);
+		expect(after.settings).toBe(before.settings);
+		expect(Object.isFrozen(after.components[2])).toBe(true);
+		// The stored text is the one canonicalJson's definition gives.
+		expect(canonicalJson(after)).toBe(canonicalJsonByReplacer(after));
+		expect(store.undo()).toBe(true);
+		expect(store.project).toBe(before);
+	});
+
+	it('refuses an edit that breaks an element with the problems of the whole check', () => {
+		const { store } = setup({}, condenserWaterExample());
+		let attempted: Project | null = null;
+		const result = store.update((p) => {
+			(p.components[3] as unknown as Record<string, unknown>).elevation = 'high';
+			(p.connections[1]!.piping.pipes[0] as unknown as Record<string, unknown>).length = -1;
+			attempted = p;
+		}, 'Break');
+		expect(result.ok).toBe(false);
+		const next = { ...attempted!, metadata: { ...attempted!.metadata } };
+		next.metadata.modified = store.project.metadata.modified;
+		expect(result).toEqual({ ok: false, problems: structuralProblems(next) });
+		expect(structuralProblems(next).length).toBeGreaterThan(0);
+	});
+
+	it('answers an unchanged edit as changing nothing, and a NaN as before', () => {
+		const { store } = setup({}, condenserWaterExample());
+		expect(store.update((p) => void (p.components[0]!.name += ''), 'Same')).toEqual({
+			ok: true,
+			changed: false
+		});
+		expect(
+			store.update((p) => void (p.connections[0]!.piping.pipes[0]!.length = Number.NaN), 'NaN')
+		).toEqual({
+			ok: false,
+			problems: ['Cannot encode the non-finite number NaN (field "length")']
+		});
+	});
+});
+
 describe('results', () => {
 	it('stores a solve response and records the method version without an undo step', async () => {
 		const solver: Solver = { solve: vi.fn(async () => solveResponse('2.1.0')) };
@@ -579,6 +706,37 @@ describe('results', () => {
 		const fluid = structuredClone(project);
 		fluid.fluid = { ...fluid.fluid, temperature: 300 } as Project['fluid'];
 		expect(hydraulicFingerprint(fluid)).not.toBe(base);
+	});
+
+	it('fingerprints as canonical JSON of the project without its names and display units', () => {
+		/** hydraulicFingerprint's definition, written out. */
+		const reference = (project: Project) => {
+			const settings: Partial<Project['settings']> = { ...project.settings };
+			delete settings.units;
+			return canonicalJsonByReplacer({
+				schemaVersion: project.schemaVersion,
+				settings,
+				fluid: project.fluid,
+				components: project.components.map((component) => {
+					const unnamed: Partial<Project['components'][number]> = { ...component };
+					delete unnamed.name;
+					return unnamed;
+				}),
+				connections: project.connections,
+				pumpLibrary: project.pumpLibrary,
+				pipeLibrary: project.pipeLibrary,
+				resistanceLibrary: project.resistanceLibrary
+			});
+		};
+		for (const example of EXAMPLES) {
+			const { store } = setup({}, example.create());
+			expect(hydraulicFingerprint(store.project)).toBe(reference(store.project));
+			store.update(rename('x'), 'Rename');
+			store.update(lengthen(1), 'Lengthen');
+			expect(hydraulicFingerprint(store.project)).toBe(reference(store.project));
+			const loose = structuredClone(store.project);
+			expect(hydraulicFingerprint(loose)).toBe(reference(loose));
+		}
 	});
 
 	it("changes the fingerprint when a pump's speed control changes", () => {

@@ -9,7 +9,7 @@
  * never logged. Shared links live forever: decoding must keep working for every released
  * schema version (see migrations.ts and the fixtures in __fixtures__/).
  */
-import { gzip, ungzip } from 'pako';
+import { Deflate, gzip, ungzip } from 'pako';
 import type { Project } from '../api/types';
 import { canonicalJson } from './json';
 import { CORRUPT_LINK_MESSAGE, INVALID_PROJECT_MESSAGE, LinkError } from './link-error';
@@ -45,6 +45,43 @@ export function fromBase64Url(text: string): Uint8Array {
 /** The URL-fragment encoding of a project (no leading '#'). */
 export function encodeProject(project: Project): string {
 	return toBase64Url(gzip(new TextEncoder().encode(canonicalJson(project)), { level: 9 }));
+}
+
+/** Characters of a project's JSON that each step of encodeProjectSteps() encodes and compresses. */
+export const ENCODE_STEP_CHARS = 32 * 1024;
+
+/**
+ * encodeProject(project) in steps, so a large project's link is written without holding the page
+ * (the store writes it in tasks of a few milliseconds each): the first next() writes the project's
+ * canonical JSON, each next one UTF-8-encodes and compresses ENCODE_STEP_CHARS of it, and the last
+ * one returns the encoding (base64url). The text is exactly encodeProject's: the parts' UTF-8 bytes
+ * are the whole text's (a part never ends inside a surrogate pair), and zlib's deflate (pako) gives
+ * the same bytes however its input is split, with no flush between the parts (encoding.test.ts
+ * compares them).
+ */
+export function* encodeProjectSteps(project: Project): Generator<void, string, void> {
+	const json = canonicalJson(project);
+	yield;
+	const encoder = new TextEncoder();
+	const deflate = new Deflate({ level: 9, gzip: true });
+	let at = 0;
+	for (;;) {
+		let end = Math.min(json.length, at + ENCODE_STEP_CHARS);
+		// Not between the two halves of a surrogate pair: each half alone would be written as U+FFFD.
+		if (end < json.length && end - 1 > at && isHighSurrogate(json.charCodeAt(end - 1))) end--;
+		const last = end === json.length;
+		deflate.push(encoder.encode(json.slice(at, end)), last);
+		if (deflate.err) throw new Error(deflate.msg);
+		if (last) break;
+		at = end;
+		yield;
+	}
+	yield;
+	return toBase64Url(deflate.result);
+}
+
+function isHighSurrogate(code: number): boolean {
+	return code >= 0xd800 && code <= 0xdbff;
 }
 
 /** The text after the first '#' of a link, or the whole text when it has none. */

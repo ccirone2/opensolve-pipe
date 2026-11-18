@@ -28,11 +28,17 @@
  * and a viscous liquid (CORRELATION_OUT_OF_RANGE, `details.limit`), and flashing at its outlet
  * (BELOW_VAPOR_PRESSURE, `details.backAbsolutePressure`); each falls back to the API's message
  * without its details.
+ *
+ * A solve that did not converge (NOT_CONVERGED) keeps the API's words, with names for ids and
+ * display units. Where the iteration diverged, they name each element whose law gave a value that
+ * is not a finite number, a component or a pipe connection (by its piping, "Tank → Pump"), with
+ * the flow and the law's loss coefficient c (s²/m⁵, SI: it has no display unit); the convergence
+ * report links them (namedElements, nonFiniteLawIds; CLAUDE.md D7).
  */
 import type { Flag, Project, UnitPreferences } from '../api/types';
 import { componentById, connectionById } from './graph';
 import { fittingFallbackName, portLabel } from './labels';
-import { connectionName, Formatter, pipeLabel, siText } from './results';
+import { connectionName, Formatter, pipeLabel, siText, type ElementRef } from './results';
 import { digitsApart, formatValue, type LabelOptions, type UnitCategory } from './units';
 
 export interface FlagTextContext {
@@ -65,12 +71,20 @@ function nameOf(project: Project, id: string): string | null {
 }
 
 /**
+ * An id as the API quotes it in a message: a component's or connection's (Identifier: letters,
+ * digits, '_' or '-'), or a node's or port's key ('PU1:suction', 'T1:#center'). Only these: an
+ * apostrophe in the text ("fittings' loss coefficient", "ISO 5167-2's") then never pairs with the
+ * quote that opens the next id.
+ */
+const QUOTED_ID = /'([\w-]+(?::[\w#-]+)?)'/g;
+
+/**
  * Text from the API, readable in the project: ids in quotes become names, and SI quantities are
  * shown in display units (a pressure keeps the gauge or absolute wording of the text; no marker
  * is added). Used for flags (messageText) and the convergence report's message.
  */
 export function readableText(text: string, project: Project, prefs: UnitPreferences): string {
-	const named = text.replace(/'([^']+)'/g, (whole, id: string) => {
+	const named = text.replace(QUOTED_ID, (whole, id: string) => {
 		const name = nameOf(project, id);
 		return name ? `“${name}”` : whole;
 	});
@@ -78,18 +92,42 @@ export function readableText(text: string, project: Project, prefs: UnitPreferen
 }
 
 /**
- * The components that text from the API names (ids in quotes; a port's key names its
- * component), in the order named, each once, leaving out ids the project does not have.
+ * The elements that text from the API names (ids in quotes): its components (a port's key names
+ * its component) and its pipe connections (a divergence names the connection whose law gave a
+ * value that is not a finite number, CLAUDE.md D7), in the order named, each once, leaving out
+ * ids the project does not have. A component comes first where an id names both, as in
+ * readableText (a project with such an id is not solved: DUPLICATE_ID).
  */
-export function namedComponents(text: string, project: Project): string[] {
-	const ids: string[] = [];
-	for (const [, id = ''] of text.matchAll(/'([^']+)'/g)) {
+export function namedElements(text: string, project: Project): ElementRef[] {
+	const found: ElementRef[] = [];
+	const add = (element: ElementRef) => {
+		if (!found.some((e) => e.kind === element.kind && e.id === element.id)) found.push(element);
+	};
+	for (const [, id = ''] of text.matchAll(QUOTED_ID)) {
 		const componentId = componentById(project, id) ? id : id.split(':')[0];
-		if (componentId && componentById(project, componentId) && !ids.includes(componentId)) {
-			ids.push(componentId);
+		if (componentId && componentById(project, componentId)) {
+			add({ kind: 'component', id: componentId });
+		} else if (connectionById(project, id)) {
+			add({ kind: 'connection', id });
 		}
 	}
-	return ids;
+	return found;
+}
+
+/**
+ * The elements whose laws gave a value that is not a finite number where the iteration diverged,
+ * in link order, as a NOT_CONVERGED flag's details list them (`nonFiniteLawAt`: component and
+ * connection ids, comma-joined; apps/api solver/results.py, gga.NonFiniteLaw), each once; none
+ * for another flag or without that detail.
+ */
+export function nonFiniteLawIds(flag: Flag | undefined): string[] {
+	const listed = flag?.code === 'NOT_CONVERGED' ? flag.details.nonFiniteLawAt : undefined;
+	if (typeof listed !== 'string') return [];
+	const ids = listed
+		.split(',')
+		.map((id) => id.trim())
+		.filter(Boolean);
+	return [...new Set(ids)];
 }
 
 /**

@@ -720,7 +720,7 @@ describe('the pump-groups case (a): five sheets after System curves', () => {
 			const offTail = ['', 'Pumps together: PA+PB, group curve', ...groupMethodsLines(offGroup)];
 			expect(tail(null, baseTail.length)).toEqual(baseTail);
 			expect(tail('S1', offTail.length)).toEqual(offTail);
-			expect(groupMethodsLines(group)[0]).toBe('Pump group (calculation methods 1.6.0)');
+			expect(groupMethodsLines(group)[0]).toBe('Pump group (calculation methods 1.6.1)');
 			expect(groupMethodsLines(group)).toContain('References:');
 			// Before them, the case's own methods text, as without groups.
 			const plain = readSheet(buildExport(withoutGroups(input)), 'methods');

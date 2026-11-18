@@ -339,6 +339,10 @@ describe('pump chart', () => {
 	});
 
 	it('reports a failed or cancelled system curve and offers to compute it again', async () => {
+		// A canvas that draws, as a browser's: since the chart chunk's import is one per load (leftover
+		// L25), a drawing can come within the test, and with no context the chart would say it cannot
+		// be drawn.
+		withCanvas();
 		const onretry = vi.fn();
 		const view = render(PumpChart, {
 			result: pumpResult(),
@@ -432,6 +436,10 @@ describe('pump chart', () => {
 	});
 
 	it('moves the focus to Cancel when the curve is computed again from Compute or Try again', async () => {
+		// A canvas that draws, as a browser's: since the chart chunk's import is one per load (leftover
+		// L25), a drawing can come within the test, and with no context the chart would say it cannot
+		// be drawn.
+		withCanvas();
 		const props = {
 			result: pumpResult(),
 			name: 'P',
@@ -2301,14 +2309,30 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			await tick();
 			expect(observers.watched()).toBe(watchedBefore);
 		}
-		// The last curve answered: its table is drawn, the switch kept in place once more and let go.
+		// The last curve answered: its table is drawn, the switch kept in place once more, and held
+		// until the chart is drawn with what that answer brings (the Pumps view's update: the other
+		// cases anew, each with its curve), then let go (pumps-nits.md §11.4, leftover L25; moved
+		// from "let go once every curve has answered", asserted at the answer itself).
 		await switchOn();
 		answer();
 		expect(top()).toBe(300);
 		grown += 56;
-		await view.rerender({ ...props, overlayCurves: true, overlayProgress: null, onoverlay });
+		const drawnBefore = charts.length;
+		void view.rerender({
+			...props,
+			others: props.others.map((o) => ({ ...o, system: systemCurveResponse() })),
+			overlayCurves: true,
+			overlayProgress: null,
+			onoverlay
+		});
 		expect(top(), 'held as the last curve answers').toBe(300);
-		expect(observers.watched(), 'let go once every curve has answered').toBe(watchedBefore);
+		expect(observers.watched(), 'still held until the drawing that answer brings').toBe(
+			watchedBefore + 1
+		);
+		await vi.waitFor(() => expect(charts.length).toBeGreaterThan(drawnBefore));
+		await tick();
+		expect(top(), 'held as that drawing comes').toBe(300);
+		expect(observers.watched(), 'let go once the last answer is drawn').toBe(watchedBefore);
 		// Every curve computed: drawn at the press, which keeps the switch in place itself (S8
 		// review LAYOUT-1); nothing is held, since nothing is left to arrive.
 		await fireEvent.click(box);
@@ -2702,6 +2726,191 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 			expect(scrolled, `let go once every curve has answered, ${where}`).toBe(at);
 			view.unmount();
 			pane.remove();
+		}
+		observers.restore();
+	});
+
+	/**
+	 * docs/proposals/pumps-nits.md §11.4, leftover L25: the hold lets go at the drawing of whatever
+	 * cases are current once the last answer is in, not at the answer itself, so a drawing that
+	 * takes the "Not labelled on the chart" line away above the switch (the last curve rescaling the
+	 * axes: every ring then labelled) still finds it held. The RACE-2 test's set-up: crowded, no
+	 * ring's label has a place; apart, each has.
+	 */
+	function holdUntilDrawn() {
+		withCanvas();
+		let crowd = false;
+		drawing.first = (config) =>
+			drawLabels(config as PumpChartConfig, crowd ? TINY : ROOMY, crowd ? crowded : apart);
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03] as [number, number],
+			system: READY,
+			tags: TAGS,
+			oncanceloverlay: vi.fn()
+		};
+		const others = [
+			other('S1', 'Winter', { operatingFlow: 0.012, operatingHead: 25 }),
+			other('S2', 'Summer', { operatingFlow: 0.015, operatingHead: 22 }),
+			other('S3', 'Spring', { operatingFlow: 0.018, operatingHead: 20 }),
+			other('S4', 'Autumn', { operatingFlow: 0.021, operatingHead: 18 })
+		];
+		return {
+			props,
+			others,
+			crowd: (on: boolean) => (crowd = on),
+			/** The pane that scrolls, the chart in it, the switch pressed and held. */
+			async mount(shown: boolean) {
+				localStorage.clear();
+				crowd = false;
+				const pane = document.createElement('div');
+				pane.style.overflowY = 'auto';
+				document.body.append(pane);
+				sizeBox(pane, { clientHeight: 600, scrollHeight: 4000 });
+				const scroll = { at: 0 };
+				Object.defineProperty(pane, 'scrollTop', {
+					configurable: true,
+					get: () => scroll.at,
+					set: (v: number) => (scroll.at = v)
+				});
+				const onoverlay = (on: boolean) =>
+					void view.rerender({
+						...props,
+						others,
+						overlayCurves: on,
+						overlayProgress: on ? { done: 0, total: 4 } : null,
+						onoverlay
+					});
+				/** The Pumps view's update: the other cases anew, those named with their curve. */
+				const update = (answered: string[]) =>
+					view.rerender({
+						...props,
+						others: others.map((o) =>
+							answered.includes(o.key) ? { ...o, system: systemCurveResponse() } : { ...o }
+						),
+						overlayCurves: true,
+						overlayProgress: answered.length < 4 ? { done: answered.length, total: 4 } : null,
+						onoverlay
+					});
+				const drawnAgain = async (before: number) => {
+					await vi.waitFor(() => expect(charts.length).toBeGreaterThan(before));
+					await tick();
+				};
+				const first = charts.length;
+				const view = render(PumpChart, {
+					target: pane,
+					props: { ...props, others, overlayCurves: false, overlayProgress: null, onoverlay }
+				});
+				await drawnAgain(first);
+				if (shown) {
+					await fireEvent.click(
+						screen.getByRole('button', { name: 'Show data table of the pump chart' })
+					);
+				}
+				const figure = screen.getByRole('figure');
+				const notes = figure.querySelector('[data-pump-notes]') as HTMLElement;
+				const noted = () => within(notes).queryByText(/^Not labelled on the chart: /) !== null;
+				const tables = () => figure.querySelectorAll('[data-curve-table^="system-"]').length;
+				const box = within(figure).getByRole('checkbox', {
+					name: "Also show the other cases' system curves"
+				});
+				// As in the RACE-2 test: lower by the line naming the rings left out (20 px), by each
+				// system curve's table (56 px) and by what else grows above it.
+				const grown = { by: 0 };
+				box.getBoundingClientRect = () =>
+					({
+						top: 300 + 20 * Number(noted()) + 56 * tables() + grown.by - scroll.at
+					}) as DOMRect;
+				const pressed = box.getBoundingClientRect().top;
+				const drawn = charts.length;
+				await fireEvent.click(box);
+				expect(box).toBeChecked();
+				await drawnAgain(drawn);
+				const top = () => box.getBoundingClientRect().top;
+				expect(top()).toBe(pressed);
+				return {
+					view,
+					pane,
+					scroll,
+					grown,
+					figure,
+					noted,
+					top,
+					pressed,
+					update,
+					drawnAgain,
+					onoverlay
+				};
+			}
+		};
+	}
+
+	it('keeps the switch in place through the drawing the last answer brings, which takes the “Not labelled on the chart” line away, and lets it go at that drawing (pumps-nits.md §11.4, leftover L25)', async () => {
+		const observers = fakeResizeObserver();
+		const race = holdUntilDrawn();
+		for (const shown of [true, false]) {
+			const where = `the data table ${shown ? 'shown' : 'hidden'}`;
+			const m = await race.mount(shown);
+			// Winter, Summer and Spring answer, crowded: the line comes with their drawings.
+			race.crowd(true);
+			let drawn = charts.length;
+			await m.update(['S1', 'S2', 'S3']);
+			await m.drawnAgain(drawn);
+			expect(m.noted()).toBe(true);
+			expect(m.top(), `in place with the line drawn, ${where}`).toBe(m.pressed);
+			// Autumn answers, the last, and the drawing it brings labels every ring: the line goes
+			// with that drawing, after the answer's update.
+			race.crowd(false);
+			drawn = charts.length;
+			void m.update(['S1', 'S2', 'S3', 'S4']);
+			expect(m.noted(), `the line kept as the last curve answers, ${where}`).toBe(true);
+			expect(m.top(), `in place as the last curve answers, ${where}`).toBe(m.pressed);
+			await m.drawnAgain(drawn);
+			expect(m.noted(), `the line taken away by that drawing, ${where}`).toBe(false);
+			expect(m.top(), `in place once the last answer is drawn, ${where}`).toBe(m.pressed);
+			// Let go at that drawing: a change of the figure's size after it scrolls nothing.
+			const at = m.scroll.at;
+			m.grown.by += 10;
+			observers.resize(m.figure);
+			expect(m.scroll.at, `let go once the last answer is drawn, ${where}`).toBe(at);
+			m.view.unmount();
+			m.pane.remove();
+		}
+		observers.restore();
+	});
+
+	it('lets the switch go at the drawing of the cases current once the last answer is in, when the cases change again before any drawing (pumps-nits.md §11.4, leftover L25; critique CR-ENG-5)', async () => {
+		const observers = fakeResizeObserver();
+		const race = holdUntilDrawn();
+		for (const shown of [true, false]) {
+			const where = `the data table ${shown ? 'shown' : 'hidden'}`;
+			const m = await race.mount(shown);
+			race.crowd(true);
+			let drawn = charts.length;
+			await m.update(['S1', 'S2', 'S3']);
+			await m.drawnAgain(drawn);
+			expect(m.noted()).toBe(true);
+			// The last answer, then the cases anew once more (a case solved again by a run), both
+			// before any drawing: the first update's drawing never comes, the second's takes the line
+			// away (every ring labelled).
+			race.crowd(false);
+			drawn = charts.length;
+			void m.update(['S1', 'S2', 'S3', 'S4']);
+			void m.update(['S1', 'S2', 'S3', 'S4']);
+			expect(m.top(), `in place as the cases change twice, ${where}`).toBe(m.pressed);
+			await m.drawnAgain(drawn);
+			expect(charts.length, `one drawing for the two updates, ${where}`).toBe(drawn + 1);
+			expect(m.noted()).toBe(false);
+			expect(m.top(), `in place once the second update is drawn, ${where}`).toBe(m.pressed);
+			// Let go at that drawing, the cases it drew being the current ones.
+			const at = m.scroll.at;
+			m.grown.by += 10;
+			observers.resize(m.figure);
+			expect(m.scroll.at, `let go at the second update's drawing, ${where}`).toBe(at);
+			m.view.unmount();
+			m.pane.remove();
 		}
 		observers.restore();
 	});

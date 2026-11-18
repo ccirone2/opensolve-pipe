@@ -251,21 +251,55 @@
 		const end = () => {
 			observer.disconnect();
 			for (const type of OWN_STEPS) window.removeEventListener(type, end, true);
-			if (held?.end === end) held = null;
+			if (held?.end === end) {
+				held = null;
+				closing = false;
+			}
 		};
 		for (const type of OWN_STEPS)
 			window.addEventListener(type, end, { capture: true, passive: true });
 		held = { keep, end };
+		closing = false;
 	}
+	/**
+	 * The other cases the chart shown was last drawn with (`otherData` at its drawing), set as each
+	 * drawing is made (pumps-nits.md §11.4, leftover L25).
+	 */
+	let drawnWith = $state.raw<unknown>(null);
+	/**
+	 * Every curve has answered, and the hold waits for the chart to be drawn with the cases now
+	 * current before it lets go (leftover L25). Not reactive.
+	 */
+	let closing = false;
+	/** No chart can be drawn: the hold has no drawing to wait for. */
+	const noDrawing = () => cannotDraw || !canvas;
 	// The last curve answered (or the rest cancelled): its table is drawn, so keep the switch in
-	// place once more and let it go. The notes' line naming the rings left out stays as it was
-	// until the chart is drawn again (`notLabelled`); a drawing that then leaves out other rings
-	// (the last curve rescaling the axes) changes that line after the hold (review RACE-2, left).
+	// place once more. The notes' line naming the rings left out stays as it was until the chart
+	// is drawn again (`notLabelled`), and that drawing can change it (the last curve rescaling the
+	// axes: other rings left out, or none): so the hold lets go at the drawing of whatever cases
+	// are current once the last answer is in, never at the answer itself (pumps-nits.md §11.4,
+	// leftover L25; review RACE-2's limit), or at once where the chart shown was already drawn with
+	// them or none can be drawn. Waiting for the cases current, not those of the last answer, lets
+	// go too where they change again before any drawing (critique CR-ENG-5).
 	$effect(() => {
 		if (overlayProgress) return;
 		untrack(() => {
-			held?.keep();
-			held?.end();
+			if (!held) return;
+			held.keep();
+			if (drawnWith === otherData || noDrawing()) held.end();
+			else closing = true;
+		});
+	});
+	// A drawing of the cases current (or no drawing possible) while the hold waits: the switch kept
+	// in place once more as that drawing changes what is above it, then let go (leftover L25).
+	$effect(() => {
+		const drawnCases = drawnWith;
+		const current = otherData;
+		const none = noDrawing();
+		untrack(() => {
+			if (!closing || !held || (drawnCases !== current && !none)) return;
+			held.keep();
+			held.end();
 		});
 	});
 	// Another pump shown, or the chart gone: nothing more to hold.
@@ -669,6 +703,14 @@
 	 * for it again (export.md §5.5). Not reactive: `drawn` says when it is there.
 	 */
 	let chartModule: typeof import('./chart-setup') | null = null;
+	/**
+	 * The chart chunk's import while it is in flight: a drawing asked for meanwhile (the cases
+	 * changing twice in one go) waits on that one import, never a second one of the same chunk.
+	 * The same module either way in a browser; Vitest's module runner hands a second import of a
+	 * mocked module, made while the first is pending, the real module (pumps-nits.md §11.4,
+	 * leftover L25). Not reactive.
+	 */
+	let chunkLoading: Promise<typeof import('./chart-setup')> | null = null;
 	/** The chart shown has been drawn: an image can be made of it. */
 	let drawn = $state(false);
 
@@ -686,7 +728,12 @@
 		let cancelled = false;
 		let chart: ChartInstance<'line'> | null = null;
 		drawn = false;
-		void import('./chart-setup').then(
+		const chunk = (chunkLoading ??= import('./chart-setup'));
+		const loaded = () => {
+			if (chunkLoading === chunk) chunkLoading = null;
+		};
+		chunk.then(loaded, loaded);
+		void chunk.then(
 			(module) => {
 				if (cancelled) return;
 				chartModule = module;
@@ -712,6 +759,7 @@
 				);
 				drawnChart = chart;
 				drawn = true;
+				drawnWith = drawnCases;
 			},
 			() => {
 				// A tab opened before a redeploy asks for a chunk the new deployment no longer has, or

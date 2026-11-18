@@ -158,19 +158,19 @@ export class LibraryStore {
 		return resolvePipe(project, pipe, this);
 	}
 
+	/** nominalSizes of the materials it was found for (each port of a form reads it). */
+	#nominalSizes: {
+		materials: readonly PipeMaterial[];
+		sizes: readonly { nominalSize: number; nps: string }[];
+	} | null = null;
+
 	/** Every nominal size in the library (any material or schedule), smallest first. */
 	get nominalSizes(): { nominalSize: number; nps: string }[] {
-		const sizes: { nominalSize: number; nps: string }[] = [];
-		for (const material of this.materials) {
-			for (const schedule of material.schedules) {
-				for (const size of schedule.sizes) {
-					if (!sizes.some((s) => sameSize(s.nominalSize, size.nominalSize))) {
-						sizes.push({ nominalSize: size.nominalSize, nps: size.nps });
-					}
-				}
-			}
+		const materials = this.materials;
+		if (this.#nominalSizes?.materials !== materials) {
+			this.#nominalSizes = { materials, sizes: findNominalSizes(materials) };
 		}
-		return sizes.sort((a, b) => a.nominalSize - b.nominalSize);
+		return this.#nominalSizes.sizes.map((size) => ({ ...size }));
 	}
 
 	fitting(type: string): FittingInfo | undefined {
@@ -192,4 +192,21 @@ export function useLibrary(): LibraryStore {
 	const library = getContext<LibraryStore | undefined>(LIBRARY_KEY);
 	if (!library) throw new Error('No LibraryStore: call provideLibrary in a parent component.');
 	return library;
+}
+
+/** Every nominal size of `materials` (any schedule), smallest first: LibraryStore.nominalSizes. */
+function findNominalSizes(
+	materials: readonly PipeMaterial[]
+): { nominalSize: number; nps: string }[] {
+	const sizes: { nominalSize: number; nps: string }[] = [];
+	for (const material of materials) {
+		for (const schedule of material.schedules) {
+			for (const size of schedule.sizes) {
+				if (!sizes.some((s) => sameSize(s.nominalSize, size.nominalSize))) {
+					sizes.push({ nominalSize: size.nominalSize, nps: size.nps });
+				}
+			}
+		}
+	}
+	return sizes.sort((a, b) => a.nominalSize - b.nominalSize);
 }

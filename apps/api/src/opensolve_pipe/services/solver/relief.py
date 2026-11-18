@@ -294,8 +294,17 @@ class ReliefLaw:
         return x * self.velocity_factor * math.sqrt(difference)
 
     def slope_at_zero(self) -> float:
-        """dh/dQ at Q = 0⁺: R/(√Δp_s ρ g), finite and positive."""
-        return self.band_coefficient / (math.sqrt(self.set_pressure) * self.rho * self.g)
+        """dh/dQ at Q = 0⁺: R/(√Δp_s ρ g), positive (for the trace; the solve never uses it). One
+        division wherever √Δp_s ρ g is not 0, as on 1.6.0; where that product of normals
+        underflows to 0 (a tiny set in a very light liquid, inside the schema's bounds: 1e-152 Pa
+        in 3.3e-302 kg/m³), as (R/√Δp_s)/(ρ g), which cannot divide by zero (Δp_s > 0 and
+        ρ g ≥ ρ > 0 are normal) and may overflow to inf, which the trace leaves out. Before
+        2026-11-17 it divided by zero there (a 500, open or locked closed)."""
+        root = math.sqrt(self.set_pressure)
+        denominator = root * self.rho * self.g
+        if denominator > 0.0:
+            return self.band_coefficient / denominator
+        return self.band_coefficient / root / (self.rho * self.g)
 
 
 @dataclass(frozen=True)
@@ -362,9 +371,12 @@ LAW_CONSTANTS = ("C", "Q_f", "R", "C²", "band scale")
 """The constants of the law decision 14 requires to be finite positive normal doubles: C = Kd·A,
 Q_f, R (the forms ``ReliefLaw`` uses), C², which its full-lift branch divides by, and the band
 root's scale 2 Δp_s √(Δp_s/3), which its trigonometric form divides by. Every other division in
-``ReliefLaw`` is by a product or positive sum of these, of ρ, g, Δp_s and their roots, or by the
-band root u (at least √(Δp_s/3) as computed), so with these normal no evaluation divides by
-zero."""
+the law (``evaluate``, ``increment``, ``lift``, ``flow_at``, ``h_set``) is by a product or
+positive sum of these, of ρ, g, Δp_s and their roots, or by the band root u (at least
+√(Δp_s/3) as computed), so with these normal no evaluation of the law divides by zero. A product
+of normals can still underflow: the trace's slope at zero flow, whose √Δp_s ρ g does where the
+law is representable, is formed so that it cannot divide by zero (``slope_at_zero``), and is no
+reason to refuse the valve."""
 
 
 def _normal(x: float) -> bool:

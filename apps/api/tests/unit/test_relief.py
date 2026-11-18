@@ -633,6 +633,51 @@ def test_a_c_that_underflows_to_zero_quotes_q_f_as_zero() -> None:
     assert "the full-lift flow Q_f = 0 m³/s or the band coefficient R = inf" in message
 
 
+@pytest.mark.parametrize("status", ["active", "locked_closed"])
+def test_a_slope_at_zero_whose_denominator_underflows_is_solved_not_a_server_error(
+    status: str,
+) -> None:
+    """§4.1 (review of 1.6.1, ST-API-02): the trace's slope at zero flow, R/(√Δp_s ρ g). A set of
+    1e-152 Pa in a liquid of 3.3e-302 kg/m³ (inside the schema's bounds; a certified capacity
+    with its own overpressure, so decision 14's scope never applies) leaves every constant of
+    the law (``LAW_CONSTANTS``) a normal double, so decision 14 accepts the valve and its law is
+    representable, but the product √Δp_s ρ g underflows to 0: the trace, built open or locked
+    closed, divided by zero (ZeroDivisionError, HTTP 500 on 7fcbdb8 and 21230f0). The slope is a
+    finite number, (R/√Δp_s)/(ρ g), which the trace now gives."""
+    sp, rho, area, k, op = 1.0e-152, 3.3e-302, 6.0e-5, 1.0, 0.33
+    assert math.sqrt(sp) * rho * g == 0.0
+    c = k * area
+    r = op * sp / (c * math.sqrt(2.0 / rho))  # R = (Δp_f − Δp_s)/(C √(2/ρ)), Δp_f = (1 + op) Δp_s
+    assert r >= sys.float_info.min
+    expected = r / math.sqrt(sp) / (rho * g)
+    assert math.isfinite(expected)
+    valve = relief(set_pressure=sp, capacity=_certified(area, k, op), status=status)
+    data = project_dict(
+        [reservoir("R1", level=10.0), valve, reservoir("R3", level=0.0)],
+        [
+            connection("L1", ("R1", "port_1"), ("RV1", "inlet")),
+            connection("L2", ("RV1", "outlet"), ("R3", "port_1")),
+        ],
+        fluid=custom_fluid(rho, MU),
+    )
+    response = _client().post("/api/v1/solve", json={"project": data})
+    assert response.status_code == 200, response.text
+    trace = solve_project(Project.model_validate(data)).trace.elements["RV1"]
+    slope = _value(trace, "Slope at zero flow dh/dQ(0⁺)")
+    assert slope.value == pytest.approx(expected, rel=1e-12)
+
+
+def test_the_slope_at_zero_of_an_ordinary_valve_is_one_division() -> None:
+    """ST-API-02's fix changes no value that was computed before: wherever √Δp_s ρ g is not 0
+    the slope is R/(√Δp_s ρ g), one division, as on 1.6.0 (a trace value the corpus compares)."""
+    rng = random.Random(20261117)
+    for _ in range(2000):
+        rho, c = 10 ** rng.uniform(-2.0, 4.4), 10 ** rng.uniform(-8.0, 0.0)
+        sp, op = 10 ** rng.uniform(-3.0, 8.0), rng.uniform(0.01, 1.0)
+        law = ReliefLaw(rho, g, c, sp, op, 0.0)
+        assert law.slope_at_zero() == law.band_coefficient / (math.sqrt(sp) * rho * g)
+
+
 def test_the_band_root_where_its_two_branch_tests_round_differently() -> None:
     """Next to 27 (RQ)² = 4 Δp_s³ the trigonometric test can fail while Cardano's radicand
     rounds below zero: at this pair (found by stepping a few units in the last place about the
@@ -1673,7 +1718,7 @@ def test_the_api_solves_a_relief_valve_and_refuses_one_outside_asmes_scope() -> 
     response = client.post("/api/v1/solve", json={"project": series_dict(1.05e6)})
     assert response.status_code == 200, response.text
     state = response.json()["solvedState"]
-    assert state["methodVersion"] == "1.6.0"
+    assert state["methodVersion"] == "1.6.1"
     assert state["valveResults"] == {}
     assert list(state["reliefValveResults"]["RV1"]) == [
         "state",

@@ -3,15 +3,18 @@
 	iterations, compute time and the calculation-method version. A converged solve is one quiet
 	line, so the results start near the top; one that did not converge is a red card. When the
 	solve did not converge,
-	the convergence report: the components its message names (e.g. an assigned-flow node that no
-	reservoir or reference node reaches, and what closes it off), where the largest continuity and
-	energy errors are, and which components kept switching state.
+	the convergence report: where the iteration diverged, the elements whose laws gave a value that
+	is not a finite number (the NOT_CONVERGED flag's nonFiniteLawAt, CLAUDE.md D7), then the other
+	elements its message names (e.g. an assigned-flow node that no reservoir or reference node
+	reaches, and what closes it off), components and pipe connections (by their piping, "Tank →
+	Pump"), each a link; where the largest continuity and energy errors are, and which components
+	kept switching state.
 -->
 <script lang="ts">
 	import type { SolveResponse } from '$lib/api/types';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import { namedComponents, readableText } from '$lib/utils/flag-text';
+	import { namedElements, nonFiniteLawIds, readableText } from '$lib/utils/flag-text';
 	import { componentById, connectionById } from '$lib/utils/graph';
 	import { portLabel } from '$lib/utils/labels';
 	import { connectionName, Formatter, type ElementRef } from '$lib/utils/results';
@@ -53,9 +56,21 @@
 		/^converged: \d+ Newton iterations in \d+ outer iteration\(s\)\.?$/.test(report.message)
 	);
 
-	/** The message with names and display units, and the components it names, as links. */
+	/** The message with names and display units. */
 	const message = $derived(readableText(report.message, ws.project, ws.units));
-	const named = $derived(converged ? [] : namedComponents(report.message, ws.project));
+	/** Where the iteration diverged: the elements whose laws gave a value that is not a finite
+	 * number, in link order (the NOT_CONVERGED flag's details; the message names them too). */
+	const nonFinite = $derived(
+		converged ? [] : nonFiniteLawIds(solved.flags.find((f) => f.code === 'NOT_CONVERGED'))
+	);
+	/** The other components and pipe connections the message names, as links. */
+	const named = $derived(
+		converged
+			? []
+			: [...new Set(namedElements(report.message, ws.project).map((e) => e.id))].filter(
+					(elementId) => !nonFinite.includes(elementId)
+				)
+	);
 
 	const time = $derived(
 		response.computeTime < 0.01 ? '< 0.01 s' : `${response.computeTime.toFixed(2)} s`
@@ -111,9 +126,23 @@
 			use them. Check the inputs near the places listed here, then solve again.
 		</p>
 		<ul class="list-disc space-y-1 pl-5 text-sm text-red-950">
+			{#if nonFinite.length}
+				<li>
+					<span class="block pt-1"
+						>Not a finite number in the {nonFinite.length === 1 ? 'law' : 'laws'} of:</span
+					>
+					<ul class="space-y-0">
+						{#each nonFinite as elementId (elementId)}
+							<li>{@render link(locate(elementId) ?? { label: elementId, element: null })}</li>
+						{/each}
+					</ul>
+				</li>
+			{/if}
 			{#if named.length}
 				<li>
-					<span class="block pt-1">Named in the message:</span>
+					<span class="block pt-1"
+						>{nonFinite.length ? 'Also named in the message:' : 'Named in the message:'}</span
+					>
 					<ul class="space-y-0">
 						{#each named as elementId (elementId)}
 							<li>{@render link(locate(elementId) ?? { label: elementId, element: null })}</li>

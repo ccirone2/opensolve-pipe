@@ -22,8 +22,13 @@
 	import { mediaQuery, WIDE_SCREEN } from '$lib/utils/media.svelte';
 	import { elementName, elementSummary, type ElementRef } from '$lib/utils/results';
 
-	let { element }: { element: ElementRef } = $props();
+	let { element: given }: { element: ElementRef } = $props();
 	const ws = useWorkspace();
+	// The panel passes a new object on every edit: the element as its kind and id, so the summary
+	// is built again only when what it reads changes (on a large network, every edit otherwise).
+	const kind = $derived(given.kind);
+	const elementId = $derived(given.id);
+	const element: ElementRef = $derived({ kind, id: elementId });
 	const id = $props.id();
 	const wide = mediaQuery(WIDE_SCREEN);
 

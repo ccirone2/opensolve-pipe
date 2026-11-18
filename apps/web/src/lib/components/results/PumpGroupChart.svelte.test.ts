@@ -480,7 +480,7 @@ describe('the card', () => {
 		const response = c.groupCurve.body as PumpGroupCurveResponse;
 		const heading = within(details).getByText(groupMethodsHeading(response));
 		expect(heading).toBeVisible();
-		expect(heading.textContent!.trim()).toBe('Pump group (calculation methods 1.6.0)');
+		expect(heading.textContent!.trim()).toBe('Pump group (calculation methods 1.6.1)');
 	});
 
 	it('shows progress while the curve is computed, with Cancel; the focus follows the controls', async () => {

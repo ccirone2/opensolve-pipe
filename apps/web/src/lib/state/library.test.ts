@@ -116,6 +116,11 @@ describe('LibraryStore', () => {
 		expect(library.nominalSizes).toEqual([]);
 		await library.loadLibrary();
 		expect(library.libraryStatus).toBe('ready');
+		// Found again for the materials loaded since; each read is a list of its own.
+		expect(library.nominalSizes.map((s) => s.nps)).toEqual(['2', '3', '4']);
+		library.nominalSizes[0]!.nps = 'changed';
+		library.nominalSizes.pop();
+		expect(library.nominalSizes.map((s) => s.nps)).toEqual(['2', '3', '4']);
 	});
 
 	it('loads the fluid list', async () => {

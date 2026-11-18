@@ -35,7 +35,17 @@ Its law acts on the energy grade line (D7):
 
 ``refusal`` gives decision 17's bounds (``ORIFICE_OUT_OF_RANGE``): a plate the law cannot represent
 physically, for any flow. Every number here is ISO 5167-2's as fluids 1.3.1 implements it, or
-the proposal's.
+the proposal's. Rule (d) also refuses a plate whose K at c_high, an upper bound of every C the
+law takes (so a lower bound of every K it takes), is above ``coefficients.SLOPE_COEFFICIENT_MAX``:
+``OrificeLaw.evaluate`` forms 2.0 · K before 1/(2 g A²), so its slope is then not a finite number
+at any flow but zero (where the rounding of eq. (4) puts a C a few units in the last place above
+c_high, through dK/dC; ``refusal``). c_high need not be reached (r_max can be 1, above every r
+a moved C's law takes: D 1 m, bore 0.5 m, corner or flange taps), so a plate the rule accepts
+can still have K past the bound at some flows or at every flow, and its slope can overflow in
+dK/dC above Re_lo while K is within the bound; where an iterate reaches such a flow, the
+divergence message names the plate (D7). Rule (d)'s first test, K/(2 g A²) at c_low, is taken
+at a closed-form bound the law need not reach either, so it can refuse a plate whose law gives a
+finite K/(2 g A²) (``refusal``).
 """
 
 import math
@@ -46,6 +56,7 @@ from fluids import flow_meter
 from fluids.constants import inch
 
 from ...models.components import OrificeTaps
+from .coefficients import slope_overflows
 
 LOSS_TAPS: OrificeTaps = "d_and_d_2"
 """The tap set whose C sets every plate's loss (decision 5)."""
@@ -112,12 +123,22 @@ CORRELATION = (
 LOSS_RELATION = "ISO 5167-2 pressure-loss relation (fluids.flow_meter.discharge_coefficient_to_K)"
 FLOW_EQUATION = "ISO 5167-2 eq. (1), ε = 1 (a liquid)"
 
-Rule = Literal["beta", "iso_coefficient", "moved_coefficient", "coefficient"]
+Rule = Literal["beta", "iso_coefficient", "moved_coefficient", "coefficient", "slope", "fluid"]
 Basis = Literal["loss", "reading", "move"]
 """What eq. (4) at the tap set an ``iso_coefficient`` refusal names is used for (decision 17
 (b)): loss, ISO's C_L at D and D/2 tappings, which sets the plate's loss; reading, ISO's C_M at
 the plate's corner or flange taps, which gives only the meter's reading; move, a C of the ratio
 that moves an entered C from corner or flange taps to D and D/2 tappings (decision 13)."""
+FluidReason = Literal[
+    "reynolds_denominator",
+    "area_density",
+    "reynolds_infinite",
+    "iso_at_re_lo",
+    "iso_at_meter_re_lo",
+]
+"""Why the case's fluid leaves a plate's Reynolds-number arithmetic unrepresentable
+(``fluid_refusal``; the builder adds iso_at_re_lo, the law that cannot be built, and
+iso_at_meter_re_lo, ISO's C_M at the plate's own taps that cannot be evaluated at their Re_lo)."""
 
 
 def tap_lengths(taps: str, d_pipe: float) -> tuple[float, float]:
@@ -387,6 +408,17 @@ class OrificeLaw:
         """h by the law, m."""
         return self.evaluate(flow)[0]
 
+    def loss_coefficient(self, flow: float) -> float:
+        """K/(2 g A²) at ``flow``, s²/m⁵, with the K ``evaluate`` takes there (C_L held at and
+        below Re_lo; the entered C without a move at every flow): the factor of Q|Q| in h. For
+        the GGA's divergence message only (``gga.NonFiniteLaw``); ``evaluate`` multiplies K by
+        the flow before 1/(2 g A²), so its h can overflow where this product is finite."""
+        k = self.low_k
+        re = abs(flow) * self._re_per_flow
+        if self.uses_rhg and flow != 0.0 and re > self.re_lo:
+            k = k_of_c(self.pipe_diameter, self.bore_diameter, self._loss(re)[0])
+        return k * self._head_coefficient
+
     def pressure_term(self, flow: float, c: float) -> float:
         """(1 − β⁴)/(C² β⁴) · ρ v|v|/2: ISO eq. (1) solved for Δp at C (ε = 1)."""
         v = flow / self.area
@@ -458,14 +490,19 @@ class Refusal:
 
     rule: Rule
     """beta: β ≥ 1; iso_coefficient: eq. (4) can exceed 1 (at ``where``); moved_coefficient: an
-    entered C moved from corner or flange taps can exceed 1; coefficient: K/(2 g A²) at the
-    smallest C_L is not a finite positive double (or computing it raises)."""
+    entered C moved from corner or flange taps can exceed 1; coefficient: K/(2 g A²) at c_low,
+    the smallest bound of C_L, is not a finite positive double (or computing it raises); slope:
+    it is, but K at c_high, an upper bound of every C the law takes (so a lower bound of every K
+    it takes), is above ``coefficients.SLOPE_COEFFICIENT_MAX``, so the law's slope, which forms
+    2.0 · K, is not a finite number at any flow but zero; fluid: the case's fluid leaves the
+    plate's Reynolds number unrepresentable (``fluid_refusal``, ``fluid``)."""
     beta: float
     coefficient: float | None = None
-    """The C bound broken: the largest C (iso_coefficient, moved_coefficient) or the smallest
-    C_L (coefficient)."""
+    """The C bound broken: the largest C (iso_coefficient, moved_coefficient), c_high (slope) or
+    c_low, the smallest bound of C_L (coefficient)."""
     where: str | None = None
-    """iso_coefficient: the tap set where eq. (4) can exceed 1."""
+    """iso_coefficient: the tap set where eq. (4) can exceed 1; fluid (iso_at_meter_re_lo): the
+    plate's taps, where ISO's C_M cannot be evaluated."""
     ratio: float | None = None
     """moved_coefficient: r_max, the bound of the move's ratio."""
     basis: Basis | None = None
@@ -473,6 +510,15 @@ class Refusal:
     tappings for the loss does C ≤ 1 bound the jet (μ ≤ 1, Borda-Carnot); at a meter's taps and
     in the move's ratio, C above 1 is eq. (4) extrapolated far beyond ISO's range (its largest C
     there is below 0.7), on which the reading or the move would rest."""
+    loss: float | None = None
+    """slope: K at c_high (``coefficient``), a lower bound of every K the law takes (c_high need
+    not be reached), which breaks the bound."""
+    fluid: FluidReason | None = None
+    """fluid: which of ``fluid_refusal``'s tests the case's fluid breaks."""
+    fluid_values: tuple[float, float] | None = None
+    """fluid: the case's density ρ, kg/m³, and dynamic viscosity μ, Pa·s, the 422 quotes."""
+    reynolds: float | None = None
+    """fluid (iso_at_meter_re_lo): the taps' lowest Reynolds number, Re_lo, the 422 quotes."""
 
 
 def c_range(d_pipe: float, d_bore: float, taps: str, re_from: float) -> tuple[float, float]:
@@ -551,11 +597,66 @@ def refusal(
     except (ZeroDivisionError, OverflowError, ValueError):
         return Refusal("coefficient", beta)
     # (d): K decreases in C, so h's coefficient is largest at the smallest C_L; both ends finite
-    # and positive bound every flow's.
+    # and positive bound every flow's. c_low is a closed-form bound the law need not reach
+    # (entered × r_min can lie below every C a moved C's law takes), so this test can refuse a
+    # plate whose law gives a finite K/(2 g A²) (recorded, unchanged since 1.4.0: TSD §4.10).
     try:
         ends = [loss_factor(d_pipe, d_bore, c, g) for c in (c_low, c_high)] if c_low > 0.0 else []
     except (ZeroDivisionError, OverflowError, ValueError):
         ends = []
     if len(ends) != 2 or not all(math.isfinite(x) and x > 0.0 for x in ends):
         return Refusal("coefficient", beta, c_low)
+    # (d), the slope: OrificeLaw.evaluate forms 2.0 · K before 1/(2 g A²). Every C the law takes
+    # is at most c_high (held below Re_lo, and the move's r at most r_max) up to the rounding of
+    # eq. (4), so K at c_high is at most every K it takes (c_high need not be reached): past half
+    # the largest double (SLOPE_COEFFICIENT_MAX) there, the slope is not a finite number at any
+    # flow but zero, whatever the plate's flow. Where rounding puts a C a few units in the last
+    # place above c_high (fluids' r one ulp above r_max from Re_D about 1e45 on D 1 m, bore
+    # 0.65 m, corner taps), K is within a few ulps of the bound and dK/dC = −2K(1/C + β²/S)
+    # overflows instead, so the slope is still not finite. A K past the bound only at smaller C,
+    # which can be every C the law takes, is not refused: where an iterate reaches it, the
+    # divergence message names the plate (D7); c_low can be a bound below every C the law takes
+    # (entered × r_min for a moved C).
+    k_high = k_of_c(d_pipe, d_bore, c_high)
+    if slope_overflows(k_high):
+        return Refusal("slope", beta, c_high, loss=k_high)
+    return None
+
+
+def fluid_refusal(
+    d_pipe: float,
+    d_bore: float,
+    density: float,
+    viscosity: float,
+    entered: float | None,
+    taps: OrificeTaps | None,
+) -> Refusal | None:
+    """Decision 17 (e), the case's fluid (TSD §12 item 19 (c), the schema-bounds probe,
+    2026-11-03): a plate whose Reynolds-number arithmetic the fluid's density ρ and viscosity μ,
+    at the schema's bounds, make unrepresentable, each written as the law, or fluids, forms it:
+
+    - reynolds_denominator: Re_D = 4ρ|Q|/(πDμ) divides by π D μ, which is 0 in floating point
+      (μ near the smallest double): every plate's law divides by zero when it is built;
+    - where eq. (4) is used (ISO's C, or an entered C moved from corner or flange taps):
+      area_density, fluids evaluates eq. (4) from the mass flow, dividing by A ρ =
+      (π D²/4) ρ, which is 0 (ρ near the smallest double); reynolds_infinite, the Reynolds
+      number per unit flow, 4ρ/(πDμ), is not finite, so Re_D is infinite at every flow but zero,
+      where fluids cannot evaluate eq. (4) (its log10(3700/Re_D) of 0).
+
+    An entered C used as entered never calls fluids, so only the first applies to it. None of
+    these depends on the bore or the C, so a goal seek over either (decision 21) meets none at a
+    bound that the case does not meet. Like the pipe whose A ν underflows
+    (``builder._unrepresentable_pipes``), the solver could only fail on such a plate. The
+    builder adds two tests that do depend on the bore, monotonically (``iso_at_re_lo`` and
+    ``iso_at_meter_re_lo``, ``builder._orifice_fluid_refusal``)."""
+    beta = d_bore / d_pipe
+    values = (density, viscosity)
+    if not math.pi * d_pipe * viscosity > 0.0:
+        return Refusal("fluid", beta, fluid="reynolds_denominator", fluid_values=values)
+    if entered is not None and taps not in ("corner", "flange"):
+        return None
+    if not 0.25 * math.pi * d_pipe * d_pipe * density > 0.0:
+        return Refusal("fluid", beta, fluid="area_density", fluid_values=values)
+    if not math.isfinite(4.0 * density / (math.pi * d_pipe * viscosity)):
+        return Refusal("fluid", beta, fluid="reynolds_infinite", fluid_values=values)
     return None

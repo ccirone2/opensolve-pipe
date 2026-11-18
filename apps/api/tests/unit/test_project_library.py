@@ -478,7 +478,7 @@ def test_the_twin_equality_holds_for_the_api_responses_too() -> None:
             for fit in link["fittings"]:
                 fit.pop("source")
     assert library == twin
-    assert library["solvedState"]["methodVersion"] == "1.6.0"
+    assert library["solvedState"]["methodVersion"] == "1.6.1"
 
 
 def test_a_system_curve_through_library_elements_is_the_twins() -> None:
@@ -696,13 +696,15 @@ def _fitting_on(entry: str, quantity: int) -> dict[str, Any]:
             "loss coefficient that is not a finite floating-point number; the solver cannot "
             "represent this fitting",
         ),
-        (  # each K/(2 g A²) = 1.02e308 is finite, their sum is not
-            [_fitting_on("RS1", 1), _fitting_on("RS1", 1)],
-            {"kind": "K", "value": 1.0e7, "referenceDiameter": 3.0e-76},
+        (  # each K/(2 g A²) = 7.88e307 is finite (and within the slope bound, half the
+            # largest double, test_nonfinite_laws), their sum is not; two fittings of 1.02e308,
+            # this case before that bound, are now each refused by it
+            [_fitting_on("RS1", 1), _fitting_on("RS1", 1), _fitting_on("RS1", 1)],
+            {"kind": "K", "value": 1.0e7, "referenceDiameter": 3.2e-76},
             "connection 'L1': its fittings' loss coefficients n K/(2 g A²) are each finite, but "
             "their sum for flow from → to is not a finite floating-point number (on project "
             "library resistance entries: fitting 1 (custom) on 'RS1', fitting 2 (custom) on "
-            "'RS1'); the solver cannot represent this connection",
+            "'RS1', fitting 3 (custom) on 'RS1'); the solver cannot represent this connection",
         ),
     ],
     ids=["K-quantity", "Cv-quantity", "sum"],

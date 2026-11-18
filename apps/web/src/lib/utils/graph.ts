@@ -46,12 +46,101 @@ export interface NextOption extends Neighbor {
 /** Flow role of a port: 'in' receives flow, 'out' delivers it, 'any' either (boundaries). */
 export type PortRole = 'in' | 'out' | 'any';
 
+/**
+ * Lookups of a stored project, built once per project version (each when first needed): the store
+ * deep-freezes every project it keeps, so they never go stale. A project that is not frozen
+ * throughout (an edit's draft) is searched as before. Each answers as the search does (the first
+ * element with an id, in project order), so a large network's checks and tables take one pass, not
+ * one per row.
+ */
+class GraphIndex {
+	readonly #project: Project;
+	#components: Map<string, Component> | undefined;
+	#connections: Map<string, PipeConnection> | undefined;
+	#attached: Map<string, PipeConnection[]> | undefined;
+	#atPort: Map<string, PipeConnection> | undefined;
+
+	constructor(project: Project) {
+		this.#project = project;
+	}
+
+	/** Components by id. */
+	get components(): Map<string, Component> {
+		return (this.#components ??= firstById(this.#project.components));
+	}
+
+	/** Connections by id. */
+	get connections(): Map<string, PipeConnection> {
+		return (this.#connections ??= firstById(this.#project.connections));
+	}
+
+	/** The connections attached to each component, in project order (connectionsOf). */
+	get attached(): Map<string, PipeConnection[]> {
+		if (!this.#attached) {
+			const attached = new Map<string, PipeConnection[]>();
+			for (const connection of this.#project.connections) {
+				const { fromComponentId: from, toComponentId: to } = connection;
+				for (const id of from === to ? [from] : [from, to]) {
+					const list = attached.get(id);
+					if (list) list.push(connection);
+					else attached.set(id, [connection]);
+				}
+			}
+			this.#attached = attached;
+		}
+		return this.#attached;
+	}
+
+	/** The first connection at each port (connectionAtPort), by portKey(). */
+	get atPort(): Map<string, PipeConnection> {
+		if (!this.#atPort) {
+			const atPort = new Map<string, PipeConnection>();
+			for (const connection of this.#project.connections) {
+				for (const key of [
+					portKey(connection.fromComponentId, connection.fromPortId),
+					portKey(connection.toComponentId, connection.toPortId)
+				]) {
+					if (!atPort.has(key)) atPort.set(key, connection);
+				}
+			}
+			this.#atPort = atPort;
+		}
+		return this.#atPort;
+	}
+}
+
+function firstById<T extends { id: string }>(list: readonly T[]): Map<string, T> {
+	const byId = new Map<string, T>();
+	for (const element of list) if (!byId.has(element.id)) byId.set(element.id, element);
+	return byId;
+}
+
+const indexes = new WeakMap<Project, GraphIndex>();
+
+const portKey = (componentId: string, portId: string) => `${componentId}\u0000${portId}`;
+
+/** The index of a project frozen throughout (null for one that may still change). */
+function indexOf(project: Project): GraphIndex | null {
+	const known = indexes.get(project);
+	if (known) return known;
+	const { components, connections } = project;
+	if (!Object.isFrozen(project) || !Object.isFrozen(components) || !Object.isFrozen(connections)) {
+		return null;
+	}
+	if (!components.every(Object.isFrozen) || !connections.every(Object.isFrozen)) return null;
+	const index = new GraphIndex(project);
+	indexes.set(project, index);
+	return index;
+}
+
 export function componentById(project: Project, id: string): Component | undefined {
-	return project.components.find((c) => c.id === id);
+	const index = indexOf(project);
+	return index ? index.components.get(id) : project.components.find((c) => c.id === id);
 }
 
 export function connectionById(project: Project, id: string): PipeConnection | undefined {
-	return project.connections.find((c) => c.id === id);
+	const index = indexOf(project);
+	return index ? index.connections.get(id) : project.connections.find((c) => c.id === id);
 }
 
 export function portById(component: Component, portId: string): Port | undefined {
@@ -64,6 +153,8 @@ export function connectionAtPort(
 	componentId: string,
 	portId: string
 ): PipeConnection | undefined {
+	const index = indexOf(project);
+	if (index) return index.atPort.get(portKey(componentId, portId));
 	return project.connections.find(
 		(c) =>
 			(c.fromComponentId === componentId && c.fromPortId === portId) ||
@@ -76,7 +167,7 @@ export function freePorts(project: Project, componentId: string): Port[] {
 	const component = componentById(project, componentId);
 	if (!component) return [];
 	const used = new Set<string>();
-	for (const c of project.connections) {
+	for (const c of connectionsOf(project, componentId)) {
 		if (c.fromComponentId === componentId) used.add(c.fromPortId);
 		if (c.toComponentId === componentId) used.add(c.toPortId);
 	}
@@ -85,6 +176,8 @@ export function freePorts(project: Project, componentId: string): Port[] {
 
 /** Connections attached to a component (each once). */
 export function connectionsOf(project: Project, componentId: string): PipeConnection[] {
+	const index = indexOf(project);
+	if (index) return [...(index.attached.get(componentId) ?? [])];
 	return project.connections.filter(
 		(c) => c.fromComponentId === componentId || c.toComponentId === componentId
 	);
@@ -108,7 +201,7 @@ export function neighbors(project: Project, componentId: string): Neighbor[] {
 	const component = componentById(project, componentId);
 	if (!component) return [];
 	const byPort = new Map<string, Neighbor>();
-	for (const connection of project.connections) {
+	for (const connection of connectionsOf(project, componentId)) {
 		if (connection.fromComponentId === componentId && !byPort.has(connection.fromPortId)) {
 			byPort.set(connection.fromPortId, {
 				connection,

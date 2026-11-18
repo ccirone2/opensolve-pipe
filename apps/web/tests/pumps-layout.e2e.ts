@@ -8881,6 +8881,66 @@ const squashText = (text: string) => text.replace(/\s+/g, ' ').trim();
 /** `text` as a regular expression that matches it literally. */
 const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** A Compare card's case names' least width on a phone, 6 rem (review LO-OWNER-3). */
+const COMPARE_NAME_MIN = 96;
+
+/**
+ * Compare cases' narrow cards (CompareView.svelte, below 28 rem): each card's title, its case
+ * names' widths, the lines of its values that end outside the card's content box, the note
+ * values split from their units (`[data-value-unit]` on two lines) and those spans' words.
+ */
+function readCompareCards(region: Element) {
+	const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+	return [...region.querySelectorAll('section.card')]
+		.filter((card) => card.getBoundingClientRect().width > 1)
+		.map((card) => {
+			const box = card.getBoundingClientRect();
+			const css = getComputedStyle(card);
+			const inner = {
+				left: box.left + parseFloat(css.paddingLeft),
+				right: box.right - parseFloat(css.paddingRight)
+			};
+			const outside: string[] = [];
+			for (const dd of card.querySelectorAll('dd')) {
+				// Its words as drawn: a visually hidden span's text keeps its width past its 1 px box.
+				const walker = document.createTreeWalker(dd, NodeFilter.SHOW_TEXT);
+				const rects: DOMRect[] = [];
+				for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+					if (!n.textContent?.trim() || n.parentElement?.closest('.sr-only')) continue;
+					const range = document.createRange();
+					range.selectNodeContents(n);
+					rects.push(...range.getClientRects());
+				}
+				for (const r of rects) {
+					if (r.width > 0.5 && (r.left < inner.left - 0.5 || r.right > inner.right + 0.5))
+						outside.push(
+							`"${squash(dd.textContent).slice(0, 50)}" ${r.left.toFixed(1)} to ${r.right.toFixed(1)}`
+						);
+				}
+			}
+			const units = [...card.querySelectorAll<HTMLElement>('dd [data-value-unit]')];
+			return {
+				title: squash(card.querySelector('h4')?.textContent),
+				names: [...card.querySelectorAll('dt')].map((dt) => ({
+					text: squash(dt.textContent).slice(0, 40),
+					width: dt.getBoundingClientRect().width
+				})),
+				outside,
+				split: units
+					.filter((u) => {
+						const range = document.createRange();
+						range.selectNodeContents(u);
+						const tops = new Set(
+							[...range.getClientRects()].filter((r) => r.width > 0.5).map((r) => Math.round(r.top))
+						);
+						return tops.size > 1;
+					})
+					.map((u) => `"${squash(u.textContent)}"`),
+				units: units.map((u) => squash(u.textContent))
+			};
+		});
+}
+
 test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) says so, with its NPSH margin, wherever the ratio stands in for the margin: Results per pump, the Summary, Build’s result strip and Compare, on screen and axe clean at 1280, 390 and 320 px; one with NPSHr 0 that does not cavitate gives its NPSH margin in the same places (pumps-nits.md item 4, §11 leftover L1; the API review’s A1/B1)', async ({
 	page,
 	isMobile
@@ -9065,6 +9125,41 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 			`Compare's scenario's words on screen, ${where}`
 		).toBe(true);
 		await expect(cells.nth(1)).not.toContainText('physically invalid:');
+		// Review LO-OWNER-3: on a phone each card's case names keep 6 rem at least, its values' notes
+		// wrapping beside them, a note's value never apart from its unit. Before, the value column
+		// took its note's one line and left a name 10.7 px at 320 (one letter a line), in this card
+		// and in "Network · Highest velocity" with its pipe's ends under the value (as on main).
+		if (size.width < 1024) {
+			const cards = await compare.evaluate(readCompareCards);
+			console.log(`Compare's cards, ${where}: ${JSON.stringify(cards)}`);
+			expect.soft(cards.length, `Compare's cards, ${where}`).toBeGreaterThan(1);
+			expect
+				.soft(
+					cards.flatMap((c) =>
+						c.names
+							.filter((n) => n.width < COMPARE_NAME_MIN - 0.5)
+							.map((n) => `"${c.title}": "${n.text}" ${n.width.toFixed(1)} px`)
+					),
+					`case names narrower than ${COMPARE_NAME_MIN} px in Compare's cards, ${where}`
+				)
+				.toEqual([]);
+			expect
+				.soft(
+					cards.flatMap((c) => c.outside.map((o) => `"${c.title}": ${o}`)),
+					`values outside their card, ${where}`
+				)
+				.toEqual([]);
+			expect
+				.soft(
+					cards.flatMap((c) => c.split.map((s) => `"${c.title}": ${s}`)),
+					`a note's value apart from its unit, ${where}`
+				)
+				.toEqual([]);
+			const ratio = cards.find((c) => c.title === 'Transfer pump · NPSH margin ratio');
+			expect
+				.soft(ratio?.units, `the ratio card's notes' values and units, ${where}`)
+				.toEqual([cue.replace(/^.* (\S+ m)$/, '$1'), note.replace(/^.* (\S+ m)$/, '$1')]);
+		}
 		// Compare has no results view row, so no Results pane scroller of its own: the page's width.
 		expect(
 			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -9177,6 +9272,41 @@ function cavitatingOneOff(): Project {
 	return project;
 }
 
+/**
+ * Each red octagon in a table's cells (a physically invalid value's mark, §5.2, or an invalid
+ * flag's in a flag line), against the first line of the words after it in its line (a note's
+ * line, `data-cell-note`, or else its cell): its vertical middle and that line's box, the sr-only
+ * "physically invalid:" left out (review LO-CODE-1, LO-OWNER-2).
+ */
+function readOctagons(table: Element) {
+	return [...table.querySelectorAll('td svg.text-red-700')].map((svg) => {
+		const icon = svg.getBoundingClientRect();
+		const td = svg.closest('td')!;
+		const line = svg.closest('[data-cell-note]') ?? td;
+		const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+		let first: DOMRect | null = null;
+		let words = '';
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			if (!n.textContent?.trim() || n.parentElement?.closest('.sr-only')) continue;
+			// After the octagon in the document's order.
+			if (!(svg.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+			const range = document.createRange();
+			range.selectNodeContents(n);
+			first = [...range.getClientRects()].find((r) => r.width > 0.5) ?? null;
+			break;
+		}
+		const shown = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+		for (let n = shown.nextNode(); n; n = shown.nextNode())
+			if (!n.parentElement?.closest('.sr-only')) words += n.textContent ?? '';
+		return {
+			cell: `${td.dataset.label ?? 'a flag line'}: ${words.replace(/\s+/g, ' ').trim().slice(0, 50)}`,
+			middle: (icon.top + icon.bottom) / 2,
+			line: first ? { top: first.top, bottom: first.bottom } : null,
+			lines: Math.round(line.getBoundingClientRect().height / 20)
+		};
+	});
+}
+
 test('Leftover L3: from 640 px a cavitation cue wraps in its numeric cell at an 11 rem floor, the column CUE_COLUMN wide, in Results per pump, the group table and Running combinations; on a phone its value never starts a line without its unit; the trace’s grid untouched (pumps-nits.md §11, leftover L3)', async ({
 	page,
 	isMobile
@@ -9191,6 +9321,35 @@ test('Leftover L3: from 640 px a cavitation cue wraps in its numeric cell at an 
 	const sizes = isMobile
 		? [viewport, { width: 360, height: 740 }, { width: 320, height: 640 }]
 		: [viewport];
+	const combinations = card.getByRole('table', { name: 'Running combinations', exact: true });
+	/**
+	 * Review LO-CODE-1, LO-OWNER-2: each octagon in Running combinations beside the first line of
+	 * its words, the cue's three marked notes among them (at e684679 the cue's wrap centred the
+	 * octagon on the two-line block, between its lines, from 640 px; on a phone between them or by
+	 * the second of three since slice E); and every marked value on its row's line (EXT-2).
+	 */
+	const octagonsChecked = async (where: string) => {
+		const octagons = await combinations.evaluate(readOctagons);
+		console.log(`octagons, ${where}: ${JSON.stringify(octagons)}`);
+		const notes = octagons.filter((o) => o.cell.startsWith('NPSH margin ratio:'));
+		expect.soft(notes.length, `the cue's marked notes, ${where}`).toBe(3);
+		expect
+			.soft(
+				octagons
+					.filter((o) => !o.line || o.middle < o.line.top - 1 || o.middle > o.line.bottom + 1)
+					.map(
+						(o) =>
+							`"${o.cell}": the octagon's middle ${o.middle.toFixed(1)}, its first line ${o.line ? `${o.line.top.toFixed(1)} to ${o.line.bottom.toFixed(1)}` : 'none'}`
+					),
+				`octagons off their words' first line, ${where}`
+			)
+			.toEqual([]);
+		const read = await page.evaluate(readCombinationsTable);
+		expect.soft(read?.offLine, `Running combinations' values off their line, ${where}`).toEqual([]);
+		expect
+			.soft(read?.pillsOffLine, `Running combinations' status pills off their line, ${where}`)
+			.toEqual([]);
+	};
 	for (const size of sizes) {
 		await page.setViewportSize(size);
 		await settle(page, 1000);
@@ -9199,12 +9358,15 @@ test('Leftover L3: from 640 px a cavitation cue wraps in its numeric cell at an 
 		// Pump PB keeps a ratio.
 		await noteCellsChecked(tab.getByRole('table', { name: 'Results per pump' }), 1, where);
 		await noteCellsChecked(card.locator('[data-group-table] table'), 1, where);
-		await noteCellsChecked(
-			card.getByRole('table', { name: 'Running combinations', exact: true }),
-			3,
-			where
-		);
+		await noteCellsChecked(combinations, 3, where);
+		await octagonsChecked(where);
 		await noSidewaysScroll(page, where);
+	}
+	if (!isMobile) {
+		// 1024 px: the cue wraps as at 1280 (the octagon's fault measured there too).
+		await page.setViewportSize({ width: 1024, height: 768 });
+		await settle(page, 1000);
+		await octagonsChecked(`the cavitating one-off at ${sizeOf(page)}`);
 	}
 	await page.setViewportSize(viewport);
 	if (isMobile) return;
@@ -10693,7 +10855,7 @@ for (const [view, setUp] of [
 	['lineups', lineups],
 	['the condenser', condenser]
 ] as const) {
-	test(`Group C, the charts as drawn, ${view}: the pump chart's canvas legend whole inside its canvas and its box, the other cases two entries on a phone, each swatch its curve's dashes; "BEP" at the first of four clear places; at 1280×800, 390×844, 360×740 and 320×640 (pumps-nits.md §11.5, leftovers L16 to L18, L20)`, async ({
+	test(`Group C, the charts as drawn, ${view}: the pump chart's canvas legend whole inside its canvas and its box, the other cases two entries on a phone, each swatch its curve's dashes; "BEP" drawn clear of every mark, ring, label and leader; at 1280×800, 390×844, 360×740 and 320×640 (pumps-nits.md §11.5, leftovers L16 to L18, L20)`, async ({
 		page,
 		isMobile
 	}) => {
@@ -10741,8 +10903,11 @@ for (const [view, setUp] of [
 					.map((e) => `"${e.text}" ${JSON.stringify(e.dash)} for ${JSON.stringify(e.own)}`),
 				`swatches without their curve's dashes, ${where}`
 			).toEqual([]);
-			// L20: each short label ("BEP", "70 %") at the first of four places clear of every mark
-			// but its own point's, every point label and leader (data-point-labels' `short`).
+			// L20: each short label drawn ("BEP", "70 %") clear of every mark but its own point's,
+			// every point label and leader (data-point-labels' `short`). Which of its four places it
+			// takes, the first clear, is pinned in pump-chart-config.test.ts, each place drawn there
+			// (review LO-CODE-3; the title said "at the first of four clear places", which this test
+			// does not read).
 			const short = placed?.short ?? [];
 			console.log(
 				`${where}: short labels ${JSON.stringify(short.map((l) => `${l.text}${l.drawn ? '' : ' (left out)'}`))}`
@@ -10788,3 +10953,135 @@ for (const [view, setUp] of [
 		}
 	});
 }
+
+// ---- Review LO-OWNER-1, LO-CODE-2: the pump chart's stacked titles apart ------------------------
+
+/** Adjacent stacked y-axis titles of the pump chart at least this far apart, more than a space. */
+const TITLES_APART = 8;
+
+/**
+ * Record the rotated y-axis titles each canvas in the document draws (the pump chart's "Head (…)",
+ * "η (…)", "P (…)" and "NPSH (…)"): each one's extent along its axis in CSS px from the canvas's
+ * top, from its text's measured width, its alignment and the transform it is written under,
+ * kept from the canvas's last clearing, so the last drawing's (review LO-OWNER-1).
+ */
+async function recordAxisTitles(page: Page) {
+	await page.addInitScript(() => {
+		type Title = { text: string; top: number; bottom: number };
+		const w = window as unknown as { __axisTitles: WeakMap<HTMLCanvasElement, Title[]> };
+		w.__axisTitles = new WeakMap();
+		const proto = CanvasRenderingContext2D.prototype;
+		const clear = proto.clearRect;
+		proto.clearRect = function (
+			this: CanvasRenderingContext2D,
+			x: number,
+			y: number,
+			width: number,
+			height: number
+		) {
+			if (this.canvas.isConnected) w.__axisTitles.set(this.canvas, []);
+			return clear.call(this, x, y, width, height);
+		};
+		const fill = proto.fillText;
+		proto.fillText = function (
+			this: CanvasRenderingContext2D,
+			text: string,
+			x: number,
+			y: number,
+			maxWidth?: number
+		) {
+			const m = this.getTransform();
+			// A quarter turn: a and d zero, b ±1 times the pixel ratio.
+			if (
+				this.canvas.isConnected &&
+				Math.abs(m.a) < 1e-6 &&
+				Math.abs(m.b) > 1e-6 &&
+				/^(Head|η|P|NPSH) \(/.test(String(text))
+			) {
+				const width = this.measureText(String(text)).width;
+				const align = this.textAlign;
+				const start =
+					align === 'center' ? x - width / 2 : align === 'right' || align === 'end' ? x - width : x;
+				const scale = Math.hypot(m.a, m.b);
+				const ys = [start, start + width].map((u) => (m.b * u + m.d * y + m.f) / scale);
+				const list = w.__axisTitles.get(this.canvas) ?? [];
+				list.push({ text: String(text), top: Math.min(...ys), bottom: Math.max(...ys) });
+				w.__axisTitles.set(this.canvas, list);
+			}
+			return maxWidth === undefined
+				? fill.call(this, text, x, y)
+				: fill.call(this, text, x, y, maxWidth);
+		};
+	});
+}
+
+/** The pump chart's rotated titles as its canvas last drew them, from the top down. */
+function readPumpAxisTitles() {
+	const squash = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+	const panel = document.querySelector('[role="tabpanel"][id$="-panel-pumps"]')!;
+	const figure = [...panel.querySelectorAll('figure')].find((f) =>
+		squash(f.querySelector(':scope > figcaption')?.textContent).startsWith('Pump and system curves')
+	);
+	const canvas = figure?.querySelector('canvas');
+	const w = window as unknown as {
+		__axisTitles: WeakMap<HTMLCanvasElement, { text: string; top: number; bottom: number }[]>;
+	};
+	return canvas ? [...(w.__axisTitles.get(canvas) ?? [])].sort((a, b) => a.top - b.top) : [];
+}
+
+// Review LO-OWNER-1, LO-CODE-2: each stacked panel's title is drawn centred on its panel, and a
+// panel is its stack weight's share of the plot, so where a phone's canvas legend took the plot's
+// height a lower panel was shorter than its title: in the one-off with its design checks, "P (kW)"
+// ran into "NPSH (m)" at 320×640 with the other cases' system curves on (−1.6 px; −9.3 on main),
+// 2.4 px apart at 390 and 360 (and at 320 with them off), less than a space.
+test('Review LO-OWNER-1: the pump chart’s stacked axis titles 8 px apart or more, in the one-off with its design checks, the other cases’ system curves off and on, at 1280×800, 390×844, 360×740 and 320×640', async ({
+	page,
+	isMobile
+}) => {
+	test.setTimeout(300_000);
+	await recordAxisTitles(page);
+	await oneOff(page);
+	const tab = await pumpsTab(page);
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	const sizes = groupCSizes(page, isMobile);
+	for (const curves of [false, true]) {
+		if (curves) {
+			await figure
+				.getByRole('checkbox', { name: "Also show the other cases' system curves" })
+				.check();
+			await settle(page);
+		}
+		for (const size of sizes) {
+			await page.setViewportSize(size);
+			await settle(page, 1500);
+			const where = `the one-off, the other cases' system curves ${curves ? 'on' : 'off'}, at ${sizeOf(page)}`;
+			await expect
+				.poll(async () => (await page.evaluate(readPumpAxisTitles)).length, { timeout: 30_000 })
+				.toBe(4);
+			const titles = await page.evaluate(readPumpAxisTitles);
+			const gaps = titles.slice(1).map((t, i) => ({
+				between: `${titles[i]!.text} / ${t.text}`,
+				gap: t.top - titles[i]!.bottom
+			}));
+			console.log(
+				`${where}: ${titles.map((t) => `"${t.text}" ${t.top.toFixed(1)} to ${t.bottom.toFixed(1)}`).join(', ')}; gaps ${gaps.map((g) => `${g.between} ${g.gap.toFixed(1)}`).join(', ')}`
+			);
+			expect
+				.soft(
+					titles.map((t) => t.text.replace(/ \(.*$/, '')),
+					`the four titles from the top, ${where}`
+				)
+				.toEqual(['Head', 'η', 'P', 'NPSH']);
+			expect
+				.soft(
+					gaps
+						// To 0.1 px, as measured: the floor's 8 px is met exactly where it binds.
+						.filter((g) => Math.round(g.gap * 10) / 10 < TITLES_APART)
+						.map((g) => `${g.between} ${g.gap.toFixed(1)} px`),
+					`titles less than ${TITLES_APART} px apart, ${where}`
+				)
+				.toEqual([]);
+		}
+		await page.setViewportSize(sizes[0]!);
+	}
+});

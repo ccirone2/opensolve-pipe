@@ -3506,8 +3506,15 @@ describe('one pump off (slice 4d), now the Add cases block under Each pump off (
 			const marked = markedCells.includes(cell);
 			expect(shapes(cell)).toEqual(marked ? [OCTAGON] : []);
 			if (marked) {
-				expect(cell.querySelector('svg')).toHaveClass('text-red-700');
+				const icon = cell.querySelector('svg');
+				expect(icon).toHaveClass('text-red-700');
 				expect(within(cell).getByText('physically invalid:')).toHaveClass('sr-only');
+				// Beside its words' first line however they wrap: in a box one line tall at their top,
+				// out of the baseline alignment the words keep (review LO-CODE-1, LO-OWNER-2; it was
+				// `self-center` on the whole flex line, between a wrapped note's lines).
+				expect(icon).not.toHaveClass('self-center');
+				expect(icon!.parentElement).toHaveClass('flex', 'h-lh', 'items-center', 'self-start');
+				expect(icon!.parentElement!.parentElement).toHaveClass('inline-flex', 'items-baseline');
 			}
 		}
 	});

@@ -808,6 +808,14 @@ describe('the pump chart’s other cases on the canvas (nit 5, slice 5b)', () =>
 		// The operating point's dot (r 6 and half its 2 px border: 7) at (230, 190): 223 to 237
 		// across, 183 to 197 down, over the box's right end; above left is free.
 		expect(draw({ x: 600, y: 600 }, { x: 230, y: 190 })).toEqual([{ text: 'BEP', x: 176, y: 194 }]);
+		// The third and fourth places, each where every place before it is taken (review LO-CODE-3:
+		// no test drew a label there, so deleting either place, or swapping them, passed). Case 2's
+		// ring at (215, 180) over above right and the duty's dot at (185, 185) (178 to 192 each way)
+		// over above left: below right, 206 to 224 across, 206 to 217 down.
+		expect(draw({ x: 215, y: 180 }, { x: 185, y: 185 })).toEqual([{ text: 'BEP', x: 206, y: 217 }]);
+		// The ring at (215, 200) (204 to 226 across, 189 to 211 down) over above right and below
+		// right, the dot over above left: below left, 176 to 194 across, 206 to 217 down.
+		expect(draw({ x: 215, y: 200 }, { x: 185, y: 185 })).toEqual([{ text: 'BEP', x: 176, y: 217 }]);
 		// Case 2's ring on the cross itself (189 to 211 each way) lies over all four places: above
 		// right, above left, below right (206 to 224, 206 to 217) and below left. Left out.
 		expect(draw({ x: 200, y: 200 })).toEqual([]);
@@ -1265,6 +1273,125 @@ describe('the pump chart’s stacked y axes as wide as their titles and ticks ne
 		for (const scale of Object.values(plain.options!.scales!))
 			delete (scale as { afterFit?: unknown }).afterFit;
 		expect(axes(454, own).map((a) => a.width)).toEqual(axes(454, plain).map((a) => a.width));
+	});
+});
+
+// Review LO-OWNER-1, LO-CODE-2 (pumps-nits.md §11.8): Chart.js gives each stacked panel its stack
+// weight's share of the plot (3, 1, 1 and 1.3) and draws each panel's rotated title centred on it,
+// so where a phone's canvas legend took the plot's height a lower panel was shorter than its title
+// and the titles ran together ("NPSH (m)P (kW)" at 320×640 in the one-off with its checks). Each
+// panel is now at least its title's length and 8 px tall, the height taken from the panels with
+// room in proportion to their weights; where every title fits, Chart.js's layout is kept.
+describe('the pump chart’s stacked panels at least as tall as their titles (review LO-OWNER-1)', () => {
+	const full = pumpResult({
+		efficiencyCurve: [
+			{ flow: 0.004, efficiency: 0.4 },
+			{ flow: 0.012, efficiency: 0.7 },
+			{ flow: 0.02, efficiency: 0.6 }
+		],
+		powerCurve: [
+			{ flow: 0.004, shaftPower: 2000 },
+			{ flow: 0.02, shaftPower: 5000 }
+		],
+		npshrCurve: [
+			{ flow: 0, npshr: 1 },
+			{ flow: 0.03, npshr: 4 }
+		]
+	});
+	const data = pumpChartData(full, SI_UNITS, [0, 0.03], systemCurveResponse());
+	/** Five other cases, each with its system curve: on a phone two legend entries more. */
+	const others = otherCasesData(
+		[1, 2, 3, 4, 5].map((n) => ({
+			key: `S${n}`,
+			name: `Case ${n}`,
+			result: pumpResult({ operatingFlow: 0.01 + 0.001 * n, operatingHead: 28 - n }),
+			stale: false,
+			system: systemCurveResponse()
+		})),
+		SI_UNITS,
+		[0, 0.03],
+		1,
+		null,
+		{ S1: 1, S2: 2, S3: 3, S4: 4, S5: 5 }
+	);
+	const configOf = (phone: boolean) =>
+		pumpChartConfig(data, others, {
+			speedText: '100 % speed',
+			legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+			format: (v) => formatNumber(v, 4),
+			panels: ['head', 'efficiency', 'power', 'npsh'],
+			compactLabels: phone
+		});
+	/**
+	 * Each stacked panel from the top, Chart.js laying the chart out at `width` × `height`: its
+	 * extent and its title's, the title centred on it and 6 px a character long (laidOut).
+	 */
+	const panelsOf = (width: number, height: number, phone: boolean) => {
+		const chart = laidOut(configOf(phone), width, height);
+		try {
+			return ['y', 'yEfficiency', 'yPower', 'yNpsh']
+				.map((id) => {
+					const s = chart.scales[id]!;
+					const title = String((s.options as unknown as { title: { text: string } }).title.text);
+					const middle = (s.top + s.bottom) / 2;
+					return {
+						id,
+						top: s.top,
+						bottom: s.bottom,
+						// Each scale configured for its extent: its pixels span it.
+						ends: [s.getPixelForDecimal(1), s.getPixelForDecimal(0)],
+						title: { top: middle - title.length * 3, bottom: middle + title.length * 3 }
+					};
+				})
+				.sort((a, b) => a.top - b.top);
+		} finally {
+			chart.destroy();
+		}
+	};
+	const gaps = (panels: ReturnType<typeof panelsOf>) =>
+		panels.slice(1).map((p, i) => p.title.top - panels[i]!.title.bottom);
+
+	// A 270 px phone canvas 420 px high: its legend and axis leave the four panels 213 px, the
+	// one-off's 250 px at 320×640 scaled to these titles (6 px a character). By the weights alone
+	// "η (%)" and "P (kW)" are 0.8 px apart and "P (kW)" and "NPSH (m)" overlap by 3.1 px.
+	it('keeps adjacent titles 8 px apart on a phone canvas whose legend takes the plot’s height', () => {
+		const panels = panelsOf(270, 420, true);
+		expect(gaps(panels).filter((gap) => gap < 8 - 1e-9)).toEqual([]);
+		// Still one stack: each panel from the one above's foot, the plot's height unchanged.
+		for (let i = 1; i < panels.length; i++)
+			expect(panels[i]!.top).toBeCloseTo(panels[i - 1]!.bottom, 9);
+		for (const p of panels) {
+			expect(p.ends[0]).toBeCloseTo(p.top, 9);
+			expect(p.ends[1]).toBeCloseTo(p.bottom, 9);
+		}
+	});
+
+	// Too short for every title and its 8 px (a 270 × 330 canvas, 123 px for the panels): each panel
+	// its floor's share, so each title overruns its panel by the same share of its floor.
+	it('gives each panel its title’s share where not every title fits', () => {
+		const panels = panelsOf(270, 330, true);
+		const floors = ['Head (m)', 'η (%)', 'P (kW)', 'NPSH (m)'].map((t) => t.length * 6 + 8);
+		const heights = panels.map((p) => p.bottom - p.top);
+		const total = heights.reduce((s, h) => s + h, 0);
+		expect(total).toBeLessThan(floors.reduce((s, f) => s + f, 0));
+		const sum = floors.reduce((s, f) => s + f, 0);
+		heights.forEach((h, i) => expect(h).toBeCloseTo((total * floors[i]!) / sum, 9));
+		for (let i = 1; i < panels.length; i++)
+			expect(panels[i]!.top).toBeCloseTo(panels[i - 1]!.bottom, 9);
+	});
+
+	it('leaves Chart.js’s layout as it is where every title fits (454 × 624)', () => {
+		const panels = panelsOf(454, 624, false);
+		for (const gap of gaps(panels)) expect(gap).toBeGreaterThanOrEqual(8);
+		// The weights' shares, 3 : 1 : 1 : 1.3, untouched.
+		const heights = panels.map((p) => p.bottom - p.top);
+		const total = heights.reduce((s, h) => s + h, 0);
+		expect(heights.map((h) => (h / total) * 6.3)).toEqual([
+			expect.closeTo(3, 9),
+			expect.closeTo(1, 9),
+			expect.closeTo(1, 9),
+			expect.closeTo(1.3, 9)
+		]);
 	});
 });
 

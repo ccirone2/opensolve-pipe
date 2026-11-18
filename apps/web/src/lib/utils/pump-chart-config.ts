@@ -805,6 +805,98 @@ function fitStackedAxis(axis: unknown): void {
 	scale.width = Math.max(scale.width, band + tick + 2 * (ticks.padding ?? 3) + widest);
 }
 
+/** Each stacked panel at least its rotated title's length and this much tall (px; LO-OWNER-1). */
+export const PANEL_TITLE_CLEAR = 8;
+
+/**
+ * The stacked panels' heights from the top down, `total` shared by their `weights` with each at
+ * least its `floor` (water-filling): a panel whose share is under its floor takes its floor, and
+ * the rest share what is left by their weights, until none is under. Where the floors together
+ * pass `total`, each panel takes its floor's share of it, so each title overruns its panel by the
+ * same share (review LO-OWNER-1).
+ */
+export function panelHeights(
+	total: number,
+	weights: readonly number[],
+	floors: readonly number[]
+): number[] {
+	const fixed = new Set<number>();
+	for (;;) {
+		const free = weights.reduce((sum, w, i) => (fixed.has(i) ? sum : sum + w), 0);
+		const left = total - [...fixed].reduce((sum, i) => sum + floors[i]!, 0);
+		const heights = weights.map((w, i) => (fixed.has(i) ? floors[i]! : (left * w) / free));
+		const short = heights.flatMap((h, i) => (!fixed.has(i) && h < floors[i]! ? [i] : []));
+		if (!short.length) return heights;
+		for (const i of short) fixed.add(i);
+		if (fixed.size === weights.length) {
+			const sum = floors.reduce((s, f) => s + f, 0);
+			return floors.map((f) => (total * f) / sum);
+		}
+	}
+}
+
+/** A stacked y scale as `panelFloors` reads and moves it: the parts of Chart.js's Scale, public. */
+interface StackedScale {
+	top: number;
+	bottom: number;
+	height: number;
+	isHorizontal(): boolean;
+	configure(): void;
+	options: {
+		display?: boolean | 'auto';
+		stack?: string;
+		stackWeight?: number;
+		title: { display?: boolean; text?: string | string[]; font?: FontSpec };
+	};
+}
+
+/**
+ * The pump chart's stacked panels each at least as tall as its rotated title and
+ * PANEL_TITLE_CLEAR (review LO-OWNER-1, LO-CODE-2; docs/proposals/pumps-nits.md §11.8). Chart.js
+ * gives each panel its stack weight's share of the plot (PANEL_AXES) and draws its title centred
+ * on it, so where a phone's canvas legend took the plot's height a lower panel was shorter than its
+ * title and the titles ran together: in the one-off with its design checks "P (kW)" and "NPSH (m)"
+ * overlapped by 1.6 px at 320×640 with the other cases' system curves on (9.3 px on main 21230f0),
+ * and were 2.4 px apart at 390 and 360, less than a word's space. After Chart.js's layout the
+ * panels are stacked again from the plot's top with panelHeights (each title measured in its own
+ * font with the chart's context), and each scale configured for its new extent, so its ticks,
+ * grid, title and data follow it; Chart.js reads the boxes' extents only when it draws. Where every
+ * panel is as tall as its floor, nothing moves.
+ */
+const panelFloors: Plugin = {
+	id: 'panelFloors',
+	afterLayout(chart) {
+		const panels = (Object.values(chart.scales) as unknown as StackedScale[])
+			.filter((s) => s.options.stack && s.options.display !== false && !s.isHorizontal())
+			.sort((a, b) => a.top - b.top);
+		if (panels.length < 2) return;
+		const { ctx } = chart;
+		const font = ctx.font;
+		const floors = panels.map((s) => {
+			const { title } = s.options;
+			if (!title.display) return PANEL_TITLE_CLEAR;
+			ctx.font = canvasFont(title.font, chart.options.font as FontSpec | undefined).string;
+			const lines = Array.isArray(title.text) ? title.text : [title.text ?? ''];
+			return Math.max(0, ...lines.map((l) => ctx.measureText(String(l)).width)) + PANEL_TITLE_CLEAR;
+		});
+		ctx.font = font;
+		if (panels.every((s, i) => s.height >= floors[i]! - 1e-6)) return;
+		const heights = panelHeights(
+			panels.reduce((sum, s) => sum + s.height, 0),
+			panels.map((s) => s.options.stackWeight ?? 1),
+			floors
+		);
+		let top = panels[0]!.top;
+		panels.forEach((s, i) => {
+			s.top = top;
+			s.height = heights[i]!;
+			s.bottom = top + heights[i]!;
+			top = s.bottom;
+			s.configure();
+		});
+	}
+};
+
 /**
  * The panels below the head (proposal pump-chart.md §4.2), for those shown: efficiency and shaft
  * power in the pump's colour (they are the pump's curves), NPSHr in the pump's colour and NPSHa
@@ -1307,7 +1399,14 @@ export function pumpChartConfig(
 	const listed = (i: number) => !(datasets[i] as { duty?: boolean } | undefined)?.duty;
 	return {
 		type: 'line',
-		plugins: [checkMarks, caseLabels, lines, ...(onlegend ? [legendReport(onlegend)] : [])],
+		// panelFloors moves the panels after the layout, before anything is drawn on them.
+		plugins: [
+			panelFloors,
+			checkMarks,
+			caseLabels,
+			lines,
+			...(onlegend ? [legendReport(onlegend)] : [])
+		],
 		data: { datasets },
 		options: {
 			animation: false,

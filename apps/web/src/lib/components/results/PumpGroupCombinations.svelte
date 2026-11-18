@@ -208,15 +208,22 @@
 {/snippet}
 
 <!-- A value, marked where the pump is physically invalid in that case (§5.2): the red octagon
-	before it, then "physically invalid:" for a screen reader. On the value's baseline by its text,
-	the octagon centred beside it, so a phone's line keeps one baseline (§15 item 157; EXT-2). A
-	note line's words (`note`) are one flex item, their trailing value and unit one span that never
-	wraps (noteParts; docs/proposals/pumps-nits.md §11, leftover L3). -->
+	before it, then "physically invalid:" for a screen reader. On the value's baseline by its text
+	alone, so a phone's line keeps one baseline (§15 item 157; EXT-2). The octagon is centred in a
+	box one line tall at the top of the words (`self-start`: out of the baseline alignment), so it
+	stands beside their first line however they wrap, as CaseNamed's box does (ui-guide: a mark at
+	the sentence's first line). Centred on the whole flex line, it sat between a two-line note's
+	lines from 640 px once the cue wrapped (leftover L3), and on a phone between them or by the
+	second of three (review LO-CODE-1, LO-OWNER-2; docs/proposals/pumps-nits.md §11.8). A note line's
+	words (`note`) are one flex item, their trailing value and unit one span that never wraps
+	(noteParts; §11, leftover L3). -->
 {#snippet marked(text: string, mark: boolean, note = false)}
 	{#if mark}<span class="inline-flex items-baseline gap-1"
-			><FlagIcon severity="invalid" class="size-3.5 self-center" /><span class="sr-only"
-				>physically invalid:</span
-			>{#if note}<span class="min-w-0">{@render noteWords(text)}</span>{:else}{text}{/if}</span
+			><span class="flex h-lh shrink-0 items-center self-start"
+				><FlagIcon severity="invalid" class="size-3.5" /></span
+			><span class="sr-only">physically invalid:</span>{#if note}<span class="min-w-0"
+					>{@render noteWords(text)}</span
+				>{:else}{text}{/if}</span
 		>{:else if note}{@render noteWords(text)}{:else}{text}{/if}
 {/snippet}
 

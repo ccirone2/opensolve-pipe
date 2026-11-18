@@ -391,6 +391,13 @@
 	 */
 	let tail = $state(0);
 	/**
+	 * The canvas held at a height by the last chip pressed with its pane at the top (leftover L9,
+	 * below): `px` its height then, `rem` the natural height (chartHeightRem) it was held against.
+	 * Applied only while the natural height is still that one, and never below it, so a new solve's
+	 * panels, a change across 640 px or a pump change (`{#key}` in PumpsView) drops it.
+	 */
+	let hold = $state<{ px: number; rem: number } | null>(null);
+	/**
 	 * A chip stays under the pointer (ui-guide, a press moves nothing under the pointer; the owner's
 	 * nits of 2026-11-12, item 1, docs/proposals/pumps-nits.md): a panel's chip makes the canvas
 	 * above it a panel taller or shorter (chartHeightRem), so once the press is drawn its scroller
@@ -403,12 +410,19 @@
 	 * What the scroll could not take is held as room at the figure's foot, where the note was, and
 	 * scrolled; each press sets it anew (an "on" press gives the note back), and it goes as it is
 	 * scrolled out of sight below the pane (the effect below). Where even that cannot hold the chip
-	 * (a pane too short to scroll) none is held. At the pane's top nothing can (the tall-window
-	 * limit, pumps-nits.md item 1).
+	 * (a pane too short to scroll) none is held.
+	 *
+	 * At the pane's top the scroll cannot take it either (docs/proposals/pumps-nits.md §11.4,
+	 * leftover L9): pressed off, a panel's chip lifts by its panel, and on a tall window the pane
+	 * cannot scroll up by all of it (112 px at its top, 52 at a scroll of 60 on the transfer example
+	 * at 1280×1400). What the scroll could not take is held as canvas height (`hold`, never below the
+	 * natural height), the panels shown sharing it, so the row stays where it was pressed; the next
+	 * press lets it go, and a press back on finds the canvas the height it then needs.
 	 */
 	async function pressChip(button: HTMLButtonElement, key: ChipKey) {
 		const before = button.getBoundingClientRect().top;
 		tail = 0;
+		hold = null;
 		togglePanel(key);
 		await tick();
 		if (!button.isConnected) return;
@@ -419,6 +433,13 @@
 			return button.getBoundingClientRect().top - before;
 		};
 		const left = follow();
+		if (left < -0.5 && canvasArea) {
+			// Lifted, the pane at its top: the canvas keeps the height that holds the row.
+			hold = { px: Math.ceil(canvasArea.getBoundingClientRect().height - left), rem: heightRem };
+			await tick();
+			if (button.isConnected) follow();
+			return;
+		}
 		if (left <= 0.5) return;
 		tail = Math.ceil(left);
 		await tick();
@@ -445,6 +466,17 @@
 	});
 	const phone = mediaQuery('(max-width: 639px)');
 	const heightRem = $derived(chartHeightRem(shown, phone.current));
+	/** The root font's size in px: a rem as the canvas's height is drawn. */
+	const rootFontPx = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+	/**
+	 * The canvas's height: the panels' natural one (rem), or a chip's hold where it still applies,
+	 * never below the natural height in px (leftover L9).
+	 */
+	const canvasHeight = $derived(
+		hold && hold.rem === heightRem
+			? `${Math.max(hold.px, heightRem * rootFontPx())}px`
+			: `${heightRem}rem`
+	);
 
 	/** The flow the readout reads (display unit): the slider's or the pointer's, else the duty. */
 	let cursor = $state<number | null>(null);
@@ -905,7 +937,7 @@
 		<div
 			bind:this={canvasArea}
 			class="relative w-full"
-			style:height="{heightRem}rem"
+			style:height={canvasHeight}
 			role="img"
 			aria-label={summary}
 			aria-busy={loading}

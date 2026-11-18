@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SystemCurveState } from '$lib/state/project.svelte';
 import {
 	caseTags,
+	chartHeightRem,
 	chartNotes,
 	pumpChartData,
 	type OtherCaseInput,
@@ -232,6 +233,80 @@ describe('pump chart', () => {
 		expect(
 			screen.getByText(/extrapolated beyond its data \(0 to 30 L\/s at this speed\)/)
 		).toBeInTheDocument();
+	});
+
+	// docs/proposals/pumps-nits.md §11.4, leftover L9 (critique CR-ENG-6): a chip pressed off with
+	// its pane at the top, which cannot scroll up by the panel, holds the canvas at the height that
+	// keeps the row where it was pressed; the hold is held against the natural height it was made
+	// at, so a new solve that adds panels drops it and the canvas is never below its natural height.
+	it('holds the canvas’s height where a chip pressed off at the pane’s top would lift its row, and drops the hold when the panels change (pumps-nits.md §11.4, leftover L9; critique CR-ENG-6)', async () => {
+		withCanvas();
+		// The pane that scrolls, at its top: it cannot scroll above it.
+		const pane = document.createElement('div');
+		pane.style.overflowY = 'auto';
+		document.body.append(pane);
+		sizeBox(pane, { clientHeight: 600, scrollHeight: 4000 });
+		let scrolled = 0;
+		Object.defineProperty(pane, 'scrollTop', {
+			configurable: true,
+			get: () => scrolled,
+			set: (v: number) => (scrolled = Math.max(0, v))
+		});
+		const efficiencyCurve = [
+			{ flow: 0.004, efficiency: 0.4 },
+			{ flow: 0.012, efficiency: 0.7 },
+			{ flow: 0.02, efficiency: 0.6 }
+		];
+		const props = { name: 'P', prefs: SI_UNITS, system: READY };
+		const view = render(PumpChart, {
+			target: pane,
+			props: { ...props, result: pumpResult({ efficiencyCurve }) }
+		});
+		await vi.waitFor(() => expect(charts.length).toBeGreaterThan(0));
+		const figure = screen.getByRole('figure');
+		const area = figure.querySelector<HTMLElement>('[role="img"]')!;
+		// The canvas as a browser lays it out: its height in px (16 px a rem).
+		const px = () => {
+			const h = area.style.height;
+			return h.endsWith('rem') ? parseFloat(h) * 16 : parseFloat(h);
+		};
+		area.getBoundingClientRect = () => ({ height: px() }) as DOMRect;
+		const chip = within(figure).getByRole('button', { name: 'Efficiency' });
+		// The Show row under the canvas, 100 px down the pane: lower by the canvas's height, higher
+		// by the pane's scroll.
+		chip.getBoundingClientRect = () => ({ top: 100 + px() - scrolled }) as DOMRect;
+		expect(area.style.height).toBe(`${chartHeightRem(['head', 'efficiency'], false)}rem`);
+		const pressed = chip.getBoundingClientRect().top;
+		await fireEvent.click(chip);
+		await vi.waitFor(() => expect(chip).toHaveAttribute('aria-pressed', 'false'));
+		// The panel gone, the pane at its top: the canvas held at its height before the press, the
+		// row where it was pressed.
+		await vi.waitFor(() =>
+			expect(chip.getBoundingClientRect().top, 'the row where it was pressed').toBe(pressed)
+		);
+		expect(scrolled).toBe(0);
+		expect(area.style.height).toBe(`${chartHeightRem(['head', 'efficiency'], false) * 16}px`);
+		// A new solve gives the pump shaft power and NPSHr curves: two more panels, a taller natural
+		// height than the height held. The hold is dropped: the canvas its natural height, in rem.
+		await view.rerender({
+			...props,
+			result: pumpResult({
+				efficiencyCurve,
+				powerCurve: [
+					{ flow: 0.004, shaftPower: 2000 },
+					{ flow: 0.02, shaftPower: 5000 }
+				],
+				npshrCurve: [
+					{ flow: 0, npshr: 1 },
+					{ flow: 0.015, npshr: 2 },
+					{ flow: 0.03, npshr: 4 }
+				]
+			})
+		});
+		expect(area.style.height).toBe(`${chartHeightRem(['head', 'power', 'npsh'], false)}rem`);
+		expect(px()).toBeGreaterThan(chartHeightRem(['head', 'efficiency'], false) * 16);
+		view.unmount();
+		pane.remove();
 	});
 
 	it('shows the data table on request', async () => {

@@ -7952,6 +7952,106 @@ test('Nits item 1, the pane at its end: no press of a Show chip moves a chip, it
 	}
 });
 
+/** The Results pane's scroller's scroll, in px (scrollPane's scroller). */
+async function paneScrollTop(page: Page): Promise<number | null> {
+	return page.evaluate(() => {
+		const pane = document.querySelector('section[aria-label="Results"]')!;
+		const row = pane.querySelector('[role="tablist"][aria-label="Results view"]')!;
+		for (let e = row.parentElement; e && e !== pane; e = e.parentElement) {
+			if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) return e.scrollTop;
+		}
+		return null;
+	});
+}
+
+test('Nits item 1, the pane at its top on a tall window: no press of a Show chip moves a chip, its row or the slider under it, the canvas holding what the pane cannot scroll by, at 1280×1400 (pumps-nits.md §11.4, leftover L9)', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(
+		isMobile,
+		'Desktop only, as the pane-at-its-end test (review PUMPS-NITS-B1): a phone’s window is never taller than the pane needs to scroll by a panel'
+	);
+	test.setTimeout(300_000);
+	const soft = expect.configure({ soft: true });
+	// The transfer example on a tall window, where the pane at its top cannot scroll up by a panel:
+	// on 21230f0 Efficiency off lifted the Show row 112 px at the pane's top and 52 px at a scroll
+	// of 60 (design B's measure; the tall-window limit of pumps-nits.md §4.5).
+	await page.setViewportSize({ width: 1280, height: 1400 });
+	await page.goto('/');
+	await open(page, pumpTransferExample());
+	await solveConverged(page);
+	const figure = await pumpFigure(page);
+	await settle(page, 1000);
+	const group = figure.getByRole('group', { name: 'Show' });
+	const chips = group.getByRole('button');
+	await expect(chips).toHaveText(['Efficiency', 'Shaft power', 'NPSH']);
+	const canvas = figure.locator('[role="img"]');
+	const readCanvas = () =>
+		canvas.evaluate((el) => ({
+			height: el.getBoundingClientRect().height,
+			style: (el as HTMLElement).style.height
+		}));
+	// Every panel shown: the canvas's natural height (chartHeightRem), in rem.
+	const natural = await readCanvas();
+	expect(natural.style).toMatch(/rem$/);
+	const pressAt = async (i: number, where: string, by: 'pointer' | 'key' = 'pointer') => {
+		const chip = chips.nth(i);
+		const was = await chip.getAttribute('aria-pressed');
+		const r = (await chip.boundingBox())!;
+		const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+		const before = await group.evaluate(readChips, point);
+		const what = `${before.chips[i]!.name} pressed ${was === 'true' ? 'off' : 'on'} by ${by} ${where}`;
+		expect(before.hit, `the chip at the point pressed, ${what}`).toBe(before.chips[i]!.name);
+		if (by === 'key') {
+			await chip.focus();
+			await page.keyboard.press('Space');
+		} else await page.mouse.click(point.x, point.y);
+		await expect(chip).toHaveAttribute('aria-pressed', was === 'true' ? 'false' : 'true');
+		await page.waitForTimeout(300);
+		const after = await group.evaluate(readChips, point);
+		console.log(
+			`${what}: tops ${before.chips.map((c) => c.top).join(' ')} -> ${after.chips.map((c) => c.top).join(' ')}; the pane at ${await paneScrollTop(page)}; the canvas ${JSON.stringify(await readCanvas())}`
+		);
+		soft(after.row, `the row's height, ${what}`).toBe(before.row);
+		for (const [k, c] of after.chips.entries()) {
+			const b = before.chips[k]!;
+			soft(Math.abs(c.top - b.top), `${c.name}'s top, ${what}`).toBeLessThanOrEqual(0.5);
+			soft(Math.abs(c.left - b.left), `${c.name}'s left, ${what}`).toBeLessThanOrEqual(0.5);
+			soft(Math.abs(c.width - b.width), `${c.name}'s width, ${what}`).toBeLessThanOrEqual(0.5);
+		}
+		soft(Math.abs(after.slider! - before.slider!), `the slider's top, ${what}`).toBeLessThanOrEqual(
+			0.5
+		);
+		soft(after.hit, `the chip still under the point pressed, ${what}`).toBe(before.chips[i]!.name);
+	};
+	/** Pressed back on: the canvas at its natural height again, the pane at its scroll again. */
+	const restored = async (start: number, where: string) => {
+		const now = await readCanvas();
+		soft(
+			Math.abs(now.height - natural.height),
+			`the canvas's height, ${where}`
+		).toBeLessThanOrEqual(0.5);
+		soft(now.style, `the canvas's height its natural one, in rem, ${where}`).toBe(natural.style);
+		soft(await paneScrollTop(page), `the pane's scroll, ${where}`).toBe(start);
+	};
+	for (const start of [0, 60]) {
+		// Each panel's chip off and on, the pane at `start` before each off press; then Shaft power
+		// off and on from the keyboard.
+		for (const i of [0, 1, 2]) {
+			await scrollPane(page, { to: start });
+			expect(await paneScrollTop(page), 'the pane scrolled to the start').toBe(start);
+			await pressAt(i, `(the pane at ${start})`);
+			await pressAt(i, `(the pane at ${start}, pressed back on)`);
+			await restored(start, `chip ${i} back on, the pane at ${start}`);
+		}
+		await scrollPane(page, { to: start });
+		await pressAt(1, `(the pane at ${start})`, 'key');
+		await pressAt(1, `(the pane at ${start}, pressed back on)`, 'key');
+		await restored(start, `Shaft power back on by key, the pane at ${start}`);
+	}
+});
+
 /**
  * A chart's Show data table as read for a press (pumps-nits.md item 1): its box, Download image's
  * box beside it, the height of their row, and whether the button is at the point pressed.

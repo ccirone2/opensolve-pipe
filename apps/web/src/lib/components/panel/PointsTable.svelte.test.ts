@@ -95,4 +95,41 @@ describe('PointsTable paste', () => {
 			)
 		).toBeInTheDocument();
 	});
+
+	it('takes a pasted table as the curve from that point on, saying which points it removed', async () => {
+		const onchange = table([
+			{ x: 0, y: 40 * ft },
+			{ x: 10 * gpm, y: 39 * ft },
+			{ x: 20 * gpm, y: 38 * ft },
+			{ x: 30 * gpm, y: 37 * ft },
+			{ x: 40 * gpm, y: 30 * ft }
+		]);
+		await paste(screen.getByRole('textbox', { name: 'Point 1 flow (gpm)' }), '0\t30\n2\t28\n5\t24');
+		const rows = onchange.mock.calls[0]?.[0] as Point[];
+		expect(rows).toHaveLength(3);
+		close(rows[2]?.x, 5 * gpm);
+		close(rows[2]?.y, 24 * ft);
+		expect(
+			screen.getByText(
+				'Pasted 3 points: flow in gpm, head in ft. The points after them (points 4 and 5) were removed.'
+			)
+		).toBeInTheDocument();
+	});
+
+	it('says which points keep their values when a column is shorter than the curve', async () => {
+		const onchange = table([
+			{ x: 0, y: 40 * ft },
+			{ x: 10 * gpm, y: 39 * ft },
+			{ x: 20 * gpm, y: 38 * ft },
+			{ x: 30 * gpm, y: 37 * ft }
+		]);
+		await paste(screen.getByRole('textbox', { name: 'Point 1 head (ft)' }), '41\n40\n');
+		const rows = onchange.mock.calls[0]?.[0] as Point[];
+		expect(rows).toHaveLength(4);
+		close(rows[1]?.y, 40 * ft);
+		close(rows[3]?.y, 37 * ft);
+		expect(
+			screen.getByText('Pasted 2 values of head in ft. Points 3 and 4 keep their earlier head.')
+		).toBeInTheDocument();
+	});
 });

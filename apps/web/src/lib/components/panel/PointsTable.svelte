@@ -122,15 +122,33 @@
 			};
 			return true;
 		}
-		const next = draft.map((r) => ({ ...r }));
+		// Both columns: the pasted table is the curve from that point on, so no point of the old
+		// curve is left after it unseen. One column: the other column stays, and points after the
+		// pasted ones keep their values in this one, as the note says (usability-entry.md §10).
+		const both = read.columns.length === 2;
+		const next = draft.slice(0, both ? index : draft.length).map((r) => ({ ...r }));
 		while (next.length < end) next.push({ x: null, y: null });
 		read.rows.forEach((row, k) => {
 			const target = next[index + k];
 			if (!target) return;
 			for (const column of read.columns) target[column] = row[column] ?? null;
 		});
+		const after = draft.length - end;
+		const range = (from: number, to: number) =>
+			from === to
+				? `point ${from}`
+				: to === from + 1
+					? `points ${from} and ${to}`
+					: `points ${from} to ${to}`;
+		const column = (read.columns[0] === 'x' ? x : y).label.toLowerCase();
+		const left =
+			after <= 0
+				? ''
+				: both
+					? ` The ${after === 1 ? 'point' : 'points'} after them (${range(end + 1, draft.length)}) ${after === 1 ? 'was' : 'were'} removed.`
+					: ` ${range(end + 1, draft.length).replace(/^p/, 'P')} ${after === 1 ? 'keeps its' : 'keep their'} earlier ${column}.`;
 		update(next);
-		pasted = { text: read.summary, error: false };
+		pasted = { text: read.summary + left, error: false };
 		return true;
 	}
 </script>

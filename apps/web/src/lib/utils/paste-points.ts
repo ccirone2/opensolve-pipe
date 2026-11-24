@@ -1,16 +1,19 @@
 /**
  * Points pasted into a curve's table (proposal usability-entry.md §6): a column, or a table of
  * two columns, copied from a spreadsheet (cells separated by tabs) or a data sheet (by spaces),
- * with or without a heading row. A heading's unit ("Flow (gpm)", "Head [m]") says what the column
- * is in; without one the column is in the table's display unit. Every cell is read as a typed
- * value is (units.ts parseQuantity) and checked against the schema's bounds: one cell that does
- * not read, or one out of bounds, and nothing is pasted, with the row and column named. Nothing
- * is guessed: a comma could be a decimal mark, a thousands separator or a list, so it is refused.
+ * with or without a heading row. A heading's units ("Flow (gpm)", "Head [m]", or "gpm ft") say
+ * what the columns are in, one unit per column; without any the columns are in the table's
+ * display units. Every cell is read as a typed value is (units.ts parseQuantity) and checked
+ * against the schema's bounds. Nothing is guessed: a heading whose units cannot be put one to a
+ * column, a cell that does not read, a value out of bounds, a comma (a decimal mark, a thousands
+ * separator or a list) or a third column not named as point numbers, and nothing is pasted, with
+ * the reason, the row and the column named.
  */
 import { boundsProblem, type Bounds } from './schema-bounds';
 import {
 	displayUnit,
 	formatValue,
+	namesUnit,
 	parseQuantity,
 	unitLabel,
 	type LabelOptions,
@@ -41,15 +44,41 @@ export interface PastedPoints {
 
 export type PasteResult = PastedPoints | { ok: false; error: string };
 
-/** The unit a heading names in brackets at its end: "Flow (gpm)" → "gpm". */
-function headingUnit(heading: string): string | null {
-	const match = /[([]\s*([^()[\]]+?)\s*[)\]]\s*$/.exec(heading);
-	return match?.[1] ?? null;
-}
-
-/** True when a cell reads as a number, with or without a unit (not a heading). */
+/** True when a cell starts as a number does, with or without a unit. */
 function startsWithNumber(cell: string): boolean {
 	return /^[+-]?(\d|\.\d)/.test(cell.trim());
+}
+
+/**
+ * A heading row: no cell starts as a number and the row has a letter. A first row with a cell
+ * such as "-" or "—" and no letter is data, refused as such, never dropped as a heading.
+ */
+function isHeading(cells: readonly string[]): boolean {
+	return cells.length > 0 && !cells.some(startsWithNumber) && /\p{L}/u.test(cells.join(' '));
+}
+
+/** A heading cell that names a column of point numbers. */
+function namesPointNumbers(cell: string | undefined): boolean {
+	return /^(#|no\.?|n|nr\.?|pt\.?|point|points)$/i.test((cell ?? '').trim());
+}
+
+/**
+ * The units a heading names, one per column, or null for none: each in brackets ("Flow (gpm)
+ * Head [ft]"), else each word that names a unit ("gpm ft"). A heading that names units in a
+ * number other than the columns' is refused: which unit goes with which column is not known.
+ */
+function headingUnits(line: string, width: number): (string | null)[] | { error: string } {
+	const bracketed = [...line.matchAll(/[([]\s*([^()[\]]+?)\s*[)\]]/g)].map((m) => m[1] ?? '');
+	const named = bracketed.length
+		? bracketed
+		: line.split(/[\t;]+|\s+/).filter((word) => namesUnit(word));
+	if (named.length === 0) return Array.from({ length: width }, () => null);
+	if (named.length !== width) {
+		return {
+			error: `Nothing was pasted: the heading “${line.trim()}” names ${named.length} ${named.length === 1 ? 'unit' : 'units'} (${named.join(', ')}) for ${width} ${width === 1 ? 'column' : 'columns'}. Put each column's unit in brackets after its name, “Flow (gpm)”, or leave the heading out.`
+		};
+	}
+	return named;
 }
 
 /** Rows of cells: by tabs when the text has any, else by runs of spaces or semicolons. */
@@ -96,45 +125,55 @@ export function readPastedPoints(
 	let rows = parsed;
 
 	const first = rows[0] ?? [];
-	const heading = first.length > 0 && !first.every(startsWithNumber) ? first : null;
+	const heading = isHeading(first) ? first : null;
+	const headingLine = heading ? (lines.split('\n')[0] ?? '') : null;
 	if (heading) rows = rows.slice(1);
 	if (rows.length === 0) return { ok: false, error: 'Nothing was pasted: no rows of numbers.' };
 
 	let width = Math.max(...rows.map((row) => row.length));
-	let headings = heading;
-	// A table of three columns whose first numbers the points: the point numbers are dropped.
-	if (width === 3 && rows.every((row) => row.length === 3) && numbered(rows)) {
+	let line = headingLine;
+	// Three columns whose first is headed as point numbers ("#", "No.", "Point") and numbers
+	// them 1, 2, 3…: the point numbers are dropped. Without such a heading a first column
+	// counting 1, 2, 3 may be flows, so three columns are refused.
+	if (
+		width === 3 &&
+		heading &&
+		namesPointNumbers(heading[0]) &&
+		rows.every((row) => row.length === 3) &&
+		numbered(rows)
+	) {
 		rows = rows.map((row) => row.slice(1));
-		headings = headings ? headings.slice(-2) : null;
+		line = (headingLine ?? '').replace(/^\s*\S+/, '');
 		width = 2;
 	}
 	if (width > 2) {
 		return {
 			ok: false,
-			error: `Nothing was pasted: this table takes one column or two (${x.label}, ${y.label}), and ${width} were copied.`
+			error: `Nothing was pasted: this table takes one column or two (${x.label}, ${y.label}), and ${width} were copied. Copy the two columns alone, or with a first column of point numbers headed “#”.`
 		};
 	}
 	if (rows.some((row) => row.length !== width)) {
 		return { ok: false, error: 'Nothing was pasted: some rows have fewer cells than others.' };
 	}
 	const columns: PasteColumn[] = width === 2 ? ['x', 'y'] : [at];
-	if (headings && headings.length !== width) headings = null;
 
 	// Each column's unit: its heading's, else the table's.
+	const named = line === null ? null : headingUnits(line, width);
+	if (named && !Array.isArray(named)) return { ok: false, error: named.error };
 	const columnUnits: UnitId[] = [];
 	for (const [c, column] of columns.entries()) {
 		const axis = column === 'x' ? x : y;
 		const shown = displayUnit(axis.category, units);
-		const named = headings?.[c] ? headingUnit(headings[c]) : null;
-		if (!named) {
+		const unit = named?.[c] ?? null;
+		if (unit === null) {
 			columnUnits.push(shown);
 			continue;
 		}
-		const read = parseQuantity(`1 ${named}`, axis.category, shown, axis.options);
+		const read = parseQuantity(`1 ${unit}`, axis.category, shown, axis.options);
 		if (!read?.ok) {
 			return {
 				ok: false,
-				error: `Nothing was pasted: the heading “${headings?.[c] ?? ''}”: ${read ? read.error : ''}`
+				error: `Nothing was pasted: the ${axis.label.toLowerCase()} column's unit in the heading, “${unit}”: ${read ? read.error : ''}`
 			};
 		}
 		columnUnits.push(read.unit);

@@ -349,7 +349,7 @@ const SPELLINGS: Readonly<Partial<Record<UnitId, readonly string[]>>> = {
 	W: ['W'],
 	kW: ['kW'],
 	hp: ['hp', 'bhp'],
-	mm2: ['mm2', 'mm²', 'sq mm'],
+	mm2: ['sq mm'],
 	m2: ['m2', 'm²', 'sq m'],
 	in2: ['in2', 'in²', 'sq in', 'sq. in.'],
 	'%': ['%'],
@@ -363,6 +363,7 @@ const SPELLINGS: Readonly<Partial<Record<UnitId, readonly string[]>>> = {
 const EXACT_SPELLINGS: Readonly<Partial<Record<UnitId, readonly string[]>>> = {
 	m: ['m'],
 	mm: ['mm'],
+	mm2: ['mm2', 'mm²'],
 	MPa: ['MPa'],
 	'mPa.s': ['mPa.s', 'mPa·s', 'mPa s'],
 	K: ['K']
@@ -413,6 +414,21 @@ function splitPressureMark(spelling: string): { base: string; mark: 'g' | 'a' } 
 	if (!match?.[1]) return null;
 	const mark = (match[2] ?? match[3] ?? '').toLowerCase();
 	return mark === 'g' || mark === 'a' ? { base: match[1], mark } : null;
+}
+
+const ALL_UNITS = Object.keys(UNITS).filter((u): u is UnitId => u !== '' && isUnitId(u));
+
+/**
+ * True when a word names a unit, of any quantity, with or without a pressure's mark ("gpm",
+ * "psig", "kPa(a)"), or would but for its capitals ("MPA"): a heading's words are read for units
+ * with it (paste-points.ts), so that a unit is never passed over unread.
+ */
+export function namesUnit(word: string): boolean {
+	const spelling = word.trim();
+	if (spelling === '') return false;
+	if (unitOf(spelling, ALL_UNITS) !== null || caseOf(spelling, ALL_UNITS) !== null) return true;
+	const marked = splitPressureMark(spelling);
+	return !!marked && unitOf(marked.base, CATEGORY_UNITS.pressure) !== null;
 }
 
 /** The accepted units of a category, as their labels: "m, mm, ft or in". */

@@ -267,7 +267,23 @@ describe('NumberField', () => {
 		expect(screen.getByText('Converted from 25 m.')).toBeInTheDocument();
 		expect(input).toHaveAccessibleDescription('Converted from 25 m.');
 
-		// The next keystroke, or another stored value, drops the note.
+		// The project's units changing to the unit typed drops the note: nothing is converted now.
+		await rerender({ units: SI_UNITS });
+		expect(input).toHaveValue('25');
+		expect(screen.queryByText(/Converted from/)).toBeNull();
+		await rerender({ units: IMPERIAL_UNITS });
+
+		// Another stored value (an undo) drops the note.
+		await type(input, '10 m');
+		await rerender({ value: 10 });
+		expect(screen.getByText('Converted from 10 m.')).toBeInTheDocument();
+		await rerender({ value: 3.048 });
+		expect(screen.queryByText(/Converted from/)).toBeNull();
+
+		// So does the next keystroke.
+		await type(input, '10 m');
+		await rerender({ value: 10 });
+		expect(screen.getByText('Converted from 10 m.')).toBeInTheDocument();
 		await fireEvent.input(input, { target: { value: '8' } });
 		expect(screen.queryByText(/Converted from/)).toBeNull();
 	});

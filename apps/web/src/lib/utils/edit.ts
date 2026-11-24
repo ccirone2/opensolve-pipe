@@ -249,7 +249,7 @@ export function addComponentAtPort(
  * Insert a component into a connection (from A to B), splitting it in two:
  * A → component inlet keeps the connection's id and all its piping; component outlet → B is a
  * new connection with one short pipe (shortPipeLength: 1 m, or 3 ft) of the same material, schedule
- * and size as the last pipe segment, so the insertion adds 1 m of pipe for the user to adjust.
+ * and size as the last pipe segment, so the insertion adds a short pipe for the user to adjust.
  * Exit fittings describe the discharge at the B end, so they move to the new half.
  *
  * The split follows the expected flow, so the component faces it: a connection drawn against

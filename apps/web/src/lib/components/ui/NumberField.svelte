@@ -138,10 +138,15 @@
 		void shown;
 		return null;
 	});
-	/** The text a stored value was converted from (typed in another unit), while it is stored. */
-	let converted = $state<{ si: number; text: string } | null>(null);
+	/**
+	 * The text a stored value was converted from (typed in another unit), while that value is
+	 * stored and shown in the unit it was converted to (not after the project's units change).
+	 */
+	let converted = $state<{ si: number; text: string; unit: string } | null>(null);
 	const convertedNote = $derived(
-		converted && value === converted.si ? `Converted from ${converted.text}.` : null
+		converted && value === converted.si && unit === converted.unit
+			? `Converted from ${converted.text}.`
+			: null
 	);
 	/** What the field reports: its own problem with the typed text first, else the owner's. */
 	const error = $derived(inputError ?? ownerError);
@@ -195,7 +200,7 @@
 			return;
 		}
 		inputError = null;
-		converted = parsed.converted ? { si, text: trimmed } : null;
+		converted = parsed.converted ? { si, text: trimmed, unit } : null;
 		if (onchange(si) === false) {
 			text = shown;
 			converted = null;

@@ -11,6 +11,7 @@ const gpm = (231 * 0.0254 ** 3) / 60;
 
 const FLOW: PasteAxis = { label: 'Flow', category: 'flow', bounds: { minimum: 0 } };
 const HEAD: PasteAxis = { label: 'Head', category: 'head', bounds: {} };
+const NPSHR: PasteAxis = { label: 'NPSHr', category: 'head', bounds: { minimum: 0 } };
 const EFFICIENCY: PasteAxis = {
 	label: 'Efficiency',
 	category: 'fraction',
@@ -126,7 +127,7 @@ describe('readPastedPoints', () => {
 				readPastedPoints('Flow (psi)\tHead (ft)\n1\t2\n3\t4', 'x', FLOW, HEAD, IMPERIAL_UNITS)
 			)
 		).toBe(
-			"Nothing was pasted: the flow column's unit in the heading, “psi”: “psi” is not a unit this field takes. Enter it in m³/s, m³/h, L/s, L/min or gpm."
+			'Nothing was pasted: the flow column’s unit in the heading, “psi”: “psi” is not a unit this field takes. Enter it in m³/s, m³/h, L/s, L/min or gpm.'
 		);
 	});
 
@@ -175,7 +176,7 @@ describe('readPastedPoints', () => {
 				readPastedPoints('Q [gpm]\tH [ft]\tEff (%)\n0\t150\n300\t130', 'x', FLOW, HEAD, SI_UNITS)
 			)
 		).toBe(
-			"Nothing was pasted: the heading “Q [gpm]\tH [ft]\tEff (%)” names 3 units (gpm, ft, %) for 2 columns. Put each column's unit in brackets after its name, “Flow (gpm)”, or leave the heading out."
+			'Nothing was pasted: the heading names 3 units (gpm, ft, %) for 2 columns. Put each column’s unit in brackets after its name, “Flow (gpm)”, or leave the heading out.'
 		);
 		// "in" is a unit (inches) as well as a word: refused, never read as one or the other.
 		expect(refused(readPastedPoints('Flow in gpm\n0\n100', 'x', FLOW, HEAD, SI_UNITS))).toMatch(
@@ -211,6 +212,157 @@ describe('readPastedPoints', () => {
 	it('says capitals matter in a heading too', () => {
 		expect(refused(readPastedPoints('MM\n1\n2', 'y', FLOW, HEAD, SI_UNITS))).toMatch(
 			/mind the capitals/
+		);
+	});
+	// The second review (usability-entry.md §10 item 5): each of these was misread before.
+	it('refuses an empty cell, never closing the column up; a trailing line break is no row', () => {
+		expect(
+			refused(readPastedPoints('151\r\n\r\n101\r\n81\r\n', 'y', FLOW, HEAD, IMPERIAL_UNITS))
+		).toBe('Nothing was pasted: row 2, head is empty.');
+		expect(refused(readPastedPoints('\r\n100\r\n80', 'y', FLOW, HEAD, IMPERIAL_UNITS))).toBe(
+			'Nothing was pasted: row 1, head is empty.'
+		);
+		expect(
+			refused(readPastedPoints('0\t150\r\n\t\r\n500\t100', 'x', FLOW, HEAD, IMPERIAL_UNITS))
+		).toBe('Nothing was pasted: row 2, flow is empty.');
+		expect(
+			ok(readPastedPoints('150\r\n130\r\n\r\n', 'y', FLOW, HEAD, IMPERIAL_UNITS)).rows
+		).toHaveLength(2);
+		expect(readPastedPoints('300\r\n', 'x', FLOW, HEAD, IMPERIAL_UNITS)).toBeNull();
+	});
+
+	it('refuses a heading word it cannot read, rather than passing it over', () => {
+		for (const heading of [
+			'Flow l/sec',
+			'Flow m3/hour',
+			'Flow MGD',
+			'Flow m^3/h',
+			'Flow Imp gpm',
+			'Q UK gpm'
+		]) {
+			expect(
+				refused(readPastedPoints(`${heading}\n0\n20`, 'x', FLOW, HEAD, IMPERIAL_UNITS)),
+				heading
+			).toMatch(
+				/^Nothing was pasted: the heading has “[^”]+”(, “[^”]+”)*, which this table does not read as a column’s name or a unit it takes\./
+			);
+		}
+		expect(refused(readPastedPoints('Head mWC\n10\n20', 'y', FLOW, HEAD, IMPERIAL_UNITS))).toMatch(
+			/“mWC”/
+		);
+		// A first cell such as "n/a" or "Shutoff" is a heading it cannot read, not one dropped.
+		expect(refused(readPastedPoints('n/a\n2.1\n2.8', 'y', FLOW, NPSHR, SI_UNITS))).toMatch(
+			/“n\/a”/
+		);
+		expect(refused(readPastedPoints('Shutoff\n150\n130', 'y', FLOW, HEAD, SI_UNITS))).toMatch(
+			/“Shutoff”/
+		);
+	});
+
+	it('reads a name and a unit run together, and "US gpm"', () => {
+		const slashed = ok(readPastedPoints('Q/gpm\tH/ft\n0\t150\n500\t80', 'x', FLOW, HEAD, SI_UNITS));
+		close(slashed.rows[1]?.x, 500 * gpm);
+		close(slashed.rows[1]?.y, 80 * ft);
+		const joined = ok(
+			readPastedPoints('flow_gpm\thead_ft\n0\t150\n500\t80', 'x', FLOW, HEAD, SI_UNITS)
+		);
+		close(joined.rows[1]?.x, 500 * gpm);
+		const us = ok(readPastedPoints('Flow US gpm\n0\n500', 'x', FLOW, HEAD, SI_UNITS));
+		close(us.rows[1]?.x, 500 * gpm);
+	});
+
+	it('refuses a heading naming another column, or the columns in the other order', () => {
+		expect(
+			refused(readPastedPoints('Head (ft)\tFlow (gpm)\n150\t0\n80\t500', 'x', FLOW, HEAD, SI_UNITS))
+		).toBe(
+			'Nothing was pasted: the heading names the columns in the other order. This table takes flow, then head.'
+		);
+		expect(
+			refused(
+				readPastedPoints('Flow (gpm)\tEfficiency (%)\n0\t0\n500\t80', 'x', FLOW, HEAD, SI_UNITS)
+			)
+		).toBe('Nothing was pasted: the heading names efficiency, and this paste fills flow and head.');
+		expect(refused(readPastedPoints('Head (ft)\n150\n80', 'x', FLOW, HEAD, SI_UNITS))).toBe(
+			'Nothing was pasted: the heading names head, and this paste fills flow.'
+		);
+	});
+
+	it('refuses rows that could be numbers grouped by a space ("1 000"), unless shown to be a table', () => {
+		for (const text of ['1 000\r\n2 000\r\n3 000', '1 200\n2 400\n3 600', 'Flow\n1 000\n2 000']) {
+			expect(refused(readPastedPoints(text, 'x', FLOW, HEAD, SI_UNITS)), text).toMatch(
+				/each row could be one number with its thousands grouped by a space/
+			);
+		}
+		// A no-break or thin space inside a number keeps it one cell, refused as a number.
+		const nbsp = String.fromCodePoint(0xa0);
+		const thin = String.fromCodePoint(0x202f);
+		expect(refused(readPastedPoints(`1${nbsp}000\n2${thin}000`, 'x', FLOW, HEAD, SI_UNITS))).toBe(
+			`Nothing was pasted: row 1, flow, “1${nbsp}000”: Enter a number, e.g. 12.5 or 1.2e-3.`
+		);
+		// "0 150" cannot be a grouped number (a group never starts with 0): a table.
+		expect(
+			ok(readPastedPoints('0 150\n300 130\n500 100', 'x', FLOW, HEAD, SI_UNITS)).rows
+		).toHaveLength(3);
+		// A heading naming two columns says it is a table.
+		const headed = ok(
+			readPastedPoints('Flow (gpm) Head (ft)\n300 130\n500 100', 'x', FLOW, HEAD, SI_UNITS)
+		);
+		close(headed.rows[0]?.x, 300 * gpm);
+	});
+
+	it('reads semicolons as separators in text without tabs, never inside tabbed cells', () => {
+		const semi = ok(readPastedPoints('0;50\n10;45', 'x', FLOW, HEAD, SI_UNITS));
+		close(semi.rows[1]?.x, 10e-3);
+		expect(semi.rows[1]?.y).toBe(45);
+		expect(ok(readPastedPoints('0 ; 50\n10 ; 45', 'x', FLOW, HEAD, SI_UNITS)).rows[1]?.y).toBe(45);
+		expect(refused(readPastedPoints('0;1\t50\n10\t45', 'x', FLOW, HEAD, SI_UNITS))).toMatch(
+			/row 1, flow, “0;1”/
+		);
+	});
+
+	it('reads a spreadsheet heading cell with a line break in it (in quotes)', () => {
+		const pasted = ok(
+			readPastedPoints(
+				'"Flow\n(gpm)"\t"Head\n(ft)"\r\n0\t100\r\n500\t80\r\n',
+				'x',
+				FLOW,
+				HEAD,
+				SI_UNITS
+			)
+		);
+		close(pasted.rows[1]?.x, 500 * gpm);
+		close(pasted.rows[1]?.y, 80 * ft);
+	});
+
+	it('refuses efficiencies that may be fractions unless a unit says which', () => {
+		expect(refused(readPastedPoints('0.6\n0.75\n0.7', 'y', FLOW, EFFICIENCY, SI_UNITS))).toBe(
+			'Nothing was pasted: every efficiency is 1 % or less, so they may be fractions (0.75 for 75 %). Head the column “Efficiency (%)” if they are percentages, or “Efficiency (-)” if they are fractions.'
+		);
+		const fractions = ok(
+			readPastedPoints('Efficiency (-)\n0.6\n0.75', 'y', FLOW, EFFICIENCY, SI_UNITS)
+		);
+		expect(fractions.rows.map((row) => row.y)).toEqual([0.6, 0.75]);
+		expect(fractions.summary).toBe('Pasted 2 values of efficiency as a fraction.');
+		expect(
+			ok(readPastedPoints('η [-]\n0.6\n0.8', 'y', FLOW, EFFICIENCY, SI_UNITS)).rows[1]?.y
+		).toBe(0.8);
+		const percent = ok(readPastedPoints('Eff (%)\n0.6\n0.75', 'y', FLOW, EFFICIENCY, SI_UNITS));
+		close(percent.rows[1]?.y, 0.0075);
+	});
+
+	it('names the units the cells were in, and refuses a cell against its heading', () => {
+		const cells = ok(readPastedPoints('100 gpm\t50 ft\n200 gpm\t40 ft', 'x', FLOW, HEAD, SI_UNITS));
+		expect(cells.summary).toBe('Pasted 2 points: flow in gpm, head in ft.');
+		const mixed = ok(readPastedPoints('100 gpm\t50\n10\t40', 'x', FLOW, HEAD, SI_UNITS));
+		expect(mixed.summary).toBe('Pasted 2 points: flow in gpm and L/s, head in m.');
+		expect(
+			refused(readPastedPoints('Flow (L/s)\tHead (m)\n100 gpm\t50', 'x', FLOW, HEAD, SI_UNITS))
+		).toBe('Nothing was pasted: row 1, flow, “100 gpm”: the heading says L/s.');
+	});
+
+	it('keeps an acronym as written in its messages', () => {
+		expect(ok(readPastedPoints('NPSHr (m)\n2\n3', 'y', FLOW, NPSHR, SI_UNITS)).summary).toBe(
+			'Pasted 2 values of NPSHr in m.'
 		);
 	});
 });

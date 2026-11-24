@@ -12,6 +12,7 @@ import {
 	isUnitId,
 	parseInput,
 	parseNumber,
+	namesUnit,
 	parseQuantity,
 	NOT_A_NUMBER,
 	PREFERENCE_CATEGORIES,
@@ -408,5 +409,44 @@ describe('typed values with units (proposal usability-entry.md §3)', () => {
 		}
 		// Read as 0 followed by a unit it does not know: refused all the same.
 		expect(error('0x10', 'length', 'ft')).toMatch(/“x10” is not a unit/);
+	});
+
+	// The second review (usability-entry.md §10 item 5).
+	it('reads the typographic inch and foot marks, and the degree sign spaced or not', () => {
+		expect(si('4″', 'diameter', 'mm').si).toBe(4 * inch);
+		expect(si('4”', 'diameter', 'mm').si).toBe(4 * inch);
+		expect(si('5′', 'length', 'm').si).toBe(5 * ft);
+		expect(si('5’', 'length', 'm').si).toBe(5 * ft);
+		expect(si('68 ° F', 'temperature', 'C').si).toBeCloseTo(293.15, 12);
+		expect(si('20 º C', 'temperature', 'F').si).toBeCloseTo(293.15, 12);
+		expect(si('45º', 'angle', 'deg').si).toBe(45);
+	});
+
+	it('names a mark it does not know as a unit, not as a malformed number', () => {
+		expect(error('68 ˚F', 'temperature', 'C')).toMatch(/^“˚F” is not a unit this field takes\./);
+		expect(error('5 (g)', 'pressure', 'kPa', { gauge: true })).toMatch(
+			/^“\(g\)” is not a unit this field takes\./
+		);
+		expect(error('1 000', 'length', 'm')).toBe(NOT_A_NUMBER);
+	});
+
+	it('takes only the field’s own unit when asked', () => {
+		expect(parseQuantity('4 in', 'diameter', 'in', { ownUnitOnly: true })).toMatchObject({
+			ok: true,
+			si: 4 * inch
+		});
+		expect(parseQuantity('100 mm', 'diameter', 'in', { ownUnitOnly: true })).toEqual({
+			ok: false,
+			error: '“mm” is not a unit this field takes. Enter it in in.'
+		});
+	});
+
+	it('names a unit of any quantity, or one in the wrong case, for headings', () => {
+		for (const word of ['gpm', 'ft', 'psig', 'kPa(a)', 'm³/h', '%', 'MM', 'mpa']) {
+			expect(namesUnit(word), word).toBe(true);
+		}
+		for (const word of ['Flow', 'Head', 'MGD', 'l/sec', '', 'Imp']) {
+			expect(namesUnit(word), word).toBe(false);
+		}
 	});
 });

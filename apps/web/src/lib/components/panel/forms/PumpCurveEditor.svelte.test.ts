@@ -63,8 +63,13 @@ describe('PumpCurveEditor', () => {
 			{ flow: 0.01, head: 16 },
 			{ flow: 0.015, head: 11 }
 		]);
-		// The entry table is gone (its focused field reported a change as it went).
-		expect(last!.isConnected).toBe(false);
+		// The entry table is the saved curve's now, the same cells kept (focus and a cell's note
+		// stay; usability-entry.md §10 item 5), under the saved curve's caption.
+		expect(last!.isConnected).toBe(true);
+		expect(last).toHaveValue('11');
+		expect(curve.getByRole('table', { name: 'Head curve (at rated speed)' })).toContainElement(
+			last!
+		);
 		expect(warn.mock.calls.map((c) => String(c[0]))).not.toContainEqual(
 			expect.stringMatching(/derived_inert/)
 		);

@@ -327,8 +327,8 @@ export function parseInput(text: string, unit: UnitId): number | null {
 const SPELLINGS: Readonly<Partial<Record<UnitId, readonly string[]>>> = {
 	m: ['metre', 'metres', 'meter', 'meters'],
 	mm: ['millimetre', 'millimetres', 'millimeter', 'millimeters'],
-	ft: ['ft', 'foot', 'feet', "'"],
-	in: ['in', 'inch', 'inches', '"', 'in.'],
+	ft: ['ft', 'foot', 'feet', "'", '′', '’'],
+	in: ['in', 'inch', 'inches', '"', 'in.', '″', '”'],
 	Pa: ['Pa'],
 	kPa: ['kPa'],
 	bar: ['bar'],
@@ -340,8 +340,8 @@ const SPELLINGS: Readonly<Partial<Record<UnitId, readonly string[]>>> = {
 	gpm: ['gpm', 'usgpm', 'gal/min', 'US gpm'],
 	'm/s': ['m/s'],
 	'ft/s': ['ft/s', 'fps'],
-	C: ['°C', 'C', 'degC', 'deg C', 'º C', 'ºC'],
-	F: ['°F', 'F', 'degF', 'deg F', 'ºF', 'º F'],
+	C: ['°C', '° C', 'C', 'degC', 'deg C', 'ºC', 'º C'],
+	F: ['°F', '° F', 'F', 'degF', 'deg F', 'ºF', 'º F'],
 	'kg/m3': ['kg/m3', 'kg/m³'],
 	'lb/ft3': ['lb/ft3', 'lb/ft³', 'lbm/ft3', 'lbm/ft³', 'pcf'],
 	'Pa.s': ['Pa.s', 'Pa·s', 'Pa s', 'Pas'],
@@ -353,7 +353,7 @@ const SPELLINGS: Readonly<Partial<Record<UnitId, readonly string[]>>> = {
 	m2: ['m2', 'm²', 'sq m'],
 	in2: ['in2', 'in²', 'sq in', 'sq. in.'],
 	'%': ['%'],
-	deg: ['°', 'deg', 'degrees']
+	deg: ['°', 'º', 'deg', 'degrees']
 };
 
 /**
@@ -432,8 +432,12 @@ export function namesUnit(word: string): boolean {
 }
 
 /** The accepted units of a category, as their labels: "m, mm, ft or in". */
-function acceptedList(category: UnitCategory, options: LabelOptions): string {
-	const labels = ACCEPTED[category].map((u) => unitLabel(category, u, options));
+function acceptedList(
+	category: UnitCategory,
+	accepted: readonly UnitId[],
+	options: LabelOptions
+): string {
+	const labels = accepted.map((u) => unitLabel(category, u, options));
 	return labels.length < 2
 		? (labels[0] ?? '')
 		: `${labels.slice(0, -1).join(', ')} or ${labels[labels.length - 1]}`;
@@ -466,7 +470,10 @@ export function parseQuantity(
 	text: string,
 	category: UnitCategory,
 	display: UnitId,
-	options: LabelOptions = {}
+	options: LabelOptions & {
+		/** Take only the field's own unit (a designation in inches, an NPS: not a length). */
+		ownUnitOnly?: boolean;
+	} = {}
 ): QuantityParse | null {
 	const trimmed = text.trim();
 	if (trimmed === '') return null;
@@ -476,16 +483,16 @@ export function parseQuantity(
 	const number = Number(numberText);
 	if (!Number.isFinite(number)) return { ok: false, error: NOT_A_NUMBER };
 	const spelling = (match[2] ?? '').trim();
-	// A unit starts with a letter or a symbol; "1,5", "1.2.3" and "0x10" are malformed numbers.
-	if (spelling !== '' && !/^[\p{L}°º%'"]/u.test(spelling))
-		return { ok: false, error: NOT_A_NUMBER };
+	// What goes on as a number would ("1,5", "1.2.3", "1 000") is a malformed number; any other
+	// mark after the number is read as a unit, and refused as one it does not know.
+	if (/^[\d.,+-]/.test(spelling)) return { ok: false, error: NOT_A_NUMBER };
 	if (spelling === '')
 		return { ok: true, si: toSI(number, display), unit: display, converted: false };
 
-	const accepted = ACCEPTED[category];
+	const accepted = options.ownUnitOnly ? [display] : ACCEPTED[category];
 	const shownLabel = unitLabel(category, display, options);
 	const takes = accepted.length
-		? `Enter it in ${acceptedList(category, options)}.`
+		? `Enter it in ${acceptedList(category, accepted, options)}.`
 		: 'Enter a number without a unit.';
 	let unit = unitOf(spelling, accepted);
 	if (unit === null && category === 'pressure') {

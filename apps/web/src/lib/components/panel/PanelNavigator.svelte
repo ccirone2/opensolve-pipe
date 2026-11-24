@@ -101,7 +101,7 @@
 	>
 		<button
 			type="button"
-			class="btn min-w-0 flex-1 justify-start"
+			class={['btn min-w-0 justify-start', wide.current ? 'flex-auto' : 'flex-1']}
 			disabled={!previous}
 			aria-label={previous ? `Previous: ${previous.name}` : undefined}
 			title={previous ? `Previous: ${previous.name}` : undefined}
@@ -110,7 +110,9 @@
 			<Icon name="left" class="size-5 shrink-0" />
 			<!-- The neighbour's name is what the button is for, so it gets the room: "Previous" and
 				"Next" are in the name read out but not shown beside a name (the arrows say it), and a
-				name still cut off is whole in the tooltip (proposal usability-entry.md §4). -->
+				name still cut off is whole in the tooltip (proposal usability-entry.md §4). On wide
+				screens each button is sized by its name, so a short one leaves the room to a long one;
+				on a phone the bar is two equal halves. -->
 			{#if previous}
 				<span class="truncate font-normal text-slate-700">{previous.name}</span>
 			{:else}
@@ -119,7 +121,10 @@
 		</button>
 		<button
 			type="button"
-			class="btn min-w-0 flex-1 justify-end border-blue-700 text-blue-800"
+			class={[
+				'btn min-w-0 justify-end border-blue-700 text-blue-800',
+				wide.current ? 'flex-auto' : 'flex-1'
+			]}
 			disabled={!nav.options.length && !openPort}
 			aria-label="Next: {nextDetail}"
 			title="Next: {nextDetail}"

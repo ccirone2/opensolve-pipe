@@ -1132,7 +1132,8 @@ export class Workspace {
 
 	/**
 	 * Discharge a relief valve's free outlet to atmosphere (edit.ts addOpenDischarge): a reference
-	 * node at 0 Pa gauge through 1 m of pipe with an exit, in one undo step.
+	 * node at 0 Pa gauge through 1 m, or 3 ft, of pipe (factory.ts shortPipeLength) with an exit, in
+	 * one undo step.
 	 */
 	openDischarge(componentId: string, portId: string): boolean {
 		const reserved = this.reservedIds;

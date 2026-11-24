@@ -11,6 +11,8 @@ import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { station } from '$lib/testing/lineups';
 import { testWorkspace } from '$lib/testing/workspace';
 import { withScenarios } from '$lib/utils/scenarios';
+import { pumpTransferExample } from '$lib/utils/examples';
+import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
 
 describe('Disconnect', () => {
 	it('says the connection removed, then the rename of a case whose station it changed', async () => {
@@ -36,5 +38,29 @@ describe('Disconnect', () => {
 		expect(ws.notice).toMatchObject({ kind: 'info', text: said });
 		await tick();
 		expect(screen.getByText(said)).toBeInTheDocument();
+	});
+});
+
+describe('Add pipe segment', () => {
+	it('adds a pipe of the round default length in the project’s units (usability-entry.md §5)', async () => {
+		for (const [units, length] of [
+			[IMPERIAL_UNITS, 30 * 0.3048],
+			[SI_UNITS, 10]
+		] as const) {
+			const project = pumpTransferExample();
+			project.settings.units = { ...units };
+			const ws = testWorkspace(project);
+			ws.nav.jumpTo('P1');
+			ws.nav.showConnection('discharge');
+			const { unmount } = render(WorkspaceView, { workspace: ws });
+			await tick();
+			const id = ws.nav.activeConnection!.id;
+			const before = ws.project.connections.find((c) => c.id === id)!.piping.pipes.length;
+			await fireEvent.click(screen.getByRole('button', { name: 'Add pipe segment' }));
+			const pipes = ws.project.connections.find((c) => c.id === id)!.piping.pipes;
+			expect(pipes).toHaveLength(before + 1);
+			expect(pipes.at(-1)!.length).toBe(length);
+			unmount();
+		}
 	});
 });

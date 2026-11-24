@@ -139,6 +139,39 @@ describe('new pipe lengths (usability-entry.md §5)', () => {
 		expect(shortPipeLength({ length: 'm' })).toBe(1);
 		expect(shortPipeLength({ length: 'ft' })).toBe(3 * 0.3048);
 	});
+
+	it('are given by every edit that makes a pipe, in the project’s units', () => {
+		const make = (length: 'm' | 'ft') => {
+			const project = projectWith([
+				createComponent('reservoir', createEmptyProject(), { id: 'R1' }),
+				createComponent('reservoir', createEmptyProject(), { id: 'R2' })
+			]);
+			return deepFreeze({
+				...project,
+				settings: { ...project.settings, units: { ...project.settings.units, length } }
+			});
+		};
+		for (const [length, long, short] of [
+			['m', 10, 1],
+			['ft', 30 * 0.3048, 3 * 0.3048]
+		] as const) {
+			const project = make(length);
+			const joined = connectPorts(
+				project,
+				{ componentId: 'R1', portId: 'port_1' },
+				{ componentId: 'R2', portId: 'port_1' }
+			);
+			expect(
+				joined.connections[0]!.piping.pipes.map((p) => p.length),
+				length
+			).toEqual([long]);
+			const plugged = plugPort(project, 'R1', 'port_1');
+			expect(
+				plugged.connections[0]!.piping.pipes.map((p) => p.length),
+				length
+			).toEqual([short]);
+		}
+	});
 });
 
 describe('addComponentAtPort', () => {

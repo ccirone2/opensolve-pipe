@@ -8,17 +8,13 @@
 	A column, or a table of both columns, pasted into a cell fills the table from that row, adding
 	rows as needed (paste-points.ts; proposal usability-entry.md §6): from a spreadsheet or a data
 	sheet, a heading row's units converted. A paste with one bad cell pastes nothing and says why.
+	The line under the table says what a paste did while the table holds the rows it made, so an
+	undo, an edit or a point added or removed takes it away.
 -->
 <script lang="ts" module>
 	export interface Point {
 		x: number;
 		y: number;
-	}
-
-	/** What a paste did, or why it pasted nothing; cleared by the next edit of a cell. */
-	export interface PasteNote {
-		text: string;
-		error: boolean;
 	}
 </script>
 
@@ -27,7 +23,7 @@
 	import { useFieldMode } from '$lib/components/ui/field-mode';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
-	import { readPastedPoints, type PasteColumn } from '$lib/utils/paste-points';
+	import { inSentence, readPastedPoints, type PasteColumn } from '$lib/utils/paste-points';
 	import type { Bounds } from '$lib/utils/schema-bounds';
 	import { displayUnit, unitLabel, type UnitCategory } from '$lib/utils/units';
 
@@ -48,11 +44,6 @@
 		/** Blank rows shown when there are no points yet. */
 		emptyRows?: number;
 		onchange: (rows: Point[]) => boolean | void;
-		/**
-		 * What the last paste did, or why it pasted nothing (bindable: an owner whose table is
-		 * replaced when the paste stores it, a new pump curve's, keeps the note for the next one).
-		 */
-		pasted?: PasteNote | null;
 	}
 
 	let {
@@ -64,8 +55,7 @@
 		minRows,
 		maxRows = 50,
 		emptyRows = minRows,
-		onchange,
-		pasted = $bindable(null)
+		onchange
 	}: Props = $props();
 
 	const mode = useFieldMode();
@@ -106,19 +96,43 @@
 		update(draft.map((r, i) => (i === index ? { ...r, [key]: value } : r)));
 	}
 
+	/**
+	 * What the last paste did, with the rows it made, or why it pasted nothing. A paste's note is
+	 * shown while the table holds those rows (an undo, an edit elsewhere or another point takes it
+	 * away); a refusal's until the next edit of the table.
+	 */
+	let pasted = $state<{ text: string; error: boolean; rows: Draft[] | null } | null>(null);
+	const sameRows = (a: readonly Draft[], b: readonly Draft[]) =>
+		a.length === b.length && a.every((row, i) => row.x === b[i]?.x && row.y === b[i]?.y);
+	const note = $derived(
+		pasted && (pasted.error || (pasted.rows && sameRows(draft, pasted.rows))) ? pasted : null
+	);
+
+	/** "point 4", "points 4 and 5", "points 4 to 6", "points 2, 4 and 7". */
+	function pointsText(numbers: readonly number[]): string {
+		const [first] = numbers;
+		const last = numbers[numbers.length - 1];
+		if (first === undefined || last === undefined) return '';
+		if (numbers.length === 1) return `point ${first}`;
+		if (numbers.length > 2 && last - first === numbers.length - 1)
+			return `points ${first} to ${last}`;
+		return `points ${numbers.slice(0, -1).join(', ')} and ${last}`;
+	}
+
 	/** A paste into row `index`'s cell in column `at`: true when it was a column or a table. */
 	function paste(index: number, at: PasteColumn, text: string): boolean {
 		const read = readPastedPoints(text, at, x, y, units);
 		if (!read) return false;
 		if (!read.ok) {
-			pasted = { text: read.error, error: true };
+			pasted = { text: read.error, error: true, rows: null };
 			return true;
 		}
 		const end = index + read.rows.length;
 		if (end > maxRows) {
 			pasted = {
 				text: `Nothing was pasted: this table takes at most ${maxRows} points, and ${read.rows.length} from point ${index + 1} would make ${end}.`,
-				error: true
+				error: true,
+				rows: null
 			};
 			return true;
 		}
@@ -133,22 +147,24 @@
 			if (!target) return;
 			for (const column of read.columns) target[column] = row[column] ?? null;
 		});
-		const after = draft.length - end;
-		const range = (from: number, to: number) =>
-			from === to
-				? `point ${from}`
-				: to === from + 1
-					? `points ${from} and ${to}`
-					: `points ${from} to ${to}`;
-		const column = (read.columns[0] === 'x' ? x : y).label.toLowerCase();
+		// The points after the pasted ones that had a value: removed, or keeping it. A blank row
+		// (a new curve's) is no point and goes unmentioned.
+		const column = read.columns[0] === 'x' ? 'x' : 'y';
+		const after = draft
+			.map((row, i) => ({ row, number: i + 1 }))
+			.slice(end)
+			.filter(({ row }) => (both ? row.x !== null || row.y !== null : row[column] !== null))
+			.map(({ number }) => number);
+		const them = read.rows.length === 1 ? 'it' : 'them';
+		const listed = pointsText(after);
 		const left =
-			after <= 0
+			after.length === 0
 				? ''
 				: both
-					? ` The ${after === 1 ? 'point' : 'points'} after them (${range(end + 1, draft.length)}) ${after === 1 ? 'was' : 'were'} removed.`
-					: ` ${range(end + 1, draft.length).replace(/^p/, 'P')} ${after === 1 ? 'keeps its' : 'keep their'} earlier ${column}.`;
+					? ` The ${after.length === 1 ? 'point' : 'points'} after ${them} (${listed}) ${after.length === 1 ? 'was' : 'were'} removed.`
+					: ` ${listed.replace(/^p/, 'P')} ${after.length === 1 ? 'keeps its' : 'keep their'} earlier ${inSentence((column === 'x' ? x : y).label)}.`;
 		update(next);
-		pasted = { text: read.summary + left, error: false };
+		pasted = { text: read.summary + left, error: false, rows: next };
 		return true;
 	}
 </script>
@@ -203,7 +219,10 @@
 								class="btn btn-quiet btn-icon"
 								aria-label="Remove point {i + 1}"
 								disabled={draft.length <= minRows}
-								onclick={() => update(draft.filter((_, j) => j !== i))}
+								onclick={() => {
+									pasted = null;
+									update(draft.filter((_, j) => j !== i));
+								}}
 							>
 								<Icon name="trash" />
 							</button>
@@ -219,7 +238,10 @@
 				type="button"
 				class="btn"
 				disabled={draft.length >= maxRows}
-				onclick={() => (draft = [...draft, { x: null, y: null }])}
+				onclick={() => {
+					pasted = null;
+					draft = [...draft, { x: null, y: null }];
+				}}
 			>
 				<Icon name="plus" class="size-4" /> Add point
 			</button>
@@ -232,11 +254,19 @@
 			</p>
 		{/if}
 	</div>
-	<p class={['mt-1 text-sm', pasted?.error ? 'text-red-700' : 'text-slate-600']} aria-live="polite">
-		{#if pasted}{pasted.text}{:else if !locked}<span class="hint"
-				>Paste a column, or both columns with their headings, from a spreadsheet or data sheet.</span
-			>{/if}
+	<!-- The paste's note in a region present from the start, so what is written in it is
+		announced; the standing hint stays out of it, so an edit does not announce the hint. -->
+	<p
+		class={['text-sm', note ? 'mt-1' : 'sr-only', note?.error ? 'text-red-700' : 'text-slate-700']}
+		aria-live="polite"
+	>
+		{note?.text ?? ''}
 	</p>
+	{#if !note && !locked}
+		<p class="hint mt-1">
+			Paste a column, or both columns with their headings, from a spreadsheet or data sheet.
+		</p>
+	{/if}
 	{#if !increasing}
 		<p class="mt-1 flex items-start gap-1 text-sm text-amber-800">
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" />

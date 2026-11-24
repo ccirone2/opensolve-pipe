@@ -308,18 +308,93 @@ describe('NumberField', () => {
 		expect(onchange.mock.calls[0]?.[0]).toBeCloseTo((10 * 0.45359237 * 9.80665) / 0.0254 ** 2, 9);
 	});
 
-	it('checks the bounds on the converted value', async () => {
+	it('checks the bounds on the converted value, not on the number typed', async () => {
 		const onchange = vi.fn();
 		render(NumberField, {
 			label: 'Length',
-			value: 10,
+			value: 1,
 			category: 'length',
 			units: SI_UNITS,
-			bounds: { exclusiveMinimum: 0 },
+			bounds: { maximum: 10 },
 			onchange
 		});
-		await type(screen.getByRole('textbox', { name: 'Length (m)' }), '-3 ft');
+		const input = screen.getByRole('textbox', { name: 'Length (m)' });
+		// 20 ft = 20 × 0.3048 m = 6.096 m: within 10 m, though 20 is not.
+		await type(input, '20 ft');
+		expect(onchange).toHaveBeenCalledExactlyOnceWith(20 * 0.3048);
+		// 33 ft = 33 × 0.3048 m = 10.0584 m: beyond 10 m.
+		await type(input, '33 ft');
+		expect(onchange).toHaveBeenCalledOnce();
+		expect(screen.getByRole('alert')).toHaveTextContent('Must be at most 10 m.');
+	});
+
+	it('writes the conversion note into a live region present before it', async () => {
+		const { rerender } = render(NumberField, {
+			label: 'Length',
+			value: 3.048,
+			category: 'length',
+			units: IMPERIAL_UNITS,
+			onchange: vi.fn()
+		});
+		const input = screen.getByRole('textbox', { name: 'Length (ft)' });
+		const region = input.closest('.field')!.querySelector('[aria-live="polite"]')!;
+		expect(region).toBeInTheDocument();
+		expect(region).toHaveTextContent('');
+		await type(input, '2 m');
+		await rerender({ value: 2 });
+		expect(input.closest('.field')!.querySelector('[aria-live="polite"]')).toBe(region);
+		expect(region).toHaveTextContent('Converted from 2 m.');
+	});
+
+	it('shows a value typed in another unit back in its own, though the value is unchanged', async () => {
+		const onchange = vi.fn();
+		render(NumberField, {
+			label: 'Length',
+			value: 3.048,
+			category: 'length',
+			units: IMPERIAL_UNITS,
+			onchange
+		});
+		const input = screen.getByRole('textbox', { name: 'Length (ft)' });
+		await type(input, '3.048 m');
+		expect(onchange).toHaveBeenCalledWith(3.048);
+		expect(input).toHaveValue('10');
+		expect(screen.getByText('Converted from 3.048 m.')).toBeInTheDocument();
+	});
+
+	it('takes only its own unit when asked (an NPS designation, in inches)', async () => {
+		const onchange = vi.fn();
+		render(NumberField, {
+			label: 'Size (NPS)',
+			value: 4 * 0.0254,
+			category: 'diameter',
+			units: { ...IMPERIAL_UNITS, diameter: 'in' },
+			ownUnitOnly: true,
+			onchange
+		});
+		const input = screen.getByRole('textbox', { name: 'Size (NPS) (in)' });
+		await type(input, '100 mm');
 		expect(onchange).not.toHaveBeenCalled();
-		expect(screen.getByRole('alert')).toHaveTextContent(/greater than 0/);
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			'“mm” is not a unit this field takes. Enter it in in.'
+		);
+		await type(input, '6 in');
+		expect(onchange).toHaveBeenCalledExactlyOnceWith(6 * 0.0254);
+	});
+
+	it('offers the minus sign on phones where the display unit goes below zero', () => {
+		render(NumberField, {
+			label: 'Temperature',
+			value: 293.15,
+			category: 'temperature',
+			units: SI_UNITS,
+			bounds: { exclusiveMinimum: 0 },
+			onchange: vi.fn()
+		});
+		// 0 K is −273.15 °C: a negative °C is valid, so not the decimal keypad (no minus sign).
+		expect(screen.getByRole('textbox', { name: 'Temperature (°C)' })).toHaveAttribute(
+			'inputmode',
+			'text'
+		);
 	});
 });

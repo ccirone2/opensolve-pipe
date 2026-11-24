@@ -132,4 +132,76 @@ describe('PointsTable paste', () => {
 			screen.getByText('Pasted 2 values of head in ft. Points 3 and 4 keep their earlier head.')
 		).toBeInTheDocument();
 	});
+
+	// The second review (usability-entry.md §10 item 5).
+	it('keeps the points above a table pasted into a later row, whichever cell took it', async () => {
+		const rows: Point[] = [
+			{ x: 0, y: 40 * ft },
+			{ x: 10 * gpm, y: 39 * ft },
+			{ x: 20 * gpm, y: 38 * ft },
+			{ x: 30 * gpm, y: 37 * ft },
+			{ x: 40 * gpm, y: 30 * ft }
+		];
+		const onchange = table(rows);
+		await paste(screen.getByRole('textbox', { name: 'Point 3 head (ft)' }), '25\t36\n35\t30');
+		const stored = onchange.mock.calls[0]?.[0] as Point[];
+		expect(stored).toHaveLength(4);
+		expect(stored.slice(0, 2)).toEqual(rows.slice(0, 2));
+		close(stored[2]?.x, 25 * gpm);
+		close(stored[3]?.y, 30 * ft);
+		expect(
+			screen.getByText(
+				'Pasted 2 points: flow in gpm, head in ft. The point after them (point 5) was removed.'
+			)
+		).toBeInTheDocument();
+	});
+
+	it('pastes nothing past the table’s last row', async () => {
+		const onchange = table();
+		const text = Array.from({ length: 51 }, (_, i) => `${i}\t${100 - i}`).join('\n');
+		await paste(screen.getByRole('textbox', { name: 'Point 1 flow (gpm)' }), text);
+		expect(onchange).not.toHaveBeenCalled();
+		expect(screen.getAllByRole('row')).toHaveLength(4);
+		expect(
+			screen.getByText(
+				'Nothing was pasted: this table takes at most 50 points, and 51 from point 1 would make 51.'
+			)
+		).toBeInTheDocument();
+	});
+
+	it('drops its note when the rows change from outside (an undo)', async () => {
+		const onchange = vi.fn();
+		const props = {
+			caption: 'Head curve',
+			rows: [
+				{ x: 0, y: 40 * ft },
+				{ x: 10 * gpm, y: 39 * ft },
+				{ x: 20 * gpm, y: 38 * ft }
+			] as Point[],
+			x: { label: 'Flow', category: 'flow' as const, bounds: { minimum: 0 } },
+			y: { label: 'Head', category: 'head' as const, bounds: {} },
+			units: IMPERIAL_UNITS,
+			minRows: 3,
+			onchange
+		};
+		const { rerender } = render(PointsTable, props);
+		await paste(screen.getByRole('textbox', { name: 'Point 1 head (ft)' }), '41\n40\n39');
+		const stored = onchange.mock.calls[0]?.[0] as Point[];
+		await rerender({ rows: stored });
+		expect(screen.getByText('Pasted 3 values of head in ft.')).toBeInTheDocument();
+		await rerender({ rows: props.rows });
+		expect(screen.queryByText(/Pasted/)).toBeNull();
+	});
+
+	it('keeps the standing hint out of the live region, and blank rows out of the note', async () => {
+		table();
+		const hint =
+			'Paste a column, or both columns with their headings, from a spreadsheet or data sheet.';
+		expect(screen.getByText(hint).closest('[aria-live]')).toBeNull();
+		await paste(screen.getByRole('textbox', { name: 'Point 1 flow (gpm)' }), '0\t100\n500\t80');
+		// Row 3 of a new curve was blank: no point is said to be removed.
+		const note = screen.getByText('Pasted 2 points: flow in gpm, head in ft.');
+		expect(note.closest('[aria-live="polite"]')).toBe(note);
+		expect(screen.queryByText(hint)).toBeNull();
+	});
 });

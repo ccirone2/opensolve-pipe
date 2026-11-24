@@ -53,6 +53,15 @@ test('a new US project: round pipe lengths, units typed and checked, a curve pas
 	const next = panel.getByRole('button', { name: /^Next/ });
 	await expect(next).toHaveAccessibleName('Next: connect discharge');
 	expect(await cutOff(next.locator('span.truncate'))).toBe(false);
+	// At the wide layout's narrowest (1024 px) too: each button is sized by its name, so the
+	// short one leaves the room to "connect discharge" (cut there by equal halves; §10 item 5).
+	const viewport = page.viewportSize();
+	if (viewport && viewport.width >= 1024) {
+		await page.setViewportSize({ width: 1024, height: 768 });
+		expect(await cutOff(previous.locator('span.truncate'))).toBe(false);
+		expect(await cutOff(next.locator('span.truncate'))).toBe(false);
+		await page.setViewportSize(viewport);
+	}
 
 	// The pump's curve pasted from a spreadsheet with metric headings (§6): converted, stored.
 	const first = panel.getByRole('textbox', { name: 'Point 1 flow (gpm)' });

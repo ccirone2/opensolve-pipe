@@ -16,7 +16,7 @@
 	import { schemaBounds, stringLimits } from '$lib/utils/schema-bounds';
 	import { intersectBounds, pairBounds, schemaOrderedFields } from '$lib/utils/model-rules';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import PointsTable, { type PasteNote, type Point } from '../PointsTable.svelte';
+	import PointsTable, { type Point } from '../PointsTable.svelte';
 
 	interface Props {
 		pump: Pump;
@@ -32,8 +32,6 @@
 	let newName = $derived(`Pump curve ${curveId}`);
 	let showEfficiency = $state(false);
 	let showNpshr = $state(false);
-	/** The head curve's paste note, kept when the paste creates the curve and its table is replaced. */
-	let headPasted = $state<PasteNote | null>(null);
 
 	/** An allowable region with one end entered: kept here until the other is (the API needs both). */
 	let regionDraft = $state<{ flowMin: number | null; flowMax: number | null }>({
@@ -138,8 +136,8 @@
 	}
 </script>
 
-{#if !curve}
-	<div class="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+<div class={curve ? 'space-y-3' : 'space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3'}>
+	{#if !curve}
 		<p class="flex items-start gap-2 text-sm text-amber-900">
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" />
 			<span>
@@ -156,33 +154,26 @@
 				if (v) newName = v;
 			}}
 		/>
-		<PointsTable
-			caption="Head curve"
-			rows={[]}
-			x={flowAxis}
-			y={{ label: 'Head', category: 'head', bounds: schemaBounds('FlowHeadPoint', 'head') }}
-			units={ws.units}
-			minRows={3}
-			onchange={create}
-			bind:pasted={headPasted}
-		/>
-	</div>
-{:else}
-	<div class="space-y-3">
-		<PointsTable
-			caption="Head curve (at rated speed)"
-			rows={curve.points.map((p) => ({ x: p.flow, y: p.head }))}
-			x={flowAxis}
-			y={{ label: 'Head', category: 'head', bounds: schemaBounds('FlowHeadPoint', 'head') }}
-			units={ws.units}
-			minRows={3}
-			bind:pasted={headPasted}
-			onchange={(rows) =>
-				save('edit pump curve', (c) => ({
-					...c,
-					points: rows.map((r) => ({ flow: r.x, head: r.y }))
-				}))}
-		/>
+	{/if}
+	<!-- One table, the new curve's and then the saved curve's: it stays mounted when its third
+		point saves the curve, so the focus, a cell's "Converted from" note and the paste note stay
+		with it (usability-entry.md §10 item 5). -->
+	<PointsTable
+		caption={curve ? 'Head curve (at rated speed)' : 'Head curve'}
+		rows={curve ? curve.points.map((p) => ({ x: p.flow, y: p.head })) : []}
+		x={flowAxis}
+		y={{ label: 'Head', category: 'head', bounds: schemaBounds('FlowHeadPoint', 'head') }}
+		units={ws.units}
+		minRows={3}
+		onchange={(rows) =>
+			curve
+				? save('edit pump curve', (c) => ({
+						...c,
+						points: rows.map((r) => ({ flow: r.x, head: r.y }))
+					}))
+				: create(rows)}
+	/>
+	{#if curve}
 		<!-- The curve's name after its points: what identifies it comes last (build-density.md §5). -->
 		<TextField
 			label="Curve name"
@@ -354,5 +345,5 @@
 			Curves are fitted with a monotone piecewise cubic through the points. The NPSHr curve gives
 			the NPSH margin and its ratio in the results.
 		</p>
-	</div>
-{/if}
+	{/if}
+</div>

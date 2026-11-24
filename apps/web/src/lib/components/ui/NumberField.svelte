@@ -77,6 +77,8 @@
 		changeNote?: boolean;
 		/** Ids of other elements that describe the input (after its own), e.g. its group's note. */
 		describedby?: string;
+		/** Take only the display unit after a number (an NPS designation in inches). */
+		ownUnitOnly?: boolean;
 		/**
 		 * Offered the pasted text first (a table's column or rows, PointsTable): return true when
 		 * it took the paste, and the field then takes nothing.
@@ -108,7 +110,8 @@
 		shared = false,
 		changeNote = true,
 		describedby,
-		onpaste
+		onpaste,
+		ownUnitOnly = false
 	}: Props = $props();
 
 	const mode = useFieldMode();
@@ -151,11 +154,12 @@
 	/** What the field reports: its own problem with the typed text first, else the owner's. */
 	const error = $derived(inputError ?? ownerError);
 
-	const allowsNegative = $derived(
-		bounds.minimum === undefined && bounds.exclusiveMinimum === undefined
-			? true
-			: (bounds.minimum ?? bounds.exclusiveMinimum ?? 0) < 0
-	);
+	// Read in the display unit: a temperature bounded above 0 K takes −20 °C, so a phone must
+	// offer the minus sign the decimal keypad lacks.
+	const allowsNegative = $derived.by(() => {
+		const lowest = bounds.minimum ?? bounds.exclusiveMinimum;
+		return lowest === undefined || fromSI(lowest, unit) < 0;
+	});
 
 	function format(si: number): string {
 		return formatValue(si, category, units, 6, { gauge, absolute });
@@ -183,7 +187,7 @@
 			if (value !== null && value !== undefined && onchange(null) === false) text = shown;
 			return;
 		}
-		const parsed = parseQuantity(trimmed, category, unit, { gauge, absolute });
+		const parsed = parseQuantity(trimmed, category, unit, { gauge, absolute, ownUnitOnly });
 		if (!parsed) return;
 		if (!parsed.ok) {
 			inputError = parsed.error;
@@ -201,6 +205,9 @@
 		}
 		inputError = null;
 		converted = parsed.converted ? { si, text: trimmed, unit } : null;
+		// Text typed with a unit is shown back in the field's own unit, even when the value it
+		// stores is the one already stored (no new value to redraw the field).
+		if (parsed.unit !== unit || /\D$/.test(trimmed)) text = shown;
 		if (onchange(si) === false) {
 			text = shown;
 			converted = null;
@@ -317,9 +324,14 @@
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" /><span>{warning}</span>
 		</p>
 	{/if}
-	{#if convertedNote}
-		<p id="{id}-converted" class="hint">{convertedNote}</p>
-	{/if}
+	<!-- Present from the start, so the note written into it is announced (ui-guide.md). -->
+	<p
+		id="{id}-converted"
+		class={convertedNote ? 'hint wrap-anywhere' : 'sr-only'}
+		aria-live="polite"
+	>
+		{convertedNote ?? ''}
+	</p>
 	{#if hint}
 		<p id="{id}-hint" class="hint">{hint}</p>
 	{/if}

@@ -59,6 +59,7 @@
 		{value}
 		category="diameter"
 		units={inches}
+		ownUnitOnly
 		bounds={schemaBounds('PipeDefinition', 'nominalSize')}
 		hint={hint ?? 'Nominal pipe size designation in inches (the size list needs the pipe library).'}
 		{change}

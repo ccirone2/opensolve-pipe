@@ -2,7 +2,7 @@
  * Unit-aware numeric input (D4): shows SI values in the display unit, converts what is typed to
  * SI, checks bounds, and never stores NaN.
  */
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { createEvent, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
@@ -328,7 +328,7 @@ describe('NumberField', () => {
 		expect(screen.getByRole('alert')).toHaveTextContent('Must be at most 10 m.');
 	});
 
-	it('writes the conversion note into a live region present before it', async () => {
+	it('says the conversion in a polite line drawn by it, empty first (none before)', async () => {
 		const { rerender } = render(NumberField, {
 			label: 'Length',
 			value: 3.048,
@@ -337,13 +337,47 @@ describe('NumberField', () => {
 			onchange: vi.fn()
 		});
 		const input = screen.getByRole('textbox', { name: 'Length (ft)' });
-		const region = input.closest('.field')!.querySelector('[aria-live="polite"]')!;
-		expect(region).toBeInTheDocument();
-		expect(region).toHaveTextContent('');
+		const live = () => input.closest('.field')!.querySelector('[aria-live="polite"]');
+		// Nothing in a form is live before the user converts a value (ResultsPanel's rule).
+		expect(live()).toBeNull();
 		await type(input, '2 m');
 		await rerender({ value: 2 });
-		expect(input.closest('.field')!.querySelector('[aria-live="polite"]')).toBe(region);
-		expect(region).toHaveTextContent('Converted from 2 m.');
+		const line = live()!;
+		expect(line).toHaveTextContent('');
+		await vi.waitFor(() => expect(line).toHaveTextContent('Converted from 2 m.'));
+		// The same words again (an undo and the same text typed) are said again: emptied first.
+		await rerender({ value: 3.048 });
+		await vi.waitFor(() => expect(line).toHaveTextContent(''));
+		await type(input, '2 m');
+		await rerender({ value: 2 });
+		expect(live()).toBe(line);
+		expect(line).toHaveTextContent('');
+		await vi.waitFor(() => expect(line).toHaveTextContent('Converted from 2 m.'));
+		// Once gone, the note does not come back with the value (a redo).
+		await rerender({ value: 3.048 });
+		await rerender({ value: 2 });
+		expect(screen.queryByText(/Converted from/)).toBeNull();
+	});
+
+	it('drops its own unstored text when its table takes a paste', async () => {
+		const onchange = vi.fn();
+		render(NumberField, {
+			label: 'Flow',
+			value: 0,
+			category: 'flow',
+			units: IMPERIAL_UNITS,
+			onchange,
+			onpaste: () => true
+		});
+		const input = screen.getByRole('textbox', { name: 'Flow (gpm)' });
+		await fireEvent.input(input, { target: { value: '5' } });
+		const event = createEvent.paste(input);
+		Object.defineProperty(event, 'clipboardData', { value: { getData: () => '0\n12\n22' } });
+		await fireEvent(input, event);
+		expect(event.defaultPrevented).toBe(true);
+		expect(input).toHaveValue('0');
+		await fireEvent.change(input);
+		expect(onchange).not.toHaveBeenCalled();
 	});
 
 	it('shows a value typed in another unit back in its own, though the value is unchanged', async () => {

@@ -327,7 +327,7 @@ export function parseInput(text: string, unit: UnitId): number | null {
 const SPELLINGS: Readonly<Partial<Record<UnitId, readonly string[]>>> = {
 	m: ['metre', 'metres', 'meter', 'meters'],
 	mm: ['millimetre', 'millimetres', 'millimeter', 'millimeters'],
-	ft: ['ft', 'foot', 'feet', "'", '′', '’'],
+	ft: ['ft', 'ft.', 'foot', 'feet', "'", '′', '’'],
 	in: ['in', 'inch', 'inches', '"', 'in.', '″', '”'],
 	Pa: ['Pa'],
 	kPa: ['kPa'],
@@ -337,7 +337,7 @@ const SPELLINGS: Readonly<Partial<Record<UnitId, readonly string[]>>> = {
 	'm3/h': ['m3/h', 'm³/h', 'm3/hr', 'm³/hr', 'cmh'],
 	'L/s': ['L/s', 'l/s', 'lps'],
 	'L/min': ['L/min', 'l/min', 'lpm'],
-	gpm: ['gpm', 'usgpm', 'gal/min', 'US gpm'],
+	gpm: ['gpm', 'usgpm', 'gal/min', 'US gpm', 'U.S. gpm'],
 	'm/s': ['m/s'],
 	'ft/s': ['ft/s', 'fps'],
 	C: ['°C', '° C', 'C', 'degC', 'deg C', 'ºC', 'º C'],

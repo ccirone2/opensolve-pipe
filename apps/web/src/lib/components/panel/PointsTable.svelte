@@ -23,6 +23,7 @@
 	import { useFieldMode } from '$lib/components/ui/field-mode';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
+	import { afterTwoFrames } from '$lib/utils/live';
 	import { inSentence, readPastedPoints, type PasteColumn } from '$lib/utils/paste-points';
 	import type { Bounds } from '$lib/utils/schema-bounds';
 	import { displayUnit, unitLabel, type UnitCategory } from '$lib/utils/units';
@@ -102,6 +103,23 @@
 	 * away); a refusal's until the next edit of the table.
 	 */
 	let pasted = $state<{ text: string; error: boolean; rows: Draft[] | null } | null>(null);
+	/** The polite line, drawn at the first paste, and the words it says. */
+	let speaking = $state(false);
+	let spoken = $state('');
+	let stopSaying: (() => void) | null = null;
+	function say(words: string) {
+		stopSaying?.();
+		speaking = true;
+		spoken = '';
+		stopSaying = afterTwoFrames(() => (spoken = words));
+	}
+	$effect(() => {
+		if (!note && spoken) {
+			stopSaying?.();
+			spoken = '';
+		}
+	});
+	$effect(() => () => stopSaying?.());
 	const sameRows = (a: readonly Draft[], b: readonly Draft[]) =>
 		a.length === b.length && a.every((row, i) => row.x === b[i]?.x && row.y === b[i]?.y);
 	const note = $derived(
@@ -125,6 +143,7 @@
 		if (!read) return false;
 		if (!read.ok) {
 			pasted = { text: read.error, error: true, rows: null };
+			say(read.error);
 			return true;
 		}
 		const end = index + read.rows.length;
@@ -134,6 +153,7 @@
 				error: true,
 				rows: null
 			};
+			say(pasted.text);
 			return true;
 		}
 		// Both columns: the pasted table is the curve from that point on, so no point of the old
@@ -165,6 +185,7 @@
 					: ` ${listed.replace(/^p/, 'P')} ${after.length === 1 ? 'keeps its' : 'keep their'} earlier ${inSentence((column === 'x' ? x : y).label)}.`;
 		update(next);
 		pasted = { text: read.summary + left, error: false, rows: next };
+		say(pasted.text);
 		return true;
 	}
 </script>
@@ -186,7 +207,7 @@
 					<td class="text-sm text-slate-600">{i + 1}</td>
 					<td>
 						<NumberField
-							label="Point {i + 1} {x.label.toLowerCase()}"
+							label="Point {i + 1} {inSentence(x.label)}"
 							hideLabel
 							compact
 							optional
@@ -200,7 +221,7 @@
 					</td>
 					<td>
 						<NumberField
-							label="Point {i + 1} {y.label.toLowerCase()}"
+							label="Point {i + 1} {inSentence(y.label)}"
 							hideLabel
 							compact
 							optional
@@ -254,14 +275,13 @@
 			</p>
 		{/if}
 	</div>
-	<!-- The paste's note in a region present from the start, so what is written in it is
-		announced; the standing hint stays out of it, so an edit does not announce the hint. -->
-	<p
-		class={['text-sm', note ? 'mt-1' : 'sr-only', note?.error ? 'text-red-700' : 'text-slate-700']}
-		aria-live="polite"
-	>
-		{note?.text ?? ''}
-	</p>
+	{#if note}
+		<p class={['mt-1 text-sm', note.error ? 'text-red-700' : 'text-slate-700']}>{note.text}</p>
+	{/if}
+	<!-- The note said: a polite line drawn empty by the first paste, emptied at every paste and
+		written two frames later (ui-guide.md, One strip of live lines), so the same words twice are
+		said twice and nothing is live before a paste. The standing hint is never in it. -->
+	{#if speaking}<span class="sr-only" aria-live="polite">{spoken}</span>{/if}
 	{#if !note && !locked}
 		<p class="hint mt-1">
 			Paste a column, or both columns with their headings, from a spreadsheet or data sheet.

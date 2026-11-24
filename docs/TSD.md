@@ -139,6 +139,7 @@ opensolve-pipe/
 │   │   │   │   │   ├── link-error.ts   # Errors from opening a link
 │   │   │   │   │   ├── units.ts        # Display-unit conversion and formatting (§6)
 │   │   │   │   │   ├── paste-points.ts # A pasted column or table of curve points (§6.1)
+│   │   │   │   │   ├── live.ts         # A polite line's words two animation frames later
 │   │   │   │   │   ├── graph.ts        # Port-graph traversal for the navigator (§8.1)
 │   │   │   │   │   ├── edit.ts         # Graph edits: add, insert, branch, delete (and join), plug, connect
 │   │   │   │   │   ├── factory.ts      # New projects, components and connections; ids
@@ -1136,7 +1137,7 @@ The nodes view explains that gauge pressure is relative to the atmosphere at the
 
 - **Results.** `formatResultNumber` shows 4 significant figures. Heads, elevations and lengths get at least 0.01 m resolution, or finer where 4 significant figures are finer (D6 checks heads to 0.01 m). Very small or large numbers are written as `2.555×10⁻⁶`. A missing value is shown as `—`, and head differences below the solver's energy tolerance are shown as `≈ 0`.
 - **Spacing.** `formatValue` puts a space before the unit symbol, except for the degree of angle (NIST SP 811 §7.2).
-- **Inputs.** `NumberField` shows the stored SI value in the display unit to 6 significant figures. When its text is changed, it parses the text with `parseQuantity` (§6.1, Typed input): a number (an optional sign, decimals and an exponent), optionally followed by a unit of the field's quantity, a pressure's gauge or absolute mark matching the field; anything else is refused with a message, and empty text is `null`, so NaN is never produced. It converts the value to SI, checks a whole-number field in its own unit and the schema bounds (`schema-bounds.ts`, read from `openapi.json`), and shows "Converted from …" in a live region present from the start while a value typed in another unit is stored. The NPS designation field takes inches only (`ownUnitOnly`). It then stores the SI value. Text left as shown stores nothing, so a value is never rounded to its display. An empty optional field stores `null`.
+- **Inputs.** `NumberField` shows the stored SI value in the display unit to 6 significant figures. When its text is changed, it parses the text with `parseQuantity` (§6.1, Typed input): a number (an optional sign, decimals and an exponent), optionally followed by a unit of the field's quantity, a pressure's gauge or absolute mark matching the field; anything else is refused with a message, and empty text is `null`, so NaN is never produced. It converts the value to SI, checks a whole-number field in its own unit and the schema bounds (`schema-bounds.ts`, read from `openapi.json`), and shows "Converted from …" while a value typed in another unit is stored, said by a polite line the first conversion draws empty and writes two animation frames later (`utils/live.ts`), so nothing in a form is live before then. The NPS designation field takes inches only (`ownUnitOnly`). It then stores the SI value. Text left as shown stores nothing, so a value is never rounded to its display. An empty optional field stores `null`.
 
 ---
 

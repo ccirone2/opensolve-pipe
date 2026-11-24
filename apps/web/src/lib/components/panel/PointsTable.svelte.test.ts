@@ -193,15 +193,63 @@ describe('PointsTable paste', () => {
 		expect(screen.queryByText(/Pasted/)).toBeNull();
 	});
 
-	it('keeps the standing hint out of the live region, and blank rows out of the note', async () => {
+	it('says a paste in a polite line drawn by it, the same words twice said twice', async () => {
 		table();
 		const hint =
 			'Paste a column, or both columns with their headings, from a spreadsheet or data sheet.';
-		expect(screen.getByText(hint).closest('[aria-live]')).toBeNull();
-		await paste(screen.getByRole('textbox', { name: 'Point 1 flow (gpm)' }), '0\t100\n500\t80');
-		// Row 3 of a new curve was blank: no point is said to be removed.
-		const note = screen.getByText('Pasted 2 points: flow in gpm, head in ft.');
-		expect(note.closest('[aria-live="polite"]')).toBe(note);
+		expect(screen.getByText(hint)).toBeInTheDocument();
+		expect(document.querySelector('[aria-live]')).toBeNull();
+		const first = screen.getByRole('textbox', { name: 'Point 1 flow (gpm)' });
+		await paste(first, '0\tabc\n500\t80');
+		const line = document.querySelector('[aria-live="polite"]')!;
+		const refusal = 'Nothing was pasted: row 1, head, “abc”: Enter a number, e.g. 12.5 or 1.2e-3.';
+		await vi.waitFor(() => expect(line).toHaveTextContent(refusal));
+		expect(line).not.toHaveTextContent(hint);
+		// The same refusal again: emptied at the paste, said again.
+		await paste(first, '0\tabc\n500\t80');
+		expect(line).toHaveTextContent('');
+		await vi.waitFor(() => expect(line).toHaveTextContent(refusal));
+		// A paste of a new curve (row 3 was blank: no point said to be removed).
+		await paste(first, '0\t100\n500\t80');
+		await vi.waitFor(() =>
+			expect(line).toHaveTextContent('Pasted 2 points: flow in gpm, head in ft.')
+		);
+		expect(
+			screen.getByText('Pasted 2 points: flow in gpm, head in ft.', { selector: 'p' })
+		).toBeInTheDocument();
 		expect(screen.queryByText(hint)).toBeNull();
+	});
+
+	it('keeps the pasted value in the cell pasted into, whatever was typed there', async () => {
+		const onchange = table([
+			{ x: 0, y: 46 * ft },
+			{ x: 10 * gpm, y: 40 * ft },
+			{ x: 20 * gpm, y: 30 * ft }
+		]);
+		const first = screen.getByRole('textbox', { name: 'Point 1 flow (gpm)' });
+		await fireEvent.input(first, { target: { value: '5' } });
+		await paste(first, '0\n12\n22\n');
+		expect(first).toHaveValue('0');
+		await fireEvent.change(first);
+		expect(onchange).toHaveBeenCalledOnce();
+		const rows = onchange.mock.calls[0]?.[0] as Point[];
+		expect(rows[0]?.x).toBe(0);
+		close(rows[2]?.x, 22 * gpm);
+		expect(
+			screen.getByText('Pasted 3 values of flow in gpm.', { selector: 'p' })
+		).toBeInTheDocument();
+	});
+
+	it('names the NPSHr cells with its capitals', () => {
+		render(PointsTable, {
+			caption: 'NPSH required (optional)',
+			rows: [],
+			x: { label: 'Flow', category: 'flow', bounds: {} },
+			y: { label: 'NPSHr', category: 'head', bounds: {} },
+			units: IMPERIAL_UNITS,
+			minRows: 2,
+			onchange: vi.fn()
+		});
+		expect(screen.getByRole('textbox', { name: 'Point 1 NPSHr (ft)' })).toBeInTheDocument();
 	});
 });

@@ -26,6 +26,7 @@
 		unitLabel,
 		type UnitCategory
 	} from '$lib/utils/units';
+	import { afterTwoFrames } from '$lib/utils/live';
 	import ChangeNote from './ChangeNote.svelte';
 	import { isLocked, useFieldMode, type FieldChange } from './field-mode';
 	import Icon from './Icon.svelte';
@@ -145,12 +146,34 @@
 	 * The text a stored value was converted from (typed in another unit), while that value is
 	 * stored and shown in the unit it was converted to (not after the project's units change).
 	 */
-	let converted = $state<{ si: number; text: string; unit: string } | null>(null);
+	let converted = $state<{ si: number; text: string; unit: string; shown: boolean } | null>(null);
 	const convertedNote = $derived(
 		converted && value === converted.si && unit === converted.unit
 			? `Converted from ${converted.text}.`
 			: null
 	);
+	// Once shown and then gone (another value stored, an undo, the units changed), it is dropped,
+	// so a redo or a change of units back does not bring it back and announce it again.
+	$effect.pre(() => {
+		if (!converted) return;
+		if (convertedNote) converted.shown = true;
+		else if (converted.shown) converted = null;
+	});
+	/** The polite line, drawn at the first conversion, and the words it says. */
+	let speaking = $state(false);
+	let spoken = $state('');
+	let stopSaying: (() => void) | null = null;
+	/** Say the note, or nothing: the line is emptied now and written two frames later. */
+	function say(words: string) {
+		stopSaying?.();
+		speaking = true;
+		spoken = '';
+		stopSaying = words ? afterTwoFrames(() => (spoken = words)) : null;
+	}
+	$effect(() => {
+		if (!convertedNote && spoken) say('');
+	});
+	$effect(() => () => stopSaying?.());
 	/** What the field reports: its own problem with the typed text first, else the owner's. */
 	const error = $derived(inputError ?? ownerError);
 
@@ -204,7 +227,8 @@
 			return;
 		}
 		inputError = null;
-		converted = parsed.converted ? { si, text: trimmed, unit } : null;
+		converted = parsed.converted ? { si, text: trimmed, unit, shown: false } : null;
+		if (parsed.converted) say(`Converted from ${trimmed}.`);
 		// Text typed with a unit is shown back in the field's own unit, even when the value it
 		// stores is the one already stored (no new value to redraw the field).
 		if (parsed.unit !== unit || /\D$/.test(trimmed)) text = shown;
@@ -290,7 +314,15 @@
 				onkeydown={keydown}
 				onpaste={(event) => {
 					const pasted = event.clipboardData?.getData('text/plain');
-					if (!locked && pasted && onpaste?.(pasted)) event.preventDefault();
+					if (!locked && pasted && onpaste?.(pasted)) {
+						// The table took the paste: this field's own edit, unstored, is dropped, so
+						// leaving the field does not store it over the pasted value.
+						event.preventDefault();
+						text = shown;
+						inputError = null;
+						converted = null;
+						enteredText = null;
+					}
 				}}
 			/>
 			{#if locked}
@@ -324,14 +356,13 @@
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" /><span>{warning}</span>
 		</p>
 	{/if}
-	<!-- Present from the start, so the note written into it is announced (ui-guide.md). -->
-	<p
-		id="{id}-converted"
-		class={convertedNote ? 'hint wrap-anywhere' : 'sr-only'}
-		aria-live="polite"
-	>
-		{convertedNote ?? ''}
-	</p>
+	{#if convertedNote}
+		<p id="{id}-converted" class="hint wrap-anywhere">{convertedNote}</p>
+	{/if}
+	<!-- The note said: a polite line drawn empty by the first conversion and written two frames
+		later (ui-guide.md, One strip of live lines), so nothing in the form is live before the
+		user converts a value. -->
+	{#if speaking}<span class="sr-only" aria-live="polite">{spoken}</span>{/if}
 	{#if hint}
 		<p id="{id}-hint" class="hint">{hint}</p>
 	{/if}

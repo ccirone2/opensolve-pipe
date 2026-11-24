@@ -176,7 +176,7 @@ describe('readPastedPoints', () => {
 				readPastedPoints('Q [gpm]\tH [ft]\tEff (%)\n0\t150\n300\t130', 'x', FLOW, HEAD, SI_UNITS)
 			)
 		).toBe(
-			'Nothing was pasted: the heading names 3 units (gpm, ft, %) for 2 columns. Put each column’s unit in brackets after its name, “Flow (gpm)”, or leave the heading out.'
+			'Nothing was pasted: the heading has 3 cells over 2 columns. Put each column’s unit in brackets after its name, “Flow (gpm)”, or leave the heading out.'
 		);
 		// "in" is a unit (inches) as well as a word: refused, never read as one or the other.
 		expect(refused(readPastedPoints('Flow in gpm\n0\n100', 'x', FLOW, HEAD, SI_UNITS))).toMatch(
@@ -281,14 +281,16 @@ describe('readPastedPoints', () => {
 			refused(
 				readPastedPoints('Flow (gpm)\tEfficiency (%)\n0\t0\n500\t80', 'x', FLOW, HEAD, SI_UNITS)
 			)
-		).toBe('Nothing was pasted: the heading names efficiency, and this paste fills flow and head.');
+		).toBe(
+			'Nothing was pasted: the heading names efficiency. This paste fills flow, then head: name each column over its own, or name none.'
+		);
 		expect(refused(readPastedPoints('Head (ft)\n150\n80', 'x', FLOW, HEAD, SI_UNITS))).toBe(
-			'Nothing was pasted: the heading names head, and this paste fills flow.'
+			'Nothing was pasted: the heading names head. This paste fills flow: name it so, or name nothing.'
 		);
 	});
 
 	it('refuses rows that could be numbers grouped by a space ("1 000"), unless shown to be a table', () => {
-		for (const text of ['1 000\r\n2 000\r\n3 000', '1 200\n2 400\n3 600', 'Flow\n1 000\n2 000']) {
+		for (const text of ['1 000\r\n2 000\r\n3 000', '1 200\n2 400\n3 600']) {
 			expect(refused(readPastedPoints(text, 'x', FLOW, HEAD, SI_UNITS)), text).toMatch(
 				/each row could be one number with its thousands grouped by a space/
 			);
@@ -364,5 +366,104 @@ describe('readPastedPoints', () => {
 		expect(ok(readPastedPoints('NPSHr (m)\n2\n3', 'y', FLOW, NPSHR, SI_UNITS)).summary).toBe(
 			'Pasted 2 values of NPSHr in m.'
 		);
+	});
+
+	// The third review (usability-entry.md §10 item 6): each of these was misread before.
+	it('refuses a heading that names a column over another, or point numbers over values', () => {
+		for (const [text, at] of [
+			['#\tFlow\n1\t0\n2\t100\n3\t200', 'x'],
+			['No.\tHead\n1\t150\n2\t140\n3\t120', 'y'],
+			['Pt.\tHead\n1\t150\n2\t140', 'y'],
+			['No. Flow\n1 0\n2 100\n3 200', 'x'],
+			['Head\t#\n150\t1\n140\t2', 'x']
+		] as const) {
+			expect(refused(readPastedPoints(text, at, FLOW, HEAD, SI_UNITS)), text).toMatch(
+				/^Nothing was pasted: the heading names point numbers over a column of values\./
+			);
+		}
+		expect(refused(readPastedPoints('\tFlow\n1\t0\n2\t100', 'x', FLOW, HEAD, SI_UNITS))).toMatch(
+			/^Nothing was pasted: the heading does not name the columns one over each\./
+		);
+		// "Discharge head" is a head, not a flow and a head: "discharge" is not read.
+		expect(
+			refused(readPastedPoints('Discharge head\tFlow\n150\t0\n140\t100', 'x', FLOW, HEAD, SI_UNITS))
+		).toMatch(/“Discharge”/);
+		expect(
+			refused(readPastedPoints('Total head\tFlow\n150\t0\n140\t100', 'x', FLOW, HEAD, SI_UNITS))
+		).toMatch(/the columns in the other order/);
+		// Still read: each column named over itself, or none named, and numbered rows dropped.
+		for (const text of [
+			'Flow\tHead\n0\t150\n10\t140',
+			'Rate (gpm)\tHead (ft)\n0\t150\n10\t140',
+			'gpm ft\n0 150\n10 140',
+			'#\tFlow\tHead\n1\t0\t150\n2\t10\t140'
+		]) {
+			expect(ok(readPastedPoints(text, 'x', FLOW, HEAD, SI_UNITS)).rows, text).toHaveLength(2);
+		}
+	});
+
+	it('refuses grouped thousands with a decimal part ("1 000.0")', () => {
+		for (const text of [
+			'1 000.0\n2 000.0\n3 000.0',
+			'12 500.5\n13 000.0\n14 250.0',
+			'1 000\n1 200\n1 500.5'
+		]) {
+			expect(refused(readPastedPoints(text, 'x', FLOW, HEAD, SI_UNITS)), text).toMatch(
+				/each row could be one number with its thousands grouped by a space/
+			);
+		}
+		expect(
+			ok(readPastedPoints('Flow (gpm) Head (ft)\n300 130.5\n500 100.0', 'x', FLOW, HEAD, SI_UNITS))
+				.rows
+		).toHaveLength(2);
+		expect(ok(readPastedPoints('0 150.5\n300 130.0', 'x', FLOW, HEAD, SI_UNITS)).rows).toHaveLength(
+			2
+		);
+	});
+
+	it('reads ordinary headings: a comma before the unit, "(US gpm)", "ft.", two lines, two-word names', () => {
+		const comma = ok(readPastedPoints('Capacity, gpm\n100\n200\n300', 'x', FLOW, HEAD, SI_UNITS));
+		close(comma.rows[0]?.x, 100 * gpm);
+		const commaTab = ok(
+			readPastedPoints('Capacity, gpm\tTotal head, ft\n0\t150\n100\t140', 'x', FLOW, HEAD, SI_UNITS)
+		);
+		close(commaTab.rows[1]?.y, 140 * ft);
+		const us = ok(readPastedPoints('Capacity (US gpm)\r\n0\r\n100\r\n', 'x', FLOW, HEAD, SI_UNITS));
+		close(us.rows[1]?.x, 100 * gpm);
+		const usPdf = ok(
+			readPastedPoints('Flow (U.S. gpm) Head (ft.)\n0 150\n100 140', 'x', FLOW, HEAD, SI_UNITS)
+		);
+		close(usPdf.rows[1]?.y, 140 * ft);
+		const twoLines = ok(
+			readPastedPoints('Flow Head\n(gpm) (ft)\n0 150\n100 140', 'x', FLOW, HEAD, SI_UNITS)
+		);
+		close(twoLines.rows[1]?.x, 100 * gpm);
+		close(twoLines.rows[1]?.y, 140 * ft);
+		const quoted = ok(readPastedPoints('"Flow\n(gpm)"\n0\n100\n200\n', 'x', FLOW, HEAD, SI_UNITS));
+		close(quoted.rows[1]?.x, 100 * gpm);
+		for (const text of [
+			'Flow rate (gpm)\tDeveloped head (ft)\n0\t150\n100\t140',
+			'Flow-rate (gpm)\tTDH (ft)\n0\t150\n100\t140'
+		]) {
+			expect(ok(readPastedPoints(text, 'x', FLOW, HEAD, SI_UNITS)).rows, text).toHaveLength(2);
+		}
+		expect(
+			ok(
+				readPastedPoints(
+					'Flow (gpm)\tBowl efficiency (%)\n0\t1\n100\t70',
+					'x',
+					FLOW,
+					EFFICIENCY,
+					SI_UNITS
+				)
+			).rows
+		).toHaveLength(2);
+		expect(
+			ok(readPastedPoints("NPSH req'd (ft)\n10\n12", 'y', FLOW, NPSHR, SI_UNITS)).rows
+		).toHaveLength(2);
+		// A comma in a value is still refused, tabs or not.
+		expect(
+			refused(readPastedPoints('Flow\tHead\n1,000\t150\n2,000\t140', 'x', FLOW, HEAD, SI_UNITS))
+		).toMatch(/a comma can be a decimal mark/);
 	});
 });

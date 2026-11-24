@@ -252,4 +252,21 @@ describe('PointsTable paste', () => {
 		});
 		expect(screen.getByRole('textbox', { name: 'Point 1 NPSHr (ft)' })).toBeInTheDocument();
 	});
+
+	it('clears every written cell’s own text and error, though the value pasted is the one it held', async () => {
+		const onchange = table([
+			{ x: 0, y: 46 * ft },
+			{ x: 10 * gpm, y: 40 * ft },
+			{ x: 20 * gpm, y: 30 * ft }
+		]);
+		const second = screen.getByRole('textbox', { name: 'Point 2 flow (gpm)' });
+		await fireEvent.input(second, { target: { value: '3OO' } });
+		await fireEvent.change(second);
+		expect(second).toHaveAttribute('aria-invalid', 'true');
+		await paste(screen.getByRole('textbox', { name: 'Point 1 flow (gpm)' }), '0\n10\n20');
+		expect(second).toHaveValue('10');
+		expect(second).not.toHaveAttribute('aria-invalid');
+		await fireEvent.change(second);
+		expect(onchange).toHaveBeenCalledOnce();
+	});
 });

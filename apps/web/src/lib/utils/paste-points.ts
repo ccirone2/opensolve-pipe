@@ -98,8 +98,28 @@ const OTHER_WORDS = new Set([
 	'curve'
 ]);
 
-/** Units that say an efficiency column holds fractions (0.75), not percentages. */
+/**
+ * Units that say an efficiency column holds fractions (0.75), not percentages: in brackets
+ * ("(-)", "[1]", "(fraction)"); as a bare word only a word ("fraction"), since a bare dash in a
+ * heading ("Pump - efficiency") is punctuation.
+ */
 const FRACTION_WORDS = /^(-|–|—|1|fraction|frac\.?|decimal)$/i;
+const FRACTION_WORD = /^(fraction|frac\.?|decimal)$/i;
+
+/** The columns' names in messages, by kind. */
+const KIND_NAMES: Readonly<Record<string, string>> = {
+	flow: 'flow',
+	head: 'head',
+	npshr: 'NPSHr',
+	efficiency: 'efficiency'
+};
+
+/** A second heading row of units alone, with no letter: "%", "(%)", "(-)", "[-]". */
+function isUnitsRow(cells: readonly string[]): boolean {
+	return (
+		cells.length > 0 && cells.every((cell) => /^(%|[([]\s*(%|-|–|—)\s*[)\]])$/.test(cell.trim()))
+	);
+}
 
 /** What a column holds, from its axis: a key of COLUMN_WORDS. */
 function kindOf(axis: PasteAxis): string {
@@ -212,6 +232,8 @@ function numbered(rows: string[][]): boolean {
 /** A heading cell, or a whole heading line, read: its units and the kinds it names. */
 interface HeadingWords {
 	bracketed: string[];
+	/** Brackets with nothing in them: "( )", "[]". */
+	empty: number;
 	unitWords: string[];
 	kinds: string[];
 	unread: string[];
@@ -219,18 +241,21 @@ interface HeadingWords {
 
 /** The units and names in heading text; a word it cannot read is listed in `unread`. */
 function headingWords(text: string, efficiency: boolean): HeadingWords {
-	const bracketed = [...text.matchAll(/[([]\s*([^()[\]]*?)\s*[)\]]/g)].map((m) =>
+	const inBrackets = [...text.matchAll(/[([]\s*([^()[\]]*?)\s*[)\]]/g)].map((m) =>
 		(m[1] ?? '').replace(/\s+/g, ' ')
 	);
+	const bracketed = inBrackets.filter(Boolean);
+	const empty = inBrackets.length - bracketed.length;
 	const words = text
 		.replace(/[([][^()[\]]*[)\]]/g, ' ')
 		.split(/[\s;]+/)
 		// A word set off by punctuation: "Capacity, gpm" is "Capacity" and "gpm".
 		.map((word) => word.replace(/^[,:]+|[,:]+$/g, ''))
-		.filter(Boolean);
-	const read: HeadingWords = { bracketed, unitWords: [], kinds: [], unread: [] };
+		// A dash standing alone is punctuation ("Pump - efficiency"); in brackets it is a unit.
+		.filter((word) => word !== '' && !/^[-–—]+$/.test(word));
+	const read: HeadingWords = { bracketed, empty, unitWords: [], kinds: [], unread: [] };
 	const take = (part: string): boolean => {
-		if (namesUnit(part) || (efficiency && FRACTION_WORDS.test(part))) {
+		if (namesUnit(part) || (efficiency && FRACTION_WORD.test(part))) {
 			read.unitWords.push(part);
 			return true;
 		}
@@ -253,17 +278,37 @@ function headingWords(text: string, efficiency: boolean): HeadingWords {
 }
 
 /**
+ * A heading: its cells over the columns when the copy had tabs, else its lines (one, or a
+ * data sheet's two), whose words cannot be placed over columns, only read in order.
+ */
+type Heading = { tabbed: true; cells: string[] } | { tabbed: false; lines: string[] };
+
+/** A heading's text, whole. */
+function headingText(heading: Heading): string {
+	return heading.tabbed ? heading.cells.join(' ') : heading.lines.join(' ');
+}
+
+/** Names in order with a name repeated next to itself once ("Flow rate" is one name). */
+function sequenceOf(kinds: readonly string[]): string[] {
+	return kinds.filter((kind, i) => kind !== kinds[i - 1]);
+}
+
+/**
  * Read a heading for the columns pasted (their kinds and labels, in order): its units, one per
- * column or none, after checking its names. `cells` are the heading's cells over the columns
- * when the copy had tabs, else its whole text. Anything it cannot read refuses the paste.
+ * column or none, after checking its names. Anything it cannot read refuses the paste.
  */
 function readHeading(
-	cells: readonly string[] | string,
+	heading: Heading,
 	kinds: readonly string[],
 	labels: readonly string[]
 ): { units: (string | null)[]; named: boolean } | { error: string } {
 	const efficiency = kinds.includes('efficiency');
-	const whole = headingWords(typeof cells === 'string' ? cells : cells.join(' '), efficiency);
+	const whole = headingWords(headingText(heading), efficiency);
+	if (whole.empty) {
+		return {
+			error: `Nothing was pasted: the heading has empty brackets. Name the unit in them${efficiency ? ', write (-) for fractions,' : ''} or leave them out.`
+		};
+	}
 	if (whole.unread.length) {
 		return {
 			error: `Nothing was pasted: the heading has ${whole.unread.map((w) => `“${w}”`).join(', ')}, which this table does not read as a column’s name or a unit it takes. ${BRACKETS}`
@@ -293,27 +338,43 @@ function readHeading(
 	const foreign = [...new Set(whole.kinds)].filter((kind) => !kinds.includes(kind));
 	if (foreign.length) {
 		return {
-			error: `Nothing was pasted: the heading names ${foreign.join(' and ')}. ${names}`
+			error: `Nothing was pasted: the heading names ${foreign.map((kind) => KIND_NAMES[kind] ?? kind).join(' and ')}. ${names}`
 		};
 	}
-	// Each name over its own column: cell by cell where the cells stand over the columns,
-	// else in order, every column named once ("Flow rate" is one name).
-	const sequence = whole.kinds.filter((kind, i) => kind !== whole.kinds[i - 1]);
-	const perColumn =
-		typeof cells === 'string'
-			? null
-			: cells.map((cell) => [...new Set(headingWords(cell, efficiency).kinds)]);
+	// Each name over its own column: cell by cell where the cells stand over the columns; where
+	// they do not (spaces), line by line, each line naming every column in order or none, and
+	// giving every column's unit or none, so a heading wrapped onto two lines cannot put a name
+	// of the first column after one of the second.
+	const same = (list: readonly string[]) =>
+		list.length === kinds.length && list.every((kind, c) => kind === kinds[c]);
+	const swapped = (list: readonly (string | undefined)[]) =>
+		kinds.length === 2 && list[0] === kinds[1] && list[1] === kinds[0];
 	const named = whole.kinds.length > 0;
-	const placed = perColumn
-		? perColumn.length === kinds.length &&
-			perColumn.every((list, c) => list.length === 1 && list[0] === kinds[c])
-		: sequence.length === kinds.length && sequence.every((kind, c) => kind === kinds[c]);
+	let placed: boolean;
+	let reversed: boolean;
+	if (heading.tabbed) {
+		const perColumn = heading.cells.map((cell) => [
+			...new Set(headingWords(cell, efficiency).kinds)
+		]);
+		placed =
+			perColumn.length === kinds.length &&
+			perColumn.every((list, c) => list.length === 1 && list[0] === kinds[c]);
+		reversed = swapped(perColumn.map((list) => list[0]));
+	} else {
+		const perLine = heading.lines.map((line) => headingWords(line, efficiency));
+		for (const line of perLine) {
+			const count = line.bracketed.length + line.unitWords.length;
+			if (count !== 0 && count !== kinds.length) {
+				return {
+					error: `Nothing was pasted: a line of the heading gives ${count} ${count === 1 ? 'unit' : 'units'} for ${kinds.length} ${kinds.length === 1 ? 'column' : 'columns'}: give every column's unit on one line. ${BRACKETS}`
+				};
+			}
+		}
+		const sequences = perLine.map((line) => sequenceOf(line.kinds));
+		placed = sequences.every((list) => list.length === 0 || same(list));
+		reversed = sequences.some((list) => swapped(list));
+	}
 	if (named && !placed) {
-		const reversed =
-			kinds.length === 2 &&
-			(perColumn
-				? perColumn[0]?.[0] === kinds[1] && perColumn[1]?.[0] === kinds[0]
-				: sequence[0] === kinds[1] && sequence[1] === kinds[0]);
 		return {
 			error: reversed
 				? `Nothing was pasted: the heading names the columns in the other order. This table takes ${want.join(', then ')}.`
@@ -350,49 +411,59 @@ export function readPastedPoints(
 
 	// A heading of one row, or two (a data sheet's names, then its units on the next line).
 	let headingRows = 0;
-	while (headingRows < 2 && isHeading(parsed[headingRows] ?? [])) headingRows += 1;
+	while (
+		headingRows < 2 &&
+		(isHeading(parsed[headingRows] ?? []) ||
+			(headingRows === 1 && isUnitsRow(parsed[headingRows] ?? [])))
+	)
+		headingRows += 1;
 	let rows = parsed.slice(headingRows);
 	if (rows.length === 0) return { ok: false, error: 'Nothing was pasted: no rows of numbers.' };
 	if (!tabbed && rows.some((row) => row.some((cell) => cell.includes(',')))) {
 		return { ok: false, error: COMMA };
 	}
 
-	let width = Math.max(...rows.map((row) => row.length));
-	// The heading's cells over the columns (with tabs), else its text.
-	let heading: string[] | string | null = null;
-	if (headingRows > 0) {
-		heading = tabbed
-			? Array.from(
-					{ length: Math.max(...parsed.slice(0, headingRows).map((r) => r.length)) },
-					(_, c) =>
-						parsed
-							.slice(0, headingRows)
-							.map((r) => r[c] ?? '')
-							.join(' ')
-							.trim()
-				)
-			: lines.slice(0, headingRows).join(' ');
-	}
-	// Three columns whose first is headed as point numbers ("#", "No.", "Point") and numbers
-	// them 1, 2, 3…: the point numbers are dropped. Without such a heading a first column
-	// counting 1, 2, 3 may be flows, so three columns are refused.
-	const firstWord =
-		heading === null
-			? ''
-			: typeof heading === 'string'
-				? (heading.trim().split(/\s+/)[0] ?? '')
-				: (heading[0] ?? '');
-	if (
-		width === 3 &&
-		wordKind(firstWord) === 'point' &&
-		rows.every((row) => row.length === 3) &&
-		numbered(rows)
-	) {
+	let width = rows.reduce((most, row) => Math.max(most, row.length), 0);
+	// The heading's cells over the columns (with tabs), else its lines.
+	const headingCells = parsed.slice(0, headingRows);
+	let heading: Heading | null =
+		headingRows === 0
+			? null
+			: tabbed
+				? {
+						tabbed: true,
+						cells: Array.from(
+							{ length: headingCells.reduce((most, r) => Math.max(most, r.length), 0) },
+							(_, c) =>
+								headingCells
+									.map((r) => r[c] ?? '')
+									.join(' ')
+									.trim()
+						)
+					}
+				: { tabbed: false, lines: lines.slice(0, headingRows) };
+	// Three columns whose first is headed as point numbers ("#", "No.", "Point No.") and numbers
+	// them 1, 2, 3…: the point numbers are dropped, with their heading words. Without such a
+	// heading a first column counting 1, 2, 3 may be flows, so three columns are refused.
+	const pointWords = (text: string) => {
+		const words = text.trim().split(/\s+/);
+		let n = 0;
+		while (n < words.length && wordKind(words[n] ?? '') === 'point') n += 1;
+		return { n, rest: words.slice(n).join(' ') };
+	};
+	const headedAsPoints =
+		heading !== null &&
+		(heading.tabbed
+			? (() => {
+					const first = heading.cells[0] ?? '';
+					return first !== '' && pointWords(first).rest === '';
+				})()
+			: pointWords(heading.lines[0] ?? '').n > 0);
+	if (width === 3 && headedAsPoints && rows.every((row) => row.length === 3) && numbered(rows)) {
 		rows = rows.map((row) => row.slice(1));
-		heading =
-			typeof heading === 'string'
-				? heading.trim().replace(/^\S+/, '')
-				: (heading?.slice(1) ?? null);
+		if (heading?.tabbed) heading = { tabbed: true, cells: heading.cells.slice(1) };
+		else if (heading)
+			heading = { tabbed: false, lines: heading.lines.map((line) => pointWords(line).rest) };
 		width = 2;
 	}
 	if (width > 2) {
@@ -407,11 +478,28 @@ export function readPastedPoints(
 	const columns: PasteColumn[] = width === 2 ? ['x', 'y'] : [at];
 	const axes = columns.map((column) => (column === 'x' ? x : y));
 
-	if (Array.isArray(heading) && heading.length !== width) {
+	if (heading?.tabbed && heading.cells.length !== width) {
+		const cells = heading.cells.length;
 		return {
 			ok: false,
-			error: `Nothing was pasted: the heading has ${heading.length} ${heading.length === 1 ? 'cell' : 'cells'} over ${width} ${width === 1 ? 'column' : 'columns'}. ${BRACKETS}`
+			error: `Nothing was pasted: the heading has ${cells} ${cells === 1 ? 'cell' : 'cells'} over ${width} ${width === 1 ? 'column' : 'columns'}. ${BRACKETS}`
 		};
+	}
+	// Text split on spaces where each row could be one number with its thousands grouped by a
+	// space, and no heading naming two columns to say it is a table: not guessed. Said before
+	// the heading is read, so a headed column of grouped numbers is told so.
+	if (!tabbed && width === 2 && groupedDigits(rows)) {
+		const words = heading ? headingWords(headingText(heading), false) : null;
+		const stated = words
+			? Math.max(sequenceOf(words.kinds).length, words.bracketed.length + words.unitWords.length)
+			: 0;
+		if (stated < 2) {
+			return {
+				ok: false,
+				error:
+					'Nothing was pasted: each row could be one number with its thousands grouped by a space (“1 000”) or two numbers. Copy the points from a spreadsheet, write the numbers without spaces in them, or head the columns with their units, “Flow (gpm) Head (ft)”.'
+			};
+		}
 	}
 	const read =
 		heading === null
@@ -422,16 +510,6 @@ export function readPastedPoints(
 					axes.map((axis) => axis.label)
 				);
 	if ('error' in read) return { ok: false, error: read.error };
-	// Text split on spaces where each row could be one number with its thousands grouped by a
-	// space, and no heading naming two columns to say it is a table: not guessed.
-	const statedColumns = read.named ? width : read.units.filter((u) => u !== null).length;
-	if (!tabbed && width === 2 && statedColumns < 2 && groupedDigits(rows)) {
-		return {
-			ok: false,
-			error:
-				'Nothing was pasted: each row could be one number with its thousands grouped by a space (“1 000”) or two numbers. Copy the points from a spreadsheet, write the numbers without spaces in them, or head the columns with their units, “Flow (gpm) Head (ft)”.'
-		};
-	}
 
 	// Each column's unit: its heading's, else the table's.
 	const readings: ColumnReading[] = [];
@@ -477,6 +555,12 @@ export function readPastedPoints(
 					};
 				}
 				si = value.si;
+				if (si > 1) {
+					return {
+						ok: false,
+						error: `Nothing was pasted: ${where}, “${cell}”: the heading reads this column as fractions (0.75 for 75 %), and ${cell} is more than 1. Head it “${axis.label} (%)” if it holds percentages.`
+					};
+				}
 				used[c]?.add('a fraction');
 			} else {
 				const value = parseQuantity(cell, axis.category, reading.unit, axis.options);

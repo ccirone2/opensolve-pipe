@@ -15,6 +15,7 @@
 	changes it) or `shared` by every case.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { UnitPreferences } from '$lib/api/types';
 	import { boundsProblem, type Bounds } from '$lib/utils/schema-bounds';
 	import {
@@ -81,6 +82,12 @@
 		/** Take only the display unit after a number (an NPS designation in inches). */
 		ownUnitOnly?: boolean;
 		/**
+		 * Changed by the owner when it writes this field's value from elsewhere (a paste into its
+		 * table): the field drops its own unstored text, its error and its note, even when the
+		 * value written is the one it held.
+		 */
+		reset?: number;
+		/**
 		 * Offered the pasted text first (a table's column or rows, PointsTable): return true when
 		 * it took the paste, and the field then takes nothing.
 		 */
@@ -112,7 +119,8 @@
 		changeNote = true,
 		describedby,
 		onpaste,
-		ownUnitOnly = false
+		ownUnitOnly = false,
+		reset = 0
 	}: Props = $props();
 
 	const mode = useFieldMode();
@@ -158,6 +166,16 @@
 		if (!converted) return;
 		if (convertedNote) converted.shown = true;
 		else if (converted.shown) converted = null;
+	});
+	// A value written from elsewhere (`reset`): the field's own edit, error and note go.
+	let lastReset = untrack(() => reset);
+	$effect.pre(() => {
+		if (reset === lastReset) return;
+		lastReset = reset;
+		text = shown;
+		inputError = null;
+		converted = null;
+		enteredText = null;
 	});
 	/** The polite line, drawn at the first conversion, and the words it says. */
 	let speaking = $state(false);

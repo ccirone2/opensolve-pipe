@@ -66,7 +66,10 @@ test('a new US project: round pipe lengths, units typed and checked, a curve pas
 	// The pump's curve pasted from a spreadsheet with metric headings (§6): converted, stored.
 	const first = panel.getByRole('textbox', { name: 'Point 1 flow (gpm)' });
 	await pasteInto(first, 'Flow (m3/h)\tHead (m)\n0\t46\n68\t40\n114\t30\n136\t24\n');
-	await expect(panel.getByText('Pasted 4 points: flow in m³/h, head in m.')).toBeVisible();
+	// Shown under the table, and said by the polite line the paste drew (§6, Said).
+	const said = 'Pasted 4 points: flow in m³/h, head in m.';
+	await expect(panel.locator('p').filter({ hasText: said })).toBeVisible();
+	await expect(panel.locator('[aria-live="polite"]').filter({ hasText: said })).toHaveCount(1);
 	// 68 m³/h = 68/3600 m³/s ÷ (231 × 0.0254³ / 60) m³/s per gpm = 299.4 gpm (6 digits shown).
 	const gpm = (231 * 0.0254 ** 3) / 60;
 	await expect(panel.getByRole('textbox', { name: 'Point 2 flow (gpm)' })).toHaveValue(

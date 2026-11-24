@@ -103,6 +103,8 @@
 	 * away); a refusal's until the next edit of the table.
 	 */
 	let pasted = $state<{ text: string; error: boolean; rows: Draft[] | null } | null>(null);
+	/** Counts the pastes stored: every cell drops its own unstored text, error and note. */
+	let written = $state(0);
 	/** The polite line, drawn at the first paste, and the words it says. */
 	let speaking = $state(false);
 	let spoken = $state('');
@@ -184,6 +186,7 @@
 					? ` The ${after.length === 1 ? 'point' : 'points'} after ${them} (${listed}) ${after.length === 1 ? 'was' : 'were'} removed.`
 					: ` ${listed.replace(/^p/, 'P')} ${after.length === 1 ? 'keeps its' : 'keep their'} earlier ${inSentence((column === 'x' ? x : y).label)}.`;
 		update(next);
+		written += 1;
 		pasted = { text: read.summary + left, error: false, rows: next };
 		say(pasted.text);
 		return true;
@@ -215,6 +218,7 @@
 							category={x.category}
 							{units}
 							bounds={x.bounds}
+							reset={written}
 							onchange={(v) => setCell(i, 'x', v)}
 							onpaste={(text) => paste(i, 'x', text)}
 						/>
@@ -229,6 +233,7 @@
 							category={y.category}
 							{units}
 							bounds={y.bounds}
+							reset={written}
 							onchange={(v) => setCell(i, 'y', v)}
 							onpaste={(text) => paste(i, 'y', text)}
 						/>

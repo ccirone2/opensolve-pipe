@@ -466,4 +466,99 @@ describe('readPastedPoints', () => {
 			refused(readPastedPoints('Flow\tHead\n1,000\t150\n2,000\t140', 'x', FLOW, HEAD, SI_UNITS))
 		).toMatch(/a comma can be a decimal mark/);
 	});
+
+	// The fourth review (usability-entry.md §10 item 7).
+	it('reads a spaced heading line by line: a wrapped first column cannot pass for the second', () => {
+		for (const [text, axis] of [
+			['Required Flow (gpm)\nNPSH (ft)\n5 0\n6 300\n9 500', NPSHR],
+			['Pump Flow (gpm)\nhead (ft)\n150 0\n130 300\n100 500', HEAD],
+			['Total Capacity\nHead\n150 0\n130 300', HEAD],
+			['Flow Total\n(gpm) Head (ft)\n0 150\n300 130', HEAD]
+		] as const) {
+			expect(refused(readPastedPoints(text, 'x', FLOW, axis, IMPERIAL_UNITS)), text).toMatch(
+				/^Nothing was pasted: (the heading does not name the columns one over each|a line of the heading gives)/
+			);
+		}
+		// Names on one line, symbols and units on the next: read.
+		const symbols = ok(
+			readPastedPoints('Flow rate Head\nQ [m³/h] H [m]\n0 50\n10 45', 'x', FLOW, HEAD, SI_UNITS)
+		);
+		close(symbols.rows[1]?.x, 10 / 3600);
+		expect(symbols.rows[1]?.y).toBe(45);
+		// A one-column name wrapped onto two lines: read.
+		expect(
+			ok(readPastedPoints('Total dynamic\nhead (ft)\n150\n130', 'y', FLOW, HEAD, IMPERIAL_UNITS))
+				.rows
+		).toHaveLength(2);
+		expect(
+			refused(readPastedPoints('Flow Head\nH Q\n0 50\n10 45', 'x', FLOW, HEAD, SI_UNITS))
+		).toMatch(/the columns in the other order/);
+	});
+
+	it('refuses empty brackets, which name no unit', () => {
+		for (const text of [
+			'Q [m3/h]\tη [ ]\n10\t0.5\n30\t0.75',
+			'Efficiency ( )\n0.5\n0.75\n0.7',
+			'Flow\tEfficiency\n(gpm)\t( )\n10\t0.5\n30\t0.75'
+		]) {
+			expect(refused(readPastedPoints(text, 'y', FLOW, EFFICIENCY, SI_UNITS)), text).toBe(
+				'Nothing was pasted: the heading has empty brackets. Name the unit in them, write (-) for fractions, or leave them out.'
+			);
+		}
+		expect(
+			refused(readPastedPoints('Flow ()\tHead ()\n0\t150 ft', 'x', FLOW, HEAD, SI_UNITS))
+		).toBe(
+			'Nothing was pasted: the heading has empty brackets. Name the unit in them or leave them out.'
+		);
+	});
+
+	it('drops a first column headed by two point-number words', () => {
+		for (const text of [
+			'Point No.\tFlow (gpm)\tHead (ft)\n1\t0\t150\n2\t300\t130\n3\t500\t100',
+			'Pt. No.\tFlow (gpm)\tHead (ft)\n1\t0\t150\n2\t300\t130',
+			'Point Flow Head\nNo. (gpm) (ft)\n1 0 150\n2 300 130\n3 500 100'
+		]) {
+			const pasted = ok(readPastedPoints(text, 'x', FLOW, HEAD, SI_UNITS));
+			close(pasted.rows[1]?.x, 300 * gpm);
+			close(pasted.rows[1]?.y, 130 * ft);
+		}
+	});
+
+	it('reads a line of units alone under the names ("%", "(-)")', () => {
+		const percent = ok(
+			readPastedPoints('Efficiency\n%\n50\n75\n70', 'y', FLOW, EFFICIENCY, SI_UNITS)
+		);
+		close(percent.rows[1]?.y, 0.75);
+		const fractions = ok(
+			readPastedPoints('η\n[-]\n0.5\n0.75\n0.7', 'y', FLOW, EFFICIENCY, SI_UNITS)
+		);
+		expect(fractions.rows[1]?.y).toBe(0.75);
+		// A bare dash is no fraction unit: "Pump - efficiency" over percentages reads them as %.
+		close(
+			ok(readPastedPoints('Pump - efficiency\n50\n75', 'y', FLOW, EFFICIENCY, SI_UNITS)).rows[1]?.y,
+			0.75
+		);
+	});
+
+	it('says why a fraction column refuses a value over 1', () => {
+		expect(
+			refused(readPastedPoints('Efficiency (-)\n50\n75', 'y', FLOW, EFFICIENCY, SI_UNITS))
+		).toBe(
+			'Nothing was pasted: row 1, efficiency, “50”: the heading reads this column as fractions (0.75 for 75 %), and 50 is more than 1. Head it “Efficiency (%)” if it holds percentages.'
+		);
+	});
+
+	it('tells a headed column of grouped numbers it may be grouped, and names NPSHr as written', () => {
+		expect(
+			refused(readPastedPoints('Flow (gpm)\n1 000\n1 500', 'x', FLOW, HEAD, SI_UNITS))
+		).toMatch(/each row could be one number with its thousands grouped by a space/);
+		expect(refused(readPastedPoints('NPSHr (ft)\n15\n13', 'y', FLOW, HEAD, SI_UNITS))).toBe(
+			'Nothing was pasted: the heading names NPSHr. This paste fills head: name it so, or name nothing.'
+		);
+	});
+
+	it('reads a very long paste without failing (the table refuses it by its rows)', () => {
+		const text = Array.from({ length: 130_000 }, (_, i) => `${i}\t${i}`).join('\n');
+		expect(ok(readPastedPoints(text, 'x', FLOW, HEAD, SI_UNITS)).rows).toHaveLength(130_000);
+	});
 });

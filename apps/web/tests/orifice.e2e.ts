@@ -285,10 +285,13 @@ test('Add before inserts it into the line, the bore asked for; the first click a
 	await expect(currentHeading(page)).toHaveText(ITEM);
 	await expect(panel.getByRole('textbox', { name: 'Bore diameter (mm)' })).toHaveValue('15');
 	// Between the reservoir and the valve: Previous names the reservoir, Next the valve.
-	await expect(panel.getByRole('button', { name: /^Previous/ })).toHaveText(
-		'Previous: Reservoir R1'
-	);
-	await expect(panel.getByRole('button', { name: /^Next/ })).toHaveText('Next: Gate valve V1');
+	// Each button shows the name alone; "Previous" and "Next" are in its name (usability-entry.md §4).
+	const previous = panel.getByRole('button', { name: /^Previous/ });
+	await expect(previous).toHaveAccessibleName('Previous: Reservoir R1');
+	await expect(previous).toHaveText('Reservoir R1');
+	const next = panel.getByRole('button', { name: /^Next/ });
+	await expect(next).toHaveAccessibleName('Next: Gate valve V1');
+	await expect(next).toHaveText('Gate valve V1');
 });
 
 test('scenarios: a bigger bore and a calibrated C; compare and export all cases', async ({

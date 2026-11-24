@@ -16,7 +16,7 @@
 	import { schemaBounds, stringLimits } from '$lib/utils/schema-bounds';
 	import { intersectBounds, pairBounds, schemaOrderedFields } from '$lib/utils/model-rules';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import PointsTable, { type Point } from '../PointsTable.svelte';
+	import PointsTable, { type PasteNote, type Point } from '../PointsTable.svelte';
 
 	interface Props {
 		pump: Pump;
@@ -32,6 +32,8 @@
 	let newName = $derived(`Pump curve ${curveId}`);
 	let showEfficiency = $state(false);
 	let showNpshr = $state(false);
+	/** The head curve's paste note, kept when the paste creates the curve and its table is replaced. */
+	let headPasted = $state<PasteNote | null>(null);
 
 	/** An allowable region with one end entered: kept here until the other is (the API needs both). */
 	let regionDraft = $state<{ flowMin: number | null; flowMax: number | null }>({
@@ -162,6 +164,7 @@
 			units={ws.units}
 			minRows={3}
 			onchange={create}
+			bind:pasted={headPasted}
 		/>
 	</div>
 {:else}
@@ -173,6 +176,7 @@
 			y={{ label: 'Head', category: 'head', bounds: schemaBounds('FlowHeadPoint', 'head') }}
 			units={ws.units}
 			minRows={3}
+			bind:pasted={headPasted}
 			onchange={(rows) =>
 				save('edit pump curve', (c) => ({
 					...c,

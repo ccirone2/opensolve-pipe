@@ -32,7 +32,7 @@ import type {
 } from '../api/types';
 import { CURRENT_SCHEMA_VERSION } from './migrations';
 import type { PortRef } from './graph';
-import { IMPERIAL_UNITS, INCH } from './units';
+import { FOOT, IMPERIAL_UNITS, INCH } from './units';
 
 /** Every kind of component the UI can add, flat (valves by valve type). */
 export type ComponentKind =
@@ -190,10 +190,33 @@ export const DEFAULT_NOMINAL_SIZE = 4 * INCH;
 /** Pipe material and schedule of new connections: ids in the API's pipe library. */
 export const DEFAULT_MATERIAL_ID = 'carbon_steel';
 export const DEFAULT_SCHEDULE = '40';
-/** Length of the pipe in a new connection, m. */
+/** Length of the pipe in a new connection where lengths show in metric units, m. */
 export const DEFAULT_PIPE_LENGTH = 10;
-/** Length of the pipe added by an insertion (downstream half) or a plug stub, m. */
+/** Length of the pipe added by an insertion (downstream half) or a plug stub, metric, m. */
 export const SHORT_PIPE_LENGTH = 1;
+/** The same where lengths show in feet or inches: 30 ft and 3 ft (exact in m), m. */
+export const DEFAULT_PIPE_LENGTH_US = 30 * FOOT;
+export const SHORT_PIPE_LENGTH_US = 3 * FOOT;
+
+/** Lengths shown in feet or inches. */
+function inFeet(units: Partial<Pick<UnitPreferences, 'length'>> | undefined): boolean {
+	return units?.length === 'ft' || units?.length === 'in';
+}
+
+/**
+ * The length of a new connection's pipe, m: a round number in the project's display unit (the
+ * owner's answer, 2026-11-24; proposal usability-entry.md §5), 10 m, or 30 ft where lengths
+ * show in feet or inches, so a US user never meets 32.8084 ft. A web default (D14): it is what a
+ * new pipe is given, not a schema default, and an existing pipe keeps its length.
+ */
+export function defaultPipeLength(units?: Partial<Pick<UnitPreferences, 'length'>>): number {
+	return inFeet(units) ? DEFAULT_PIPE_LENGTH_US : DEFAULT_PIPE_LENGTH;
+}
+
+/** The short pipe of an insertion's downstream half or a plug stub, m: 1 m, or 3 ft. */
+export function shortPipeLength(units?: Partial<Pick<UnitPreferences, 'length'>>): number {
+	return inFeet(units) ? SHORT_PIPE_LENGTH_US : SHORT_PIPE_LENGTH;
+}
 
 /**
  * Ids in use: components, connections, pump curves and the project library's pipe specs and
@@ -772,7 +795,7 @@ function valvePorts(size: number): Port[] {
 	return [port('inlet', size, 'inlet'), port('outlet', size, 'outlet')];
 }
 
-/** A library pipe: carbon steel, schedule 40, the given nominal size, 10 m long. */
+/** A library pipe: carbon steel, schedule 40, the given nominal size and length (10 m unless given). */
 export function defaultPipe(nominalSize: number, length = DEFAULT_PIPE_LENGTH): PipeDefinition {
 	return { materialId: DEFAULT_MATERIAL_ID, schedule: DEFAULT_SCHEDULE, nominalSize, length };
 }

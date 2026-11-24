@@ -10,9 +10,10 @@
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { removePort, takesOpenDischarge } from '$lib/utils/edit';
 	import {
+		defaultPipeLength,
 		ENTRY_KINDS,
 		missingEntries,
-		SHORT_PIPE_LENGTH,
+		shortPipeLength,
 		type ComponentKind,
 		type EnteredValues,
 		type MissingEntry
@@ -133,7 +134,7 @@
 						onclick={() =>
 							ws.editConnection(connection.id, 'add pipe segment', (c) => ({
 								...c,
-								piping: addPipe(c.piping)
+								piping: addPipe(c.piping, undefined, defaultPipeLength(ws.units))
 							}))}
 					>
 						<Icon name="plus" class="size-4" /> Add pipe segment
@@ -251,9 +252,9 @@
 							'pressure',
 							displayUnit('pressure', ws.units),
 							{ gauge: true }
-						)}, reached by {formatValue(SHORT_PIPE_LENGTH, 'length', ws.units)} of pipe sized to the port
-						with an exit, at the valve's elevation. Its friction is solved as built-up back pressure.
-						For a return line, add or connect the piping instead.
+						)}, reached by {formatValue(shortPipeLength(ws.units), 'length', ws.units)} of pipe sized
+						to the port with an exit, at the valve's elevation. Its friction is solved as built-up back
+						pressure. For a return line, add or connect the piping instead.
 					</p>
 				{/if}
 				{#if targets.length}

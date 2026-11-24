@@ -2,7 +2,9 @@
 	A numeric input in the project's display unit for its category. It shows the stored SI value
 	converted to that unit (6 significant digits), and on change (Enter or leaving the field)
 	parses what was typed, converts it to SI, checks the schema bounds and calls `onchange` with
-	the SI value. Text left as shown stores nothing, so a value is never rounded to its display.
+	the SI value. What is typed may carry a unit of the field's quantity ("50 psi" in a kPa field,
+	"100 ft" in a ft field; units.ts parseQuantity, proposal usability-entry.md §3): the field then
+	shows the value in its own unit and says what it was converted from, until the next edit. Text left as shown stores nothing, so a value is never rounded to its display.
 	Text that is not a number, or a value out of bounds, is reported next to the field (and
 	announced) and never stored, so NaN is never written. Escape reverts edited text. An `error`
 	from the owner (a required value still to enter when its form is submitted) is shown the same
@@ -20,8 +22,7 @@
 		formatNumber,
 		formatValue,
 		fromSI,
-		parseNumber,
-		toSI,
+		parseQuantity,
 		unitLabel,
 		type UnitCategory
 	} from '$lib/utils/units';
@@ -76,6 +77,11 @@
 		changeNote?: boolean;
 		/** Ids of other elements that describe the input (after its own), e.g. its group's note. */
 		describedby?: string;
+		/**
+		 * Offered the pasted text first (a table's column or rows, PointsTable): return true when
+		 * it took the paste, and the field then takes nothing.
+		 */
+		onpaste?: (text: string) => boolean;
 	}
 
 	let {
@@ -101,7 +107,8 @@
 		change = null,
 		shared = false,
 		changeNote = true,
-		describedby
+		describedby,
+		onpaste
 	}: Props = $props();
 
 	const mode = useFieldMode();
@@ -131,6 +138,11 @@
 		void shown;
 		return null;
 	});
+	/** The text a stored value was converted from (typed in another unit), while it is stored. */
+	let converted = $state<{ si: number; text: string } | null>(null);
+	const convertedNote = $derived(
+		converted && value === converted.si ? `Converted from ${converted.text}.` : null
+	);
 	/** What the field reports: its own problem with the typed text first, else the owner's. */
 	const error = $derived(inputError ?? ownerError);
 
@@ -166,23 +178,28 @@
 			if (value !== null && value !== undefined && onchange(null) === false) text = shown;
 			return;
 		}
-		const number = parseNumber(trimmed);
-		if (number === null) {
-			inputError = 'Enter a number, e.g. 12.5 or 1.2e-3.';
+		const parsed = parseQuantity(trimmed, category, unit, { gauge, absolute });
+		if (!parsed) return;
+		if (!parsed.ok) {
+			inputError = parsed.error;
 			return;
 		}
-		if (integer && !Number.isInteger(number)) {
+		const si = parsed.si;
+		if (integer && !Number.isInteger(fromSI(si, unit))) {
 			inputError = 'Enter a whole number.';
 			return;
 		}
-		const si = toSI(number, unit);
 		const problem = boundsProblem(si, bounds, format);
 		if (problem) {
 			inputError = problem;
 			return;
 		}
 		inputError = null;
-		if (onchange(si) === false) text = shown;
+		converted = parsed.converted ? { si, text: trimmed } : null;
+		if (onchange(si) === false) {
+			text = shown;
+			converted = null;
+		}
 	}
 
 	/**
@@ -244,6 +261,7 @@
 					locked && `${id}-locked`,
 					error && `${id}-error`,
 					warning && `${id}-warning`,
+					convertedNote && `${id}-converted`,
 					hint && `${id}-hint`,
 					help && `${id}-help`,
 					describedby
@@ -253,10 +271,15 @@
 				oninput={(event) => {
 					text = event.currentTarget.value;
 					enteredText = null;
+					converted = null;
 					oninput?.();
 				}}
 				onchange={changedText}
 				onkeydown={keydown}
+				onpaste={(event) => {
+					const pasted = event.clipboardData?.getData('text/plain');
+					if (!locked && pasted && onpaste?.(pasted)) event.preventDefault();
+				}}
 			/>
 			{#if locked}
 				<Icon
@@ -288,6 +311,9 @@
 		<p id="{id}-warning" class="mt-1 flex items-start gap-1 text-sm text-amber-800">
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" /><span>{warning}</span>
 		</p>
+	{/if}
+	{#if convertedNote}
+		<p id="{id}-converted" class="hint">{convertedNote}</p>
 	{/if}
 	{#if hint}
 		<p id="{id}-hint" class="hint">{hint}</p>

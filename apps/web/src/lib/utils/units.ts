@@ -317,3 +317,192 @@ export function parseInput(text: string, unit: UnitId): number | null {
 	const value = parseNumber(text);
 	return value === null ? null : toSI(value, unit);
 }
+
+/**
+ * What may follow a typed number, per unit (proposal usability-entry.md §3): the registry's
+ * label, its id and the spellings engineers type. Every spelling names a unit of the registry
+ * above, so no conversion factor is added here. Matched without regard to case, except where case
+ * tells two units apart (MPa, a pressure, from mPa·s, a viscosity): those are `exact`.
+ */
+const SPELLINGS: Readonly<Partial<Record<UnitId, readonly string[]>>> = {
+	m: ['metre', 'metres', 'meter', 'meters'],
+	mm: ['millimetre', 'millimetres', 'millimeter', 'millimeters'],
+	ft: ['ft', 'foot', 'feet', "'"],
+	in: ['in', 'inch', 'inches', '"', 'in.'],
+	Pa: ['Pa'],
+	kPa: ['kPa'],
+	bar: ['bar'],
+	psi: ['psi', 'lbf/in2', 'lbf/in²'],
+	'm3/s': ['m3/s', 'm³/s'],
+	'm3/h': ['m3/h', 'm³/h', 'm3/hr', 'm³/hr', 'cmh'],
+	'L/s': ['L/s', 'l/s', 'lps'],
+	'L/min': ['L/min', 'l/min', 'lpm'],
+	gpm: ['gpm', 'usgpm', 'gal/min', 'US gpm'],
+	'm/s': ['m/s'],
+	'ft/s': ['ft/s', 'fps'],
+	C: ['°C', 'C', 'degC', 'deg C', 'º C', 'ºC'],
+	F: ['°F', 'F', 'degF', 'deg F', 'ºF', 'º F'],
+	'kg/m3': ['kg/m3', 'kg/m³'],
+	'lb/ft3': ['lb/ft3', 'lb/ft³', 'lbm/ft3', 'lbm/ft³', 'pcf'],
+	'Pa.s': ['Pa.s', 'Pa·s', 'Pa s', 'Pas'],
+	cP: ['cP', 'cp', 'centipoise'],
+	W: ['W'],
+	kW: ['kW'],
+	hp: ['hp', 'bhp'],
+	mm2: ['mm2', 'mm²', 'sq mm'],
+	m2: ['m2', 'm²', 'sq m'],
+	in2: ['in2', 'in²', 'sq in', 'sq. in.'],
+	'%': ['%'],
+	deg: ['°', 'deg', 'degrees']
+};
+
+/**
+ * Spellings matched with their case, where case tells units or numbers apart: MPa (mega) from
+ * mPa·s (milli), m and mm from M and MM ("million" in US practice), K (kelvin) from k ("thousand").
+ */
+const EXACT_SPELLINGS: Readonly<Partial<Record<UnitId, readonly string[]>>> = {
+	m: ['m'],
+	mm: ['mm'],
+	MPa: ['MPa'],
+	'mPa.s': ['mPa.s', 'mPa·s', 'mPa s'],
+	K: ['K']
+};
+
+/** Units a typed value of each category may carry: every unit of the same physical quantity. */
+const LENGTHS: readonly UnitId[] = ['m', 'mm', 'ft', 'in'];
+const ACCEPTED: Readonly<Record<UnitCategory, readonly UnitId[]>> = {
+	length: LENGTHS,
+	diameter: LENGTHS,
+	head: LENGTHS,
+	pressure: CATEGORY_UNITS.pressure,
+	flow: CATEGORY_UNITS.flow,
+	velocity: CATEGORY_UNITS.velocity,
+	temperature: CATEGORY_UNITS.temperature,
+	density: CATEGORY_UNITS.density,
+	viscosity: CATEGORY_UNITS.viscosity,
+	power: CATEGORY_UNITS.power,
+	area: CATEGORY_UNITS.area,
+	dimensionless: [],
+	fraction: ['%'],
+	angle: ['deg']
+};
+
+/** The unit a spelling names, among `accepted`; null for none. */
+function unitOf(spelling: string, accepted: readonly UnitId[]): UnitId | null {
+	const lower = spelling.toLowerCase();
+	for (const unit of accepted) {
+		if (EXACT_SPELLINGS[unit]?.includes(spelling)) return unit;
+		if (SPELLINGS[unit]?.some((s) => s.toLowerCase() === lower)) return unit;
+	}
+	return null;
+}
+
+/** The case-exact spelling, among `accepted`, of a spelling typed in another case ("mpa"). */
+function caseOf(spelling: string, accepted: readonly UnitId[]): string | null {
+	const lower = spelling.toLowerCase();
+	for (const unit of accepted) {
+		const exact = EXACT_SPELLINGS[unit]?.find((s) => s.toLowerCase() === lower);
+		if (exact) return exact;
+	}
+	return null;
+}
+
+/** A pressure's gauge or absolute mark after its unit: "psig", "kPa(g)", "bara", "kPa a". */
+function splitPressureMark(spelling: string): { base: string; mark: 'g' | 'a' } | null {
+	const match = /^(.+?)\s*(?:\(\s*([ga])\s*\)|([ga]))$/i.exec(spelling);
+	if (!match?.[1]) return null;
+	const mark = (match[2] ?? match[3] ?? '').toLowerCase();
+	return mark === 'g' || mark === 'a' ? { base: match[1], mark } : null;
+}
+
+/** The accepted units of a category, as their labels: "m, mm, ft or in". */
+function acceptedList(category: UnitCategory, options: LabelOptions): string {
+	const labels = ACCEPTED[category].map((u) => unitLabel(category, u, options));
+	return labels.length < 2
+		? (labels[0] ?? '')
+		: `${labels.slice(0, -1).join(', ')} or ${labels[labels.length - 1]}`;
+}
+
+export type QuantityParse =
+	| {
+			ok: true;
+			/** The value in SI. */
+			si: number;
+			/** The unit it was typed in: the display unit when none was typed. */
+			unit: UnitId;
+			/** True when the text named a unit other than the display unit. */
+			converted: boolean;
+	  }
+	| { ok: false; error: string };
+
+/** The message for text that is not a number at all. */
+export const NOT_A_NUMBER = 'Enter a number, e.g. 12.5 or 1.2e-3.';
+
+/**
+ * Parse a typed value of `category` (proposal usability-entry.md §3): a number, optionally
+ * followed by a unit of the same quantity ("50 psi", "3in", "120 gpm", "68 °F"). With no unit it
+ * is in `display`, the field's unit. A pressure's gauge or absolute mark must agree with the
+ * field: a gauge field takes "psig" or "psi", never "psia", and an absolute field the reverse;
+ * a difference takes none. Gauge ⇄ absolute needs the atmospheric pressure, so it is refused,
+ * never guessed (D4). Returns null for empty text.
+ */
+export function parseQuantity(
+	text: string,
+	category: UnitCategory,
+	display: UnitId,
+	options: LabelOptions = {}
+): QuantityParse | null {
+	const trimmed = text.trim();
+	if (trimmed === '') return null;
+	const match = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(.*)$/i.exec(trimmed);
+	const numberText = match?.[1];
+	if (!match || numberText === undefined) return { ok: false, error: NOT_A_NUMBER };
+	const number = Number(numberText);
+	if (!Number.isFinite(number)) return { ok: false, error: NOT_A_NUMBER };
+	const spelling = (match[2] ?? '').trim();
+	// A unit starts with a letter or a symbol; "1,5", "1.2.3" and "0x10" are malformed numbers.
+	if (spelling !== '' && !/^[\p{L}°º%'"]/u.test(spelling))
+		return { ok: false, error: NOT_A_NUMBER };
+	if (spelling === '')
+		return { ok: true, si: toSI(number, display), unit: display, converted: false };
+
+	const accepted = ACCEPTED[category];
+	const shownLabel = unitLabel(category, display, options);
+	const takes = accepted.length
+		? `Enter it in ${acceptedList(category, options)}.`
+		: 'Enter a number without a unit.';
+	let unit = unitOf(spelling, accepted);
+	if (unit === null && category === 'pressure') {
+		const marked = splitPressureMark(spelling);
+		const base = marked && unitOf(marked.base, accepted);
+		if (marked && base) {
+			const wanted = options.gauge ? 'g' : options.absolute ? 'a' : null;
+			if (wanted === null) {
+				return {
+					ok: false,
+					error: `This is a pressure difference: enter it in ${shownLabel}, without a gauge (g) or absolute (a) mark.`
+				};
+			}
+			if (marked.mark !== wanted) {
+				return {
+					ok: false,
+					error:
+						wanted === 'g'
+							? `This is a gauge pressure (${shownLabel}): an absolute value needs the atmospheric pressure subtracted first.`
+							: `This is an absolute pressure (${shownLabel}): a gauge value needs the atmospheric pressure added first.`
+				};
+			}
+			unit = base;
+		}
+	}
+	if (unit === null) {
+		const exact = caseOf(spelling, accepted);
+		return {
+			ok: false,
+			error: exact
+				? `“${spelling}”: mind the capitals, “${exact}”.`
+				: `“${spelling}” is not a unit this field takes. ${takes}`
+		};
+	}
+	return { ok: true, si: toSI(number, unit), unit, converted: unit !== display };
+}

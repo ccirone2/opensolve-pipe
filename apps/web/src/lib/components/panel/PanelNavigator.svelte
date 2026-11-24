@@ -96,28 +96,36 @@
 	<nav
 		aria-label="Walk the network"
 		class={wide.current
-			? 'flex max-w-[55%] min-w-0 shrink gap-1'
+			? 'flex w-[55%] min-w-0 shrink-0 gap-1'
 			: 'flex gap-2 border-t border-slate-200 bg-white px-2 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))]'}
 	>
 		<button
 			type="button"
 			class="btn min-w-0 flex-1 justify-start"
 			disabled={!previous}
+			aria-label={previous ? `Previous: ${previous.name}` : undefined}
+			title={previous ? `Previous: ${previous.name}` : undefined}
 			onclick={() => nav.previous()}
 		>
 			<Icon name="left" class="size-5 shrink-0" />
-			<span class="truncate">
-				Previous{#if previous}<span class="font-normal text-slate-600">: {previous.name}</span>{/if}
-			</span>
+			<!-- The neighbour's name is what the button is for, so it gets the room: "Previous" and
+				"Next" are in the name read out but not shown beside a name (the arrows say it), and a
+				name still cut off is whole in the tooltip (proposal usability-entry.md §4). -->
+			{#if previous}
+				<span class="truncate font-normal text-slate-700">{previous.name}</span>
+			{:else}
+				<span class="truncate">Previous</span>
+			{/if}
 		</button>
 		<button
 			type="button"
 			class="btn min-w-0 flex-1 justify-end border-blue-700 text-blue-800"
 			disabled={!nav.options.length && !openPort}
+			aria-label="Next: {nextDetail}"
+			title="Next: {nextDetail}"
 			onclick={next}
 		>
-			<!-- The space stays outside the inner span: Svelte drops whitespace at an element's start. -->
-			<span class="truncate">Next: <span class="font-normal">{nextDetail}</span></span>
+			<span class="truncate">{nextDetail}</span>
 			<Icon name="right" class="size-5 shrink-0" />
 		</button>
 	</nav>

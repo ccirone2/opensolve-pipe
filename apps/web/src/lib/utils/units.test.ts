@@ -12,6 +12,8 @@ import {
 	isUnitId,
 	parseInput,
 	parseNumber,
+	parseQuantity,
+	NOT_A_NUMBER,
 	PREFERENCE_CATEGORIES,
 	SI_UNITS,
 	toSI,
@@ -281,5 +283,130 @@ describe('formatting and parsing', () => {
 		expectRelative(parseInput('50', 'psi')!, (50 * lbf) / inch ** 2);
 		expect(parseInput('20', 'C')).toBeCloseTo(293.15, 12);
 		expect(parseInput('x', 'kPa')).toBeNull();
+	});
+});
+
+describe('typed values with units (proposal usability-entry.md §3)', () => {
+	const si = (text: string, category: UnitCategory, display: UnitId, gauge = false) => {
+		const parsed = parseQuantity(text, category, display, { gauge });
+		if (!parsed?.ok) throw new Error(`${text}: ${parsed ? parsed.error : 'empty'}`);
+		return parsed;
+	};
+	const error = (
+		text: string,
+		category: UnitCategory,
+		display: UnitId,
+		options: { gauge?: boolean; absolute?: boolean } = {}
+	) => {
+		const parsed = parseQuantity(text, category, display, options);
+		if (!parsed || parsed.ok) throw new Error(`${text} was accepted`);
+		return parsed.error;
+	};
+
+	it("reads a bare number in the field's unit, and empty text as nothing", () => {
+		expect(si('12.5', 'length', 'ft')).toEqual({
+			ok: true,
+			si: 12.5 * ft,
+			unit: 'ft',
+			converted: false
+		});
+		expect(parseQuantity('  ', 'length', 'ft')).toBeNull();
+	});
+
+	it("takes the field's own unit, with or without a space", () => {
+		for (const text of ['100 ft', '100ft', '100 FT', '100 feet', "100'"]) {
+			expect(si(text, 'length', 'ft'), text).toEqual({
+				ok: true,
+				si: 100 * ft,
+				unit: 'ft',
+				converted: false
+			});
+		}
+	});
+
+	it('converts any unit of the same quantity, exactly as the registry does', () => {
+		expect(si('3 in', 'length', 'm')).toMatchObject({ si: 3 * inch, unit: 'in', converted: true });
+		expect(si('4"', 'diameter', 'mm').si).toBe(4 * inch);
+		expect(si('2 m', 'head', 'ft').si).toBe(2);
+		expectRelative(si('120 gpm', 'flow', 'L/s').si, (120 * gallon) / 60);
+		expectRelative(si('120 GPM', 'flow', 'L/s').si, (120 * gallon) / 60);
+		expect(si('36 m3/h', 'flow', 'gpm').si).toBe(36 / 3600);
+		expect(si('36 m³/h', 'flow', 'gpm').si).toBe(36 / 3600);
+		expect(si('5 fps', 'velocity', 'm/s').si).toBe(5 * ft);
+		expect(si('68 °F', 'temperature', 'C').si).toBeCloseTo(293.15, 12);
+		expect(si('68F', 'temperature', 'C').si).toBeCloseTo(293.15, 12);
+		expect(si('20 degC', 'temperature', 'F').si).toBeCloseTo(293.15, 12);
+		expect(si('300 K', 'temperature', 'F').si).toBe(300);
+		expectRelative(si('62.4 lb/ft3', 'density', 'kg/m3').si, (62.4 * lb) / ft ** 3);
+		expect(si('1 cP', 'viscosity', 'Pa.s').si).toBe(1e-3);
+		expect(si('1 mPa·s', 'viscosity', 'cP').si).toBe(1e-3);
+		expect(si('2 in²', 'area', 'mm2').si).toBe(2 * inch * inch);
+		expect(si('75 %', 'fraction', '%').si).toBe(0.75);
+	});
+
+	it('takes a gauge pressure in a gauge field, marked or not, and refuses an absolute one', () => {
+		const psi = lbf / inch ** 2;
+		for (const text of ['50 psi', '50 psig', '50psig', '50 PSIG']) {
+			expectRelative(si(text, 'pressure', 'kPa', true).si, 50 * psi);
+		}
+		expect(si('3 barg', 'pressure', 'psi', true).si).toBe(3e5);
+		expect(si('300 kPa(g)', 'pressure', 'psi', true).si).toBe(3e5);
+		expect(si('300 kPag', 'pressure', 'psi', true).si).toBe(3e5);
+		expect(si('0.3 MPa', 'pressure', 'psi', true).si).toBe(3e5);
+		expect(error('50 psia', 'pressure', 'kPa', { gauge: true })).toBe(
+			'This is a gauge pressure (kPa(g)): an absolute value needs the atmospheric pressure subtracted first.'
+		);
+		expect(error('3 bara', 'pressure', 'psi', { gauge: true })).toMatch(/gauge pressure \(psig\)/);
+	});
+
+	it('takes an absolute pressure in an absolute field and refuses a gauge one', () => {
+		expect(parseQuantity('101.325 kPa(a)', 'pressure', 'psi', { absolute: true })).toMatchObject({
+			ok: true,
+			si: 101325
+		});
+		expect(parseQuantity('2 kPa', 'pressure', 'psi', { absolute: true })).toMatchObject({
+			ok: true,
+			si: 2000
+		});
+		expect(error('14.7 psig', 'pressure', 'kPa', { absolute: true })).toBe(
+			'This is an absolute pressure (kPa(a)): a gauge value needs the atmospheric pressure added first.'
+		);
+	});
+
+	it('takes a pressure difference without a gauge or absolute mark only', () => {
+		expect(si('5 psi', 'pressure', 'kPa').si).toBeCloseTo((5 * lbf) / inch ** 2, 9);
+		expect(error('5 psig', 'pressure', 'kPa')).toBe(
+			'This is a pressure difference: enter it in kPa, without a gauge (g) or absolute (a) mark.'
+		);
+		expect(error('5 psia', 'pressure', 'kPa')).toMatch(/pressure difference/);
+	});
+
+	it('tells apart units that differ only in their capitals, never guessing', () => {
+		expect(error('2 mpa', 'pressure', 'kPa', { gauge: true })).toBe(
+			'“mpa”: mind the capitals, “MPa”.'
+		);
+		expect(error('2 M', 'length', 'ft')).toBe('“M”: mind the capitals, “m”.');
+		expect(error('2 MM', 'diameter', 'in')).toBe('“MM”: mind the capitals, “mm”.');
+		expect(error('300 k', 'temperature', 'C')).toBe('“k”: mind the capitals, “K”.');
+		expect(error('1 MPa.s', 'viscosity', 'cP')).toBe('“MPa.s”: mind the capitals, “mPa.s”.');
+	});
+
+	it('refuses a unit of another quantity, and says which it takes', () => {
+		expect(error('50 psi', 'head', 'ft')).toBe(
+			'“psi” is not a unit this field takes. Enter it in m, mm, ft or in.'
+		);
+		expect(error('3 gpm', 'length', 'm')).toMatch(/not a unit this field takes/);
+		expect(error('3 ft', 'dimensionless', '')).toBe(
+			'“ft” is not a unit this field takes. Enter a number without a unit.'
+		);
+		expect(error('3 furlongs', 'length', 'm')).toMatch(/“furlongs”/);
+	});
+
+	it('reports malformed numbers as before', () => {
+		for (const bad of ['abc', '1,5', '1.2.3', '1e999', '--1', '.', 'ft 3', 'Infinity']) {
+			expect(error(bad, 'length', 'ft'), bad).toBe(NOT_A_NUMBER);
+		}
+		// Read as 0 followed by a unit it does not know: refused all the same.
+		expect(error('0x10', 'length', 'ft')).toMatch(/“x10” is not a unit/);
 	});
 });

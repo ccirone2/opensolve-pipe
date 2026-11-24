@@ -4,11 +4,21 @@
 	(e.g. while a new curve is typed in). Points are kept in the order entered; flows that do not
 	increase are flagged. In a scenario (field-mode.ts) the curve is the same in every case: the
 	cells are locked and rows cannot be added or removed.
+
+	A column, or a table of both columns, pasted into a cell fills the table from that row, adding
+	rows as needed (paste-points.ts; proposal usability-entry.md §6): from a spreadsheet or a data
+	sheet, a heading row's units converted. A paste with one bad cell pastes nothing and says why.
 -->
 <script lang="ts" module>
 	export interface Point {
 		x: number;
 		y: number;
+	}
+
+	/** What a paste did, or why it pasted nothing; cleared by the next edit of a cell. */
+	export interface PasteNote {
+		text: string;
+		error: boolean;
 	}
 </script>
 
@@ -17,6 +27,7 @@
 	import { useFieldMode } from '$lib/components/ui/field-mode';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
+	import { readPastedPoints, type PasteColumn } from '$lib/utils/paste-points';
 	import type { Bounds } from '$lib/utils/schema-bounds';
 	import { displayUnit, unitLabel, type UnitCategory } from '$lib/utils/units';
 
@@ -37,6 +48,11 @@
 		/** Blank rows shown when there are no points yet. */
 		emptyRows?: number;
 		onchange: (rows: Point[]) => boolean | void;
+		/**
+		 * What the last paste did, or why it pasted nothing (bindable: an owner whose table is
+		 * replaced when the paste stores it, a new pump curve's, keeps the note for the next one).
+		 */
+		pasted?: PasteNote | null;
 	}
 
 	let {
@@ -48,7 +64,8 @@
 		minRows,
 		maxRows = 50,
 		emptyRows = minRows,
-		onchange
+		onchange,
+		pasted = $bindable(null)
 	}: Props = $props();
 
 	const mode = useFieldMode();
@@ -85,7 +102,36 @@
 	}
 
 	function setCell(index: number, key: 'x' | 'y', value: number | null) {
+		pasted = null;
 		update(draft.map((r, i) => (i === index ? { ...r, [key]: value } : r)));
+	}
+
+	/** A paste into row `index`'s cell in column `at`: true when it was a column or a table. */
+	function paste(index: number, at: PasteColumn, text: string): boolean {
+		const read = readPastedPoints(text, at, x, y, units);
+		if (!read) return false;
+		if (!read.ok) {
+			pasted = { text: read.error, error: true };
+			return true;
+		}
+		const end = index + read.rows.length;
+		if (end > maxRows) {
+			pasted = {
+				text: `Nothing was pasted: this table takes at most ${maxRows} points, and ${read.rows.length} from point ${index + 1} would make ${end}.`,
+				error: true
+			};
+			return true;
+		}
+		const next = draft.map((r) => ({ ...r }));
+		while (next.length < end) next.push({ x: null, y: null });
+		read.rows.forEach((row, k) => {
+			const target = next[index + k];
+			if (!target) return;
+			for (const column of read.columns) target[column] = row[column] ?? null;
+		});
+		update(next);
+		pasted = { text: read.summary, error: false };
+		return true;
 	}
 </script>
 
@@ -115,6 +161,7 @@
 							{units}
 							bounds={x.bounds}
 							onchange={(v) => setCell(i, 'x', v)}
+							onpaste={(text) => paste(i, 'x', text)}
 						/>
 					</td>
 					<td>
@@ -128,6 +175,7 @@
 							{units}
 							bounds={y.bounds}
 							onchange={(v) => setCell(i, 'y', v)}
+							onpaste={(text) => paste(i, 'y', text)}
 						/>
 					</td>
 					<td>
@@ -166,6 +214,11 @@
 			</p>
 		{/if}
 	</div>
+	<p class={['mt-1 text-sm', pasted?.error ? 'text-red-700' : 'text-slate-600']} aria-live="polite">
+		{#if pasted}{pasted.text}{:else if !locked}<span class="hint"
+				>Paste a column, or both columns with their headings, from a spreadsheet or data sheet.</span
+			>{/if}
+	</p>
 	{#if !increasing}
 		<p class="mt-1 flex items-start gap-1 text-sm text-amber-800">
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" />

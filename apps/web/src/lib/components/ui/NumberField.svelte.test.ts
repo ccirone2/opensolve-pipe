@@ -243,4 +243,67 @@ describe('NumberField', () => {
 		expect(screen.queryByRole('alert')).toBeNull();
 		expect(input).not.toHaveAttribute('aria-invalid');
 	});
+
+	it('takes a unit after the number: its own, or another of its quantity, saying what it converted (usability-entry.md §3)', async () => {
+		const onchange = vi.fn();
+		const { rerender } = render(NumberField, {
+			label: 'Length',
+			value: 3.048,
+			category: 'length',
+			units: IMPERIAL_UNITS,
+			onchange
+		});
+		const input = screen.getByRole('textbox', { name: 'Length (ft)' });
+		await type(input, '100 ft');
+		expect(onchange).toHaveBeenLastCalledWith(toSI(100, 'ft'));
+		await rerender({ value: toSI(100, 'ft') });
+		expect(input).toHaveValue('100');
+		expect(screen.queryByText(/Converted from/)).toBeNull();
+
+		await type(input, '25 m');
+		expect(onchange).toHaveBeenLastCalledWith(25);
+		await rerender({ value: 25 });
+		expect(input).toHaveValue('82.021');
+		expect(screen.getByText('Converted from 25 m.')).toBeInTheDocument();
+		expect(input).toHaveAccessibleDescription('Converted from 25 m.');
+
+		// The next keystroke, or another stored value, drops the note.
+		await fireEvent.input(input, { target: { value: '8' } });
+		expect(screen.queryByText(/Converted from/)).toBeNull();
+	});
+
+	it('refuses an absolute pressure in a gauge field, storing nothing', async () => {
+		const onchange = vi.fn();
+		render(NumberField, {
+			label: 'Surface pressure',
+			value: 0,
+			category: 'pressure',
+			gauge: true,
+			units: SI_UNITS,
+			onchange
+		});
+		const input = screen.getByRole('textbox', { name: 'Surface pressure (kPa(g))' });
+		await type(input, '14.7 psia');
+		expect(onchange).not.toHaveBeenCalled();
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			'This is a gauge pressure (kPa(g)): an absolute value needs the atmospheric pressure subtracted first.'
+		);
+		await type(input, '10 psig');
+		expect(onchange.mock.calls[0]?.[0]).toBeCloseTo((10 * 0.45359237 * 9.80665) / 0.0254 ** 2, 9);
+	});
+
+	it('checks the bounds on the converted value', async () => {
+		const onchange = vi.fn();
+		render(NumberField, {
+			label: 'Length',
+			value: 10,
+			category: 'length',
+			units: SI_UNITS,
+			bounds: { exclusiveMinimum: 0 },
+			onchange
+		});
+		await type(screen.getByRole('textbox', { name: 'Length (m)' }), '-3 ft');
+		expect(onchange).not.toHaveBeenCalled();
+		expect(screen.getByRole('alert')).toHaveTextContent(/greater than 0/);
+	});
 });

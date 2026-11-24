@@ -22,7 +22,8 @@ import {
 	defaultPiping,
 	ID_PREFIX,
 	newId,
-	SHORT_PIPE_LENGTH,
+	shortPipeLength,
+	defaultPipeLength,
 	usedIds,
 	type NewIdOptions
 } from './factory';
@@ -237,7 +238,7 @@ export function addComponentAtPort(
 			withComponent,
 			upstream ? newEnd : existingEnd,
 			upstream ? existingEnd : newEnd,
-			defaultPiping(port.nominalSize),
+			defaultPiping(port.nominalSize, defaultPipeLength(project.settings.units)),
 			newId(withComponent, CONNECTION_PREFIX, options.reserved)
 		)
 	);
@@ -247,7 +248,7 @@ export function addComponentAtPort(
 /**
  * Insert a component into a connection (from A to B), splitting it in two:
  * A → component inlet keeps the connection's id and all its piping; component outlet → B is a
- * new connection with one short pipe (SHORT_PIPE_LENGTH, 1 m) of the same material, schedule
+ * new connection with one short pipe (shortPipeLength: 1 m, or 3 ft) of the same material, schedule
  * and size as the last pipe segment, so the insertion adds 1 m of pipe for the user to adjust.
  * Exit fittings describe the discharge at the B end, so they move to the new half.
  *
@@ -289,7 +290,7 @@ export function insertComponentInConnection(
 		{ componentId: component.id, portId: outlet.id },
 		{ componentId: connection.toComponentId, portId: connection.toPortId },
 		{
-			pipes: [{ ...lastPipe, length: SHORT_PIPE_LENGTH }],
+			pipes: [{ ...lastPipe, length: shortPipeLength(project.settings.units) }],
 			fittings: exits.map((f) => ({ ...f, pipeIndex: 0 }))
 		},
 		newId(withComponent, CONNECTION_PREFIX, options.reserved)
@@ -471,7 +472,7 @@ export function deleteComponent(
 }
 
 /**
- * Close a free port with a plug, connected by a short stub of default pipe (SHORT_PIPE_LENGTH)
+ * Close a free port with a plug, connected by a short stub of default pipe (shortPipeLength)
  * sized to the port. The plug sits at the port's elevation. New ids avoid `options.reserved`.
  */
 export function plugPort(
@@ -491,7 +492,7 @@ export function plugPort(
 		withPlug,
 		{ componentId, portId },
 		{ componentId: plug.id, portId: 'port_1' },
-		defaultPiping(port.nominalSize, SHORT_PIPE_LENGTH),
+		defaultPiping(port.nominalSize, shortPipeLength(project.settings.units)),
 		newId(withPlug, CONNECTION_PREFIX, options.reserved)
 	);
 	return { ...withPlug, connections: [...project.connections, connection] };
@@ -508,7 +509,7 @@ export function takesOpenDischarge(component: Component, portId: string): boolea
 /**
  * An open discharge at a free port, a relief valve's outlet discharging to atmosphere (proposal
  * pressure-relief-valve.md decision 9): a reference node at 0 Pa gauge at the port's elevation (the
- * valve's, unless the port has its own), reached by SHORT_PIPE_LENGTH (1 m) of default pipe sized
+ * valve's, unless the port has its own), reached by shortPipeLength (1 m, or 3 ft) of default pipe sized
  * to the port with an exit fitting at its end, so the pipe's friction is solved as built-up back
  * pressure and its open end's static pressure is exactly atmospheric (D7, D10). One edit, so one
  * undo step. New ids avoid `options.reserved`.
@@ -531,7 +532,7 @@ export function addOpenDischarge(
 	});
 	const withNode = { ...project, components: [...project.components, node] };
 	const piping: PipingSegment = {
-		pipes: [defaultPipe(port.nominalSize, SHORT_PIPE_LENGTH)],
+		pipes: [defaultPipe(port.nominalSize, shortPipeLength(project.settings.units))],
 		fittings: [{ type: DEFAULT_EXIT, quantity: 1, pipeIndex: 0 }]
 	};
 	const connection = createConnection(
@@ -570,7 +571,7 @@ export function connectPorts(
 			project,
 			from,
 			to,
-			piping ?? defaultPiping(start.port.nominalSize),
+			piping ?? defaultPiping(start.port.nominalSize, defaultPipeLength(project.settings.units)),
 			newId(project, CONNECTION_PREFIX, options.reserved)
 		)
 	);

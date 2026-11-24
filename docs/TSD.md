@@ -138,6 +138,7 @@ opensolve-pipe/
 │   │   │   │   │   ├── model-rules.ts  # Model rules read from openapi.json (x-port-ids, …; §4.7)
 │   │   │   │   │   ├── link-error.ts   # Errors from opening a link
 │   │   │   │   │   ├── units.ts        # Display-unit conversion and formatting (§6)
+│   │   │   │   │   ├── paste-points.ts # A pasted column or table of curve points (§6.1)
 │   │   │   │   │   ├── graph.ts        # Port-graph traversal for the navigator (§8.1)
 │   │   │   │   │   ├── edit.ts         # Graph edits: add, insert, branch, delete (and join), plug, connect
 │   │   │   │   │   ├── factory.ts      # New projects, components and connections; ids
@@ -1097,6 +1098,8 @@ Head is a length (m or ft of the flowing liquid) with the length factors. The ap
 - `K` and anything else are shown as reported, because a kelvin value may be a temperature or a temperature difference.
 
 Where the display differs from the SI value, the trace view shows the SI value as reported too.
+
+**Typed input** (`parseQuantity`, proposal `usability-entry.md` §3): a number field reads a number, optionally followed by a unit of the field's quantity ("25 m" in a ft field, "50 psi" in a kPa field), converted with the factors above, so no factor is added. The spellings it takes are listed with the registry (`SPELLINGS`); case is ignored except where it tells units apart (`EXACT_SPELLINGS`: MPa and mPa·s, m and mm against M and MM, K against k). A head takes only lengths (a pressure would need the density). A pressure's mark must match the field, gauge (psig, kPa(g), barg) or absolute (psia, kPa(a), bara), and a difference takes none: a value with the other mark is refused, never converted, since that needs the atmospheric pressure. A pasted column or table of curve points is read cell by cell the same way, a heading's bracketed unit giving its column's (`paste-points.ts`).
 
 ### 6.2 Unit Preferences and Pressure Reference
 

@@ -2182,7 +2182,11 @@ function sortEntries<R extends SortableRow>(rows: readonly R[], key: string): So
 	}));
 }
 
-/** sortRows' order, `sign` 1 ascending, −1 descending: a total order (the table's breaks ties). */
+/**
+ * sortRows' order, `sign` 1 ascending, −1 descending, the table's order breaking every tie: total
+ * on a column of numbers and no values; a column that mixes numbers and text ranks the text in
+ * natural order, which is not transitive against the numbers.
+ */
 function compareEntries<R>(a: SortEntry<R>, b: SortEntry<R>, sign: number): number {
 	if (a.value === null || b.value === null) {
 		return a.value === b.value ? a.index - b.index : a.value === null ? 1 : -1;
@@ -2218,10 +2222,7 @@ export function sortRows<R extends SortableRow>(rows: readonly R[], sort: TableS
  * (the table's order breaks every tie), so the least entry is the one the sort puts first (the
  * Summary's extremes; review S1-R2).
  */
-export function firstSortedRow<R extends SortableRow>(
-	rows: readonly R[],
-	sort: TableSort
-): R | undefined {
+function firstSortedRow<R extends SortableRow>(rows: readonly R[], sort: TableSort): R | undefined {
 	const sign = sort.direction === 'ascending' ? 1 : -1;
 	let first: SortEntry<R> | undefined;
 	for (const entry of sortEntries(rows, sort.key)) {

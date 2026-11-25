@@ -4,6 +4,12 @@
 	(e.g. while a new curve is typed in). Points are kept in the order entered; flows that do not
 	increase are flagged. In a scenario (field-mode.ts) the curve is the same in every case: the
 	cells are locked and rows cannot be added or removed.
+
+	A column, or a table of both columns, pasted into a cell fills the table from that row, adding
+	rows as needed (paste-points.ts; proposal usability-entry.md §6): from a spreadsheet or a data
+	sheet, a heading row's units converted. A paste with one bad cell pastes nothing and says why.
+	The line under the table says what a paste did while the table holds the rows it made, so an
+	undo, an edit or a point added or removed takes it away.
 -->
 <script lang="ts" module>
 	export interface Point {
@@ -17,6 +23,8 @@
 	import { useFieldMode } from '$lib/components/ui/field-mode';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
+	import { afterTwoFrames } from '$lib/utils/live';
+	import { inSentence, readPastedPoints, type PasteColumn } from '$lib/utils/paste-points';
 	import type { Bounds } from '$lib/utils/schema-bounds';
 	import { displayUnit, unitLabel, type UnitCategory } from '$lib/utils/units';
 
@@ -85,7 +93,103 @@
 	}
 
 	function setCell(index: number, key: 'x' | 'y', value: number | null) {
+		pasted = null;
 		update(draft.map((r, i) => (i === index ? { ...r, [key]: value } : r)));
+	}
+
+	/**
+	 * What the last paste did, with the rows it made, or why it pasted nothing. A paste's note is
+	 * shown while the table holds those rows (an undo, an edit elsewhere or another point takes it
+	 * away); a refusal's until the next edit of the table.
+	 */
+	let pasted = $state<{ text: string; error: boolean; rows: Draft[] | null } | null>(null);
+	/** Counts the pastes stored: every cell drops its own unstored text, error and note. */
+	let written = $state(0);
+	/** The polite line, drawn at the first paste, and the words it says. */
+	let speaking = $state(false);
+	let spoken = $state('');
+	let stopSaying: (() => void) | null = null;
+	function say(words: string) {
+		stopSaying?.();
+		speaking = true;
+		spoken = '';
+		stopSaying = afterTwoFrames(() => (spoken = words));
+	}
+	$effect(() => {
+		if (!note && spoken) {
+			stopSaying?.();
+			spoken = '';
+		}
+	});
+	$effect(() => () => stopSaying?.());
+	const sameRows = (a: readonly Draft[], b: readonly Draft[]) =>
+		a.length === b.length && a.every((row, i) => row.x === b[i]?.x && row.y === b[i]?.y);
+	const note = $derived(
+		pasted && (pasted.error || (pasted.rows && sameRows(draft, pasted.rows))) ? pasted : null
+	);
+
+	/** "point 4", "points 4 and 5", "points 4 to 6", "points 2, 4 and 7". */
+	function pointsText(numbers: readonly number[]): string {
+		const [first] = numbers;
+		const last = numbers[numbers.length - 1];
+		if (first === undefined || last === undefined) return '';
+		if (numbers.length === 1) return `point ${first}`;
+		if (numbers.length > 2 && last - first === numbers.length - 1)
+			return `points ${first} to ${last}`;
+		return `points ${numbers.slice(0, -1).join(', ')} and ${last}`;
+	}
+
+	/** A paste into row `index`'s cell in column `at`: true when it was a column or a table. */
+	function paste(index: number, at: PasteColumn, text: string): boolean {
+		const read = readPastedPoints(text, at, x, y, units);
+		if (!read) return false;
+		if (!read.ok) {
+			pasted = { text: read.error, error: true, rows: null };
+			say(read.error);
+			return true;
+		}
+		const end = index + read.rows.length;
+		if (end > maxRows) {
+			pasted = {
+				text: `Nothing was pasted: this table takes at most ${maxRows} points, and ${read.rows.length} from point ${index + 1} would make ${end}.`,
+				error: true,
+				rows: null
+			};
+			say(pasted.text);
+			return true;
+		}
+		// Both columns: the pasted table is the curve from that point on, so no point of the old
+		// curve is left after it unseen. One column: the other column stays, and points after the
+		// pasted ones keep their values in this one, as the note says (usability-entry.md §10).
+		const both = read.columns.length === 2;
+		const next = draft.slice(0, both ? index : draft.length).map((r) => ({ ...r }));
+		while (next.length < end) next.push({ x: null, y: null });
+		read.rows.forEach((row, k) => {
+			const target = next[index + k];
+			if (!target) return;
+			for (const column of read.columns) target[column] = row[column] ?? null;
+		});
+		// The points after the pasted ones that had a value: removed, or keeping it. A blank row
+		// (a new curve's) is no point and goes unmentioned.
+		const column = read.columns[0] === 'x' ? 'x' : 'y';
+		const after = draft
+			.map((row, i) => ({ row, number: i + 1 }))
+			.slice(end)
+			.filter(({ row }) => (both ? row.x !== null || row.y !== null : row[column] !== null))
+			.map(({ number }) => number);
+		const them = read.rows.length === 1 ? 'it' : 'them';
+		const listed = pointsText(after);
+		const left =
+			after.length === 0
+				? ''
+				: both
+					? ` The ${after.length === 1 ? 'point' : 'points'} after ${them} (${listed}) ${after.length === 1 ? 'was' : 'were'} removed.`
+					: ` ${listed.replace(/^p/, 'P')} ${after.length === 1 ? 'keeps its' : 'keep their'} earlier ${inSentence((column === 'x' ? x : y).label)}.`;
+		update(next);
+		written += 1;
+		pasted = { text: read.summary + left, error: false, rows: next };
+		say(pasted.text);
+		return true;
 	}
 </script>
 
@@ -106,7 +210,7 @@
 					<td class="text-sm text-slate-600">{i + 1}</td>
 					<td>
 						<NumberField
-							label="Point {i + 1} {x.label.toLowerCase()}"
+							label="Point {i + 1} {inSentence(x.label)}"
 							hideLabel
 							compact
 							optional
@@ -114,12 +218,14 @@
 							category={x.category}
 							{units}
 							bounds={x.bounds}
+							reset={written}
 							onchange={(v) => setCell(i, 'x', v)}
+							onpaste={(text) => paste(i, 'x', text)}
 						/>
 					</td>
 					<td>
 						<NumberField
-							label="Point {i + 1} {y.label.toLowerCase()}"
+							label="Point {i + 1} {inSentence(y.label)}"
 							hideLabel
 							compact
 							optional
@@ -127,7 +233,9 @@
 							category={y.category}
 							{units}
 							bounds={y.bounds}
+							reset={written}
 							onchange={(v) => setCell(i, 'y', v)}
+							onpaste={(text) => paste(i, 'y', text)}
 						/>
 					</td>
 					<td>
@@ -137,7 +245,10 @@
 								class="btn btn-quiet btn-icon"
 								aria-label="Remove point {i + 1}"
 								disabled={draft.length <= minRows}
-								onclick={() => update(draft.filter((_, j) => j !== i))}
+								onclick={() => {
+									pasted = null;
+									update(draft.filter((_, j) => j !== i));
+								}}
 							>
 								<Icon name="trash" />
 							</button>
@@ -153,7 +264,10 @@
 				type="button"
 				class="btn"
 				disabled={draft.length >= maxRows}
-				onclick={() => (draft = [...draft, { x: null, y: null }])}
+				onclick={() => {
+					pasted = null;
+					draft = [...draft, { x: null, y: null }];
+				}}
 			>
 				<Icon name="plus" class="size-4" /> Add point
 			</button>
@@ -166,6 +280,18 @@
 			</p>
 		{/if}
 	</div>
+	{#if note}
+		<p class={['mt-1 text-sm', note.error ? 'text-red-700' : 'text-slate-700']}>{note.text}</p>
+	{/if}
+	<!-- The note said: a polite line drawn empty by the first paste, emptied at every paste and
+		written two frames later (ui-guide.md, One strip of live lines), so the same words twice are
+		said twice and nothing is live before a paste. The standing hint is never in it. -->
+	{#if speaking}<span class="sr-only" aria-live="polite">{spoken}</span>{/if}
+	{#if !note && !locked}
+		<p class="hint mt-1">
+			Paste a column, or both columns with their headings, from a spreadsheet or data sheet.
+		</p>
+	{/if}
 	{#if !increasing}
 		<p class="mt-1 flex items-start gap-1 text-sm text-amber-800">
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" />

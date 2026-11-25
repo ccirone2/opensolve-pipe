@@ -39,11 +39,11 @@
 		DEFAULT_MATERIAL_ID,
 		ENTRY_KINDS,
 		KIND_LABELS,
-		DEFAULT_PIPE_LENGTH,
+		defaultPipeLength,
 		DEFAULT_SCHEDULE,
 		missingEntries,
 		missingEntry,
-		SHORT_PIPE_LENGTH,
+		shortPipeLength,
 		type ComponentKind,
 		type EnteredValues,
 		type MissingEntry
@@ -124,9 +124,9 @@
 		return links.length ? null : 'no connections yet';
 	}
 	const pipeText = $derived(
-		`${formatValue(DEFAULT_PIPE_LENGTH, 'length', ws.units)} of ${(ws.library.material(DEFAULT_MATERIAL_ID)?.name ?? 'carbon steel').toLowerCase()} schedule ${DEFAULT_SCHEDULE} pipe`
+		`${formatValue(defaultPipeLength(ws.units), 'length', ws.units)} of ${(ws.library.material(DEFAULT_MATERIAL_ID)?.name ?? 'carbon steel').toLowerCase()} schedule ${DEFAULT_SCHEDULE} pipe`
 	);
-	const shortText = $derived(formatValue(SHORT_PIPE_LENGTH, 'length', ws.units));
+	const shortText = $derived(formatValue(shortPipeLength(ws.units), 'length', ws.units));
 	/**
 	 * The losses the new connection gets where it meets a reservoir (edit.ts withReservoirLosses):
 	 * an entrance where it leaves one (its upstream end, by the expected flow), an exit where it

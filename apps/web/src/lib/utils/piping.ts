@@ -51,11 +51,15 @@ export function maxPipeIndex(fitting: Pick<Fitting, 'type'>, pipeCount: number):
 
 /**
  * Append a pipe segment: a copy of the last pipe's material, schedule and size (or inner
- * diameter and roughness for a custom pipe), with the default length for new pipes.
+ * diameter and roughness for a custom pipe), with the default length for new pipes (`length`, factory.ts defaultPipeLength).
  */
-export function addPipe(piping: PipingSegment, pipe?: PipeDefinition): PipingSegment {
+export function addPipe(
+	piping: PipingSegment,
+	pipe?: PipeDefinition,
+	length: number = DEFAULT_PIPE_LENGTH
+): PipingSegment {
 	const last = piping.pipes[piping.pipes.length - 1];
-	const next = pipe ?? (last ? { ...last, length: DEFAULT_PIPE_LENGTH } : undefined);
+	const next = pipe ?? (last ? { ...last, length } : undefined);
 	if (!next) return piping;
 	return { ...piping, pipes: [...piping.pipes, next] };
 }

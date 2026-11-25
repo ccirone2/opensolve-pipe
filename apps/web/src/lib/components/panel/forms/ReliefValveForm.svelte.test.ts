@@ -285,8 +285,8 @@ describe('Discharge to atmosphere', () => {
 		ws.nav.showConnection('outlet');
 		render(WorkspaceView, { workspace: ws });
 		const build = within(screen.getByRole('region', { name: 'Build' }));
-		// 1 m (factory SHORT_PIPE_LENGTH) in feet, to four significant digits: 3.281 ft.
-		const feet = Number((1 / 0.3048).toPrecision(4));
+		// The stub is 3 ft where lengths show in feet (factory shortPipeLength; usability-entry.md §5).
+		const feet = 3;
 		expect(
 			build.getByRole('button', { name: 'Discharge to atmosphere' })
 		).toHaveAccessibleDescription(
@@ -295,7 +295,7 @@ describe('Discharge to atmosphere', () => {
 			)
 		);
 		await fireEvent.click(build.getByRole('button', { name: 'Discharge to atmosphere' }));
-		expect(ws.project.connections.at(-1)?.piping.pipes[0]?.length).toBe(1);
+		expect(ws.project.connections.at(-1)?.piping.pipes[0]?.length).toBe(3 * 0.3048);
 	});
 
 	it('is not offered at a check valve outlet', async () => {

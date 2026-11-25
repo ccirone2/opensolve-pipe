@@ -31,7 +31,8 @@ import {
 	type ComponentKind,
 	createComponent,
 	createEmptyProject,
-	SHORT_PIPE_LENGTH
+	defaultPipeLength,
+	shortPipeLength
 } from './factory';
 import { connectionAtPort, freePorts, inletPort, outletPort, portRole } from './graph';
 import fixtureJson from './__fixtures__/schema-v1.json';
@@ -119,6 +120,60 @@ function totalLength(c: PipeConnection) {
 	return c.piping.pipes.reduce((sum, p) => sum + p.length, 0);
 }
 
+/**
+ * The short pipe of an insertion or a plug stub: 1 m, or 3 ft (× 0.3048 m/ft, exact) where the
+ * project shows lengths in feet or inches (usability-entry.md §5).
+ */
+function shortLength(project: Project): number {
+	const feet = ['ft', 'in'].includes(project.settings.units.length);
+	return feet ? 3 * 0.3048 : 1;
+}
+
+describe('new pipe lengths (usability-entry.md §5)', () => {
+	it('are round in the display unit: 10 m and 1 m, or 30 ft and 3 ft', () => {
+		expect(defaultPipeLength({ length: 'm' })).toBe(10);
+		expect(defaultPipeLength({ length: 'mm' })).toBe(10);
+		expect(defaultPipeLength({ length: 'ft' })).toBe(30 * 0.3048);
+		expect(defaultPipeLength({ length: 'in' })).toBe(30 * 0.3048);
+		expect(defaultPipeLength()).toBe(10);
+		expect(shortPipeLength({ length: 'm' })).toBe(1);
+		expect(shortPipeLength({ length: 'ft' })).toBe(3 * 0.3048);
+	});
+
+	it('are given by every edit that makes a pipe, in the project’s units', () => {
+		const make = (length: 'm' | 'ft') => {
+			const project = projectWith([
+				createComponent('reservoir', createEmptyProject(), { id: 'R1' }),
+				createComponent('reservoir', createEmptyProject(), { id: 'R2' })
+			]);
+			return deepFreeze({
+				...project,
+				settings: { ...project.settings, units: { ...project.settings.units, length } }
+			});
+		};
+		for (const [length, long, short] of [
+			['m', 10, 1],
+			['ft', 30 * 0.3048, 3 * 0.3048]
+		] as const) {
+			const project = make(length);
+			const joined = connectPorts(
+				project,
+				{ componentId: 'R1', portId: 'port_1' },
+				{ componentId: 'R2', portId: 'port_1' }
+			);
+			expect(
+				joined.connections[0]!.piping.pipes.map((p) => p.length),
+				length
+			).toEqual([long]);
+			const plugged = plugPort(project, 'R1', 'port_1');
+			expect(
+				plugged.connections[0]!.piping.pipes.map((p) => p.length),
+				length
+			).toEqual([short]);
+		}
+	});
+});
+
 describe('addComponentAtPort', () => {
 	it('adds every kind at every free port and stays valid', () => {
 		for (const [name, make] of SOURCES) {
@@ -163,9 +218,12 @@ describe('addComponentAtPort', () => {
 			toComponentId: 'P1',
 			toPortId: 'suction'
 		});
-		// Leaving a reservoir: the cited default entrance (sharp-edged), visible and removable.
+		// Leaving a reservoir: the cited default entrance (sharp-edged), visible and removable. A new
+		// project shows US units, so the new pipe is 30 ft (× 0.3048 m/ft, exact; usability-entry.md §5).
 		expect(project.connections[0]!.piping).toEqual({
-			pipes: [{ materialId: 'carbon_steel', schedule: '40', nominalSize: 0.1016, length: 10 }],
+			pipes: [
+				{ materialId: 'carbon_steel', schedule: '40', nominalSize: 0.1016, length: 30 * 0.3048 }
+			],
 			fittings: [{ type: 'entrance_sharp', quantity: 1, pipeIndex: 0 }]
 		});
 
@@ -364,7 +422,7 @@ describe('insertComponentInConnection', () => {
 						toPortId: connection.toPortId
 					});
 					const last = connection.piping.pipes[connection.piping.pipes.length - 1]!;
-					expect(downstream.piping.pipes).toEqual([{ ...last, length: SHORT_PIPE_LENGTH }]);
+					expect(downstream.piping.pipes).toEqual([{ ...last, length: shortLength(target) }]);
 					// Fittings are kept; exit fittings move to the downstream end.
 					expect(upstream.piping.fittings.length + downstream.piping.fittings.length).toBe(
 						connection.piping.fittings.length
@@ -716,7 +774,7 @@ describe('plugPort, connectPorts and disconnect', () => {
 				const plug = result.components[result.components.length - 1]!;
 				expect(plug.type).toBe('plug');
 				const stub = connectionAtPort(result, plug.id, 'port_1')!;
-				expect(stub.piping.pipes[0]!.length).toBe(SHORT_PIPE_LENGTH);
+				expect(stub.piping.pipes[0]!.length).toBe(shortLength(opened));
 				expect(stub.piping.pipes[0]!.nominalSize).toBe(
 					opened.components
 						.find((c) => c.id === connection.fromComponentId)!

@@ -55,7 +55,8 @@ test('a gravity-fed branched network: both branches flow, and their flows add up
 
 	// Next leads to the tee's free run outlet: connect a reservoir there.
 	const next = panel.getByRole('button', { name: /^Next/ });
-	await expect(next).toHaveText('Next: connect run outlet');
+	await expect(next).toHaveAccessibleName('Next: connect run outlet');
+	await expect(next).toHaveText('connect run outlet');
 	await next.click();
 	await expect(panel.getByRole('heading', { name: 'Run outlet is not connected' })).toBeVisible();
 	await panel

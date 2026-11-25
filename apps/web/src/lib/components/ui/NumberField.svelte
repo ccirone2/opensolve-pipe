@@ -2,7 +2,9 @@
 	A numeric input in the project's display unit for its category. It shows the stored SI value
 	converted to that unit (6 significant digits), and on change (Enter or leaving the field)
 	parses what was typed, converts it to SI, checks the schema bounds and calls `onchange` with
-	the SI value. Text left as shown stores nothing, so a value is never rounded to its display.
+	the SI value. What is typed may carry a unit of the field's quantity ("50 psi" in a kPa field,
+	"100 ft" in a ft field; units.ts parseQuantity, proposal usability-entry.md §3): the field then
+	shows the value in its own unit and says what it was converted from, until the next edit. Text left as shown stores nothing, so a value is never rounded to its display.
 	Text that is not a number, or a value out of bounds, is reported next to the field (and
 	announced) and never stored, so NaN is never written. Escape reverts edited text. An `error`
 	from the owner (a required value still to enter when its form is submitted) is shown the same
@@ -13,6 +15,7 @@
 	changes it) or `shared` by every case.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { UnitPreferences } from '$lib/api/types';
 	import { boundsProblem, type Bounds } from '$lib/utils/schema-bounds';
 	import {
@@ -20,11 +23,11 @@
 		formatNumber,
 		formatValue,
 		fromSI,
-		parseNumber,
-		toSI,
+		parseQuantity,
 		unitLabel,
 		type UnitCategory
 	} from '$lib/utils/units';
+	import { afterTwoFrames } from '$lib/utils/live';
 	import ChangeNote from './ChangeNote.svelte';
 	import { isLocked, useFieldMode, type FieldChange } from './field-mode';
 	import Icon from './Icon.svelte';
@@ -76,6 +79,19 @@
 		changeNote?: boolean;
 		/** Ids of other elements that describe the input (after its own), e.g. its group's note. */
 		describedby?: string;
+		/** Take only the display unit after a number (an NPS designation in inches). */
+		ownUnitOnly?: boolean;
+		/**
+		 * Changed by the owner when it writes this field's value from elsewhere (a paste into its
+		 * table): the field drops its own unstored text, its error and its note, even when the
+		 * value written is the one it held.
+		 */
+		reset?: number;
+		/**
+		 * Offered the pasted text first (a table's column or rows, PointsTable): return true when
+		 * it took the paste, and the field then takes nothing.
+		 */
+		onpaste?: (text: string) => boolean;
 	}
 
 	let {
@@ -101,7 +117,10 @@
 		change = null,
 		shared = false,
 		changeNote = true,
-		describedby
+		describedby,
+		onpaste,
+		ownUnitOnly = false,
+		reset = 0
 	}: Props = $props();
 
 	const mode = useFieldMode();
@@ -131,14 +150,57 @@
 		void shown;
 		return null;
 	});
+	/**
+	 * The text a stored value was converted from (typed in another unit), while that value is
+	 * stored and shown in the unit it was converted to (not after the project's units change).
+	 */
+	let converted = $state<{ si: number; text: string; unit: string; shown: boolean } | null>(null);
+	const convertedNote = $derived(
+		converted && value === converted.si && unit === converted.unit
+			? `Converted from ${converted.text}.`
+			: null
+	);
+	// Once shown and then gone (another value stored, an undo, the units changed), it is dropped,
+	// so a redo or a change of units back does not bring it back and announce it again.
+	$effect.pre(() => {
+		if (!converted) return;
+		if (convertedNote) converted.shown = true;
+		else if (converted.shown) converted = null;
+	});
+	// A value written from elsewhere (`reset`): the field's own edit, error and note go.
+	let lastReset = untrack(() => reset);
+	$effect.pre(() => {
+		if (reset === lastReset) return;
+		lastReset = reset;
+		text = shown;
+		inputError = null;
+		converted = null;
+		enteredText = null;
+	});
+	/** The polite line, drawn at the first conversion, and the words it says. */
+	let speaking = $state(false);
+	let spoken = $state('');
+	let stopSaying: (() => void) | null = null;
+	/** Say the note, or nothing: the line is emptied now and written two frames later. */
+	function say(words: string) {
+		stopSaying?.();
+		speaking = true;
+		spoken = '';
+		stopSaying = words ? afterTwoFrames(() => (spoken = words)) : null;
+	}
+	$effect(() => {
+		if (!convertedNote && spoken) say('');
+	});
+	$effect(() => () => stopSaying?.());
 	/** What the field reports: its own problem with the typed text first, else the owner's. */
 	const error = $derived(inputError ?? ownerError);
 
-	const allowsNegative = $derived(
-		bounds.minimum === undefined && bounds.exclusiveMinimum === undefined
-			? true
-			: (bounds.minimum ?? bounds.exclusiveMinimum ?? 0) < 0
-	);
+	// Read in the display unit: a temperature bounded above 0 K takes −20 °C, so a phone must
+	// offer the minus sign the decimal keypad lacks.
+	const allowsNegative = $derived.by(() => {
+		const lowest = bounds.minimum ?? bounds.exclusiveMinimum;
+		return lowest === undefined || fromSI(lowest, unit) < 0;
+	});
 
 	function format(si: number): string {
 		return formatValue(si, category, units, 6, { gauge, absolute });
@@ -166,23 +228,32 @@
 			if (value !== null && value !== undefined && onchange(null) === false) text = shown;
 			return;
 		}
-		const number = parseNumber(trimmed);
-		if (number === null) {
-			inputError = 'Enter a number, e.g. 12.5 or 1.2e-3.';
+		const parsed = parseQuantity(trimmed, category, unit, { gauge, absolute, ownUnitOnly });
+		if (!parsed) return;
+		if (!parsed.ok) {
+			inputError = parsed.error;
 			return;
 		}
-		if (integer && !Number.isInteger(number)) {
+		const si = parsed.si;
+		if (integer && !Number.isInteger(fromSI(si, unit))) {
 			inputError = 'Enter a whole number.';
 			return;
 		}
-		const si = toSI(number, unit);
 		const problem = boundsProblem(si, bounds, format);
 		if (problem) {
 			inputError = problem;
 			return;
 		}
 		inputError = null;
-		if (onchange(si) === false) text = shown;
+		converted = parsed.converted ? { si, text: trimmed, unit, shown: false } : null;
+		if (parsed.converted) say(`Converted from ${trimmed}.`);
+		// Text typed with a unit is shown back in the field's own unit, even when the value it
+		// stores is the one already stored (no new value to redraw the field).
+		if (parsed.unit !== unit || /\D$/.test(trimmed)) text = shown;
+		if (onchange(si) === false) {
+			text = shown;
+			converted = null;
+		}
 	}
 
 	/**
@@ -244,6 +315,7 @@
 					locked && `${id}-locked`,
 					error && `${id}-error`,
 					warning && `${id}-warning`,
+					convertedNote && `${id}-converted`,
 					hint && `${id}-hint`,
 					help && `${id}-help`,
 					describedby
@@ -253,10 +325,23 @@
 				oninput={(event) => {
 					text = event.currentTarget.value;
 					enteredText = null;
+					converted = null;
 					oninput?.();
 				}}
 				onchange={changedText}
 				onkeydown={keydown}
+				onpaste={(event) => {
+					const pasted = event.clipboardData?.getData('text/plain');
+					if (!locked && pasted && onpaste?.(pasted)) {
+						// The table took the paste: this field's own edit, unstored, is dropped, so
+						// leaving the field does not store it over the pasted value.
+						event.preventDefault();
+						text = shown;
+						inputError = null;
+						converted = null;
+						enteredText = null;
+					}
+				}}
 			/>
 			{#if locked}
 				<Icon
@@ -289,6 +374,13 @@
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" /><span>{warning}</span>
 		</p>
 	{/if}
+	{#if convertedNote}
+		<p id="{id}-converted" class="hint wrap-anywhere">{convertedNote}</p>
+	{/if}
+	<!-- The note said: a polite line drawn empty by the first conversion and written two frames
+		later (ui-guide.md, One strip of live lines), so nothing in the form is live before the
+		user converts a value. -->
+	{#if speaking}<span class="sr-only" aria-live="polite">{spoken}</span>{/if}
 	{#if hint}
 		<p id="{id}-hint" class="hint">{hint}</p>
 	{/if}

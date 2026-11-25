@@ -2,7 +2,7 @@
  * Unit-aware numeric input (D4): shows SI values in the display unit, converts what is typed to
  * SI, checks bounds, and never stores NaN.
  */
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { createEvent, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
@@ -242,5 +242,193 @@ describe('NumberField', () => {
 		await rerender({ error: null });
 		expect(screen.queryByRole('alert')).toBeNull();
 		expect(input).not.toHaveAttribute('aria-invalid');
+	});
+
+	it('takes a unit after the number: its own, or another of its quantity, saying what it converted (usability-entry.md §3)', async () => {
+		const onchange = vi.fn();
+		const { rerender } = render(NumberField, {
+			label: 'Length',
+			value: 3.048,
+			category: 'length',
+			units: IMPERIAL_UNITS,
+			onchange
+		});
+		const input = screen.getByRole('textbox', { name: 'Length (ft)' });
+		await type(input, '100 ft');
+		expect(onchange).toHaveBeenLastCalledWith(toSI(100, 'ft'));
+		await rerender({ value: toSI(100, 'ft') });
+		expect(input).toHaveValue('100');
+		expect(screen.queryByText(/Converted from/)).toBeNull();
+
+		await type(input, '25 m');
+		expect(onchange).toHaveBeenLastCalledWith(25);
+		await rerender({ value: 25 });
+		expect(input).toHaveValue('82.021');
+		expect(screen.getByText('Converted from 25 m.')).toBeInTheDocument();
+		expect(input).toHaveAccessibleDescription('Converted from 25 m.');
+
+		// The project's units changing to the unit typed drops the note: nothing is converted now.
+		await rerender({ units: SI_UNITS });
+		expect(input).toHaveValue('25');
+		expect(screen.queryByText(/Converted from/)).toBeNull();
+		await rerender({ units: IMPERIAL_UNITS });
+
+		// Another stored value (an undo) drops the note.
+		await type(input, '10 m');
+		await rerender({ value: 10 });
+		expect(screen.getByText('Converted from 10 m.')).toBeInTheDocument();
+		await rerender({ value: 3.048 });
+		expect(screen.queryByText(/Converted from/)).toBeNull();
+
+		// So does the next keystroke.
+		await type(input, '10 m');
+		await rerender({ value: 10 });
+		expect(screen.getByText('Converted from 10 m.')).toBeInTheDocument();
+		await fireEvent.input(input, { target: { value: '8' } });
+		expect(screen.queryByText(/Converted from/)).toBeNull();
+	});
+
+	it('refuses an absolute pressure in a gauge field, storing nothing', async () => {
+		const onchange = vi.fn();
+		render(NumberField, {
+			label: 'Surface pressure',
+			value: 0,
+			category: 'pressure',
+			gauge: true,
+			units: SI_UNITS,
+			onchange
+		});
+		const input = screen.getByRole('textbox', { name: 'Surface pressure (kPa(g))' });
+		await type(input, '14.7 psia');
+		expect(onchange).not.toHaveBeenCalled();
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			'This is a gauge pressure (kPa(g)): an absolute value needs the atmospheric pressure subtracted first.'
+		);
+		await type(input, '10 psig');
+		expect(onchange.mock.calls[0]?.[0]).toBeCloseTo((10 * 0.45359237 * 9.80665) / 0.0254 ** 2, 9);
+	});
+
+	it('checks the bounds on the converted value, not on the number typed', async () => {
+		const onchange = vi.fn();
+		render(NumberField, {
+			label: 'Length',
+			value: 1,
+			category: 'length',
+			units: SI_UNITS,
+			bounds: { maximum: 10 },
+			onchange
+		});
+		const input = screen.getByRole('textbox', { name: 'Length (m)' });
+		// 20 ft = 20 × 0.3048 m = 6.096 m: within 10 m, though 20 is not.
+		await type(input, '20 ft');
+		expect(onchange).toHaveBeenCalledExactlyOnceWith(20 * 0.3048);
+		// 33 ft = 33 × 0.3048 m = 10.0584 m: beyond 10 m.
+		await type(input, '33 ft');
+		expect(onchange).toHaveBeenCalledOnce();
+		expect(screen.getByRole('alert')).toHaveTextContent('Must be at most 10 m.');
+	});
+
+	it('says the conversion in a polite line drawn by it, empty first (none before)', async () => {
+		const { rerender } = render(NumberField, {
+			label: 'Length',
+			value: 3.048,
+			category: 'length',
+			units: IMPERIAL_UNITS,
+			onchange: vi.fn()
+		});
+		const input = screen.getByRole('textbox', { name: 'Length (ft)' });
+		const live = () => input.closest('.field')!.querySelector('[aria-live="polite"]');
+		// Nothing in a form is live before the user converts a value (ResultsPanel's rule).
+		expect(live()).toBeNull();
+		await type(input, '2 m');
+		await rerender({ value: 2 });
+		const line = live()!;
+		expect(line).toHaveTextContent('');
+		await vi.waitFor(() => expect(line).toHaveTextContent('Converted from 2 m.'));
+		// The same words again (an undo and the same text typed) are said again: emptied first.
+		await rerender({ value: 3.048 });
+		await vi.waitFor(() => expect(line).toHaveTextContent(''));
+		await type(input, '2 m');
+		await rerender({ value: 2 });
+		expect(live()).toBe(line);
+		expect(line).toHaveTextContent('');
+		await vi.waitFor(() => expect(line).toHaveTextContent('Converted from 2 m.'));
+		// Once gone, the note does not come back with the value (a redo).
+		await rerender({ value: 3.048 });
+		await rerender({ value: 2 });
+		expect(screen.queryByText(/Converted from/)).toBeNull();
+	});
+
+	it('drops its own unstored text when its table takes a paste', async () => {
+		const onchange = vi.fn();
+		render(NumberField, {
+			label: 'Flow',
+			value: 0,
+			category: 'flow',
+			units: IMPERIAL_UNITS,
+			onchange,
+			onpaste: () => true
+		});
+		const input = screen.getByRole('textbox', { name: 'Flow (gpm)' });
+		await fireEvent.input(input, { target: { value: '5' } });
+		const event = createEvent.paste(input);
+		Object.defineProperty(event, 'clipboardData', { value: { getData: () => '0\n12\n22' } });
+		await fireEvent(input, event);
+		expect(event.defaultPrevented).toBe(true);
+		expect(input).toHaveValue('0');
+		await fireEvent.change(input);
+		expect(onchange).not.toHaveBeenCalled();
+	});
+
+	it('shows a value typed in another unit back in its own, though the value is unchanged', async () => {
+		const onchange = vi.fn();
+		render(NumberField, {
+			label: 'Length',
+			value: 3.048,
+			category: 'length',
+			units: IMPERIAL_UNITS,
+			onchange
+		});
+		const input = screen.getByRole('textbox', { name: 'Length (ft)' });
+		await type(input, '3.048 m');
+		expect(onchange).toHaveBeenCalledWith(3.048);
+		expect(input).toHaveValue('10');
+		expect(screen.getByText('Converted from 3.048 m.')).toBeInTheDocument();
+	});
+
+	it('takes only its own unit when asked (an NPS designation, in inches)', async () => {
+		const onchange = vi.fn();
+		render(NumberField, {
+			label: 'Size (NPS)',
+			value: 4 * 0.0254,
+			category: 'diameter',
+			units: { ...IMPERIAL_UNITS, diameter: 'in' },
+			ownUnitOnly: true,
+			onchange
+		});
+		const input = screen.getByRole('textbox', { name: 'Size (NPS) (in)' });
+		await type(input, '100 mm');
+		expect(onchange).not.toHaveBeenCalled();
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			'“mm” is not a unit this field takes. Enter it in in.'
+		);
+		await type(input, '6 in');
+		expect(onchange).toHaveBeenCalledExactlyOnceWith(6 * 0.0254);
+	});
+
+	it('offers the minus sign on phones where the display unit goes below zero', () => {
+		render(NumberField, {
+			label: 'Temperature',
+			value: 293.15,
+			category: 'temperature',
+			units: SI_UNITS,
+			bounds: { exclusiveMinimum: 0 },
+			onchange: vi.fn()
+		});
+		// 0 K is −273.15 °C: a negative °C is valid, so not the decimal keypad (no minus sign).
+		expect(screen.getByRole('textbox', { name: 'Temperature (°C)' })).toHaveAttribute(
+			'inputmode',
+			'text'
+		);
 	});
 });

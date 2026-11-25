@@ -121,7 +121,11 @@ test('add an assigned-flow node, solve, read its pressure, switch to supply, sha
 	await expect(dialog).toBeHidden();
 	await expect(currentHeading(page)).toHaveText('Assigned flow AF1');
 	// One port, connected: the walk ends here, as at a plug.
-	await expect(panel.getByRole('button', { name: /^Next/ })).toHaveText('Next: end of path');
+	// The button shows the way on; "Next" is in its name (the arrow shows it; usability-entry.md §4).
+	await expect(panel.getByRole('button', { name: /^Next/ })).toHaveAccessibleName(
+		'Next: end of path'
+	);
+	await expect(panel.getByRole('button', { name: /^Next/ })).toHaveText('end of path');
 	await expect(panel.getByRole('button', { name: /^Next/ })).toBeDisabled();
 
 	// --- Solve as a demand, and read the node's pressure.

@@ -763,20 +763,7 @@ export function nodeTable(project: Project, solved: SolvedState, prefs: UnitPref
 		f.column('egl', 'EGL', 'head')
 	];
 	const results = solved.nodeResults;
-	const keys: string[] = [];
-	for (const component of project.components) {
-		for (const port of component.ports) {
-			const key = `${component.id}:${port.id}`;
-			if (results[key]) keys.push(key);
-		}
-	}
-	const listed = new Set(keys);
-	for (const key of Object.keys(results)) {
-		if (!listed.has(key)) {
-			keys.push(key);
-			listed.add(key);
-		}
-	}
+	const keys = nodeKeys(project, results);
 	const shown = rowsOf
 		? keys.filter((key) =>
 				holdsRowOf({ kind: 'component', id: (results[key] as NodeResult).componentId })
@@ -792,7 +779,7 @@ export function nodeTable(project: Project, solved: SolvedState, prefs: UnitPref
 			detail: portLabel(node.portId),
 			cells: {
 				elevation: f.num(node.elevation, 'length'),
-				pressure: f.num(node.pressure, 'pressure'),
+				pressure: pressureCell(f, node),
 				dynamicPressure: f.num(node.dynamicPressure, 'pressure'),
 				totalPressure: f.num(node.totalPressure, 'pressure'),
 				absolutePressure: f.num(node.absolutePressure, 'pressure'),
@@ -803,12 +790,46 @@ export function nodeTable(project: Project, solved: SolvedState, prefs: UnitPref
 			flags: solved.flags.filter(
 				(flag) => flag.componentId === node.componentId && flag.portId === node.portId
 			),
-			// Two pressures shown alike rank by the API's values, so the order is the same in every
-			// unit and the Summary's extremes are this table's first rows (open-defects.md S1).
-			sortTies: { pressure: node.pressure }
+			sortTies: pressureTies(node)
 		};
 	});
 	return { columns, rows };
+}
+
+/**
+ * The Nodes table's rows in its order: each component's ports in project order, then the results
+ * of no port in the project, in the API's order.
+ */
+function nodeKeys(project: Project, results: SolvedState['nodeResults']): string[] {
+	const keys: string[] = [];
+	for (const component of project.components) {
+		for (const port of component.ports) {
+			const key = `${component.id}:${port.id}`;
+			if (results[key]) keys.push(key);
+		}
+	}
+	const listed = new Set(keys);
+	for (const key of Object.keys(results)) {
+		if (!listed.has(key)) {
+			keys.push(key);
+			listed.add(key);
+		}
+	}
+	return keys;
+}
+
+/** A port's cell in the Nodes table's Pressure column. */
+function pressureCell(f: Formatter, node: NodeResult): Cell {
+	return f.num(node.pressure, 'pressure');
+}
+
+/**
+ * What breaks a tie of the Pressure column's text: two pressures shown alike rank by the API's
+ * values, so the order is the same in every unit and the Summary's extremes are this table's
+ * first rows (open-defects.md S1).
+ */
+function pressureTies(node: NodeResult): Readonly<Record<string, number>> {
+	return { pressure: node.pressure };
 }
 
 /**
@@ -825,11 +846,7 @@ export function linkTable(project: Project, solved: SolvedState, prefs: UnitPref
 	const f = new Formatter(prefs);
 	const columns = linkColumns(f);
 	const results = solved.linkResults;
-	const resultKeys = Object.keys(results);
-	const present = new Set(resultKeys);
-	const known = project.connections.map((c) => c.id).filter((id) => present.has(id));
-	const listed = new Set(known);
-	const ids = [...known, ...resultKeys.filter((k) => !listed.has(k))];
+	const ids = linkIds(project, results);
 	const labels = resultsProject(project, solved);
 	const shown = rowsOf ? ids.filter((id) => holdsRowOf({ kind: 'connection', id })) : ids;
 	const rows = shown.map((id): Row => {
@@ -854,10 +871,24 @@ export function linkTable(project: Project, solved: SolvedState, prefs: UnitPref
 				flowRegime: pipeValues(regimeLabel(link.flowRegime), (s) => regimeLabel(s.flowRegime))
 			},
 			flags: flagsForElement(solved.flags, element),
-			sortKeys: { velocity: linkSpeed(link) }
+			sortKeys: linkSortKeys(link)
 		};
 	});
 	return { columns, rows };
+}
+
+/** The Links table's rows in its order: connections in project order, then the rest, in the API's. */
+function linkIds(project: Project, results: SolvedState['linkResults']): string[] {
+	const resultKeys = Object.keys(results);
+	const present = new Set(resultKeys);
+	const known = project.connections.map((c) => c.id).filter((id) => present.has(id));
+	const listed = new Set(known);
+	return [...known, ...resultKeys.filter((k) => !listed.has(k))];
+}
+
+/** A Links row's sort keys: its Velocity column ranks by speed (linkSpeed). */
+function linkSortKeys(link: LinkResult): Readonly<Record<string, number>> {
+	return { velocity: linkSpeed(link) };
 }
 
 /**
@@ -1996,6 +2027,9 @@ function connectionSummary(
  * (proposals/open-defects.md S1, the pattern of pumps-nits.md §11, leftover L2). That sort ranks
  * the values shown, then a tie's pressure as the API returned it, then the table's order (the
  * project's), so it is the same in every unit: `project` orders the ports, as the table does.
+ * Only that column is made, from the table's own parts (nodeKeys, pressureCell, pressureTies)
+ * and sort (firstSortedRow): the whole table cost a network of 999 components about 7 ms, and
+ * Compare pays it once per case column (review S1-R2).
  */
 export function lowestPressureNode(solved: SolvedState, project: Project): NodeResult | null {
 	return firstNode(solved, project, 'ascending');
@@ -2005,16 +2039,21 @@ export function lowestPressureNode(solved: SolvedState, project: Project): NodeR
  * The connection with the highest speed, the largest |v| of its pipes (linkSpeed), if any: by
  * construction the first row of the Links table sorted by velocity, highest first, the table the
  * Summary's link opens (proposals/open-defects.md S1). Ties keep the table's order (`project`'s).
+ * Only the sort keys are made, from the table's own parts (linkIds, linkSortKeys): no cell is
+ * formatted (review S1-R2).
  */
 export function fastestLink(
 	solved: SolvedState,
 	project: Project
 ): { id: string; velocity: number } | null {
-	const [first] = sortRows(linkTable(project, solved, SI_UNITS).rows, {
-		key: 'velocity',
-		direction: 'descending'
-	});
-	const link = first ? solved.linkResults[first.key] : undefined;
+	const results = solved.linkResults;
+	const rows = linkIds(project, results).map((key) => ({
+		key,
+		cells: {},
+		sortKeys: linkSortKeys(results[key] as LinkResult)
+	}));
+	const first = firstSortedRow(rows, { key: 'velocity', direction: 'descending' });
+	const link = first ? results[first.key] : undefined;
 	return first && link ? { id: first.key, velocity: linkSpeed(link) } : null;
 }
 
@@ -2024,11 +2063,14 @@ function firstNode(
 	project: Project,
 	direction: SortDirection
 ): NodeResult | null {
-	const [first] = sortRows(nodeTable(project, solved, SI_UNITS).rows, {
-		key: 'pressure',
-		direction
+	const f = new Formatter(SI_UNITS);
+	const results = solved.nodeResults;
+	const rows = nodeKeys(project, results).map((key) => {
+		const node = results[key] as NodeResult;
+		return { key, cells: { pressure: pressureCell(f, node) }, sortTies: pressureTies(node) };
 	});
-	return first ? (solved.nodeResults[first.key] ?? null) : null;
+	const first = firstSortedRow(rows, { key: 'pressure', direction });
+	return first ? (results[first.key] ?? null) : null;
 }
 
 /** Compare dotted version numbers ("1.10.0" > "1.9.2"); non-numeric parts compare as text. */
@@ -2114,10 +2156,45 @@ export function sortValue(cell: Cell | undefined): number | string | null {
 	return text === '—' || text === '' ? null : text;
 }
 
+/** What sortRows reads of a row: a whole table's Row, or only the column sorted (firstNode). */
+export type SortableRow = Pick<Row, 'cells' | 'sortKeys' | 'sortTies'> & { name?: string };
+
 /** What a row sorts by in a column: its sort key there (Row.sortKeys), else its cell's sortValue. */
-function rowSortValue(row: Row, key: string): number | string | null {
-	if (key === NAME_SORT_KEY) return row.name;
+function rowSortValue(row: SortableRow, key: string): number | string | null {
+	if (key === NAME_SORT_KEY) return row.name ?? null;
 	return row.sortKeys?.[key] ?? sortValue(row.cells[key]);
+}
+
+/** A row as sortRows ranks it: its place in the table, its value in the column and its tie. */
+interface SortEntry<R> {
+	row: R;
+	index: number;
+	value: number | string | null;
+	tie: number;
+}
+
+function sortEntries<R extends SortableRow>(rows: readonly R[], key: string): SortEntry<R>[] {
+	return rows.map((row, index) => ({
+		row,
+		index,
+		value: rowSortValue(row, key),
+		tie: row.sortTies?.[key] ?? 0
+	}));
+}
+
+/** sortRows' order, `sign` 1 ascending, −1 descending: a total order (the table's breaks ties). */
+function compareEntries<R>(a: SortEntry<R>, b: SortEntry<R>, sign: number): number {
+	if (a.value === null || b.value === null) {
+		return a.value === b.value ? a.index - b.index : a.value === null ? 1 : -1;
+	}
+	// Equal first, so two infinite keys tie rather than give NaN.
+	const order =
+		a.value === b.value
+			? a.tie - b.tie
+			: typeof a.value === 'number' && typeof b.value === 'number'
+				? a.value - b.value
+				: String(a.value).localeCompare(String(b.value), undefined, { numeric: true });
+	return order === 0 ? a.index - b.index : sign * order;
 }
 
 /**
@@ -2128,30 +2205,29 @@ function rowSortValue(row: Row, key: string): number | string | null {
  * pressure; none counts as 0), in the sort's direction, then in the table's own order. Null keeps
  * the order.
  */
-export function sortRows(rows: readonly Row[], sort: TableSort | null): Row[] {
+export function sortRows<R extends SortableRow>(rows: readonly R[], sort: TableSort | null): R[] {
 	if (!sort) return [...rows];
 	const sign = sort.direction === 'ascending' ? 1 : -1;
-	return rows
-		.map((row, index) => ({
-			row,
-			index,
-			value: rowSortValue(row, sort.key),
-			tie: row.sortTies?.[sort.key] ?? 0
-		}))
-		.sort((a, b) => {
-			if (a.value === null || b.value === null) {
-				return a.value === b.value ? a.index - b.index : a.value === null ? 1 : -1;
-			}
-			// Equal first, so two infinite keys tie rather than give NaN.
-			const order =
-				a.value === b.value
-					? a.tie - b.tie
-					: typeof a.value === 'number' && typeof b.value === 'number'
-						? a.value - b.value
-						: String(a.value).localeCompare(String(b.value), undefined, { numeric: true });
-			return order === 0 ? a.index - b.index : sign * order;
-		})
+	return sortEntries(rows, sort.key)
+		.sort((a, b) => compareEntries(a, b, sign))
 		.map((entry) => entry.row);
+}
+
+/**
+ * The first row of sortRows(rows, sort), in one pass: on a column of numbers its order is total
+ * (the table's order breaks every tie), so the least entry is the one the sort puts first (the
+ * Summary's extremes; review S1-R2).
+ */
+export function firstSortedRow<R extends SortableRow>(
+	rows: readonly R[],
+	sort: TableSort
+): R | undefined {
+	const sign = sort.direction === 'ascending' ? 1 : -1;
+	let first: SortEntry<R> | undefined;
+	for (const entry of sortEntries(rows, sort.key)) {
+		if (!first || compareEntries(entry, first, sign) < 0) first = entry;
+	}
+	return first?.row;
 }
 
 /** Whether a column can be sorted: some row shows a value in it, or has a sort key there. */

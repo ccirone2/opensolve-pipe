@@ -3,7 +3,7 @@
  * here from the unit definitions (NIST SP 811), not taken from units.ts. The solved states are
  * made-up test inputs (testing/results.ts).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type {
 	BoundaryResult,
 	BranchResult,
@@ -69,6 +69,7 @@ import {
 	flagElement,
 	flagsForElement,
 	formatResultNumber,
+	Formatter,
 	groupFlags,
 	linkReading,
 	linkTable,
@@ -91,7 +92,7 @@ import {
 	valveTable,
 	versionsBetween
 } from './results';
-import { IMPERIAL_UNITS, SI_UNITS } from './units';
+import { CATEGORY_UNITS, IMPERIAL_UNITS, SI_UNITS } from './units';
 import { FIXTURE_NAMES, fixtureInput } from './export/export-testing.testing';
 
 // Definitions (exact): 1 in = 0.0254 m, 1 ft = 0.3048 m, 1 lb = 0.45359237 kg, g_n = 9.80665,
@@ -1992,11 +1993,61 @@ describe('sorting results tables', () => {
 		expect(sortableColumn(rows, NAME_SORT_KEY)).toBe(true);
 	});
 
-	it('sorts the Links table by velocity as fastestLink finds the highest', () => {
+	// Review S1-R3 (proposals/open-defects.md §7): the extremes rank only the column they sort, so
+	// each is checked against the whole table it names the first row of, sorted as the Summary's
+	// link sorts it, in every unit the tables offer, over seeded random networks with exact ties,
+	// values shown alike, flows against the drawn direction, connections of several pipes, and
+	// results of no element in the project.
+	it('finds the first rows of the Nodes and Links tables sorted by pressure and velocity, in every unit', () => {
+		const random = mulberry32(20261125);
+		const wide = widenedTransfer(20);
+		for (let n = 0; n < 200; n++) {
+			const solved = randomExtremes(random, wide);
+			const lowest = lowestPressureNode(solved, wide);
+			const highest = highestPressureNode(solved, wide);
+			const fastest = fastestLink(solved, wide)?.id;
+			for (const pressure of CATEGORY_UNITS.pressure) {
+				for (const velocity of CATEGORY_UNITS.velocity) {
+					const prefs = { ...SI_UNITS, pressure, velocity };
+					const nodes = nodeTable(wide, solved, prefs).rows;
+					const at = `network ${n}, ${pressure}, ${velocity}`;
+					expect(lowest && `${lowest.componentId}:${lowest.portId}`, at).toBe(
+						sortRows(nodes, { key: 'pressure', direction: 'ascending' })[0]?.key
+					);
+					expect(highest && `${highest.componentId}:${highest.portId}`, at).toBe(
+						sortRows(nodes, { key: 'pressure', direction: 'descending' })[0]?.key
+					);
+					expect(fastest, at).toBe(
+						sortRows(linkTable(wide, solved, prefs).rows, {
+							key: 'velocity',
+							direction: 'descending'
+						})[0]?.key
+					);
+				}
+			}
+		}
+	});
+
+	// Review S1-R2: building the whole Nodes and Links tables made the Summary's extremes about 20
+	// times slower on a network of 999 components, and Compare's once per case column.
+	it('formats one pressure per port to find the extremes, and nothing for the highest velocity', () => {
 		const solved = pumpTransferSolved();
-		const table = linkTable(project, solved, SI_UNITS);
-		const sorted = sortRows(table.rows, { key: 'velocity', direction: 'descending' });
-		expect(sorted[0]?.element.id).toBe(fastestLink(solved, project)?.id);
+		const ports = Object.keys(solved.nodeResults).length;
+		const spies = (['num', 'diff', 'plain', 'value', 'column'] as const).map((m) =>
+			vi.spyOn(Formatter.prototype, m)
+		);
+		const calls = () => spies.map((spy) => spy.mock.calls.length);
+		try {
+			lowestPressureNode(solved, project);
+			expect(calls()).toEqual([ports, 0, 0, 0, 0]);
+			expect(spies[0]!.mock.calls.every(([, category]) => category === 'pressure')).toBe(true);
+			highestPressureNode(solved, project);
+			expect(calls()).toEqual([2 * ports, 0, 0, 0, 0]);
+			fastestLink(solved, project);
+			expect(calls()).toEqual([2 * ports, 0, 0, 0, 0]);
+		} finally {
+			for (const spy of spies) spy.mockRestore();
+		}
 	});
 
 	// The Summary's NPSH extreme is the margin ratio since the owner's nit 4 and Q3 (2026-11-12,
@@ -2231,3 +2282,87 @@ describe('rowsForElement builds only the element’s rows', () => {
 		expect(checked).toBeGreaterThan(100);
 	});
 });
+
+/** A seeded generator (mulberry32, as pump-lineups.test.ts): the same networks every run. */
+function mulberry32(seed: number): () => number {
+	let a = seed;
+	return () => {
+		a = (a + 0x6d2b79f5) | 0;
+		let t = Math.imul(a ^ (a >>> 15), 1 | a);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+/**
+ * The transfer example and `more` valves after it, each joined to the discharge tank by a
+ * connection of its own (made-up: only the order of the ports and connections matters here).
+ */
+function widenedTransfer(more: number): Project {
+	const p = structuredClone(pumpTransferExample());
+	const valve = p.components.find((c) => c.id === 'V1')!;
+	const pipe = p.connections.find((c) => c.id === 'L3')!;
+	for (let i = 2; i <= more + 1; i++) {
+		p.components.push({ ...structuredClone(valve), id: `V${i}`, name: `Valve ${i}` });
+		p.connections.push({ ...structuredClone(pipe), id: `L${i + 2}`, fromComponentId: `V${i}` });
+	}
+	return p;
+}
+
+/**
+ * Made-up results for `p`, in a shuffled order, with two ports and a connection of no element in
+ * it: pressures and speeds at one random scale (10⁻⁵ to 10⁸), a quarter of them exactly equal to
+ * an earlier one and a quarter within a part in 10⁶ of one (shown alike to 4 figures); each
+ * connection's flow either way, through one to three pipes.
+ */
+function randomExtremes(random: () => number, p: Project): SolvedState {
+	const pick = <T>(list: readonly T[]) => list[Math.floor(random() * list.length)]!;
+	const drawn = (scale: number, seen: number[]) => {
+		const r = random();
+		const value =
+			seen.length && r < 0.25
+				? pick(seen)
+				: seen.length && r < 0.5
+					? pick(seen) * (1 + (random() - 0.5) * 1e-6)
+					: random() * scale;
+		seen.push(value);
+		return value;
+	};
+	const shuffled = <T>(list: T[]) => {
+		for (let i = list.length - 1; i > 0; i--) {
+			const j = Math.floor(random() * (i + 1));
+			[list[i], list[j]] = [list[j]!, list[i]!];
+		}
+		return list;
+	};
+	const scale = 10 ** Math.floor(random() * 14 - 5);
+	const pressures: number[] = [];
+	const ports = [
+		...p.components.flatMap((c) => c.ports.map((port) => [c.id, port.id] as const)),
+		['X1', 'port_1'] as const,
+		['X2', 'port_1'] as const
+	];
+	const nodeResults = Object.fromEntries(
+		shuffled(ports).map(([componentId, portId]) => {
+			const pressure = drawn(scale, pressures) - scale / 2;
+			return [
+				`${componentId}:${portId}`,
+				node(componentId, portId, { pressure, absolutePressure: pressure + 101325 })
+			];
+		})
+	);
+	const speeds: number[] = [];
+	const linkResults = Object.fromEntries(
+		shuffled([...p.connections.map((c) => c.id), 'L99']).map((id) => {
+			const sign = random() < 0.5 ? -1 : 1;
+			const pipes = Array.from({ length: 1 + Math.floor(random() * 3) }, (_, index) => ({
+				...link().segments[0]!,
+				index,
+				velocity: sign * drawn(scale, speeds)
+			}));
+			const velocity = pipes[0]!.velocity;
+			return [id, link({ flow: velocity / 200, velocity, segments: pipes })];
+		})
+	);
+	return pumpTransferSolved({ nodeResults, linkResults });
+}

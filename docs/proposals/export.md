@@ -322,7 +322,7 @@ About is a three-column document (`Section`, `Item`, `Value`). `about.csv` holds
 - Convergence: converged; inner and outer iterations; the largest continuity residual in m³/s and the largest energy residual in m, each with its element (SI, as reported); the oscillating components; the API's message.
 - Atmospheric pressure used [`{Pa}`] (`SolvedState.atmosphericPressure`), and the site elevation [`{L}`] of the case as solved.
 - Fluid (`SolvedState.fluid`): name, temperature, concentration, density, dynamic viscosity, kinematic viscosity (m²/s), and "Vapor pressure [`{Pa}`]" (absolute) or "Not available". Each property has its source (origin and citation). Every absolute pressure in About carries the absolute unit label.
-- Headline values (cases with values): the lowest static pressure and where (`lowestPressureNode`), and the highest velocity and where (`fastestLink`).
+- Headline values (cases with values): the lowest static pressure and where (`lowestPressureNode`), and the highest velocity and where (`fastestLink`). *Since `open-defects.md` S1 (2026-11-25), each is the first row of the Nodes or Links table sorted as the Summary's link sorts it: exact ties in that table's order, the project as it is now, not the API's.*
 - Scenario: its description, and the number of changes applied and not applied (Scenario changes has the list).
 - System curves: included, and not included with the reason.
 - Project link: which link below reproduces this case.

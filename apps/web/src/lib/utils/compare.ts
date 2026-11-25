@@ -35,6 +35,7 @@ import {
 	fastestLink,
 	Formatter,
 	linkReading,
+	linkSpeed,
 	lowestPressureNode,
 	npshRatioNote,
 	pumpStatusLabel,
@@ -161,6 +162,16 @@ const assignedNode = (s: SolvedState, r: CompareRow) => {
 	return port === undefined ? undefined : s.nodeResults[`${r.elementId}:${port}`];
 };
 
+/** The least of some values; null for none. */
+function least(values: readonly number[]): number | null {
+	return values.reduce<number | null>((a, v) => (a === null || v < a ? v : a), null);
+}
+
+/** The greatest of some values; null for none. */
+function greatest(values: readonly number[]): number | null {
+	return values.reduce<number | null>((a, v) => (a === null || v > a ? v : a), null);
+}
+
 /** Invalid flags of the network (convergence) and their count, for the status row. */
 function statusText(solved: SolvedState, success: boolean): string {
 	if (!(success && solved.converged)) return 'Did not converge';
@@ -170,14 +181,18 @@ function statusText(solved: SolvedState, success: boolean): string {
 
 export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 	status: { label: 'Status', element: 'network', value: () => null },
+	// The network's extremes name the element the Summary names, the first row of the table its
+	// link sorts (results.ts lowestPressureNode, fastestLink; proposals/open-defects.md S1). Its
+	// value is the least pressure or the greatest speed of the solve, which elements tied with it
+	// have exactly, so it is read without the project that orders them.
 	lowestPressure: {
 		label: 'Lowest pressure',
 		category: 'pressure',
 		options: { gauge: true },
 		element: 'network',
-		value: (s) => lowestPressureNode(s)?.pressure,
+		value: (s) => least(Object.values(s.nodeResults).map((n) => n.pressure)),
 		where: (s, p) => {
-			const n = lowestPressureNode(s);
+			const n = lowestPressureNode(s, p);
 			return n
 				? `${portLabel(n.portId)} of ${componentById(p, n.componentId)?.name ?? n.componentId}`
 				: '';
@@ -188,9 +203,9 @@ export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 		category: 'velocity',
 		relative: true,
 		element: 'network',
-		value: (s) => fastestLink(s)?.velocity,
+		value: (s) => greatest(Object.values(s.linkResults).map(linkSpeed)),
 		where: (s, p) => {
-			const l = fastestLink(s);
+			const l = fastestLink(s, p);
 			return l ? connectionName(p, l.id) : '';
 		}
 	},
@@ -420,9 +435,7 @@ export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 		element: 'connection',
 		value: (s, r) => {
 			const l = link(s, r);
-			return l
-				? Math.max(...[l.velocity, ...l.segments.map((x) => x.velocity)].map(Math.abs))
-				: null;
+			return l ? linkSpeed(l) : null;
 		}
 	},
 	linkHeadLoss: {

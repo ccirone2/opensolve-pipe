@@ -8,11 +8,12 @@ import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { Flag, Project, PumpResult, SolvedState } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
-import { flag, node, pumpResult, pumpTransferSolved, response } from '$lib/testing/results';
+import { flag, link, node, pumpResult, pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { insertComponentInConnection } from '$lib/utils/edit';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { createComponent } from '$lib/utils/factory';
+import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
 
 const results = () => within(screen.getByRole('region', { name: 'Results' }));
 
@@ -104,6 +105,155 @@ describe('the Summary answers first', () => {
 		await fireEvent.click(results().getByRole('button', { name: 'Links, highest first' }));
 		await tick();
 		expect(rowNames()[0]).toBe('Transfer pump → Discharge isolation valve');
+	});
+});
+
+// proposals/open-defects.md S1. The owner (2026-11-25): "Use absolute value of velocity": Links'
+// Velocity column ranks by speed |v|, its cells still signed; a tie of the text shown breaks by the
+// value the API returned; and each extreme is the first row of the table its link sorts.
+describe('each extreme names the first row of the table its link sorts (proposals/open-defects.md S1)', () => {
+	const { nodeResults } = pumpTransferSolved();
+	const sig4 = (v: number) => String(Number(v.toPrecision(4)));
+	/** Made-up values: a connection of one pipe at `velocity`, its flow signed alike. */
+	const pipeAt = (velocity: number) =>
+		link({ flow: velocity / 200, velocity, segments: [{ ...link().segments[0]!, velocity }] });
+
+	/** The extreme `label`: its whole entry, and where it is (its link's words). */
+	function extreme(label: string) {
+		const entry = within(results().getByRole('region', { name: 'Extremes' }))
+			.getByText(label)
+			.closest('div')!;
+		const [where] = within(entry).getAllByRole('button');
+		return { entry, where: where!.textContent!.trim() };
+	}
+
+	/** The first row of the table shown, as the Summary names it: "Port of name" for a node. */
+	function firstRow(kind: 'node' | 'connection'): string {
+		const panel = results()
+			.getAllByRole('tabpanel')
+			.find((p) => !p.hidden)!;
+		const header = within(panel).getAllByRole('rowheader')[0]!;
+		const [name, detail] = [...header.querySelectorAll('span')].map((s) => s.textContent!.trim());
+		return kind === 'node' ? `${detail} of ${name}` : name!;
+	}
+
+	/** Follow an extreme's "sorted" link; the first row of the table it opens. */
+	async function follow(button: string, kind: 'node' | 'connection'): Promise<string> {
+		await fireEvent.click(results().getByRole('button', { name: button }));
+		await tick();
+		return firstRow(kind);
+	}
+
+	for (const [units, prefs] of [
+		['SI', SI_UNITS],
+		['US', IMPERIAL_UNITS]
+	] as const) {
+		const project = () => {
+			const p = pumpTransferExample();
+			p.settings.units = { ...prefs };
+			return p;
+		};
+
+		it(`Lowest static pressure, of two shown alike, names the port "Nodes, lowest first" puts first (${units} units)`, async () => {
+			// Made-up results: 19601 Pa at the pump's suction, 19600 Pa at the discharge tank: 19.6
+			// kPa(g) and 2.843 psig each.
+			await solveWith(
+				pumpTransferSolved({
+					nodeResults: {
+						...nodeResults,
+						'P1:suction': node('P1', 'suction', {
+							pressure: 19601,
+							absolutePressure: 19601 + 101325,
+							velocity: 2
+						})
+					}
+				}),
+				project()
+			);
+			const { where } = extreme('Lowest static pressure');
+			expect(where).toBe('Port 1 of Discharge tank');
+			expect(await follow('Nodes, lowest first', 'node')).toBe(where);
+		});
+
+		it(`Highest static pressure, of two shown alike, names the port "Nodes, highest first" puts first (${units} units)`, async () => {
+			// Made-up results: 100000 Pa at the pump's discharge, 100004 Pa at the valve's inlet: 100
+			// kPa(g) and 14.5 psig each.
+			await solveWith(
+				pumpTransferSolved({
+					nodeResults: {
+						...nodeResults,
+						'V1:inlet': node('V1', 'inlet', {
+							pressure: 100004,
+							absolutePressure: 100004 + 101325,
+							velocity: 4
+						})
+					}
+				}),
+				project()
+			);
+			const { where } = extreme('Highest static pressure');
+			expect(where).toBe('Inlet of Discharge isolation valve');
+			expect(await follow('Nodes, highest first', 'node')).toBe(where);
+		});
+
+		it(`Highest velocity, of two shown alike, names the connection "Links, highest first" puts first (${units} units)`, async () => {
+			// Made-up results: 4 m/s in L2, 4.0004 m/s in L3: 4 m/s and 13.12 ft/s each.
+			await solveWith(
+				pumpTransferSolved({ linkResults: { L1: pipeAt(2), L2: pipeAt(4), L3: pipeAt(4.0004) } }),
+				project()
+			);
+			const { where } = extreme('Highest velocity');
+			expect(where).toBe('Discharge isolation valve → Discharge tank');
+			expect(await follow('Links, highest first', 'connection')).toBe(where);
+		});
+
+		it(`Highest velocity names a connection whose flow runs against its drawn direction, at its speed, and "Links, highest first" puts it first, its cell signed (${units} units)`, async () => {
+			// Made-up results: L1's flow from the pump to the suction tank at 4.893 m/s, the fastest;
+			// L2 4.378 m/s, L3 2 m/s.
+			await solveWith(
+				pumpTransferSolved({
+					linkResults: { L1: pipeAt(-4.893), L2: pipeAt(4.378), L3: pipeAt(2) }
+				}),
+				project()
+			);
+			const { entry, where } = extreme('Highest velocity');
+			expect(where).toBe('Suction tank → Transfer pump');
+			// 1 ft = 0.3048 m.
+			const speed = prefs === SI_UNITS ? '4.893 m/s' : `${sig4(4.893 / 0.3048)} ft/s`;
+			expect(entry).toHaveTextContent(speed);
+			expect(await follow('Links, highest first', 'connection')).toBe(where);
+			expect(columnHeading(/^Velocity/)).toHaveAttribute('aria-sort', 'descending');
+			const row = within(
+				results()
+					.getAllByRole('tabpanel')
+					.find((p) => !p.hidden)!
+			).getAllByRole('row')[1]!;
+			const signed = prefs === SI_UNITS ? '-4.893' : sig4(-4.893 / 0.3048);
+			expect(
+				within(row)
+					.getAllByRole('cell')
+					.map((c) => c.textContent?.trim())
+			).toContain(signed);
+		});
+	}
+
+	it('sorting Links by Velocity, highest first, puts the connection whose flow runs against its drawn direction first', async () => {
+		// The same made-up results.
+		await solveWith(
+			pumpTransferSolved({ linkResults: { L1: pipeAt(-4.893), L2: pipeAt(4.378), L3: pipeAt(2) } })
+		);
+		await fireEvent.click(results().getByRole('tab', { name: 'Links' }));
+		const original = rowNames();
+		const reversed = 'Suction tank → Transfer pump';
+		expect(original[0]).toBe(reversed);
+		const heading = columnHeading(/^Velocity/);
+		const button = within(heading).getByRole('button');
+		await fireEvent.click(button);
+		expect(heading).toHaveAttribute('aria-sort', 'ascending');
+		expect(rowNames()).toEqual([original[2], original[1], reversed]);
+		await fireEvent.click(button);
+		expect(heading).toHaveAttribute('aria-sort', 'descending');
+		expect(rowNames()).toEqual([reversed, original[1], original[2]]);
 	});
 });
 

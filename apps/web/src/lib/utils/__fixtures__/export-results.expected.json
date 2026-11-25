@@ -840,7 +840,7 @@
 		{ "sheet": "About", "ref": "C92", "type": "n", "value": 0 },
 		{ "sheet": "About", "ref": "A93", "type": "s", "value": "Case: Base case" },
 		{ "sheet": "About", "ref": "B93", "type": "s", "value": "Lowest static pressure at" },
-		{ "sheet": "About", "ref": "C93", "type": "s", "value": "Port 1 of Relief discharge" },
+		{ "sheet": "About", "ref": "C93", "type": "s", "value": "Outlet of Header relief valve" },
 		{ "sheet": "About", "ref": "A94", "type": "s", "value": "Case: Base case" },
 		{ "sheet": "About", "ref": "B94", "type": "s", "value": "Highest velocity [m/s]" },
 		{ "sheet": "About", "ref": "C94", "type": "n", "value": 2.2119571135279834 },
@@ -1165,7 +1165,7 @@
 		{ "sheet": "About", "ref": "C171", "type": "n", "value": 0 },
 		{ "sheet": "About", "ref": "A172", "type": "s", "value": "Case: Supply at AF1 (S2)" },
 		{ "sheet": "About", "ref": "B172", "type": "s", "value": "Lowest static pressure at" },
-		{ "sheet": "About", "ref": "C172", "type": "s", "value": "Port 1 of Relief discharge" },
+		{ "sheet": "About", "ref": "C172", "type": "s", "value": "Outlet of Header relief valve" },
 		{ "sheet": "About", "ref": "A173", "type": "s", "value": "Case: Supply at AF1 (S2)" },
 		{ "sheet": "About", "ref": "B173", "type": "s", "value": "Highest velocity [m/s]" },
 		{ "sheet": "About", "ref": "C173", "type": "n", "value": 1.8343221722803782 },
@@ -1713,9 +1713,19 @@
 			"value": "Network · Lowest pressure (where)"
 		},
 		{ "sheet": "Compare cases", "ref": "D25", "type": "s", "value": "Lowest pressure (where)" },
-		{ "sheet": "Compare cases", "ref": "F25", "type": "s", "value": "Port 1 of Relief discharge" },
+		{
+			"sheet": "Compare cases",
+			"ref": "F25",
+			"type": "s",
+			"value": "Outlet of Header relief valve"
+		},
 		{ "sheet": "Compare cases", "ref": "G25", "type": "s", "value": "Port 1 of Relief discharge" },
-		{ "sheet": "Compare cases", "ref": "J25", "type": "s", "value": "Port 1 of Relief discharge" },
+		{
+			"sheet": "Compare cases",
+			"ref": "J25",
+			"type": "s",
+			"value": "Outlet of Header relief valve"
+		},
 		{ "sheet": "Compare cases", "ref": "C26", "type": "s", "value": "Network · Highest velocity" },
 		{ "sheet": "Compare cases", "ref": "D26", "type": "s", "value": "Highest velocity" },
 		{ "sheet": "Compare cases", "ref": "E26", "type": "s", "value": "m/s" },

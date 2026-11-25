@@ -10,11 +10,13 @@
 	every ratio, its NPSHa ÷ NPSHr tending to −∞: the extreme names it with those words in place of a
 	number, and the sorted table puts it first (review E-0-1, E-1-1); one with NPSHr 0 that does not
 	cavitate gives its margin, and ranks above every ratio, or as 1 at a margin of exactly 0
-	(npshRatioNote, npshRatioLimit; pumps-nits.md §11, leftover L1). The extreme is the first row of the table its link sorts (leftover L2). The
-	properties and atmospheric pressure the solver used, with their sources, are one disclosure
-	below (inputs, not answers). With design checks on (D19), a card counts them and lists the
-	checks not met, with a link to the Checks view. Flags come before the views, in the Results
-	pane. All values are from the solved state.
+	(npshRatioNote, npshRatioLimit; pumps-nits.md §11, leftover L1). The extreme is the first row of
+	the table its link sorts (leftover L2), and so are the pressures and the highest velocity, a
+	speed |v| as Links ranks it (the owner, 2026-11-25: "Use absolute value of velocity";
+	proposals/open-defects.md S1). The properties and atmospheric pressure the solver used, with
+	their sources, are one disclosure below (inputs, not answers). With design checks on (D19), a
+	card counts them and lists the checks not met, with a link to the Checks view. Flags come before
+	the views, in the Results pane. All values are from the solved state.
 -->
 <script lang="ts">
 	import type { SolvedState } from '$lib/api/types';
@@ -52,9 +54,10 @@
 	const f = $derived(new Formatter(ws.displayUnits));
 
 	const fluid = $derived(solved.fluid);
-	const lowest = $derived(lowestPressureNode(solved));
-	const highest = $derived(highestPressureNode(solved));
-	const fastest = $derived(fastestLink(solved));
+	// Each the first row of the table its link sorts (proposals/open-defects.md S1).
+	const lowest = $derived(lowestPressureNode(solved, ws.labelsProject));
+	const highest = $derived(highestPressureNode(solved, ws.labelsProject));
+	const fastest = $derived(fastestLink(solved, ws.labelsProject));
 	const npsh = $derived(smallestNpshMarginRatio(solved, ws.labelsProject));
 	const checks = $derived(solved.designChecks ?? []);
 	const failed = $derived(checks.filter((c) => c.outcome === 'fail'));

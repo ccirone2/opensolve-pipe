@@ -696,8 +696,8 @@ describe('views and summaries', () => {
 
 	it('finds the lowest pressure and the highest velocity', () => {
 		const solved = pumpTransferSolved();
-		expect(lowestPressureNode(solved)?.componentId).toBe('R2');
-		expect(fastestLink(solved)).toEqual({ id: 'L2', velocity: 4 });
+		expect(lowestPressureNode(solved, project)?.componentId).toBe('R2');
+		expect(fastestLink(solved, project)).toEqual({ id: 'L2', velocity: 4 });
 	});
 });
 
@@ -1996,7 +1996,7 @@ describe('sorting results tables', () => {
 		const solved = pumpTransferSolved();
 		const table = linkTable(project, solved, SI_UNITS);
 		const sorted = sortRows(table.rows, { key: 'velocity', direction: 'descending' });
-		expect(sorted[0]?.element.id).toBe(fastestLink(solved)?.id);
+		expect(sorted[0]?.element.id).toBe(fastestLink(solved, project)?.id);
 	});
 
 	// The Summary's NPSH extreme is the margin ratio since the owner's nit 4 and Q3 (2026-11-12,
@@ -2004,7 +2004,7 @@ describe('sorting results tables', () => {
 	// smallestNpshMargin to it, at the same strictness.
 	it('finds the highest pressure and the smallest NPSH margin ratio', () => {
 		const solved = pumpTransferSolved();
-		const highest = highestPressureNode(solved);
+		const highest = highestPressureNode(solved, project);
 		expect(highest?.pressure).toBe(
 			Math.max(...Object.values(solved.nodeResults).map((n) => n.pressure))
 		);
@@ -2015,6 +2015,161 @@ describe('sorting results tables', () => {
 				project
 			)
 		).toBeNull();
+	});
+});
+
+// proposals/open-defects.md S1. The owner (2026-11-25): "Use absolute value of velocity": the
+// Velocity column ranks by speed |v|, a connection of several pipes by its largest, its cells still
+// signed; a tie of the text shown breaks by the value the API returned; and each of the Summary's
+// extremes is the first row of the table its link sorts (the pattern of pumps-nits.md §11, L2).
+describe('the Summary’s extremes are the first rows of the tables their links sort (proposals/open-defects.md S1)', () => {
+	const { nodeResults, linkResults } = pumpTransferSolved();
+	/** Made-up values: a connection of one pipe at `velocity`, its flow signed alike. */
+	const pipeAt = (velocity: number) =>
+		link({
+			flow: velocity / 200,
+			velocity,
+			segments: [{ ...link().segments[0]!, velocity }]
+		});
+	const first = (table: Table, key: string, direction: TableSort['direction']) =>
+		sortRows(table.rows, { key, direction })[0]?.key;
+	const cellOf = (table: Table, key: string, column: string) =>
+		table.rows.find((r) => r.key === key)!.cells[column];
+
+	for (const [units, prefs] of [
+		['SI', SI_UNITS],
+		['US', IMPERIAL_UNITS]
+	] as const) {
+		/** A velocity as the table shows it in these units (1 ft = 0.3048 m). */
+		const shown = (v: number) => sig4(prefs === SI_UNITS ? v : v / FT);
+
+		it(`names the lower of two pressures shown alike, and Nodes sorted lowest first puts it first (${units} units)`, () => {
+			// Made-up results: 19601 Pa at the pump's suction, 19600 Pa at the discharge tank, before
+			// it in the API's order but after it in the table's: 19.6 kPa(g) and 2.843 psig each.
+			expect([sig4(19601 / 1000), sig4(19600 / 1000)]).toEqual(['19.6', '19.6']);
+			expect([sig4(19601 / PSI), sig4(19600 / PSI)]).toEqual(['2.843', '2.843']);
+			const solved = pumpTransferSolved({
+				nodeResults: {
+					...nodeResults,
+					'P1:suction': node('P1', 'suction', {
+						pressure: 19601,
+						absolutePressure: 19601 + 101325,
+						velocity: 2
+					})
+				}
+			});
+			const table = nodeTable(project, solved, prefs);
+			expect(cellOf(table, 'P1:suction', 'pressure')).toBe(cellOf(table, 'R2:port_1', 'pressure'));
+			const lowest = lowestPressureNode(solved, project);
+			expect(lowest).toBe(solved.nodeResults['R2:port_1']);
+			expect(first(table, 'pressure', 'ascending')).toBe('R2:port_1');
+		});
+
+		it(`names the higher of two pressures shown alike, and Nodes sorted highest first puts it first (${units} units)`, () => {
+			// Made-up results: 100000 Pa at the pump's discharge, 100004 Pa at the valve's inlet after
+			// it: 100 kPa(g) and 14.5 psig each.
+			expect([sig4(100000 / 1000), sig4(100004 / 1000)]).toEqual(['100', '100']);
+			expect([sig4(100000 / PSI), sig4(100004 / PSI)]).toEqual(['14.5', '14.5']);
+			const solved = pumpTransferSolved({
+				nodeResults: {
+					...nodeResults,
+					'V1:inlet': node('V1', 'inlet', {
+						pressure: 100004,
+						absolutePressure: 100004 + 101325,
+						velocity: 4
+					})
+				}
+			});
+			const table = nodeTable(project, solved, prefs);
+			expect(cellOf(table, 'P1:discharge', 'pressure')).toBe(cellOf(table, 'V1:inlet', 'pressure'));
+			expect(highestPressureNode(solved, project)).toBe(solved.nodeResults['V1:inlet']);
+			expect(first(table, 'pressure', 'descending')).toBe('V1:inlet');
+		});
+
+		it(`names the faster of two velocities shown alike, and Links sorted highest first puts it first (${units} units)`, () => {
+			// Made-up results: 4 m/s in L2, 4.0004 m/s in L3 after it: 4 m/s and 13.12 ft/s each.
+			expect([sig4(4), sig4(4.0004)]).toEqual(['4', '4']);
+			expect([sig4(4 / FT), sig4(4.0004 / FT)]).toEqual(['13.12', '13.12']);
+			const solved = pumpTransferSolved({
+				linkResults: { ...linkResults, L2: pipeAt(4), L3: pipeAt(4.0004) }
+			});
+			const table = linkTable(project, solved, prefs);
+			expect(cellOf(table, 'L2', 'velocity')).toBe(cellOf(table, 'L3', 'velocity'));
+			expect(fastestLink(solved, project)).toEqual({ id: 'L3', velocity: 4.0004 });
+			expect(first(table, 'velocity', 'descending')).toBe('L3');
+		});
+
+		it(`ranks a connection whose flow runs against its drawn direction by its speed, its cell still signed (${units} units)`, () => {
+			// Made-up results: L1's flow from the pump to the suction tank at 4.893 m/s, the fastest;
+			// L2 4.378 m/s, L3 2 m/s.
+			const solved = pumpTransferSolved({
+				linkResults: { L1: pipeAt(-4.893), L2: pipeAt(4.378), L3: pipeAt(2) }
+			});
+			const table = linkTable(project, solved, prefs);
+			expect(cellOf(table, 'L1', 'velocity')).toBe(shown(-4.893));
+			expect(fastestLink(solved, project)).toEqual({ id: 'L1', velocity: 4.893 });
+			const order = (direction: TableSort['direction']) =>
+				sortRows(table.rows, { key: 'velocity', direction }).map((r) => r.key);
+			expect(order('descending')).toEqual(['L1', 'L2', 'L3']);
+			expect(order('ascending')).toEqual(['L3', 'L2', 'L1']);
+		});
+
+		it(`ranks a connection of several pipes by its largest speed, each pipe's cell signed like its flow (${units} units)`, () => {
+			// Made-up results: L1 a 102.3 mm pipe then a 52.5 mm pipe, its flow against its drawn
+			// direction (−2.1 and −4.893 m/s; series pipes carry one flow, so one sign), L2 4.378 m/s.
+			const [pipe] = link().segments;
+			const solved = pumpTransferSolved({
+				linkResults: {
+					L1: link({
+						flow: -0.0402,
+						velocity: -2.1,
+						segments: [
+							{ ...pipe!, index: 0, velocity: -2.1 },
+							{ ...pipe!, index: 1, velocity: -4.893 }
+						]
+					}),
+					L2: pipeAt(4.378),
+					L3: pipeAt(2)
+				}
+			});
+			const table = linkTable(project, solved, prefs);
+			expect(cellLines(cellOf(table, 'L1', 'velocity')!)).toEqual([
+				`Pipe 1: ${shown(-2.1)}`,
+				`Pipe 2: ${shown(-4.893)}`
+			]);
+			expect(fastestLink(solved, project)).toEqual({ id: 'L1', velocity: 4.893 });
+			expect(first(table, 'velocity', 'descending')).toBe('L1');
+		});
+	}
+
+	it('names, of pressures exactly equal, the port the Nodes table lists first, whatever order the API gave', () => {
+		// Made-up results: the discharge tank first in the API's order, at the pump suction's
+		// pressure exactly; the table lists the pump before the tank (project order).
+		const { 'R2:port_1': tank, ...rest } = nodeResults;
+		const solved = pumpTransferSolved({
+			nodeResults: {
+				'R2:port_1': tank!,
+				...rest,
+				'P1:suction': node('P1', 'suction', {
+					pressure: tank!.pressure,
+					absolutePressure: tank!.absolutePressure,
+					velocity: 2
+				})
+			}
+		});
+		const table = nodeTable(project, solved, SI_UNITS);
+		expect(first(table, 'pressure', 'ascending')).toBe('P1:suction');
+		expect(lowestPressureNode(solved, project)).toBe(solved.nodeResults['P1:suction']);
+	});
+
+	it('names, of speeds exactly equal, the connection the Links table lists first, whatever order the API gave', () => {
+		// Made-up results: L3 before L2 in the API's order, both at 4 m/s.
+		const solved = pumpTransferSolved({
+			linkResults: { L3: pipeAt(4), L1: pipeAt(2), L2: pipeAt(-4) }
+		});
+		const table = linkTable(project, solved, SI_UNITS);
+		expect(first(table, 'velocity', 'descending')).toBe('L2');
+		expect(fastestLink(solved, project)).toEqual({ id: 'L2', velocity: 4 });
 	});
 });
 

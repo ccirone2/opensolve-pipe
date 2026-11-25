@@ -494,6 +494,40 @@ describe('Compare cases (item 9)', () => {
 	});
 });
 
+// proposals/open-defects.md S1: About names the network's extremes as the Summary names them, the
+// first row of the table the Summary's link sorts (results.ts lowestPressureNode, fastestLink).
+describe('About names the extremes the Summary names (proposals/open-defects.md S1)', () => {
+	it('of values exactly equal, the element its table lists first, whatever order the API gave', async () => {
+		// Made-up results: the discharge tank first in the API's order, at the pump suction's
+		// pressure exactly; L3 before L2, at 4 m/s and −4 m/s (L2's flow against its drawn direction).
+		const { nodeResults, linkResults } = pumpTransferSolved();
+		const { 'R2:port_1': tank, ...rest } = nodeResults;
+		const ws = workspace(pumpTransferExample(), () =>
+			converged({
+				nodeResults: {
+					'R2:port_1': tank!,
+					...rest,
+					'P1:suction': {
+						...rest['P1:suction']!,
+						pressure: tank!.pressure,
+						absolutePressure: tank!.absolutePressure
+					}
+				},
+				linkResults: {
+					L3: linkResults.L3!,
+					L1: linkResults.L1!,
+					L2: link({ flow: -0.02, velocity: -4 })
+				}
+			})
+		);
+		await ws.store.solve();
+		const about = readSheet(bundleOf(ws), 'about');
+		const at = (label: string) => about.rows.find((r) => r[1] === label)?.[2];
+		expect(at('Lowest static pressure at')).toBe('Suction of Transfer pump');
+		expect(at('Highest velocity in')).toBe('Transfer pump → Discharge isolation valve');
+	});
+});
+
 describe('Compare cases reads a connection on it as it is now (rows name its ends now)', () => {
 	/** Reverse L3 (ends swapped, pipes in the other order), as Build's turning of a connection does. */
 	function reverseL3(ws: Workspace): void {

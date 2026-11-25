@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Override, PipeConnection, Project, SolvedState } from '../api/types';
-import { flag, link, pumpResult, pumpTransferSolved, response } from '../testing/results';
+import { flag, link, node, pumpResult, pumpTransferSolved, response } from '../testing/results';
 import type { ResultsState } from '../state/project.svelte';
 import {
 	caseResponse,
@@ -23,6 +23,7 @@ import { createComponent } from './factory';
 import { insertComponentInConnection, reversePiping, updateConnection } from './edit';
 import { pumpTransferExample } from './examples';
 import { lastSolveText } from './goal-seek';
+import { fastestLink, lowestPressureNode } from './results';
 import { markProjectCopy } from './identity';
 import { addPipe, removePipe } from './piping';
 import { withScenarios } from './scenarios';
@@ -399,6 +400,76 @@ describe('cells and differences', () => {
 			rowUnit({ quantity: 'portPressure', elementId: 'P1', portId: 'suction' }, SI_UNITS)
 		).toBe('kPa(g)');
 		expect(rowUnit({ quantity: 'valveState', elementId: 'V1' }, SI_UNITS)).toBe('');
+	});
+});
+
+// proposals/open-defects.md S1: Compare names the element the Summary names, the first row of the
+// table the Summary's link sorts (results.ts lowestPressureNode, fastestLink), and gives its value.
+describe('the network extremes name what the Summary names (proposals/open-defects.md S1)', () => {
+	/** Made-up values: a connection of one pipe at `velocity`, its flow signed alike. */
+	const pipeAt = (velocity: number) =>
+		link({ flow: velocity / 200, velocity, segments: [{ ...link().segments[0]!, velocity }] });
+
+	it('of pressures exactly equal, the port the Nodes table lists first, whatever order the API gave', () => {
+		// Made-up results: the discharge tank first in the API's order, at the pump suction's
+		// pressure exactly; the project lists the pump before the tank.
+		const { 'R2:port_1': tank, ...rest } = pumpTransferSolved().nodeResults;
+		const solved = pumpTransferSolved({
+			nodeResults: {
+				'R2:port_1': tank!,
+				...rest,
+				'P1:suction': node('P1', 'suction', {
+					pressure: tank!.pressure,
+					absolutePressure: tank!.absolutePressure,
+					velocity: 2
+				})
+			}
+		});
+		const [cell] = compareCells(
+			{ quantity: 'lowestPressure' },
+			[column(solved)],
+			project(),
+			SI_UNITS
+		);
+		expect(cell).toMatchObject({ text: '19.6', where: 'Suction of Transfer pump' });
+		const named = lowestPressureNode(solved, project());
+		expect([named?.componentId, named?.portId]).toEqual(['P1', 'suction']);
+	});
+
+	it('of speeds exactly equal, the connection the Links table lists first, by its speed whatever its sign', () => {
+		// Made-up results: L3 before L2 in the API's order, at 4 m/s and −4 m/s.
+		const solved = pumpTransferSolved({
+			linkResults: { L3: pipeAt(4), L1: pipeAt(2), L2: pipeAt(-4) }
+		});
+		const [cell] = compareCells(
+			{ quantity: 'highestVelocity' },
+			[column(solved)],
+			project(),
+			SI_UNITS
+		);
+		expect(cell).toMatchObject({ text: '4', where: 'Transfer pump → Discharge isolation valve' });
+		expect(fastestLink(solved, project())).toEqual({ id: 'L2', velocity: 4 });
+	});
+
+	it('the connection whose flow runs against its drawn direction, at its speed (SI and US units)', () => {
+		// Made-up results: L1's flow from the pump to the suction tank at 4.893 m/s, the fastest.
+		const solved = pumpTransferSolved({
+			linkResults: { L1: pipeAt(-4.893), L2: pipeAt(4.378), L3: pipeAt(2) }
+		});
+		expect(fastestLink(solved, project())).toEqual({ id: 'L1', velocity: 4.893 });
+		for (const [prefs, text] of [
+			[SI_UNITS, '4.893'],
+			// 4.893 m/s ÷ 0.3048 m/ft = 16.053 ft/s.
+			[IMPERIAL_UNITS, String(Number((4.893 / 0.3048).toPrecision(4)))]
+		] as const) {
+			const [cell] = compareCells(
+				{ quantity: 'highestVelocity' },
+				[column(solved)],
+				project(),
+				prefs
+			);
+			expect(cell).toMatchObject({ text, where: 'Suction tank → Transfer pump' });
+		}
 	});
 });
 

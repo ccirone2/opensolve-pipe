@@ -5077,6 +5077,47 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 	await page.setViewportSize(viewport);
 });
 
+// ---- Open defects W1.1, W1.2: the long name outside the card (proposals/open-defects.md) -------
+
+test('open defects W1.1, W1.2: a 40-character unbroken pump name never makes the Results pane’s scroller scroll sideways at 320×640: the Summary’s links, the Pumps tab with Pumps together closed (its members beside the heading) and open (§5.7 row 1; proposals/open-defects.md W1.1, W1.2)', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(!isMobile, 'a phone’s narrowest width; 1280 px holds the name');
+	test.setTimeout(240_000);
+	const project = projectOf('lineups');
+	project.components.find((c) => c.id === 'P1')!.name = LONG_PUMP;
+	await open(page, project);
+	await solveConverged(page);
+	await page.setViewportSize({ width: 320, height: 640 });
+	const where = `the long pump name at ${sizeOf(page)}`;
+
+	// W1.1: the Summary's links name the pump (its line under Pumps, an extreme's port of it).
+	await showPane(page, 'Results');
+	const summary = await resultsView(page, 'Summary');
+	await expect(
+		summary
+			.getByRole('region', { name: 'Pumps' })
+			.getByRole('button', { name: LONG_PUMP, exact: true })
+	).toBeVisible();
+	await noSidewaysScroll(page, `the Summary, ${where}`);
+
+	// W1.2: Pumps together closed, its default, names its members beside the heading.
+	const tab = await pumpsTab(page);
+	await settle(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const toggle = card.getByRole('button', { name: /^Pumps together/ });
+	await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+	await expect(toggle).toContainText(LONG_PUMP);
+	await noSidewaysScroll(page, `the Pumps tab, Pumps together closed, ${where}`);
+
+	// And open, where the members are boxes in the card (the long-name test above reads the card's
+	// own names, not the scroller).
+	await openCard(page, tab);
+	await expect(card.getByRole('group', { name: 'Pumps in the group' })).toContainText(LONG_PUMP);
+	await noSidewaysScroll(page, `the Pumps tab, Pumps together open, ${where}`);
+});
+
 /**
  * Every case's box drawn in the Pumps tab and the name after it (docs/proposals/pumps-nits.md
  * §11.4, leftover L12; ui-guide, "A case is its number": the box beside the name's first line,

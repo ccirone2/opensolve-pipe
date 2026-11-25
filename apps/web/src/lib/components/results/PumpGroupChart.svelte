@@ -436,10 +436,12 @@
 				/>
 				<!-- The heading's words whole on one line, the chevron beside its first; the members
 					beside them where they fit, else on lines of their own under them (§5.3 item 3,
-					§5.6). -->
+					§5.6). A name may have no spaces: it wraps anywhere rather than widen the pane
+					(open-defects.md W1.2). -->
 				<span class="flex min-w-0 flex-wrap items-baseline gap-x-2">
 					<span class="whitespace-nowrap">Pumps together</span>
-					{#if !open && memberNames.length}<span class="text-xs font-normal text-slate-600"
+					{#if !open && memberNames.length}<span
+							class="min-w-0 text-xs font-normal wrap-anywhere text-slate-600"
 							>({memberNames.join(', ')})</span
 						>{/if}
 				</span>

@@ -124,10 +124,11 @@
 	);
 </script>
 
+<!-- A name may have no spaces: it wraps anywhere rather than widen the pane (open-defects.md W1.1). -->
 {#snippet link(element: ElementRef, label: string)}
 	<button
 		type="button"
-		class="min-h-11 text-left text-blue-800 underline underline-offset-2"
+		class="min-h-11 min-w-0 text-left wrap-anywhere text-blue-800 underline underline-offset-2"
 		onclick={() => ws.inspect(element)}>{label}</button
 	>
 {/snippet}

@@ -2304,6 +2304,93 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		expect(row).toHaveClass('sr-only');
 	});
 
+	// "Cancel the other cases' system curves" goes as its progress ends: where it held the focus,
+	// the switch it belongs to takes it, still ticked, else the figure; the S1 handover pattern
+	// (docs/proposals/open-defects.md F1; pumps-results-layout.md §15 item 229).
+	describe('the focus on “Cancel the other cases’ system curves” as it goes (open-defects.md F1)', () => {
+		const CANCEL = "Cancel the other cases' system curves";
+		const SWITCH = "Also show the other cases' system curves";
+		const props = () => ({
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			tags: TAGS,
+			others: [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')],
+			overlayCurves: true,
+			onoverlay: vi.fn(),
+			oncanceloverlay: vi.fn()
+		});
+
+		it('pressed with the keyboard: the switch takes the focus, still ticked', async () => {
+			withCanvas();
+			const given = props();
+			const view = render(PumpChart, { ...given, overlayProgress: { done: 0, total: 3 } });
+			const cancel = screen.getByRole('button', { name: CANCEL });
+			cancel.focus();
+			// Enter on a focused button: jsdom does not turn the key into the click a browser does.
+			await fireEvent.keyDown(cancel, { key: 'Enter' });
+			await fireEvent.click(cancel);
+			expect(given.oncanceloverlay).toHaveBeenCalledTimes(1);
+			// The Pumps view cancels every request: the progress ends, the switch stays ticked.
+			await view.rerender({ ...given, overlayProgress: null });
+			await tick();
+			expect(screen.queryByRole('button', { name: CANCEL })).toBeNull();
+			const overlay = screen.getByRole('checkbox', { name: SWITCH });
+			expect(overlay).toHaveFocus();
+			expect(overlay).toBeChecked();
+		});
+
+		it('held while the curves finish on their own: the switch takes the focus', async () => {
+			withCanvas();
+			const given = props();
+			const view = render(PumpChart, { ...given, overlayProgress: { done: 2, total: 3 } });
+			screen.getByRole('button', { name: CANCEL }).focus();
+			await view.rerender({ ...given, overlayProgress: null });
+			await tick();
+			expect(screen.queryByRole('button', { name: CANCEL })).toBeNull();
+			expect(screen.getByRole('checkbox', { name: SWITCH })).toHaveFocus();
+			expect(given.oncanceloverlay).not.toHaveBeenCalled();
+		});
+
+		it('held as the switch goes with it (no other case left): the figure takes the focus', async () => {
+			withCanvas();
+			const given = props();
+			const view = render(PumpChart, { ...given, overlayProgress: { done: 0, total: 3 } });
+			screen.getByRole('button', { name: CANCEL }).focus();
+			await view.rerender({ ...given, others: [], overlayProgress: null });
+			await tick();
+			expect(screen.queryByRole('checkbox', { name: SWITCH })).toBeNull();
+			expect(document.activeElement).toBe(
+				screen.getByRole('figure', { name: 'Pump and system curves: P' })
+			);
+		});
+
+		it('not held: the focus stays where it was as the curves finish', async () => {
+			withCanvas();
+			const given = props();
+			const outside = document.createElement('button');
+			outside.textContent = 'Elsewhere';
+			document.body.append(outside);
+			try {
+				const view = render(PumpChart, { ...given, overlayProgress: { done: 1, total: 3 } });
+				outside.focus();
+				await view.rerender({ ...given, overlayProgress: { done: 2, total: 3 } });
+				await view.rerender({ ...given, overlayProgress: null });
+				await tick();
+				expect(outside).toHaveFocus();
+				// Nothing focused (the page): nothing is given the focus either.
+				outside.blur();
+				await view.rerender({ ...given, overlayProgress: { done: 0, total: 3 } });
+				await view.rerender({ ...given, overlayProgress: null });
+				await tick();
+				expect(document.activeElement).toBe(document.body);
+			} finally {
+				outside.remove();
+			}
+		});
+	});
+
 	it('holds “Also show the other cases’ system curves” where it was pressed while the curves it asked for arrive, until the last has answered or the user takes a step of their own (S8 second check LAYOUT-2)', async () => {
 		withCanvas();
 		const observers = fakeResizeObserver();

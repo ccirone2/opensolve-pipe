@@ -522,6 +522,9 @@
 	let cancelButton: HTMLButtonElement | undefined = $state();
 	/** The button that computes the curve again (failed, cancelled or not computed). */
 	let retryButton: HTMLButtonElement | undefined = $state();
+	/** Cancel the other cases' system curves, and the switch it belongs to (open-defects.md F1). */
+	let overlayCancel: HTMLButtonElement | undefined = $state();
+	let overlaySwitch: HTMLInputElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let unavailable = $state(false);
 	/** The data table shown: remembered in this browser (pumps-results-layout.md §9 S7). */
@@ -728,6 +731,16 @@
 		const retry = untrack(() => retryButton);
 		if (!retry || document.activeElement !== retry) return;
 		void tick().then(() => (cancelButton ?? figure)?.focus());
+	});
+
+	// Before the DOM drops Cancel the other cases' system curves as their progress ends (cancelled
+	// or every curve answered): if it has the focus, the switch it belongs to takes it, still
+	// ticked, else the chart; the handover above (docs/proposals/open-defects.md F1).
+	$effect.pre(() => {
+		if (overlayProgress) return;
+		const cancel = untrack(() => overlayCancel);
+		if (!cancel || document.activeElement !== cancel) return;
+		void tick().then(() => (overlaySwitch ?? figure)?.focus());
 	});
 
 	/**
@@ -1528,6 +1541,7 @@
 				<div>
 					<label class="flex min-h-11 items-center gap-2 text-sm">
 						<input
+							bind:this={overlaySwitch}
 							type="checkbox"
 							class="size-4 shrink-0"
 							checked={overlayCurves}
@@ -1564,6 +1578,7 @@
 					>
 					{#if overlayProgress && oncanceloverlay}
 						<button
+							bind:this={overlayCancel}
 							type="button"
 							class="btn btn-quiet px-2 text-blue-800"
 							aria-label="Cancel the other cases' system curves"

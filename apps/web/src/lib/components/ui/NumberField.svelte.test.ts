@@ -416,7 +416,30 @@ describe('NumberField', () => {
 		expect(onchange).toHaveBeenCalledExactlyOnceWith(6 * 0.0254);
 	});
 
-	it('offers the minus sign on phones where the display unit goes below zero', () => {
+	it('opens the text keyboard on phones for every field, so a unit or a minus sign can be typed', () => {
+		// The owner's answer of 2026-11-25 (proposals/open-defects.md W4): the decimal keypad has
+		// no letters, so "100 ft" could not be typed where the display unit takes no negative value.
+		render(NumberField, {
+			label: 'Liquid level',
+			value: 3.048,
+			category: 'length',
+			units: IMPERIAL_UNITS,
+			bounds: { minimum: 0 },
+			onchange: vi.fn()
+		});
+		// A points table's cell ("120 gpm" typed in it).
+		render(NumberField, {
+			label: 'Point 1 flow',
+			value: 0.01,
+			category: 'flow',
+			units: SI_UNITS,
+			bounds: { minimum: 0 },
+			hideLabel: true,
+			compact: true,
+			optional: true,
+			onchange: vi.fn()
+		});
+		// 0 K is −273.15 °C: a negative °C is valid, and the text keyboard has the minus sign.
 		render(NumberField, {
 			label: 'Temperature',
 			value: 293.15,
@@ -425,10 +448,14 @@ describe('NumberField', () => {
 			bounds: { exclusiveMinimum: 0 },
 			onchange: vi.fn()
 		});
-		// 0 K is −273.15 °C: a negative °C is valid, so not the decimal keypad (no minus sign).
-		expect(screen.getByRole('textbox', { name: 'Temperature (°C)' })).toHaveAttribute(
-			'inputmode',
-			'text'
-		);
+		for (const name of ['Liquid level (ft)', 'Point 1 flow (L/s)', 'Temperature (°C)']) {
+			const field = screen.getByRole('textbox', { name });
+			expect(field).toHaveAttribute('inputmode', 'text');
+			// The text keyboard corrects and capitalizes by default (MDN, autocorrect: "Editable
+			// elements have auto-correction enabled by default"; autocapitalize: "Chrome and Safari
+			// default to on/sentences"): neither may change a typed unit ("gpm").
+			expect(field).toHaveAttribute('autocorrect', 'off');
+			expect(field).toHaveAttribute('autocapitalize', 'off');
+		}
 	});
 });

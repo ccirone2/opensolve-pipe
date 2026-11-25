@@ -5,6 +5,10 @@
 	the SI value. What is typed may carry a unit of the field's quantity ("50 psi" in a kPa field,
 	"100 ft" in a ft field; units.ts parseQuantity, proposal usability-entry.md §3): the field then
 	shows the value in its own unit and says what it was converted from, until the next edit. Text left as shown stores nothing, so a value is never rounded to its display.
+	A phone opens its text keyboard for every field (`inputmode="text"`), so a unit and a minus
+	sign can be typed there too: the decimal keypad has no letters (the owner's answer of
+	2026-11-25, proposals/open-defects.md W4). That keyboard neither corrects nor capitalizes what
+	is typed (`autocorrect`, `autocapitalize` off), so a unit ("gpm") stays as typed.
 	Text that is not a number, or a value out of bounds, is reported next to the field (and
 	announced) and never stored, so NaN is never written. Escape reverts edited text. An `error`
 	from the owner (a required value still to enter when its form is submitted) is shown the same
@@ -195,13 +199,6 @@
 	/** What the field reports: its own problem with the typed text first, else the owner's. */
 	const error = $derived(inputError ?? ownerError);
 
-	// Read in the display unit: a temperature bounded above 0 K takes −20 °C, so a phone must
-	// offer the minus sign the decimal keypad lacks.
-	const allowsNegative = $derived.by(() => {
-		const lowest = bounds.minimum ?? bounds.exclusiveMinimum;
-		return lowest === undefined || fromSI(lowest, unit) < 0;
-	});
-
 	function format(si: number): string {
 		return formatValue(si, category, units, 6, { gauge, absolute });
 	}
@@ -301,8 +298,10 @@
 					changed && 'border-2 border-teal-600'
 				]}
 				type="text"
-				inputmode={allowsNegative ? 'text' : 'decimal'}
+				inputmode="text"
 				autocomplete="off"
+				autocorrect="off"
+				autocapitalize="off"
 				spellcheck="false"
 				{placeholder}
 				{disabled}

@@ -130,8 +130,12 @@ interface Spec {
 		row: CompareRow,
 		inputs?: Project | null
 	) => number | string | null | undefined;
-	/** Where a network extreme occurs, for the cell's second line. */
-	where?: (solved: SolvedState, project: Project) => string;
+	/**
+	 * Where a network extreme occurs, for the cell's second line, named from `project`. `order`
+	 * (default `project`) orders exact ties as the Summary's tables do: the project as it is now,
+	 * which an out-of-date case's names project (the project as sent) may not be (review S1-R1).
+	 */
+	where?: (solved: SolvedState, project: Project, order?: Project) => string;
 	/**
 	 * Words for a case with no value where none is no sign of a safe one, as the cell's note: a
 	 * pump with no NPSH margin ratio that cavitates, or whose NPSHr is 0 (npshRatioNote; §11,
@@ -191,8 +195,8 @@ export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 		options: { gauge: true },
 		element: 'network',
 		value: (s) => least(Object.values(s.nodeResults).map((n) => n.pressure)),
-		where: (s, p) => {
-			const n = lowestPressureNode(s, p);
+		where: (s, p, order = p) => {
+			const n = lowestPressureNode(s, order);
 			return n
 				? `${portLabel(n.portId)} of ${componentById(p, n.componentId)?.name ?? n.componentId}`
 				: '';
@@ -204,8 +208,8 @@ export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 		relative: true,
 		element: 'network',
 		value: (s) => greatest(Object.values(s.linkResults).map(linkSpeed)),
-		where: (s, p) => {
-			const l = fastestLink(s, p);
+		where: (s, p, order = p) => {
+			const l = fastestLink(s, order);
 			return l ? connectionName(p, l.id) : '';
 		}
 	},

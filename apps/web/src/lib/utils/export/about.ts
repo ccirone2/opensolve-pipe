@@ -400,6 +400,8 @@ function caseRows(ctx: ExportContext, c: CaseView, links: ProjectLink[]): AboutR
 		add(`Source of the fluid's ${words}`, `${source.origin}: ${source.citation}`);
 	}
 	if (c.hasValues) {
+		// The extremes the Summary names, picked among exact ties in the project as it is now, the
+		// Summary's and Compare cases' order, and named as the case's other rows are (review S1-R1).
 		const row = (quantity: 'lowestPressure' | 'highestVelocity') => ({ quantity });
 		const lowest = QUANTITIES.lowestPressure;
 		const pressure = lowest.value(solved, row('lowestPressure'));
@@ -408,13 +410,13 @@ function caseRows(ctx: ExportContext, c: CaseView, links: ProjectLink[]): AboutR
 				`Lowest static pressure [${u.label('pressure', { gauge: true })}]`,
 				u.value(pressure, 'pressure')
 			);
-			add('Lowest static pressure at', lowest.where!(solved, c.names) || null);
+			add('Lowest static pressure at', lowest.where!(solved, c.names, ctx.input.project) || null);
 		}
 		const fastest = QUANTITIES.highestVelocity;
 		const velocity = fastest.value(solved, row('highestVelocity'));
 		if (typeof velocity === 'number') {
 			add(`Highest velocity [${u.label('velocity')}]`, u.value(velocity, 'velocity'));
-			add('Highest velocity in', fastest.where!(solved, c.names) || null);
+			add('Highest velocity in', fastest.where!(solved, c.names, ctx.input.project) || null);
 		}
 	}
 	const scenario = response.scenario;

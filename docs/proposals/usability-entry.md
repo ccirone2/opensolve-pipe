@@ -1,6 +1,6 @@
 # Usability: data entry
 
-**Status: built (2026-11-24), web only, on `claude/kind-wozniak-oui7h9`; §10 is the as-built record.** No API, model or solver change; `METHOD_VERSION` unchanged (1.6.1): every change is in what the web app accepts or offers, and no stored or solved value of an existing project changes. Everything here is a reversible web default under D14 except where the owner answered (§1). Follows [`../ui-guide.md`](../ui-guide.md).
+**Status: built (2026-11-24), web only, on `web/data-entry` (built as `claude/kind-wozniak-oui7h9`); §10 is the as-built record.** No API, model or solver change; `METHOD_VERSION` unchanged (1.6.1): every change is in what the web app accepts or offers, and no stored or solved value of an existing project changes. Everything here is a reversible web default under D14 except where the owner answered (§1). Follows [`../ui-guide.md`](../ui-guide.md).
 
 ## 1. Scope
 

@@ -27,7 +27,7 @@ import {
 	type TestInfo
 } from '@playwright/test';
 import { gzip } from 'pako';
-import type { Project } from '../src/lib/api/types';
+import type { Project, SystemCurveRequest, SystemCurveResponse } from '../src/lib/api/types';
 import type {
 	CurveLabelsDrawn,
 	LegendDrawn,
@@ -9251,6 +9251,74 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 		await showPane(page, 'Results');
 	}
 	await page.setViewportSize(viewport);
+});
+
+// ---- Open defect P1: the base case's system curve beside its one scenario's ---------------------
+
+test('open defect P1: shown on the one scenario, the base case the only other case, “Also show the other cases’ system curves” asks for the base case’s curve on the grid of the curve shown and names it in the canvas’s legend (proposals/open-defects.md P1; pumps-nits.md §11.7, §11.10)', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(isMobile, 'at 1280×800 the legend names each case’s curve; a phone’s gathers them');
+	test.setTimeout(240_000);
+	// Every system curve asked for, and the range each case's own curve (no grid sent) came back on.
+	const sent: { scenarioId: string | null; flowMin: number; flowMax: number | null }[] = [];
+	const own = new Map<string, { flowMin: number; flowMax: number }>();
+	page.on('request', (r) => {
+		if (!r.url().endsWith('/api/v1/system-curve') || r.method() !== 'POST') return;
+		const body = r.postDataJSON() as SystemCurveRequest;
+		sent.push({
+			scenarioId: body.scenarioId ?? null,
+			flowMin: body.flowMin ?? 0,
+			flowMax: body.flowMax ?? null
+		});
+	});
+	page.on('response', async (r) => {
+		if (!r.url().endsWith('/api/v1/system-curve') || !r.ok()) return;
+		const body = r.request().postDataJSON() as SystemCurveRequest;
+		if (body.flowMax !== null && body.flowMax !== undefined) return;
+		try {
+			const { flowRange } = (await r.json()) as SystemCurveResponse;
+			own.set(body.scenarioId ?? '', { flowMin: flowRange.min, flowMax: flowRange.max });
+		} catch {
+			// The page closed first: nothing more is read.
+		}
+	});
+	const counter = solveCounter(page);
+	await open(page, cavitatingTransfer());
+	await solveAll(page, counter, 2);
+	await chooseCase(page, 'Suction tank open to the air (1 change)');
+	const tab = await pumpsTab(page);
+	await settle(page);
+	await expect.poll(() => own.has('S1'), { timeout: 60_000 }).toBe(true);
+	const grid = own.get('S1')!;
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	const curves = figure.getByRole('checkbox', { name: "Also show the other cases' system curves" });
+	await expect(curves).not.toBeChecked();
+	const from = sent.length;
+	await curves.check();
+	// The base case's curve asked for, no scenarioId, on the grid of the scenario's curve shown.
+	await expect
+		.poll(
+			() =>
+				sent
+					.slice(from)
+					.filter((s) => s.scenarioId === null)
+					.map(({ flowMin, flowMax }) => ({ flowMin, flowMax })),
+			{ timeout: 60_000 }
+		)
+		.toEqual([grid]);
+	await settle(page);
+	// And drawn: its entry in the canvas's legend, not struck through.
+	await expect
+		.poll(
+			async () =>
+				(await page.evaluate(readPumpLegend))?.entries
+					.filter((e) => !e.hidden)
+					.map((e) => e.text) ?? [],
+			{ timeout: 30_000 }
+		)
+		.toContain('System curve, Base case');
 });
 
 /**

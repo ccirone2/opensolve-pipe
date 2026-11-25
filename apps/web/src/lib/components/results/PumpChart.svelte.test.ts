@@ -12,6 +12,7 @@ import {
 	caseTags,
 	chartHeightRem,
 	chartNotes,
+	HIDDEN_PANELS_KEY,
 	pumpChartData,
 	type OtherCaseInput,
 	type PanelKey,
@@ -1100,6 +1101,53 @@ describe('pump chart panels (proposal pump-chart.md §4)', () => {
 			'aria-pressed',
 			'false'
 		);
+	});
+
+	it('hides and shows a panel with every storage call refused, and nothing throws (open-defects.md W2)', async () => {
+		withCanvas();
+		const refuse = () => {
+			throw new DOMException('Storage refused', 'SecurityError');
+		};
+		const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(refuse);
+		const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(refuse);
+		const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(refuse);
+		// What a handler throws reaches the window as an error event (jsdom), and what an async
+		// handler throws the process as an unhandled rejection: neither reaches the test itself.
+		const thrown: unknown[] = [];
+		const report = (event: ErrorEvent) => thrown.push(event.error);
+		const reject = (reason: unknown) => thrown.push(reason);
+		window.addEventListener('error', report);
+		process.on('unhandledRejection', reject);
+		try {
+			render(PumpChart, { result: rich(), name: 'Transfer pump', prefs: SI_UNITS });
+			expect(get).toHaveBeenCalledWith(HIDDEN_PANELS_KEY);
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			const power = within(screen.getByRole('group', { name: 'Show' })).getByRole('button', {
+				name: 'Shaft power'
+			});
+			expect(power).toHaveAttribute('aria-pressed', 'true');
+			await fireEvent.click(power);
+			expect(set).toHaveBeenCalledWith(HIDDEN_PANELS_KEY, '["power"]');
+			expect(power).toHaveAttribute('aria-pressed', 'false');
+			await vi.waitFor(() => expect(charts).toHaveLength(2));
+			expect(axes(1)).toEqual(['x', 'yNpsh', 'yEfficiency', 'y']);
+			expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
+				'below, on the same flow axis: efficiency, npsh'
+			);
+			await fireEvent.click(power);
+			expect(remove).toHaveBeenCalledWith(HIDDEN_PANELS_KEY);
+			expect(power).toHaveAttribute('aria-pressed', 'true');
+			await vi.waitFor(() => expect(charts).toHaveLength(3));
+			expect(axes(2)).toEqual(['x', 'yNpsh', 'yPower', 'yEfficiency', 'y']);
+			await new Promise((resolve) => setTimeout(resolve, 0)); // a rejection's report
+			expect(thrown).toEqual([]);
+		} finally {
+			window.removeEventListener('error', report);
+			process.off('unhandledRejection', reject);
+			get.mockRestore();
+			set.mockRestore();
+			remove.mockRestore();
+		}
 	});
 
 	it('reads every line shown at the duty, and at the slider’s flow', async () => {

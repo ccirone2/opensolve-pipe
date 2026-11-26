@@ -5,7 +5,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
-import { TopologyError, ValidationError } from '$lib/api/client';
+import { NetworkError, TopologyError, ValidationError } from '$lib/api/client';
 import type { Project, Pump, SolveResponse } from '$lib/api/types';
 import { wordsInSight } from '$lib/testing/helpers';
 import { pumpTransferSolved, response } from '$lib/testing/results';
@@ -858,5 +858,106 @@ describe('the pane names Solve and Solve all at the top instead of repeating the
 		namesControl(p!, 'Solve');
 		keysHint(p!, KEYS);
 		noSolveButtons('E3');
+	});
+});
+
+// proposals/open-defects-2.md F3, the failed-solve path: with the results out of date, a solve that
+// fails hides them behind "Show the earlier results", and the focus on a control the swap removed
+// fell to the page (reproduced 8 of 8 in Chromium, on 63184ca and 8535900); so did that button's
+// own press, which removes it as it shows the results.
+describe('the focus through a failed solve that hides the earlier results (open-defects-2.md F3, the failed-solve path)', () => {
+	/** A first solve that converges, then solves that fail as a server's 500 does (made-up words). */
+	function failingAfterFirst() {
+		let calls = 0;
+		return vi.fn(() =>
+			++calls === 1
+				? Promise.resolve(response(pumpTransferSolved()))
+				: Promise.reject(new NetworkError('The calculation server failed to answer.', 500))
+		);
+	}
+	/** Solved, then edited: the results shown are out of date. */
+	async function solvedThenEdited() {
+		const ws = testWorkspace(pumpTransferExample(), { solver: { solve: failingAfterFirst() } });
+		render(WorkspaceView, { workspace: ws });
+		ws.pane = 'results';
+		await solve();
+		await results().findByRole('heading', { name: 'Converged' });
+		ws.store.update((p) => {
+			p.connections[0]!.piping.pipes[0]!.length = 500;
+		}, 'change length');
+		await results().findByText(/project changed after this solve/);
+		return ws;
+	}
+	const earlier = () => results().queryByRole('button', { name: 'Show the earlier results' });
+	/** Ctrl+Enter from the focused control, and the failed solve's error drawn. */
+	async function failedSolve(ws: ReturnType<typeof testWorkspace>) {
+		const error = ws.store.results.error;
+		await fireEvent.keyDown(document.activeElement ?? window, { key: 'Enter', ctrlKey: true });
+		await vi.waitFor(() => expect(ws.store.calculating).toBeNull());
+		expect(ws.store.results.error).not.toBe(error);
+		expect(ws.store.results.error?.kind).toBe('network');
+		await tick();
+		await tick();
+	}
+
+	it('gives the focus on a control the swap removes to “Show the earlier results”, never the page, and that button’s press to the view’s tab', async () => {
+		const ws = await solvedThenEdited();
+		await fireEvent.click(results().getByRole('tab', { name: 'Nodes' }));
+		const panel = () => results().getByRole('tabpanel', { name: 'Nodes' });
+		// A control inside the view shown: the Nodes table's first button.
+		const inView = within(panel()).getAllByRole('button')[0]!;
+		inView.focus();
+		expect(inView).toHaveFocus();
+		await failedSolve(ws);
+		expect(inView.isConnected, 'the swap removed the control').toBe(false);
+		expect(earlier(), 'the results hidden').not.toBeNull();
+		expect(earlier()).toHaveFocus();
+
+		// Its press shows them and removes it: the focus goes to the view's tab, Nodes.
+		await fireEvent.click(earlier()!);
+		await tick();
+		expect(earlier()).toBeNull();
+		expect(results().getByRole('tab', { name: 'Nodes' })).toHaveFocus();
+
+		// The header's Export, which the swap removes too (nothing to export while they are hidden).
+		const exportButton = results().getByRole('button', { name: 'Export results' });
+		exportButton.focus();
+		await failedSolve(ws);
+		expect(exportButton.isConnected, 'the swap removed Export').toBe(false);
+		expect(earlier()).toHaveFocus();
+	});
+
+	it('gives the focus on “Show the earlier results” to the view’s tab when an undo shows the results again', async () => {
+		const ws = await solvedThenEdited();
+		await fireEvent.click(results().getByRole('tab', { name: 'Nodes' }));
+		results().getByRole('tab', { name: 'Nodes' }).focus();
+		await failedSolve(ws);
+		const button = earlier();
+		// On the button (the test above has how it gets there).
+		button!.focus();
+		expect(button).toHaveFocus();
+		// Ctrl+Z from the button: the project as solved again, its results current, the error out of
+		// date, so the results are shown and the button goes.
+		await fireEvent.keyDown(button!, { key: 'z', ctrlKey: true });
+		await tick();
+		expect(ws.store.results.stale).toBe(false);
+		expect(button!.isConnected).toBe(false);
+		expect(results().getByRole('tab', { name: 'Nodes' })).toHaveFocus();
+	});
+
+	it('moves no focus the swap leaves drawn', async () => {
+		const ws = await solvedThenEdited();
+		const goalSeek = results().getByRole('button', { name: 'Goal seek' });
+		goalSeek.focus();
+		await failedSolve(ws);
+		expect(earlier(), 'the results hidden').not.toBeNull();
+		expect(goalSeek).toHaveFocus();
+		// The button's press with the focus elsewhere (a pointer that does not focus a button, as
+		// Safari's): the results shown, the focus left where it is.
+		goalSeek.focus();
+		await fireEvent.click(earlier()!);
+		await tick();
+		expect(earlier()).toBeNull();
+		expect(goalSeek).toHaveFocus();
 	});
 });

@@ -24,6 +24,7 @@ import {
 	type JSHandle,
 	type Locator,
 	type Page,
+	type Route,
 	type TestInfo
 } from '@playwright/test';
 import { gzip } from 'pako';
@@ -7474,6 +7475,129 @@ test('open defects F3: a wheel scroll while the card waits is not scrolled back 
 		Math.abs((await paneScrollTop(page))! - scrolled),
 		'the pane not scrolled back after the wheel'
 	).toBeLessThanOrEqual(1);
+});
+
+// ---- Open defects round two, F3, the failed-solve path: "Show the earlier results" takes the focus
+
+/** Where the focus is, as a name: the body, or a control's tag and its first words. */
+function focusLabel(): string {
+	const a = document.activeElement;
+	if (!a || a === document.body) return 'BODY';
+	return `${a.tagName} ${(a.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 40)}`;
+}
+
+/** From now on, at every frame, where the focus is, each change kept with its time. */
+async function recordFocus(page: Page) {
+	await page.evaluate(`(() => {
+		const focusLabel = ${focusLabel.toString()};
+		const w = window;
+		w.__focus = { frames: [], stop: false };
+		const t0 = performance.now();
+		let last = '';
+		const frame = () => {
+			const now = focusLabel();
+			if (now !== last) w.__focus.frames.push({ focus: now, ms: Math.round(performance.now() - t0) });
+			last = now;
+			if (!w.__focus.stop) requestAnimationFrame(frame);
+		};
+		requestAnimationFrame(frame);
+	})()`);
+}
+
+async function focusRecord(page: Page) {
+	return (await page.evaluate(`(() => {
+		window.__focus.stop = true;
+		return window.__focus.frames;
+	})()`)) as { focus: string; ms: number }[];
+}
+
+/**
+ * Solved, then Reservoir R2's level set to `level` (m): the results shown are out of date. The
+ * Pumps view shown, the Pumps together card open and at rest.
+ */
+async function staleCard(page: Page, level: string): Promise<Locator> {
+	await solveConverged(page);
+	await showPane(page, 'Build');
+	await buildPane(page).getByRole('button', { name: 'Jump to a component' }).click();
+	const jump = page.getByRole('dialog', { name: 'Jump to a component' });
+	const filter = jump.getByRole('searchbox', { name: 'Filter' });
+	if (await filter.count()) await filter.fill('Reservoir R2');
+	await jump.getByRole('button', { name: /^Reservoir R2/ }).click();
+	await expect(jump).toBeHidden();
+	await setNumber(buildPane(page), /^Liquid level/, level);
+	const tab = await pumpsTab(page);
+	await expect(
+		resultsPane(page).getByText(/^Results are out of date: the project changed after this solve/)
+	).toBeVisible();
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const toggle = card.getByRole('button', { name: /^Pumps together/ });
+	if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+	await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+	await settle(page);
+	return card;
+}
+
+test('open defects F3, the failed-solve path: the results out of date and the focus on “Pump lineups table…”, a Ctrl+Enter whose solve fails (a 500, a network abort) gives the focus to “Show the earlier results”, never the page, and its press to the Pumps tab (proposals/open-defects-2.md §2 F3)', async ({
+	page
+}) => {
+	test.setTimeout(240_000);
+	const project = projectOf('lineups');
+	delete project.scenarios;
+	await open(page, project);
+	const earlier = resultsPane(page).getByRole('button', { name: 'Show the earlier results' });
+	const pumps = resultsPane(page)
+		.getByRole('tablist', { name: 'Results view' })
+		.getByRole('tab', { name: 'Pumps', exact: true });
+	const failures = [
+		[
+			'a 500',
+			'3',
+			(route: Route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
+		],
+		['a network abort', '4', (route: Route) => route.abort('failed')]
+	] as const;
+	for (const [failure, level, answer] of failures) {
+		const card = await staleCard(page, level);
+		const where = `${failure}, at ${sizeOf(page)}`;
+		const table = card
+			.getByRole('region', { name: 'Add cases' })
+			.getByRole('button', { name: 'Pump lineups table…' });
+		await table.focus();
+		await expect(table).toBeFocused();
+		await page.route('**/api/v1/solve', answer);
+		await recordFocus(page);
+		await page.keyboard.press('Control+Enter');
+		await expect(earlier, where).toBeVisible();
+		await expect(card, `the card gone with the view, ${where}`).toHaveCount(0);
+		await page.unroute('**/api/v1/solve');
+		// Soft from here, so a run reports each of them.
+		await expect.soft(earlier, `the focus on “Show the earlier results”, ${where}`).toBeFocused();
+		// Its press with Enter, from the button (focused here where the app left the focus elsewhere).
+		if (!(await earlier.evaluate((b) => b === document.activeElement))) await earlier.focus();
+		const pressed = await page.evaluate(focusLabel);
+		await page.keyboard.press('Enter');
+		await expect(earlier, where).toHaveCount(0);
+		await expect(pumps, where).toHaveAttribute('aria-selected', 'true');
+		await expect.soft(pumps, `the focus on the Pumps tab after the press, ${where}`).toBeFocused();
+		console.log(
+			`F3, the failed-solve path, ${where}: Enter pressed on "${pressed}", the focus then on "${await page.evaluate(focusLabel)}"`
+		);
+		// The card back without Add cases: it shows nothing from an earlier version of the project
+		// after a failed solve, so the control the user was in is not drawn again.
+		await expect(card, where).toContainText(
+			'The latest solve failed; the card shows nothing from an earlier version of the project.'
+		);
+		await expect(card.getByRole('region', { name: 'Add cases' }), where).toHaveCount(0);
+		await settle(page, 500);
+		const frames = await focusRecord(page);
+		console.log(`F3, the failed-solve path, ${where}: ${JSON.stringify(frames)}`);
+		expect
+			.soft(
+				frames.filter((f) => f.focus === 'BODY').map((f) => `${f.ms} ms`),
+				`frames with the focus on the page, ${where}`
+			)
+			.toEqual([]);
+	}
 });
 
 // ---- S7: the curve tables folded, the boxes measured, the choice remembered (§9 S7) -------------

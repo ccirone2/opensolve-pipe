@@ -16,7 +16,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ValidationError } from '$lib/api/client';
+import { NetworkError, ValidationError } from '$lib/api/client';
 import type { Project, PumpGroupCurveResponse, Scenario, SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
@@ -2454,5 +2454,51 @@ describe('a base solve with the focus in Add cases (proposals/open-defects-2.md 
 		await waitFor(() => expect(later()).toHaveFocus());
 		expect(block().querySelector<HTMLDetailsElement>('[data-stop-order]')!.open).toBe(true);
 		expect(methods()).toEqual([true, true]);
+	});
+});
+
+// proposals/open-defects-2.md F3, the failed-solve path: the results out of date, a solve that fails
+// hides them behind "Show the earlier results" (ResultsPanel's previousHidden), which unmounts the
+// whole Pumps view, the card with it, so the card's own handover never runs; the focus fell to the
+// page (reproduced 8 of 8 in Chromium, on 63184ca and 8535900).
+describe('a failed solve of the edited project with the focus in Add cases (open-defects-2.md F3, the failed-solve path)', () => {
+	it('gives the focus to “Show the earlier results”, never the page, and that button’s press to the Pumps tab', async () => {
+		let solved = 0;
+		const { ws, calls } = setup(withoutScenarios(), {
+			// The first solve the fixture's; the next fails as a server's 500 does (made-up words).
+			solve: async () => {
+				if (++solved > 1) throw new NetworkError('The calculation server failed to answer.', 500);
+				return structuredClone(oneOff.solve);
+			}
+		});
+		await openCard(ws, calls);
+		await waitFor(() =>
+			expect(within(card()).getByRole('img')).toHaveAccessibleName(/group system curve shown/)
+		);
+		// Reservoir R2's level edited: the results shown are out of date.
+		ws.store.update((p) => {
+			const r2 = p.components.find((c) => c.id === 'R2');
+			if (r2?.type !== 'reservoir') throw new Error('no Reservoir R2');
+			r2.liquidLevel = 2.5;
+		}, 'change R2 level');
+		await waitFor(() => expect(ws.store.results.stale).toBe(true));
+		const table = within(block()).getByRole('button', { name: 'Pump lineups table…' });
+		table.focus();
+		expect(table).toHaveFocus();
+
+		await fireEvent.keyDown(table, { key: 'Enter', ctrlKey: true });
+		const earlier = await results().findByRole('button', { name: 'Show the earlier results' });
+		await waitFor(() => expect(ws.store.calculating).toBeNull());
+		expect(solved).toBe(2);
+		expect(results().queryByRole('region', { name: /^Pumps together/ })).toBeNull();
+		expect(table.isConnected).toBe(false);
+		await waitFor(() => expect(earlier).toHaveFocus());
+
+		// Its press: the earlier results back, the focus on the Pumps tab, the view the user was in.
+		await fireEvent.click(earlier);
+		const pumps = results().getByRole('tab', { name: 'Pumps' });
+		await waitFor(() => expect(pumps).toHaveFocus());
+		expect(pumps).toHaveAttribute('aria-selected', 'true');
+		expect(earlier.isConnected).toBe(false);
 	});
 });

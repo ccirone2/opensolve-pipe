@@ -93,6 +93,7 @@ import {
 	verticalSummary,
 	verticalWords,
 	type PastLimit,
+	type RayBound,
 	type SystemLinePoint,
 	type SystemRay
 } from './system-curve-line';
@@ -1720,6 +1721,18 @@ export function otherNoteLines(parts: OtherNoteParts): string[] {
 export const SYSTEM_DUTY_CHECK_FLOOR = 0.01;
 
 /**
+ * Whether a rise (m) is one of those that hold at a vertical part of a group system curve, by
+ * C2's rule (open-defects-2.md §3; the API's pump_groups._on_vertical): on the ray's side of its
+ * foot (`from`, m), or short of it by no more than the duty check's allowance, 0.5 % of the rise
+ * or SYSTEM_DUTY_CHECK_FLOOR, whichever is looser (D6). The allowance is the rise's, not the
+ * foot's (the review of open defects round two, WC-3).
+ */
+export function riseOnVertical(rise: number, ray: { from: number; bound: RayBound }): boolean {
+	const allowance = Math.max(0.005 * Math.abs(rise), SYSTEM_DUTY_CHECK_FLOOR);
+	return ray.bound === 'lower' ? rise >= ray.from - allowance : rise <= ray.from + allowance;
+}
+
+/**
  * The group system curve's notes (slice 4b): its state, what it is, and whether it passes through
  * the Group point at the duty's flow (crossing the group curve there when the group curve's duty
  * check agrees too), or why that is not known.
@@ -1809,6 +1822,13 @@ function groupSystemNotes(
 				ray
 					? `At the duty's flow the group system curve is vertical, any rise ${boundWords(ray.bound)} ${head(ray.from)} holding, and the solve's rise, ${head(response.duty.head)}, is one of them (within ${tolerance}): it passes through the Group point${groupAgrees ? ', where it crosses the group curve' : ''}.`
 					: `At the duty's flow the group system curve gives the solve's rise (within ${tolerance}): it passes through the Group point${groupAgrees ? ', where it crosses the group curve' : ''}.`
+			);
+		} else if (check && check.head === null && ray && !riseOnVertical(response.duty.head, ray)) {
+			// Since C2 an API that does not agree on the vertical part has found the duty's rise off
+			// it: said as such, never as a rise not known (the review of open defects round two,
+			// WC-2). Its rise on the ray's side, the verdict is an API's before C2: its words below.
+			duty.push(
+				`The group system curve does not pass through the Group point: at the duty's flow it is vertical, any rise ${boundWords(ray.bound)} ${head(ray.from)} holding, and the solve's rise, ${head(response.duty.head)}, is not one of them (more than ${tolerance} off).`
 			);
 		} else if (check && check.head === null) {
 			const why = point
@@ -2358,10 +2378,15 @@ export function systemDutyCheckState(response: PumpGroupCurveResponse): string {
 	if (!check) return '';
 	// Through it at a vertical part, as the API decides (open-defects-2.md §3 C2).
 	const point = response.systemPoints.find((p) => p.isDuty);
-	if (check.agrees && check.head === null && point && pointRay(point))
+	const ray = point ? pointRay(point) : null;
+	if (check.agrees && check.head === null && ray)
 		return 'the group system curve passes through it, on its vertical part';
 	if (check.agrees) return 'the group system curve passes through it';
 	if (check.head !== null) return 'the group system curve does not pass through it';
+	// Not through it, the duty's rise off the vertical part (C2's verdict; the review of open
+	// defects round two, WC-2); on its side, the verdict of an API before C2.
+	if (ray && response.duty && !riseOnVertical(response.duty.head, ray))
+		return 'the group system curve does not pass through it, the duty’s rise off its vertical part';
 	return 'not known, the group system curve has no rise at the duty’s flow';
 }
 

@@ -348,11 +348,22 @@ def test_method_1_6_2_says_what_round_two_of_the_open_defects_changes() -> None:
     vertical, limits, plate, boundary, singular = entry["changes"]
     assert vertical.startswith("A pump group's system duty check agrees where the group system")
     assert "passes through the duty on its vertical part" in vertical
+    # The review of 2026-11-26 (AC-1): a group system curve's point at a flow where an FCV is
+    # held open above its setpoint was a false valve_at_switch on 1.6.1 and now has no head, so
+    # "every point … unchanged" alone was no longer true; the exception is named.
     assert vertical.endswith(
-        "Every flow, rise and point of every group curve and group system curve is unchanged."
+        "Apart from a point at a flow where a flow control valve is held open above its setpoint "
+        "(the next item), every flow, rise and point of every group curve and group system curve "
+        "is unchanged."
     )
     assert limits.startswith("A system curve also gives its limit points")
-    assert "Every point at the evenly spaced flows is unchanged, bit for bit" in limits
+    # The review of 2026-11-26 (AC-1): the limit is a bound no steady state carries a flow
+    # beyond, not the most one carries, and a grid flow at it could change.
+    assert "the most flow any steady state carries" not in limits
+    assert "is no longer read as another valve's switch" in limits
+    assert "Apart from that, every point at the evenly spaced flows is unchanged, bit for bit" in (
+        limits
+    )
     assert "ORIFICE_OUT_OF_RANGE" in plate
     assert "no plate is newly refused" in plate
     assert "BOUNDARY_HEAD_OUT_OF_RANGE" in boundary

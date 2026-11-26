@@ -974,6 +974,48 @@ describe('a pump’s system curve’s vertical part at its FCV’s limit (open-d
 		).not.toHaveProperty('bound');
 	});
 
+	// The review of open defects round two, WC-1: P1 runs at F1's setpoint only to round-off, so the
+	// readout's default flow (the operating point's) is not the foot's but within the chart's flow
+	// floor of it (Winter's a hair below, single24's a hair above); there the system head is the
+	// foot's range, never a bare head (Winter, on d101793: "System head 21.9 m") nor nothing
+	// (single24's, on d101793).
+	for (const [name, metric, imperial] of [
+		['winter', '≥ 21.9 m', '≥ 71.84 ft'],
+		['single24', '≥ 20.72 m', '≥ 67.99 ft']
+	] as const) {
+		it(`reads the ${name} case’s system head at the duty as its vertical part’s range (${metric}, ${imperial})`, () => {
+			const { data, curve, result, project } = pumpCard(name);
+			const us = pumpChartData(result, IMPERIAL_UNITS, ratedCurveRange(project, 'P1'), curve, {
+				project
+			});
+			for (const d of [data, us]) {
+				const foot = d.system!.find((p) => p.bound)!;
+				const at = d.operating!.x;
+				expect(at).not.toBe(foot.x);
+				expect(Math.abs(at - foot.x)).toBeLessThanOrEqual(d.flowFloor);
+				const read = chartReadout(d, ['head'], at);
+				expect(read.find((i) => i.key === 'system')).toEqual({
+					key: 'system',
+					label: 'System head',
+					value: foot.y,
+					unit: d.headUnit,
+					bound: 'lower'
+				});
+				// Once, after the pump's head.
+				expect(read.map((i) => i.key)).toEqual(['pump', 'system']);
+				// Beyond the floor below the foot, the line's own head there, no range.
+				expect(
+					chartReadout(d, ['head'], foot.x - 2 * d.flowFloor).find((i) => i.key === 'system')
+				).not.toHaveProperty('bound');
+			}
+			const words = (d: typeof data) => {
+				const item = chartReadout(d, ['head'], d.operating!.x).find((i) => i.key === 'system')!;
+				return `${item.bound === 'lower' ? '≥ ' : ''}${f4(item.value)} ${item.unit}`;
+			};
+			expect([words(data), words(us)]).toEqual([metric, imperial]);
+		});
+	}
+
 	it('gives another case’s dotted system curve its vertical part too', () => {
 		const { curve, result, project, prefs } = pumpCard('single24');
 		const [other] = otherCasesData(
@@ -1032,7 +1074,7 @@ describe('a pump’s system curve’s vertical part at its FCV’s limit (open-d
 			)
 		);
 		expect(notes.method).toBe(
-			"System curve: the network of this solve, solved again with the pump replaced by each of 41 evenly spaced flows from 0 to 1590 L/s, then by 946.4 L/s, the most the pump can pass, solved alone from the network's initial state (other pumps running, valves following their rules); the system head at each flow is the EGL at the discharge minus the EGL at the suction."
+			"System curve: the network of this solve, solved again with the pump replaced by each of 41 evenly spaced flows from 0 to 1590 L/s, then by 946.4 L/s, the flow limit, above which no steady state carries the flow, solved alone from the network's initial state (other pumps running, valves following their rules); the system head at each flow is the EGL at the discharge minus the EGL at the suction."
 		);
 		// The readout at that flow: the range, never a bare head.
 		expect(chartReadout(data, ['head'], x).find((r) => r.key === 'system')).toMatchObject({
@@ -1091,6 +1133,58 @@ describe('a pump’s system curve’s vertical part at its FCV’s limit (open-d
 		);
 		// The single-line case's limit is a grid flow: no limit point, its grid point the foot.
 		expect(pumpCard('single24').curve.limitPoints).toEqual([]);
+	});
+
+	// The review of open defects round two, AC-1: a limit point is the bound one cut gives, not
+	// always reached (FCVs in series on parallel paths with crossed setpoints: the limit 11 L/s, the
+	// most any steady state carries 2 L/s), so the method sentence says what holds on its far side
+	// whether or not it is reached: no steady state carries the flow above the flow limit, nor below
+	// the floor. Made-up shapes: a floor at 5 L/s (the below_floor points' limitFlow) and a flow
+	// limit at 25 L/s (the beyond_limit points'), its point without a head (not converged), as the
+	// fixed API answers where the cut is not the least.
+	it('names each limit point by what holds past it, the flow floor and the flow limit, whether or not it is reached (AC-1)', () => {
+		const curve = systemCurveResponse();
+		curve.points[0] = systemCurvePoint({
+			flow: 0,
+			reason: 'below_floor',
+			limitFlow: 0.005,
+			message: 'made-up'
+		});
+		curve.points[3] = systemCurvePoint({
+			flow: 0.03,
+			reason: 'beyond_limit',
+			limitFlow: 0.025,
+			message: 'made-up'
+		});
+		curve.converged = curve.points.map((p) => p.converged);
+		curve.limitPoints = [
+			systemCurvePoint({ flow: 0.005, head: 13, converged: true }),
+			systemCurvePoint({
+				flow: 0.025,
+				reason: 'not_converged',
+				componentIds: ['A1', 'B1'],
+				message: 'made-up'
+			})
+		];
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], curve);
+		expect(data.systemLimits.map((l) => l.kind)).toEqual(['least', 'most']);
+		const method = chartNotes({
+			data,
+			result: pumpResult(),
+			system: { status: 'ready', curve }
+		}).method;
+		expect(method).toBe(
+			"System curve: the network of this solve, solved again with the pump replaced by each of 4 evenly spaced flows from 0 to 30 L/s, then by 5 L/s, the flow floor, below which no steady state carries the flow, and by 25 L/s, the flow limit, above which no steady state carries the flow, each solved alone from the network's initial state (other pumps running, valves following their rules); the system head at each flow is the EGL at the discharge minus the EGL at the suction."
+		);
+		// Never the most or the least flow, which a bound from one cut need not be.
+		expect(method).not.toMatch(/the most|the least|can pass|must pass/);
+		// Neither side's points saying which: a flow limit.
+		curve.points[0] = systemCurvePoint({ flow: 0, head: 12, converged: true });
+		curve.points[3] = systemCurvePoint({ flow: 0.03, head: 34.5, converged: true });
+		const plain = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], curve);
+		expect(chartNotes({ data: plain, result: pumpResult(), system: undefined }).method).toContain(
+			'then by 5 L/s, a flow limit, and by 25 L/s, a flow limit, each solved alone'
+		);
 	});
 });
 

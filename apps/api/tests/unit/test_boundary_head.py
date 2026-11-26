@@ -485,20 +485,25 @@ def _control(valve_type: str, setpoint: float) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    ("valve_type", "setpoint", "rho"),
+    ("valve_type", "setpoint", "rho", "settled"),
     [
-        ("prv", 1.0e8, 5.0e-302),
-        ("psv", 1.0e8, 5.0e-302),
-        ("prv", -1.0e5, 5.0e-305),
-        ("psv", -1.0e5, 5.0e-305),
+        ("prv", 1.0e8, 5.0e-302, "open"),
+        ("psv", 1.0e8, 5.0e-302, "closed"),
+        ("prv", -1.0e5, 5.0e-305, "closed"),
+        ("psv", -1.0e5, 5.0e-305, "open"),
     ],
 )
-def test_an_active_prv_or_psv_whose_setpoint_head_overflows_still_converges(
-    valve_type: str, setpoint: float, rho: float
+def test_a_prv_or_psv_whose_setpoint_head_overflows_is_not_refused_and_converges_open_or_closed(
+    valve_type: str, setpoint: float, rho: float, settled: str
 ) -> None:
     """Regression (passes before and after): a PRV's or PSV's held head z + p_set/(ρ g) is not
-    finite here, but the status rules leave the active state and the case converges, so it is
-    not refused: BOUNDARY_HEAD_OUT_OF_RANGE is for reservoirs and reference nodes only."""
+    finite here, and the valve is not refused (BOUNDARY_HEAD_OUT_OF_RANGE is for reservoirs and
+    reference nodes only). Between two reservoirs the steady state has it open (a PRV whose
+    setting is above every head, a PSV whose setting is below) or closed (the other two), never
+    active: the status rules leave the active state and the case converges. Where the network
+    needs the valve active (a PRV before an assigned flow) the solve ends not converged with the
+    closed state's message, naming no overflow; that is left for later (proposal
+    open-defects-2.md §7, the review's AS-1) and not pinned here."""
     assert math.isinf(setpoint / (rho * g))
     data = line(
         reservoir("R1", level=10.0),
@@ -508,6 +513,7 @@ def test_an_active_prv_or_psv_whose_setpoint_head_overflows_still_converges(
     )
     state = solve_project(Project.model_validate(data))
     assert state.converged, state.convergence.message
+    assert state.valve_results["V1"].state == settled
 
 
 def test_a_relief_valve_whose_set_head_overflows_is_already_refused() -> None:

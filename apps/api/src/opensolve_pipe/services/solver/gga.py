@@ -371,9 +371,10 @@ Schur matrix singular; ``singular_message`` adds the links whose weight was lost
 class LostWeight:
     """A Newton link whose weight 1/(dh/dQ) in the Schur matrix A21 D⁻¹ A12 is lost in rounding
     where it is added to the weights of the other links at its end in a part of the free nodes,
-    and that alone joins that part to the fixed heads (``lost_weights``): that part's rows are
-    then an ungrounded Laplacian in floating point, and SuperLU finds the step singular, though
-    the steady state is determined (TSD §12 item 19, method 1.6.2)."""
+    and that leads from that part towards the fixed heads, alone or with others lost likewise
+    (``lost_weights``): that part's rows are then an ungrounded Laplacian in floating point, and
+    SuperLU finds the step singular, though the steady state is determined (TSD §12 item 19,
+    method 1.6.2)."""
 
     link: int
     element_id: str
@@ -388,19 +389,32 @@ class LostWeight:
 
 def lost_weights(d_inv: FloatArray, sc: IntArray, ec: IntArray, nf: int) -> list[int]:
     """The Newton positions whose weight is lost from the Schur matrix's diagonal at an end in a
-    part of the free nodes that no kept weight grounds, and whose other end is grounded or a
-    fixed head: the links that alone join that part to the fixed heads, the cause of a singular
-    step. ``sc``, ``ec``: each link's head-unknown column at its start and end (−1 at a fixed
-    head); ``nf``: the number of columns.
+    part of the free nodes that no kept weight grounds, and that lead from that part towards the
+    fixed heads: each a way from that part to them that its rows lack, the cause of a singular
+    step. ``sc``, ``ec``: each link's head-unknown column at its start and end (−1 at a head the
+    step holds fixed: a reservoir's or reference node's, an active PRV's or PSV's held node, a
+    floating section's held node); ``nf``: the number of columns.
 
     At each column the weight w of a link is lost where fl(S + w) = S, S the sum of the weights
     of the other links there, rounded once (``math.fsum``): exact for that sum, which is the
     matrix's own entry where two links meet (a bridge's far end), across a binade too, where a
     half-ulp test on the assembled entry is not. A column is grounded where a link reaches it
-    from a fixed head or a grounded column with its weight kept at that column. A link whose two
-    ends share a column adds nothing to the matrix. The coupling of an active PRV or PSV, which
-    makes the matrix non-symmetric, is not examined: a singularity it causes, or one from a weight
-    lost only in a partial sum, is not found, and [] is returned."""
+    from a fixed head or a grounded column with its weight kept at that column. The columns
+    not grounded fall into parts, two columns joined by a weight kept at both its ends being in
+    one part. Each end of a link is examined on its own: a link is named from an end where its
+    weight is lost, in a part, if its other end is a fixed head, a grounded column, or a column
+    of another part that reaches a fixed head or a grounded column through links (kept or lost)
+    that do not pass through the part at this end. Of two valves in series, each lost at both
+    its ends, both are named: the part between them reaches the fixed heads through the first,
+    and the part beyond the second through it and then the first. A link whose two ends lie in
+    one part joins it to itself and is named from neither. From an end in a part, a link into a
+    part that reaches the fixed heads only back through the first (a dead end beyond it) leads
+    nowhere and is not named from that end; where its weight is lost at the dead end's own end,
+    it is named from there, the dead end's one way to the fixed heads (a valve lost at both its
+    ends before a plug; review of open defects round two, AS-3). A link whose two ends share a
+    column adds nothing to the matrix. The coupling of an active PRV or PSV, which makes the
+    matrix non-symmetric, is not examined: a singularity it causes, or one from a weight lost
+    only in a partial sum, is not found, and [] is returned."""
     joins = np.flatnonzero(sc != ec).tolist()
     at_column: list[list[int]] = [[] for _ in range(nf)]
     for pos in joins:
@@ -434,17 +448,57 @@ def lost_weights(d_inv: FloatArray, sc: IntArray, ec: IntArray, nf: int) -> list
             if not grounded[v]:
                 grounded[v] = True
                 queue.append(v)
+
+    # The parts: columns joined by weights kept at both ends (union-find). A kept weight carries
+    # grounding both ways, so a part's columns are all grounded or none.
+    parent = list(range(nf))
+
+    def find(v: int) -> int:
+        while parent[v] != v:
+            parent[v] = parent[parent[v]]
+            v = parent[v]
+        return v
+
+    for pos in joins:
+        a, b = int(sc[pos]), int(ec[pos])
+        if a >= 0 and b >= 0 and (pos, a) not in lost and (pos, b) not in lost:
+            parent[find(a)] = find(b)
+    ground = -1  # the fixed heads and the grounded columns, as one
+
+    def part(j: int) -> int:
+        return ground if j < 0 or grounded[j] else find(j)
+
+    between: defaultdict[int, set[int]] = defaultdict(set)
+    for pos in joins:
+        p, r = part(int(sc[pos])), part(int(ec[pos]))
+        if p != r:
+            between[p].add(r)
+            between[r].add(p)
+    reaches: dict[tuple[int, int], bool] = {}
+
+    def reaches_ground(start: int, avoiding: int) -> bool:
+        """Whether ``start`` reaches the fixed heads through links, never entering ``avoiding``."""
+        if (start, avoiding) not in reaches:
+            seen, frontier, found_way = {start, avoiding}, deque([start]), False
+            while frontier and not found_way:
+                for r in between[frontier.popleft()]:
+                    found_way = found_way or r == ground
+                    if r not in seen:
+                        seen.add(r)
+                        frontier.append(r)
+            reaches[(start, avoiding)] = found_way
+        return reaches[(start, avoiding)]
+
     found: list[int] = []
     for pos in joins:
         a, b = int(sc[pos]), int(ec[pos])
-        if any(
-            here >= 0
-            and not grounded[here]
-            and (pos, here) in lost
-            and (there < 0 or grounded[there])
-            for here, there in ((a, b), (b, a))
-        ):
-            found.append(pos)
+        for here, there in ((a, b), (b, a)):
+            if here < 0 or grounded[here] or (pos, here) not in lost:
+                continue
+            p, r = find(here), part(there)
+            if r == ground or (r != p and reaches_ground(r, p)):
+                found.append(pos)
+                break
     return found
 
 
@@ -455,7 +509,9 @@ def singular_message(found: Sequence[LostWeight], iteration: int, *, resumed: bo
     and each link whose weight was lost, with its slope, flow and coefficient: "...: in Newton
     iteration 1, at the starting flows, the weight 1/(dh/dQ) of 'V1' (a slope of 8.46e+17 s/m²
     at a flow of 0.00239 m³/s; loss coefficient K/(2 g A²) = 1.76758e+20 s²/m⁵) is lost in
-    rounding: ...". With none found, ``SINGULAR`` alone."""
+    rounding: added to the weights of the other links at its end beyond it, it leaves their sum
+    unchanged, so the network beyond it, which reaches a fixed or held head only through it, has
+    none in the Newton step". With none found, ``SINGULAR`` alone."""
     if not found:
         return SINGULAR
     terms = []
@@ -473,24 +529,27 @@ def singular_message(found: Sequence[LostWeight], iteration: int, *, resumed: bo
     where = start if iteration == 0 else f"the flows after iteration {iteration}"
     # Newton's count restarts with each inner solve: past its first step, say which solve it is.
     of = f" of a solve started from {start}" if resumed and iteration > 0 else ""
+    # "A fixed or held head": every head the step holds fixed (``lost_weights``), a reservoir's
+    # or reference node's, an active PRV's or PSV's held head, or a floating section's held
+    # level, where no reservoir or reference node is reached.
     if len(terms) == 1:
         lost = (
             "is lost in rounding: added to the weights of the other links at its end beyond it, "
-            "it leaves their sum unchanged, so the network beyond it, which reaches a reservoir "
-            "or reference node only through it"
+            "it leaves their sum unchanged, so the network beyond it, which reaches a fixed or "
+            "held head only through it"
         )
         weights = "weight"
     else:
         lost = (
             "are lost in rounding: added to the weights of the other links at their ends beyond "
             "them, each leaves that sum unchanged, so the network beyond them, which reaches a "
-            "reservoir or reference node only through them"
+            "fixed or held head only through them"
         )
         weights = "weights"
     return (
         f"{SINGULAR}: in Newton iteration {iteration + 1}{of}, at {where}, the {weights} "
         f"1/(dh/dQ) of "
-        f"{_listed(terms)} {lost}, has no fixed head in the Newton step"
+        f"{_listed(terms)} {lost}, has none in the Newton step"
     )
 
 
@@ -578,9 +637,9 @@ class GgaResult:
 
     lost_weights: list[LostWeight] = field(default_factory=list)
     """Where the Newton step's Schur matrix was singular (``SINGULAR``): the links whose weight
-    1/(dh/dQ) was lost in rounding and that alone join a part of the free nodes to the fixed
-    heads (``lost_weights``), in link order, each element once; [] otherwise, and where none was
-    found."""
+    1/(dh/dQ) was lost in rounding and that lead from a part of the free nodes towards the
+    fixed heads (``lost_weights``), in link order, each element once; [] otherwise, and where
+    none was found."""
 
     check_heads: FloatArray | None = None
     """EGL per node at the last finite iterate within CHECK_ITERATIONS (None if none)."""

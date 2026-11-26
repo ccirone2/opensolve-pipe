@@ -36,11 +36,13 @@ import {
 	groupReadout,
 	groupSummary,
 	groupSystemRows,
+	riseOnVertical,
 	systemDutyCheckState,
 	type GroupMemberInput
 } from './pump-group-chart';
+import { pointRay } from './system-curve-line';
 import { systemPointNote } from './system-curve-text';
-import { formatNumber, fromSI } from './units';
+import { formatNumber, fromSI, IMPERIAL_UNITS } from './units';
 import {
 	baseBeforeC2,
 	condenserCase,
@@ -786,6 +788,117 @@ describe('the group system curve’s vertical part at the FCVs’ limit (open-de
 		expect(systemDutyCheckState(systemOf(named('parallel-ideal')))).toBe(
 			'the group system curve passes through it'
 		);
+	});
+
+	// The review of open defects round two, WC-2: since C2 an API whose check does not agree on the
+	// vertical part (its head null) has found the duty's rise off it, on the wrong side of the foot
+	// by more than 0.5 % or 0.01 m (pump_groups._on_vertical); the card says that, never that the
+	// curve has no rise there or that whether it passes is not known. The Base case's recorded
+	// curve with the duty's rise moved to 20 m, below its foot (24.63 m), and the check C2 gives it
+	// (its message in _on_vertical's words for these values; the card shows it under Details only).
+	it('says a duty off the vertical part is off it, as the API decides (C2), never “not known” (WC-2)', () => {
+		const wrong = structuredClone(condenserCase('base').systemCurve!);
+		const at = dutyPoint(wrong);
+		wrong.duty!.head = 20;
+		wrong.systemDutyCheck = {
+			agrees: false,
+			head: null,
+			message: `the rest of the network with the station's flow 5.67812 m³/s forced from S to D leaves the rise undetermined at this flow (${at.message}): any rise at or above 24.6265 m holds there, but the solve's rise 20 m is below it by more than 0.5 % or 0.01 m: the duty does not lie on the group system curve's vertical part`
+		};
+		const { data, notes } = condenserCard('base', wrong);
+		expect(notes.systemDuty).toEqual([
+			"The group system curve does not pass through the Group point: at the duty's flow it is vertical, any rise at or above 24.63 m holding, and the solve's rise, 20 m, is not one of them (more than 0.5 % or 0.01 m off)."
+		]);
+		expect(systemDutyCheckState(wrong)).toBe(
+			'the group system curve does not pass through it, the duty’s rise off its vertical part'
+		);
+		for (const line of [...groupNoteLines(notes), systemDutyCheckState(wrong)]) {
+			expect(line).not.toMatch(
+				/not known|has no rise at the duty|on its vertical part|crosses the group curve/
+			);
+		}
+		expect(data.station).toMatchObject({ onSystem: false, crossing: false });
+		// In US units, the tolerance's floor in feet.
+		const project = condenserCaseProject('base');
+		const members = condenserMembers('base');
+		const group = condenserCase('base').groupCurve!;
+		const prefs = IMPERIAL_UNITS;
+		const us = groupNotes({
+			data: groupChartData(members, prefs, group, wrong),
+			members,
+			state: { status: 'ready', response: group },
+			system: { status: 'ready', response: wrong },
+			project,
+			prefs
+		});
+		expect(us.systemDuty).toEqual([
+			`The group system curve does not pass through the Group point: at the duty's flow it is vertical, any rise at or above ${f4(fromSI(at.openHead!, 'ft'))} ft holding, and the solve's rise, ${f4(fromSI(20, 'ft'))} ft, is not one of them (more than 0.5 % or ${f4(fromSI(0.01, 'ft'))} ft off).`
+		]);
+		// The duty's rise on the ray's side with agrees false: an API before C2 (baseBeforeC2, the
+		// test above), its words kept.
+		expect(riseOnVertical(baseBeforeC2().duty!.head, pointRay(dutyPoint(baseBeforeC2()))!)).toBe(
+			true
+		);
+		expect(riseOnVertical(20, pointRay(at)!)).toBe(false);
+	});
+
+	// The same verdicts on an 'upper' ray, the side every recorded response leaves untried (the
+	// skeptic of the review of open defects round two): any rise at or below the foot holds there
+	// (pump_groups._on_vertical: rise ≤ openHead + max(0.005·|rise|, 0.01 m)), so a rise above it by
+	// more than that is off the vertical part, C2's verdict; one below it with agrees false is an
+	// API's before C2, its words kept. The Base case's recorded curve with its duty point's bound
+	// made 'upper' and its reason bare (made up: no response recorded for the web's tests has an
+	// upper ray), each check in its API's words for these values (shown under Details only).
+	it('says so on an upper ray too: a rise above it off the vertical part, one below it the pre-C2 words (WC-2)', () => {
+		const reason = 'the rise is undetermined at this flow';
+		const forced =
+			"the rest of the network with the station's flow 5.67812 m³/s forced from S to D";
+		const upper = (rise: number, message: string) => {
+			const s = structuredClone(condenserCase('base').systemCurve!);
+			const at = dutyPoint(s);
+			at.openHeadBound = 'upper';
+			at.componentIds = [];
+			at.message = reason;
+			s.duty!.head = rise;
+			s.systemDutyCheck = { agrees: false, head: null, message };
+			return s;
+		};
+		const above = upper(
+			30,
+			`${forced} leaves the rise undetermined at this flow (${reason}): any rise at or below 24.6265 m holds there, but the solve's rise 30 m is above it by more than 0.5 % or 0.01 m: the duty does not lie on the group system curve's vertical part`
+		);
+		expect(pointRay(dutyPoint(above))).toEqual({
+			from: dutyPoint(condenserCase('base').systemCurve!).openHead,
+			bound: 'upper'
+		});
+		expect(riseOnVertical(30, pointRay(dutyPoint(above))!)).toBe(false);
+		const off = condenserCard('base', above);
+		expect(off.notes.systemDuty).toEqual([
+			"The group system curve does not pass through the Group point: at the duty's flow it is vertical, any rise at or below 24.63 m holding, and the solve's rise, 30 m, is not one of them (more than 0.5 % or 0.01 m off)."
+		]);
+		expect(systemDutyCheckState(above)).toBe(
+			'the group system curve does not pass through it, the duty’s rise off its vertical part'
+		);
+		for (const line of [...groupNoteLines(off.notes), systemDutyCheckState(above)]) {
+			expect(line).not.toMatch(
+				/not known|has no rise at the duty|on its vertical part|crosses the group curve/
+			);
+		}
+		expect(off.data.station).toMatchObject({ onSystem: false, crossing: false });
+		// Below the foot, on the ray's side: C2 agrees there, so agrees false is an API's before C2.
+		const below = upper(
+			20,
+			`${forced} has no rise (${reason}), so the group system curve is not shown to pass through the duty`
+		);
+		expect(riseOnVertical(20, pointRay(dutyPoint(below))!)).toBe(true);
+		const kept = condenserCard('base', below);
+		expect(kept.notes.systemDuty).toEqual([
+			"The group system curve has no rise at the duty's flow, so whether it passes through the Group point is not known: the rise is undetermined at this flow. The curve is drawn vertical at that flow, from 24.63 m down, the rises that hold there; the duty's rise is 20 m."
+		]);
+		expect(systemDutyCheckState(below)).toBe(
+			'not known, the group system curve has no rise at the duty’s flow'
+		);
+		expect(kept.data.station).toMatchObject({ onSystem: false, crossing: false });
 	});
 
 	it('lists the duty point’s rise in the data table as the range that holds', () => {

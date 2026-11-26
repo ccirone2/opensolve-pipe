@@ -1234,8 +1234,11 @@ def _unrepresentable_boundaries(project: Project, fluid: FluidProperties) -> lis
     head at the first iterate, so every inner solve of such a project stopped as diverged, naming
     nothing (method 1.6.1); the boundary is refused wherever it is, as the other inputs the
     floating point cannot represent are, even closed off behind a closed valve (its connection
-    still lies in its own grounded part). An active PRV's or PSV's setpoint head is not refused:
-    the status rules leave the active state, and such a case converges."""
+    still lies in its own grounded part). An active PRV's or PSV's setpoint head is not refused.
+    Where the steady state has that valve open or closed, the status rules leave the active
+    state and the case converges; where the network needs it active, the solve ends not
+    converged with the closed state's message, naming no overflow (proposal open-defects-2.md
+    §7)."""
     rho_g = fluid.density * G
     issues: list[TopologyIssue] = []
     for comp in project.components:

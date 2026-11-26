@@ -871,8 +871,10 @@ interface SystemCurvePoint {
   componentIds: string[];          // the pumps and valves the message names, in its order (not_converged:
                                    // /solve's oscillatingComponents, maybe none; the message can name more)
   assignedFlowNodeIds: string[];   // beyond_limit, below_floor: the assigned-flow nodes counted, in id order
-  limitFlow: number | null;        // m³/s. beyond_limit: the most the pump can pass (negative: it would
-                                   // have to pass −limitFlow in reverse); below_floor: the least it must pass
+  limitFlow: number | null;        // m³/s. beyond_limit: the flow limit, above which no steady state carries
+                                   // the forced flow, the pump passing at most this across the cut named
+                                   // (negative: it would have to pass −limitFlow in reverse); below_floor:
+                                   // the floor, below which none does, the pump passing at least this
   passedFlow: number | null;       // m³/s. beyond_limit, below_floor: what componentIds pass that way together
   openHead: number | null;         // m. valve_at_switch: the head across the pump with the valve fully open
   openHeadBound: 'lower' | 'upper' | null;  // valve_at_switch: any head at or above ('lower') or at or below it

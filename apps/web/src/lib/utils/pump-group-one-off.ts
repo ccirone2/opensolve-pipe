@@ -57,10 +57,10 @@ import {
 	andList,
 	DUTY_CHECK_FLOOR,
 	dutyFlow,
+	riseOnVertical,
 	runningWords,
 	slotStyle,
 	stationPortWords,
-	SYSTEM_DUTY_CHECK_FLOOR,
 	type GroupSlot
 } from './pump-group-chart';
 import { caseNamed, caseTagOf, inCaseOrder, type CaseNumber } from './pump-chart';
@@ -281,8 +281,9 @@ export const DUTY_CLAIM_WORDS: Readonly<Record<DutyClaim, string>> = {
  * shown case's own system duty check agrees and 'vertical' where it does not; otherwise no
  * computed flow of the curve lies at or below it, or at or above it; the nearest of those on
  * either side has no rise; the shown case's own system duty check does not agree; else on. A rise
- * within D6's allowance of the vertical's foot (0.5 % or 0.01 m, the system duty check's) is on
- * its side, as C2 decides the shown case's own duty (open-defects-2.md §3).
+ * short of the vertical's foot by no more than D6's allowance (0.5 % of the rise or 0.01 m, the
+ * system duty check's) is on its side, as C2 decides the shown case's own duty (open-defects-2.md
+ * §3; riseOnVertical, the allowance the rise's since the review of open defects round two, WC-3).
  */
 export function dutyClaim(input: {
 	shared: boolean;
@@ -298,10 +299,7 @@ export function dutyClaim(input: {
 	const vertical = points.find((p) => Math.abs(p.flow - q) <= DUTY_CHECK_FLOOR && pointRay(p));
 	const ray = vertical ? pointRay(vertical) : null;
 	if (ray) {
-		const allowance = Math.max(0.005 * Math.abs(ray.from), SYSTEM_DUTY_CHECK_FLOOR);
-		const onSide =
-			ray.bound === 'lower' ? duty.head >= ray.from - allowance : duty.head <= ray.from + allowance;
-		if (!onSide) return 'off_vertical';
+		if (!riseOnVertical(duty.head, ray)) return 'off_vertical';
 		return system.systemDutyCheck?.agrees ? 'on' : 'vertical';
 	}
 	const below = points.filter((p) => p.flow <= q).at(-1);

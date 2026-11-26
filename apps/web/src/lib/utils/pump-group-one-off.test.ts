@@ -2299,6 +2299,63 @@ describe('a ring on the group system curve’s vertical part (open-defects-2.md 
 		).toBe('gap');
 	});
 
+	// The review of open defects round two, WC-3: the allowance is 0.5 % of the ring's rise, as C2
+	// takes it for the duty's (pump_groups._on_vertical: max(DUTY_RTOL·|rise|, DUTY_HEAD_FLOOR),
+	// 0.005 and 0.01 m), not of the foot. Above 2 m of rise the 0.5 % is the looser, so on a
+	// 'lower' ray the least rise on the vertical part solves rise = openHead − 0.005·rise:
+	// rise = openHead/1.005, 24.50397 m from the Base case's foot, 24.62649 m. On d101793, 0.5 % of
+	// the foot put it at 0.995·openHead, 24.50336 m, so 24.5035 m was 'on'.
+	it('takes the allowance from the rise, as C2 does: the least rise on a vertical part is openHead/1.005 (WC-3)', () => {
+		const foot = system.systemPoints.find((p) => p.isDuty)!.openHead!;
+		expect(foot).toBeCloseTo(24.62649, 5);
+		const least = foot / 1.005;
+		expect(least).toBeCloseTo(24.50397, 5);
+		const claim = (head: number) => dutyClaim({ shared, duty: { flow: duty.flow, head }, system });
+		expect(claim(least * (1 + 1e-9))).toBe('on');
+		expect(claim(least * (1 - 1e-9))).toBe('off_vertical');
+		// The review's two rises, either side of it.
+		expect(claim(24.504)).toBe('on');
+		expect(claim(24.5035)).toBe('off_vertical');
+		// Below 2 m of rise the 0.01 m floor is the looser: the least rise is openHead − 0.01 m (a
+		// foot of 1 m, made up).
+		const low = structuredClone(system);
+		low.systemPoints.find((p) => p.isDuty)!.openHead = 1;
+		const lowClaim = (head: number) =>
+			dutyClaim({ shared, duty: { flow: duty.flow, head }, system: low });
+		expect(lowClaim(0.99 + 1e-9)).toBe('on');
+		expect(lowClaim(0.99 - 1e-9)).toBe('off_vertical');
+	});
+
+	// The same rule on an 'upper' ray (pump_groups._on_vertical: rise ≤ openHead + max(0.005·|rise|,
+	// 0.01 m)), the side every recorded response leaves untried (the skeptic of the review of open
+	// defects round two). Above 2 m of rise the most rise on the vertical part solves
+	// rise = openHead + 0.005·rise: rise = openHead/0.995, 10.0502513 m from a foot of 10 m; 0.5 %
+	// of the foot (d101793) put it at 1.005·openHead, 10.05 m, so 10.0501 m was 'off_vertical'.
+	// Below 2 m the 0.01 m floor is the looser: openHead + 0.01 m, 1.01 m from a foot of 1 m. The
+	// feet and their bound are made up, at the Base case's duty point (its own check agrees).
+	it('takes the allowance from the rise on an upper ray too: the most rise on it is openHead/0.995 (WC-3)', () => {
+		const upper = (openHead: number) => {
+			const s = structuredClone(system);
+			const at = s.systemPoints.find((p) => p.isDuty)!;
+			at.openHead = openHead;
+			at.openHeadBound = 'upper';
+			return (head: number) => dutyClaim({ shared, duty: { flow: duty.flow, head }, system: s });
+		};
+		const most = 10 / 0.995;
+		expect(most).toBeCloseTo(10.0502513, 7);
+		const high = upper(10);
+		expect(high(most * (1 - 1e-9))).toBe('on');
+		expect(high(most * (1 + 1e-9))).toBe('off_vertical');
+		expect(high(10.0501)).toBe('on');
+		expect(high(20)).toBe('off_vertical');
+		// Below the foot is the ray's side, however far: on.
+		expect(high(9)).toBe('on');
+		expect(high(0.5)).toBe('on');
+		const low = upper(1);
+		expect(low(1.01 - 1e-9)).toBe('on');
+		expect(low(1.01 + 1e-9)).toBe('off_vertical');
+	});
+
 	it('words the ring so on the Base case’s chart', () => {
 		const tags = caseTags(project);
 		const ringOn = (systemShown: typeof system) =>

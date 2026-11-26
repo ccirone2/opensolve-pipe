@@ -37,6 +37,7 @@ from opensolve_pipe.services.solver import solve_project
 from opensolve_pipe.services.solver.builder import build_network
 from opensolve_pipe.services.solver.gga import solve_gga
 from opensolve_pipe.services.solver.network import NORMAL
+from opensolve_pipe.services.solver.status import initial_controls, link_states
 
 from .helpers import (
     assigned_flow,
@@ -57,6 +58,19 @@ Q0 = foot * AREA
 C_STAR = 2.0**56 / Q0
 """s²/m⁵: the first step's threshold (module docstring)."""
 NUM = r"(-?\d+(?:\.\d+)?(?:e[+-]\d+)?)"
+ONE = (
+    "is lost in rounding: added to the weights of the other links at its end beyond it, it "
+    "leaves their sum unchanged, so the network beyond it, which reaches a fixed or held head "
+    "only through it, has none in the Newton step"
+)
+"""The words after one named link: true of every head the Newton step holds fixed (a
+reservoir's or reference node's, an active PRV's or PSV's held head, a floating section's held
+level; review of open defects round two, AS-2)."""
+MANY = (
+    "are lost in rounding: added to the weights of the other links at their ends beyond them, "
+    "each leaves that sum unchanged, so the network beyond them, which reaches a fixed or held "
+    "head only through them, has none in the Newton step"
+)
 
 
 def pipe_weight(q: float, length: float = LENGTH, d: float = D) -> float:
@@ -107,6 +121,77 @@ def bridge(cv: float, end: str = "af") -> Project:
         [
             connection("L1", ("R1", "port_1"), ("V1", "inlet"), pipes=pipes()),
             connection("L2", ("V1", "outlet"), ("AF1", "port_1"), pipes=pipes()),
+        ],
+        fluid=custom_fluid(RHO, MU),
+    )
+    return Project.model_validate(data)
+
+
+def series(cv1: float, cv2: float) -> Project:
+    """R1 (10 m) -> L1 -> V1 -> L2 -> V2 -> L3 -> AF1 (0.01 m³/s out)."""
+    data = project_dict(
+        [
+            reservoir("R1", level=10.0),
+            valve("V1", cv1),
+            valve("V2", cv2),
+            assigned_flow("AF1", 0.01),
+        ],
+        [
+            connection("L1", ("R1", "port_1"), ("V1", "inlet"), pipes=pipes()),
+            connection("L2", ("V1", "outlet"), ("V2", "inlet"), pipes=pipes()),
+            connection("L3", ("V2", "outlet"), ("AF1", "port_1"), pipes=pipes()),
+        ],
+        fluid=custom_fluid(RHO, MU),
+    )
+    return Project.model_validate(data)
+
+
+def plugged_branch(cv: float) -> Project:
+    """R1 (10 m) -> L1 -> V1 -> L2 -> ideal tee T1, whose run feeds AF1 (0.01 m³/s out) through
+    L3 and whose branch runs through L4, V2 and L5 to a plug PL (the skeptic's network in the
+    review of the AS-3 fix); both valves at ``cv``."""
+    data = project_dict(
+        [
+            reservoir("R1", level=10.0),
+            valve("V1", cv),
+            tee("T1"),
+            assigned_flow("AF1", 0.01),
+            valve("V2", cv),
+            plug("PL"),
+        ],
+        [
+            connection("L1", ("R1", "port_1"), ("V1", "inlet"), pipes=pipes()),
+            connection("L2", ("V1", "outlet"), ("T1", "run_inlet"), pipes=pipes()),
+            connection("L3", ("T1", "run_outlet"), ("AF1", "port_1"), pipes=pipes()),
+            connection("L4", ("T1", "branch"), ("V2", "inlet"), pipes=pipes()),
+            connection("L5", ("V2", "outlet"), ("PL", "port_1"), pipes=pipes()),
+        ],
+        fluid=custom_fluid(RHO, MU),
+    )
+    return Project.model_validate(data)
+
+
+def floating_section(cv: float) -> Project:
+    """R1 (20 m) -> P0 -> V1 (isolated) -> P1 -> V9 -> P5 -> ideal tee T1, whose run feeds D1
+    (0.01 m³/s out) through P2 and whose branch S1 feeds (0.01 m³/s in) through P3: behind the
+    isolated V1 the rest is a floating section, its assigned flows balanced (review of open
+    defects round two, AS-2)."""
+    isolated = {**valve("V1", 1.0), "status": "isolated"}
+    data = project_dict(
+        [
+            reservoir("R1", level=20.0),
+            isolated,
+            valve("V9", cv),
+            tee("T1"),
+            assigned_flow("D1", 0.01),
+            assigned_flow("S1", -0.01),
+        ],
+        [
+            connection("P0", ("R1", "port_1"), ("V1", "inlet"), pipes=pipes()),
+            connection("P1", ("V1", "outlet"), ("V9", "inlet"), pipes=pipes()),
+            connection("P5", ("V9", "outlet"), ("T1", "run_inlet"), pipes=pipes()),
+            connection("P2", ("T1", "run_outlet"), ("D1", "port_1"), pipes=pipes()),
+            connection("P3", ("T1", "branch"), ("S1", "port_1"), pipes=pipes()),
         ],
         fluid=custom_fluid(RHO, MU),
     )
@@ -235,6 +320,38 @@ def test_the_flag_names_the_lost_weight_with_its_values() -> None:
     assert flag.message == f"the solve did not converge: {state.convergence.message}"
 
 
+def test_a_weight_lost_beside_a_floating_sections_held_level_is_named_in_true_words() -> None:
+    """Behind the isolated V1 no reservoir or reference node reaches the rest: the solve holds
+    the first node of that floating section, V1:outlet, at an arbitrary level
+    (``gga.FLOATING_REFERENCE_HEAD``), a head its Newton step holds fixed. V9 (Cv 1e-6) alone
+    joins the rest of the section to it, and its weight is lost at V9:outlet in Newton iteration
+    6 (measured; the review's network). The message names V9 in words true of that held level
+    (HEAD: "which reaches a reservoir or reference node only through it", where none is
+    reached), and the plain bridge beyond R1 names V1 in the same words."""
+    project = floating_section(1.0e-6)
+    built = build_network(project, fluid_properties(project.fluid))
+    states = link_states(built, initial_controls(built))
+    inner = solve_gga(built.network, states, tolerance=1.0e-9, max_iterations=100)
+    [section] = inner.floating_sections
+    assert section[0] == built.network.node_index["V1:outlet"]
+    assert [item.element_id for item in inner.lost_weights] == ["V9"]
+    state = solve_project(project)
+    flag = not_converged(state)
+    message = state.convergence.message
+    assert flag.details["singularStepAt"] == "V9"
+    assert [t[0] for t in named_terms(message)] == ["V9"]
+    assert message.startswith(
+        f"{SINGULAR}: in Newton iteration 6, at the flows after iteration 5, the weight "
+        "1/(dh/dQ) of 'V9' "
+    ), message
+    assert message.endswith(ONE), message
+    assert "reaches a reservoir or reference node" not in message
+    plain = solve_project(bridge(1.0e-6))
+    assert not_converged(plain).details["singularStepAt"] == "V1"
+    assert [t[0] for t in named_terms(plain.convergence.message)] == ["V1"]
+    assert plain.convergence.message.endswith(ONE), plain.convergence.message
+
+
 # --------------------------------------------------------------------------- not the cause
 
 
@@ -295,6 +412,57 @@ def test_two_lost_weights_that_together_cut_a_part_off_are_named_in_link_order()
     assert [t[0] for t in named_terms(message)] == ["VA", "VB"]
     assert "the weights 1/(dh/dQ) of 'VA'" in message
     assert " are lost in rounding" in message
+    assert message.endswith(MANY), message
+
+
+def test_two_lost_valves_in_series_are_both_named() -> None:
+    """V1 and V2 (Cv 1e-6 each) in series between R1 and AF1, in water: in the singular step
+    each one's weight is lost at both its ends (the review measured iteration 7). The part
+    between them, {V1:outlet, V2:inlet}, reaches R1 only through V1, and the part beyond V2,
+    {V2:outlet, AF1}, only through V2 and then V1: both are named, in link order, in the plural
+    (HEAD: V1 alone, though the part beyond V2 reaches the fixed head only through V2). With V1
+    at Cv 1.0, whose weight is kept, V2 alone is named (as on HEAD)."""
+    state = solve_project(series(1.0e-6, 1.0e-6))
+    flag = not_converged(state)
+    assert flag.details["singularStepAt"] == "V1, V2"
+    message = state.convergence.message
+    assert [t[0] for t in named_terms(message)] == ["V1", "V2"]
+    assert "the weights 1/(dh/dQ) of 'V1'" in message
+    assert message.endswith(MANY), message
+    state = solve_project(series(1.0, 1.0e-6))
+    flag = not_converged(state)
+    assert flag.details["singularStepAt"] == "V2"
+    assert [t[0] for t in named_terms(state.convergence.message)] == ["V2"]
+    assert state.convergence.message.endswith(ONE), state.convergence.message
+
+
+def test_a_valve_before_a_plug_lost_at_both_its_ends_is_named_from_the_plugged_end() -> None:
+    """V1 (Cv 1e-6) from R1 into a tee that feeds AF1, and V2 (Cv 1e-6) on the tee's branch
+    before a plug (``plugged_branch``). At the starting flows each valve meets one pipe at each
+    end, every link at Q0, and its weight 1/(2 c Q0) is lost beside the pipe's (c > c*, module
+    docstring). The tee's part {V1:outlet, T1, AF1, V2:inlet} reaches R1 only through V1; the
+    plugged part {V2:outlet, PL}, a dead end beyond the tee's part, only through V2 and then V1.
+    V2 leads from the tee's part only to that dead end, but from its plugged end it is the
+    dead end's one way to R1: both are named, in link order, with the slope 2cQ0, the flow Q0
+    and the coefficient c (HEAD: V1 alone)."""
+    c = c_of(1.0e-6)
+    assert c > C_STAR
+    w_valve, w_pipe = 1.0 / (2.0 * c * Q0), pipe_weight(Q0)
+    assert w_pipe + w_valve == w_pipe
+    state = solve_project(plugged_branch(1.0e-6))
+    flag = not_converged(state)
+    assert flag.details["singularStepAt"] == "V1, V2"
+    message = state.convergence.message
+    assert message.startswith(
+        f"{SINGULAR}: in Newton iteration 1, at the starting flows, the weights 1/(dh/dQ) of 'V1' "
+    ), message
+    terms = named_terms(message)
+    assert [t[0] for t in terms] == ["V1", "V2"]
+    for _, slope, flow, coefficient in terms:
+        assert slope == pytest.approx(2.0 * c * Q0, rel=5e-3)
+        assert flow == pytest.approx(Q0, rel=5e-3)
+        assert coefficient == pytest.approx(c, rel=1e-5)
+    assert message.endswith(MANY), message
 
 
 def test_a_steep_pipe_is_named_with_its_laminar_slope_and_no_coefficient() -> None:
@@ -357,6 +525,70 @@ def test_a_lost_weight_beside_a_grounded_end_is_not_named() -> None:
     assert (1.0 + w) == 1.0
     assert (w + w) != w
     assert lost_weights(np.array([1.0, w, w]), sc, ec, 3) == []
+
+
+def test_two_lost_bridges_in_series_are_both_named_by_lost_weights() -> None:
+    """Guard of new code (``gga.lost_weights``, AS-3): the series line's columns and weights as
+    the review measured them in its singular step (``series``, Cv 1e-6 each; positions L1, L2,
+    L3, V1, V2; d_inv to 4 digits). Each valve's weight is lost at both its ends. Weights kept at
+    both ends join columns 1 and 2 (L2), and 3 and 4 (L3); L1 grounds column 0. V1 (position 3)
+    joins {1, 2} to the grounded column 0; V2 (position 4) joins {3, 4} to {1, 2}, which reaches
+    the fixed head through V1, not back through {3, 4}: both are named (HEAD: [3])."""
+    from opensolve_pipe.services.solver.gga import lost_weights
+
+    sc = np.array([-1, 1, 3, 0, 2], dtype=np.int64)
+    ec = np.array([0, 2, 4, 1, 3], dtype=np.int64)
+    d_inv = np.array([8.438e-03, 8.402e-03, 4.598e-03, 6.645e-20, 6.625e-20])
+    for valve_pos, (at_start, at_end) in ((3, (0, 1)), (4, (2, 3))):
+        for column in (at_start, at_end):
+            others = [d_inv[p] for p in range(5) if p != valve_pos and column in (sc[p], ec[p])]
+            assert len(others) == 1
+            assert others[0] + d_inv[valve_pos] == others[0]
+    assert lost_weights(d_inv, sc, ec, 5) == [3, 4]
+
+
+def test_a_lost_link_that_leads_only_back_to_its_own_part_is_not_named() -> None:
+    """Guard of new code (``gga.lost_weights``, AS-3; passes on HEAD too). Y (position 0) runs
+    from the fixed head to column 0, a pipe of weight 1 (position 1) joins columns 0 and 1, X
+    (position 2) runs from column 1 to column 2, where it is alone, and a chord C (position 3)
+    joins columns 0 and 1 again. Y, X and C weigh 2⁻⁶⁰: lost beside the pipe at columns 0 and
+    1 (1 + 2⁻⁶⁰ + 2⁻⁶⁰ rounds to 1), X kept at column 2. {0, 1} reaches the fixed head only
+    through Y, which is named. X leads to {2}, which reaches the fixed head only back through
+    {0, 1}, so X joins nothing to a fixed head; C joins {0, 1} to itself. Neither is named."""
+    from opensolve_pipe.services.solver.gga import lost_weights
+
+    w = 2.0**-60
+    sc = np.array([-1, 0, 1, 0], dtype=np.int64)
+    ec = np.array([0, 1, 2, 1], dtype=np.int64)
+    assert math.fsum([1.0, w]) == 1.0
+    assert math.fsum([1.0, w]) + w == 1.0
+    assert lost_weights(np.array([w, 1.0, w, w]), sc, ec, 3) == [0]
+
+
+def test_a_link_lost_at_a_dead_ends_own_end_is_named_from_there() -> None:
+    """Guard of new code (``gga.lost_weights``, AS-3: each end is examined on its own). Y
+    (position 0) runs from the fixed head to column 0, a pipe (position 1) joins columns 0 and
+    1, X (position 2) runs from column 1 to column 2, and a pipe (position 3) joins columns 2
+    and 3, a dead end. Y weighs 2⁻⁶⁰ and is lost beside the pipe of weight 1 at column 0, so
+    {0, 1} reaches the fixed head only through Y, and {2, 3} only through X and then Y.
+    X at 2⁻⁶⁰ with the far pipe at 1 is lost at both its ends (1 + 2⁻⁶⁰ rounds to 1), and is
+    named from its end at column 2, as V2 before the plug is (HEAD: [0]). X at 1 with the far
+    pipe at 2⁶⁰ is kept at column 1 (1 + 1 = 2) and lost at column 2 alone (ulp(2⁶⁰) = 2⁸):
+    named from there too (HEAD: [0]). X at 2⁻⁶⁰ with the far pipe at 2⁻⁶⁰ is kept at column 2
+    (2⁻⁶⁰ + 2⁻⁶⁰ = 2⁻⁵⁹): lost only at column 1, it leads from {0, 1} only to the dead end
+    beyond it, and is not named."""
+    from opensolve_pipe.services.solver.gga import lost_weights
+
+    w, big = 2.0**-60, 2.0**60
+    sc = np.array([-1, 0, 1, 2], dtype=np.int64)
+    ec = np.array([0, 1, 2, 3], dtype=np.int64)
+    assert 1.0 + w == 1.0
+    assert w + w != w
+    assert big + 1.0 == big
+    assert 1.0 + 1.0 != 1.0
+    assert lost_weights(np.array([w, 1.0, w, 1.0]), sc, ec, 4) == [0, 2]
+    assert lost_weights(np.array([w, 1.0, 1.0, big]), sc, ec, 4) == [0, 2]
+    assert lost_weights(np.array([w, 1.0, w, w]), sc, ec, 4) == [0]
 
 
 def test_without_a_lost_weight_the_plain_message_stays() -> None:

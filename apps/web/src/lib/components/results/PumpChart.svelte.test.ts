@@ -4075,7 +4075,7 @@ describe('the system curve’s vertical part on the pump chart (open-defects-2.m
 		).toBeInTheDocument();
 		expect(
 			screen.getByText(
-				/replaced by each of 41 evenly spaced flows from 0 to 1590 L\/s, then by 946\.4 L\/s, the most the pump can pass, solved alone from the network's initial state \(/
+				/replaced by each of 41 evenly spaced flows from 0 to 1590 L\/s, then by 946\.4 L\/s, the flow limit, above which no steady state carries the flow, solved alone from the network's initial state \(/
 			)
 		).toBeInTheDocument();
 		const config = charts[0]!.config as {
@@ -4098,4 +4098,36 @@ describe('the system curve’s vertical part on the pump chart (open-defects-2.m
 		expect(flows[at + 1]).toBe('953.9');
 		expect(within(marked[0]!).getAllByRole('cell')[1]!.textContent).toBe('≥ 21.9');
 	});
+
+	// The review of open defects round two, WC-1: P1 runs at F1's setpoint only to round-off, so the
+	// reading at the duty is at the vertical part's flow within the chart's flow floor; it says the
+	// range there, on screen and in the slider's value (on d101793 Winter's said "System head 21.9 m"
+	// and single24's no system head).
+	for (const [name, flow, range, words] of [
+		['winter', '946.4', '≥ 21.9 m', 'at or above 21.9 m'],
+		['single24', '953.9', '≥ 20.72 m', 'at or above 20.72 m']
+	] as const) {
+		it(`reads the ${name} case’s system head at the duty as the range that holds there`, async () => {
+			withCanvas();
+			const c = condenserCase(name);
+			const project = condenserCaseProject(name);
+			render(PumpChart, {
+				result: c.pumpResults!.P1!,
+				name: 'Condenser water pump CWP-1',
+				prefs: project.settings.units,
+				ratedRange: ratedCurveRange(project, 'P1'),
+				names: { project },
+				system: { status: 'ready', curve: c.pumpSystemCurve! } as SystemCurveState
+			});
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			const readout = screen.getByRole('figure').querySelector('[data-pump-readout]')!;
+			const text = readout.textContent!.replace(/\s+/g, ' ');
+			expect(text).toMatch(new RegExp(`^At the duty ${flow} L/s: Pump head [\\d.]+ m, `));
+			expect(text).toContain(`System head ${range}`);
+			expect(screen.getByRole('slider', { name: 'Read at flow' })).toHaveAttribute(
+				'aria-valuetext',
+				expect.stringContaining(`System head ${words}`)
+			);
+		});
+	}
 });

@@ -71,8 +71,10 @@ export interface SystemRow {
 
 /**
  * A limit point of the system curve (open-defects-2.md §3 C3), display unit, and which limit it
- * is, as the grid's points past it say ('most': the beyond_limit points' limitFlow, the most the
- * pump can pass; 'least': the below_floor points', the least it must pass; null: neither says).
+ * is, as the grid's points past it say ('most': the beyond_limit points' limitFlow, the flow
+ * limit, above which no steady state carries the flow; 'least': the below_floor points', the
+ * floor, below which none does; null: neither says). Each is a bound from one cut, not always
+ * reached (the review of open defects round two, AC-1).
  */
 export interface SystemLimit {
 	x: number;
@@ -884,10 +886,26 @@ export function chartReadout(
 	};
 	add('pump', 'Pump head', pumpLine(d), d.headUnit);
 	add('system', 'System head', d.system, d.headUnit);
-	// At a vertical part's flow, the line's value is its foot: the bound of the heads that hold.
-	const foot = d.system?.find((p) => p.x === flow && p.bound);
-	const system = items.find((i) => i.key === 'system');
-	if (foot?.bound && system) system.bound = foot.bound;
+	// At a vertical part's flow the system head is its foot's range, the bound of the heads that
+	// hold (open-defects-2.md C1). Its flow within the chart's flow floor (ZERO_FLOW_FLOOR), not
+	// equal: a pump held by an FCV runs at the setpoint only to round-off, a hair on either side of
+	// the foot, where the line read alone gives a bare head or nothing (the review of open defects
+	// round two, WC-1).
+	const foot = d.system?.find(
+		(p) => p.bound && p.y !== null && Math.abs(p.x - flow) <= d.flowFloor
+	);
+	if (foot?.bound && foot.y !== null) {
+		const item: ReadoutItem = {
+			key: 'system',
+			label: 'System head',
+			value: foot.y,
+			unit: d.headUnit,
+			bound: foot.bound
+		};
+		const i = items.findIndex((r) => r.key === 'system');
+		if (i >= 0) items[i] = item;
+		else items.push(item);
+	}
 	if (shown.includes('efficiency'))
 		add('efficiency', 'Efficiency', d.efficiency?.curve ?? null, '%');
 	if (shown.includes('power')) add('power', 'Shaft power', d.power?.curve ?? null, d.powerUnit);
@@ -1254,10 +1272,14 @@ export function offCasesNote(
 		: null;
 }
 
-/** Which limit a limit point is (SystemLimit), as the API's limitFlow describes it. */
+/**
+ * Which limit a limit point is (SystemLimit), by what holds past it, as the API's limitFlow
+ * describes it: a bound from one cut, not always reached, so never "the most" or "the least" the
+ * pump passes (the review of open defects round two, AC-1).
+ */
 const LIMIT_WORDS = {
-	most: 'the most the pump can pass',
-	least: 'the least it must pass'
+	most: 'the flow limit, above which no steady state carries the flow',
+	least: 'the flow floor, below which no steady state carries the flow'
 } as const;
 
 /** Why a system-curve point has no head, as the API's messages say (TSD §5.6). */
@@ -1381,7 +1403,7 @@ export function chartNotes({
 			? `${n - limits.length} evenly spaced flows from ${fmt(data.systemSpan[0])} to ` +
 				`${fmt(data.systemSpan[1])} ${data.flowUnit}` +
 				(limits.length
-					? `, then by ${limits.join(' and by ')}, ${limits.length === 1 ? 'solved' : 'each solved'} alone from the network's initial state`
+					? `, then by ${limits.join(', and by ')}, ${limits.length === 1 ? 'solved' : 'each solved'} alone from the network's initial state`
 					: '')
 			: null;
 	const method = flows

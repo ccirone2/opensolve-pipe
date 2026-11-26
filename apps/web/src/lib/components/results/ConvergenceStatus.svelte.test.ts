@@ -182,8 +182,8 @@ describe('a solve whose energy balance overflowed, or whose Newton step lost a w
 			"starting flows, the weight 1/(dh/dQ) of 'V1' (a slope of 8.46e+17 s/m² at a flow of " +
 			'0.00239 m³/s; loss coefficient K/(2 g A²) = 1.76758e+20 s²/m⁵) is lost in rounding: ' +
 			'added to the weights of the other links at its end beyond it, it leaves their sum ' +
-			'unchanged, so the network beyond it, which reaches a reservoir or reference node only ' +
-			'through it, has no fixed head in the Newton step';
+			'unchanged, so the network beyond it, which reaches a fixed or held head only through ' +
+			'it, has none in the Newton step';
 		const ws = await solveWith(
 			diverged(message, {
 				maxEnergyResidualAt: 'V1',

@@ -744,16 +744,21 @@ def _held_open_switch(
     max_iterations: int,
 ) -> _Solved | None:
     """A point at the limit, or at its floor (``_at_limit``), whose FCV across the cut sits at
-    its switch, else None. Every steady state there passes each FCV of the cut at its setpoint,
-    where the rules turn an open FCV active as soon as its solved flow reaches its setpoint
-    (``fcv_status``, with no tolerance) and an active one beside the forced flow is starved:
-    from every start the FCV may end closed, though it passes the flow. So each FCV of the cut
-    is held open in turn (``status.initial_controls``), every other element following its rules
-    from the initial state: if the network then carries the flow with a determined head while
-    the FCV passes its setpoint, the FCV is at its switch, and the head is undetermined if
-    nothing fixes the pressure between it and the pump (``_switch_message``). A network that
-    carries no steady state there even so (a PRV beyond the FCV that passes nothing) keeps its
-    result."""
+    its switch, else None. Where the cut is the least, every steady state there passes each FCV
+    of the cut at its setpoint, where the rules turn an open FCV active as soon as its solved
+    flow reaches its setpoint (``fcv_status``, with no tolerance) and an active one beside the
+    forced flow is starved: from every start the FCV may end closed, though it passes the flow.
+    So each FCV of the cut is held open in turn (``status.initial_controls``), every other
+    element following its rules from the initial state: if the network then carries the flow
+    while the FCV passes its setpoint (``_fcv_at_setpoint``), with a determined head or another
+    valve at its switch (``_read``), that state is one the rules allow, and the FCV is at its
+    switch where nothing fixes the pressure between it and the pump (``_switch_message``). Where
+    the cut is not the least (``flow_limit`` takes the smaller of two cuts, an upper bound, not
+    the most any steady state carries), a held FCV can pass more than its setpoint, a state the
+    rules never reach: what is read there, another valve at its switch included, is no finding,
+    and the next FCV of the cut is tried (the review of 2026-11-26, AC-1; docs/proposals/
+    open-defects-2.md §7). A network that carries no steady state there even so (a PRV beyond
+    the FCV that passes nothing) keeps its result."""
     for control, capacity in limit.elements:
         if control.kind != "fcv" or capacity <= 0.0:
             continue
@@ -766,10 +771,10 @@ def _held_open_switch(
             forced_links=forced.links(q),
         )
         read = _read(built, forced, q, held)
-        if read.kind == "switch":
+        if read.kind not in ("head", "switch") or not _fcv_at_setpoint(built, held, control):
+            continue  # no steady state, or the held FCV open above its setpoint: none to read
+        if read.head is None:  # 'switch': another valve at its switch in a state the rules allow
             return read
-        if read.head is None or not _fcv_at_setpoint(built, held, control):
-            continue
         what = f"FCV '{control.component_id}' passes exactly its setpoint flow"
         switch = _switch_message(built, held, forced, control, what, read.head)
         if switch is not None:
@@ -1040,18 +1045,26 @@ def limit_flows(
     """The flows where a system curve's range beyond the limit, or below its floor, begins
     (``flow_limit``; docs/proposals/open-defects-2.md §3 C3), in flow order: each bound that is
     positive and finite (``_at_limit``'s), lies inside (flow_min, flow_max] and is at none of
-    ``flows`` (``_at_limit``, so no grid point already stands for it). Empty without a way
-    through."""
+    ``flows`` (``_at_limit``, so no grid point already stands for it), and lies in the window
+    between the floor and the limit: the limit only where it is not below the floor, the floor
+    only where it is not beyond the limit, each by the margin its own point is refused by
+    (``_below_floor``, ``_beyond_limit``). Where the floor lies above the limit no forced flow has
+    a steady state, and a point at either would only repeat the refusal every grid point gives
+    (the review of 2026-11-26: 29 of the corpus's 272 limit points so); a floor equal to the
+    limit, to within the margin a grid flow is matched by (``_at_limit``, so also where rounding
+    puts them an ulp apart), is one point, at the limit's flow. Empty without a way through."""
     if not has_way_through(built, element):
         return []
     limit = flow_limit(built, element)
-    found: set[float] = set()
+    found: list[float] = []
     for bound in (limit, limit.floor):
         if bound is None or not (0.0 < bound.flow < math.inf and flow_min < bound.flow <= flow_max):
             continue
-        if any(_at_limit(float(q), bound) for q in flows):
-            continue
-        found.add(bound.flow)
+        if _below_floor(bound.flow, limit) or _beyond_limit(bound.flow, limit):
+            continue  # outside the window: no steady state carries it
+        if any(_at_limit(float(q), bound) for q in [*flows, *found]):
+            continue  # a grid point, or the limit's own point, already stands for it
+        found.append(bound.flow)
     return sorted(found)
 
 
@@ -1076,8 +1089,9 @@ def system_curve(
 ) -> SystemCurve:
     """The system curve of one pump at ``num_points`` evenly spaced flows, and its limit
     points: where the range beyond the flow limit, or below its floor, begins inside the range
-    at no grid flow (``limit_flows``), one point each, solved after the grid from the network's
-    initial state (no warm start), so every grid point is what the grid alone gives (C3).
+    and the window between them, at no grid flow (``limit_flows``), one point each, solved after
+    the grid from the network's initial state (no warm start), so every grid point is what the
+    grid alone gives (C3).
 
     Raises ``PumpNotFoundError`` for an unknown pump id (checked first), then ``TopologyError``
     / ``FluidError`` as a solve would, and ``FlowRangeError`` when flow_max <= flow_min."""

@@ -40,11 +40,13 @@ from fluids.constants import g
 
 from opensolve_pipe.models.components import OrificeTaps
 from opensolve_pipe.services.solver import orifice, solve_project
+from opensolve_pipe.services.solver.coefficients import SLOPE_COEFFICIENT_MAX
 from opensolve_pipe.services.solver.orifice import (
     LOSS_TAPS,
     OrificeLaw,
     c_iso,
     c_range,
+    k_of_c,
     least_coefficient,
     least_ratio,
     loss_factor,
@@ -139,7 +141,9 @@ def _closed_form_refuses(
 def _edge(d_pipe: float, d_bore: float) -> float:
     """C*: the least C whose loss factor K/(2 g A²) is a finite double, about, from K ≈ (1 −
     β⁴)/(C² β⁴) for C β² ≪ S (``k_of_c``'s u ≈ √(1 − β⁴)/(C β²)): K at most the largest double
-    times min(1, 2 g A²), since K itself overflows first where 2 g A² > 1 (D above about 0.36 m)."""
+    times min(1, 2 g A²), since K itself overflows first where 2 g A² > 1. With A = π D²/4,
+    2 g A² = g π² D⁴/8 is 1 at D = (8/(g π²))^(1/4) = √(4/(π √(2g))), about 0.536 m (0.2032 at
+    0.36 m; ``test_the_slope_test_takes_over_the_band_from_d_about_0_451_m``)."""
     beta = d_bore / d_pipe
     area = 0.25 * math.pi * d_pipe * d_pipe
     largest_k = DBL * min(1.0, 2.0 * g * area * area)
@@ -420,6 +424,61 @@ def test_a_high_beta_plate_in_the_band_is_accepted_and_solves(
     assert refusal(d_pipe, d_bore, entered, taps, g) is None
     state = solve_project(_plate_line(d_pipe, d_bore, entered, taps, VISCOUS))
     assert state.converged, state.convergence.message
+
+
+def test_the_slope_test_takes_over_the_band_from_d_about_0_451_m() -> None:
+    """Pins the corrected statement of the review of open defects round two (AO-1); it passes on
+    HEAD, which already behaves so. A band plate is a moved C_e that 593378d's closed-form test
+    refused (K/(2 g A²) not finite at C_e·r_min) and whose loss factor is finite at its least C,
+    C_e·least r: C_e in [C*/least r, C*/r_min), C* the least C whose loss factor is finite.
+    These C are tiny (C β² ≪ S, so S + C β² rounds to √(1 − β⁴)), and K = κ/C² with κ = (1 −
+    β⁴)/β⁴ (``k_of_c``). The loss factor K/(2 g A²) is finite where K ≤ DBL·m, m = min(1,
+    2 g A²) (K itself must be finite), so C* = √(κ/(DBL·m)). The slope test refuses where K at
+    c_high = C_e·r_max is above DBL/2 (``SLOPE_COEFFICIENT_MAX``): C_e < C_s/r_max, C_s =
+    √(2κ/DBL). So band plates from its lower edge up are refused by it exactly when C*/least r <
+    C_s/r_max, that is m·(least r/r_max)² > 1/2, and the whole band where r_max/r_min < √(2m).
+
+    2 g A² = g π² D⁴/8 is 1/2 at D = (4/(g π²))^(1/4) = √(2/(π √g)), about 0.4509 m: on D 0.45 m
+    (2 g A² ≈ 0.4961 < 1/2) no band plate at any β or taps is refused by the slope test, since
+    least r ≤ r_max; on D 0.46 m (≈ 0.5417) at β 0.8, corner taps (the review's plates; least r
+    ≈ 1.0283, ``least_ratio``; r_min 1 and r_max ≈ 1.0391, ``ratio_range``), m·(least r/r_max)²
+    ≈ 0.5305 > 1/2 and r_max/r_min ≈ 1.0391 < √(2m) ≈ 1.0409, so every band plate is (measured
+    2026-11-26). Twelve C_e spread over each band:
+    all accepted on D 0.45 m, all refused by rule 'slope' on D 0.46 m, quoting c_high."""
+    beta, taps = 0.8, "corner"
+    kappa = (1.0 - beta**4) / beta**4
+    assert 0.45 < math.sqrt(2.0 / (math.pi * math.sqrt(g))) < 0.46
+    assert 0.536 < math.sqrt(4.0 / (math.pi * math.sqrt(2.0 * g))) < 0.537  # 2 g A² = 1 (_edge)
+    for d_pipe, rule in ((0.45, None), (0.46, "slope")):
+        d_bore = beta * d_pipe
+        area = 0.25 * math.pi * d_pipe * d_pipe
+        m = min(1.0, 2.0 * g * area * area)
+        assert m == pytest.approx(g * math.pi**2 * d_pipe**4 / 8.0, rel=1e-15)
+        low = re_lo(beta, d_pipe, LOSS_TAPS)
+        r_min, r_max = ratio_range(d_pipe, d_bore, taps, low)
+        least = _moved_least(d_pipe, d_bore, taps)
+        assert r_min <= least <= r_max
+        c_star, c_slope = math.sqrt(kappa / (DBL * m)), math.sqrt(2.0 * kappa / DBL)
+        takes_over = m * (least / r_max) ** 2 > 0.5
+        assert takes_over is (rule == "slope")
+        if rule == "slope":
+            assert r_max / r_min < math.sqrt(2.0 * m)  # the whole band
+        band = (c_star / least, c_star / r_min)
+        assert band[1] / band[0] - 1.0 > 0.02
+        for f in np.geomspace(1.0 + 1e-6, band[1] / band[0] * (1.0 - 1e-6), 12):
+            entered = band[0] * float(f)
+            assert k_of_c(d_pipe, d_bore, entered) == pytest.approx(kappa / entered**2, rel=1e-14)
+            assert _closed_form_refuses(d_pipe, d_bore, entered, taps)
+            assert math.isfinite(loss_factor(d_pipe, d_bore, entered * least, g))
+            assert (entered < c_slope / r_max) is (rule == "slope")
+            found = refusal(d_pipe, d_bore, entered, taps, g)
+            if rule is None:
+                assert found is None, (d_pipe, entered)
+                continue
+            assert found is not None
+            assert (found.rule, found.coefficient) == ("slope", entered * r_max)
+            assert found.loss is not None
+            assert found.loss > SLOPE_COEFFICIENT_MAX
 
 
 def test_a_moved_c_least_at_infinite_reynolds_number_is_refused_quoting_that_c() -> None:

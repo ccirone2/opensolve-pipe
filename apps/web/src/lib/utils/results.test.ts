@@ -1692,6 +1692,25 @@ describe('SI quantities in API text', () => {
 		expect(siText('Re = 2909, no units here', SI_UNITS)).toBe('Re = 2909, no units here');
 	});
 
+	it('keeps a quantity as quoted where its display value is not a finite number', () => {
+		// An energy balance the API names where a head is near the largest double (apps/api
+		// gga.balance_message, TSD §12 item 19): -1.79769e+308 m is -5.9e308 ft, which overflows.
+		const text =
+			'an EGL of -1.79769e+308 m at its start, and of 0 m at its end, with a head loss of ' +
+			'1.7534e+304 m';
+		expect(-1.79769e308 / FT).toBe(-Infinity);
+		expect(String(Number((1.7534e304 / FT).toPrecision(4)))).toBe('5.753e+304');
+		expect(siText(text, IMPERIAL_UNITS)).toBe(
+			'an EGL of -1.79769e+308 m at its start, and of 0 ft at its end, with a head loss of ' +
+				'5.753×10³⁰⁴ ft'
+		);
+		// In metres every one is finite, and shown as usual.
+		expect(siText(text, SI_UNITS)).toBe(
+			'an EGL of -1.798×10³⁰⁸ m at its start, and of 0 m at its end, with a head loss of ' +
+				'1.753×10³⁰⁴ m'
+		);
+	});
+
 	it('converts the units in a branch’s correlation text', () => {
 		const solved = pumpTransferSolved({
 			branchResults: {

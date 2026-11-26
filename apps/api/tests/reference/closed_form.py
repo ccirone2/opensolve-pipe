@@ -6,14 +6,17 @@ fluid cases (``derivations_pumps``, ``derivations_valves``, ``derivations_branch
 TSD §4.8), the round-off floor of the energy stop test (``derivations_round_off``,
 METHOD_VERSION 1.2.0), the equipment cases (``derivations_equipment``, proposal
 equipment-pressure-drop.md §7.1), the orifice-plate cases (``derivations_orifice``, proposal
-orifice-plate.md §7.1) and the pressure relief valve cases (``derivations_relief``, proposal
-pressure-relief-valve.md §7.1). Each entry is a function named like its case file."""
+orifice-plate.md §7.1), the pressure relief valve cases (``derivations_relief``, proposal
+pressure-relief-valve.md §7.1) and the finite edge of a boundary's head
+(``derivations_boundary_heads``, proposal open-defects-2.md §3 A2a). Each entry is a function
+named like its case file."""
 
 from collections.abc import Callable
 
 from tests.reference import (
     derivations,
     derivations_assigned_flow,
+    derivations_boundary_heads,
     derivations_branches,
     derivations_equipment,
     derivations_fluids,
@@ -42,6 +45,7 @@ CLOSED_FORM_CASES: tuple[Callable[[], ReferenceCase], ...] = derivations.CLOSED_
         + derivations_equipment.CASES
         + derivations_orifice.CASES
         + derivations_relief.CASES
+        + derivations_boundary_heads.CASES
     )
 )
 """The M3 generators are wrapped so that their sources cite the line fittings they use."""

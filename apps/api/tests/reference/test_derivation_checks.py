@@ -9,9 +9,10 @@
   holds (an assigned-flow node withdrawing its flow); ideal-branch ports share one EGL and only
   isolated ports lack one; expected pressures follow p = ρ g (H − z − v²/2g).
 - Second routes to the answers: the parallel split by nested brentq (the case uses fsolve), a
-  whole-network fsolve of every case from a perturbed start, NPSH available from the absolute
-  suction pressure, the PRV/PSV static setpoint at its port, the dead tee branch read as
-  converging, and the pump curve's end-slope extension.
+  whole-network fsolve of every case from a perturbed start (but the one at heads of DBL_MAX,
+  where fsolve's difference step overflows: its state is checked exactly), NPSH available from
+  the absolute suction pressure, the PRV/PSV static setpoint at its port, the dead tee branch
+  read as converging, and the pump curve's end-slope extension.
 - Sources: the Cv/Kv definitions against fluids' converters and Crane's 891 d⁴/Cv²; the reference
   water density against fluids' documented value; the Crane tee functions against their
   docstring examples (Crane TP-410 Examples 7-35, 7-36).
@@ -346,8 +347,51 @@ def test_parallel_split_by_nested_brentq() -> None:
     assert q - qa == pytest.approx(flows["LB"], rel=1.0e-10)
 
 
+def _fsolve_can_step(path: Path) -> bool:
+    """Whether fsolve's forward-difference Jacobian can step every head of the case: MINPACK's
+    fdjac1 moves a variable x to x + √ε·|x| (ε = 2⁻⁵², fsolve's default epsfcn), which is inf
+    from |x| > DBL_MAX/(1 + √ε) ≈ 1.797693108·10³⁰⁸ m. At such heads fsolve reports convergence
+    at its start (measured on boundary_head_at_largest_double: ier 1, so no error, and Q_L1
+    returned at its start, 10⁻⁴ m³/s, against the closed form's 0), so that case's state is
+    checked exactly instead (``test_dead_end_at_the_largest_double_closes_exactly``)."""
+    root_eps = math.sqrt(2.0**-52)
+    return all(
+        math.isfinite(abs(h + 0.3) + root_eps * abs(h + 0.3))
+        for h in read_case(path)["expected"]["egl"].values()
+    )
+
+
+def test_only_the_largest_double_case_is_out_of_fsolve_reach() -> None:
+    """The fsolve route below leaves out exactly the cases its step cannot take, and that is
+    only the finite-edge case of a boundary head (proposal open-defects-2.md §3 A2a)."""
+    assert {p.stem for p in CASES if not _fsolve_can_step(p)} == {"boundary_head_at_largest_double"}
+
+
+def test_dead_end_at_the_largest_double_closes_exactly() -> None:
+    """boundary_head_at_largest_double in place of the fsolve route: the plug is the end of its
+    one connection, so continuity there fixes Q_L1 = 0 whatever the heads, and L1's energy
+    equation at Q = 0 (h(0) = 0) fixes H_P1 = H_R1; the expected state satisfies both exactly
+    in binary64, every head is DBL_MAX, and H_R1 is the specs' z + level + p_s/(ρg)."""
+    from tests.reference import derivations_boundary_heads as db
+
+    case, project = _load(case_path("boundary_head_at_largest_double"))
+    expected = case["expected"]
+    assert [c.id for c in project.connections] == ["L1"]
+    assert {c.type for c in project.components} == {"reservoir", "plug"}
+    assert nc.net_inflow(project, expected["flows"]) == {"P1": 0.0}
+    assert expected["flows"] == {"L1": 0.0}
+    residuals = nc.energy_residuals(
+        project, expected["flows"], expected["egl"], nc.our_model(project)
+    )
+    assert residuals == {"L1": 0.0}
+    assert nc.fixed_heads(project) == {"R1:port_1": db.DBL_MAX}
+    assert set(expected["egl"].values()) == {db.DBL_MAX}
+
+
 @pytest.mark.parametrize(
-    "path", [p for p in CASES if not p.stem.startswith("epanet")], ids=lambda p: p.stem
+    "path",
+    [p for p in CASES if not p.stem.startswith("epanet") and _fsolve_can_step(p)],
+    ids=lambda p: p.stem,
 )
 def test_network_solve_reproduces_closed_form_case(path: Path) -> None:
     case, project = _load(path)

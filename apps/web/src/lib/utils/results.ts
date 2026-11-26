@@ -503,7 +503,9 @@ const SI_CATEGORY: Readonly<Record<string, UnitCategory>> = {
  * Text from the API with SI quantities ("0.0475 m³/s", "-52340.5 Pa", "0.1023 m") shown in the
  * display units. The unit symbol decides the conversion; a length shortly after "D_" or
  * "diameter" is shown in the diameter unit (both are lengths, so the number is right either
- * way). A pressure keeps the gauge or absolute wording of the text: no marker is added.
+ * way). A pressure keeps the gauge or absolute wording of the text: no marker is added. A
+ * quantity whose value in the display unit is not a finite number (a head near the largest
+ * double, -1.79769e+308 m, is -5.9e308 ft) is kept as the text quotes it, never shown as "—".
  */
 export function siText(text: string, prefs: UnitPreferences): string {
 	const f = new Formatter(prefs);
@@ -513,6 +515,7 @@ export function siText(text: string, prefs: UnitPreferences): string {
 		if (!category || !Number.isFinite(si)) return whole;
 		const before = text.slice(Math.max(0, offset - 40), offset);
 		if (category === 'length' && /D_\w|diameter/i.test(before)) category = 'diameter';
+		if (!Number.isFinite(fromSI(si, displayUnit(category, prefs)))) return whole;
 		return f.value(si, category);
 	});
 }

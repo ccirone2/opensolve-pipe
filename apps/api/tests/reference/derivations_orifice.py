@@ -38,8 +38,14 @@ Swamee–Jain form for the networks the EPANET cases share (``generate_epanet_ca
 is the suite's 998 kg/m³ at 1 mPa·s; "EPANET water" 1000 kg/m³ at EPANET's ν.
 """
 
+import decimal
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
+from decimal import Decimal
+from functools import cache, cached_property
+from itertools import pairwise
+from typing import Literal
 
 from scipy.optimize import brentq
 
@@ -1334,3 +1340,534 @@ def with_taps(series: Series, taps: OrificeTaps | None) -> Series:
     """The same series with the plate's taps changed (a meter's taps change no solved value on
     ISO's C, decision 5)."""
     return replace(series, element=series.element.model_copy(update={"taps": taps}))
+
+
+# --- C15-C18: rule (d)'s first test at the least C the law takes (open-defects-2.md §3 A1) -----
+#
+# Written for open-defects-2.md §3 A1 from D20, TSD §4.10, the models and the source of fluids
+# 1.3.1's ``C_Reader_Harris_Gallagher`` (the cited law), by a writer who did not read
+# ``opensolve_pipe.services``. The rule: rule (d)'s first test refuses a plate exactly when
+# K/(2gA²), K = (S/(Cβ²) − 1)², S = √(1 − β⁴(1 − C²)), A = πD²/4, is not a finite positive double
+# at the least C_L the plate's law takes at any flow (D20's law):
+#
+#     an entered C without taps (or at D and D/2 taps):  C_e
+#     an entered C at corner or flange taps (moved):    C_e · min r(Re) over Re ∈ [Re_lo, ∞),
+#                                                       r = C_ISO(D and D/2)/C_ISO(taps)
+#     ISO's C:                                          C_ISO(D and D/2) at Re → ∞
+#
+# with Re_lo = max(5000, 16000β²), the loss's lowest Reynolds number (D20: C_L is held below it,
+# so Re_eff = max(Re_D, Re_lo) ranges over [Re_lo, ∞) as the flow does); a refusal quotes that
+# least C to 6 significant digits. K(C)/(2gA²) falls as C rises, so the edge is one C, C*, where
+# it equals the largest double, and a plate is refused exactly when its least C is below C*.
+#
+# These plates carry K/(2gA²) near the largest double, so every flow a head of metres drives is
+# about 10⁻¹⁵⁴ m³/s, which the solver reports as 0: no D6 case can be built on them (the suite's
+# own-state check compares the head loss with K v|v|/2g at the reported flow, 10 m against 0),
+# and the suite has no refusal format. ``test_orifice_refusal_bounds`` posts them instead.
+
+EXACT = decimal.Context(prec=60, Emin=-999_999, Emax=999_999)
+"""60-digit decimal arithmetic (Python's ``decimal``, whose +, −, ×, ÷, √, exp and ln are correctly
+rounded): the edges sit at the largest double and differ from it by 10⁻⁷ to 10⁻⁶ relative, so
+they are derived without floating point. mpmath is not a dependency of the API; the numbers were
+cross-checked against a separate 60-digit mpmath transcription when written (A1's build record)."""
+LARGEST_DOUBLE = Decimal(sys.float_info.max)
+"""(2 − 2⁻⁵²)·2¹⁰²³, exactly (IEEE 754 binary64)."""
+EDGE_MARGIN = Decimal("1e-6")
+"""Relative distance of a plate's C_e from its edge: far beyond the rounding of eq. (4) and of
+K/(2gA²) in the solver's doubles (a few 10⁻¹⁶), so rounding cannot decide a case."""
+INTERIOR_MARGIN = Decimal("1e-7")
+"""The interior window of C17 is only about 3×10⁻⁷ wide, so its middle plate stands about
+1.5×10⁻⁷ from both edges; this is the least distance that case asserts (still 10⁸ times the
+rounding)."""
+INCH = Decimal("0.0254")
+"""m: the inch of eq. (4)'s flange-tap distance and small-pipe term (fluids: 0.0254/D, D/0.0254)."""
+ReynoldsPowers = tuple[Decimal, Decimal, Decimal]
+"""(Re^−0.7, Re^−0.3, Re^−0.8) at one Re, every one 0 at Re → ∞."""
+
+
+def _exp_power(x: Decimal, y: str) -> Decimal:
+    """x^y = exp(y ln x) for x ≥ 0 (0^y = 0 for y > 0), in the current context."""
+    return Decimal(0) if x == 0 else (Decimal(y) * x.ln()).exp()
+
+
+def _atan_inverse(n: int) -> Decimal:
+    """arctan(1/n) = Σ (−1)^k n^−(2k+1)/(2k + 1), summed to the current precision."""
+    x = Decimal(1) / n
+    term, total, k = x, x, 0
+    floor = Decimal(10) ** -(decimal.getcontext().prec + 5)
+    while abs(term) > floor:
+        k += 1
+        term *= -x * x
+        total += term / (2 * k + 1)
+    return total
+
+
+@cache
+def exact_pi() -> Decimal:
+    """π by Machin's formula, π = 16 arctan(1/5) − 4 arctan(1/239), in EXACT."""
+    with decimal.localcontext(EXACT):
+        return 16 * _atan_inverse(5) - 4 * _atan_inverse(239)
+
+
+def exact_beta(d_pipe: float, d_bore: float) -> Decimal:
+    with decimal.localcontext(EXACT):
+        return Decimal(d_bore) / Decimal(d_pipe)
+
+
+def exact_re_lo(d_pipe: float, d_bore: float) -> Decimal:
+    """The loss's lowest Reynolds number, max(5000, 16000β²) (D20, ``el.orifice_re_lo`` at D and
+    D/2 tappings, whatever the plate's taps)."""
+    with decimal.localcontext(EXACT):
+        return max(Decimal(5000), 16000 * exact_beta(d_pipe, d_bore) ** 2)
+
+
+def reynolds_powers(re: Decimal | None) -> ReynoldsPowers:
+    """(Re^−0.7, Re^−0.3, Re^−0.8); None is Re → ∞. Only Re > 4830 is taken: there fluids' two
+    terms outside ISO 5167-2 are inactive (its source: log10(3700/Re) < 0 is clipped to 0, and
+    max(22.7 − 0.0047 Re, (10⁶/Re)^0.3) is the second, since 22.7 − 0.0047 Re < 0)."""
+    if re is None:
+        return Decimal(0), Decimal(0), Decimal(0)
+    if not re > 4830:
+        raise ValueError("eq. (4) is taken here at Re > 4830 only")
+    with decimal.localcontext(EXACT):
+        w = re.ln()
+        return (Decimal("-0.7") * w).exp(), (Decimal("-0.3") * w).exp(), (Decimal("-0.8") * w).exp()
+
+
+@dataclass(frozen=True)
+class ExactEq4:
+    """ISO 5167-2:2003 eq. (4) on one plate (D, d), in EXACT, term by term as ``el.RhgTerms``
+    writes it and fluids 1.3.1 codes it (0.011 in the small-pipe term):
+
+        C = C∞ + slope + upstream + downstream + small
+        C∞         = 0.5961 + 0.0261 β² − 0.216 β⁸
+        slope      = 0.000521 (10⁶ β/Re)^0.7 + (0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3
+        upstream   = (0.043 + 0.080 e^(−10 L1) − 0.123 e^(−7 L1)) (1 − 0.11 A) β⁴/(1 − β⁴)
+        downstream = −0.031 (M2' − 0.8 M2'^1.1) β^1.3,   M2' = 2 L2'/(1 − β)
+        small      = 0.011 (0.75 − β)(2.8 − D/0.0254)  for D < 71.12 mm, else 0
+        A          = (19000 β/Re)^0.8
+
+    (L1, L2') = (0, 0) at corner taps, (0.0254/D, 0.0254/D) at flange taps and (1, 0.47) at D and
+    D/2 tappings. The Reynolds-number factors are split off (``reynolds_powers``), so a ratio of
+    two tap sets at one Re costs three exponentials."""
+
+    d_pipe: float
+    d_bore: float
+
+    @cached_property
+    def beta(self) -> Decimal:
+        return exact_beta(self.d_pipe, self.d_bore)
+
+    @cached_property
+    def _fixed(self) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal]:
+        """C∞ + small, 0.000521 (10⁶β)^0.7, 0.0188 β^3.5 (10⁶)^0.3, 0.0063 (19000β)^0.8 β^3.5
+        (10⁶)^0.3 and β⁴/(1 − β⁴): every factor of eq. (4) that does not depend on Re or taps."""
+        with decimal.localcontext(EXACT):
+            d_pipe, b = Decimal(self.d_pipe), self.beta
+            c_inf = Decimal("0.5961") + Decimal("0.0261") * b**2 - Decimal("0.216") * b**8
+            small = (
+                Decimal("0.011") * (Decimal("0.75") - b) * (Decimal("2.8") - d_pipe / INCH)
+                if d_pipe < Decimal("0.07112")
+                else Decimal(0)
+            )
+            b35_m03 = _exp_power(b, "3.5") * _exp_power(Decimal(10) ** 6, "0.3")
+            return (
+                c_inf + small,
+                Decimal("0.000521") * _exp_power(Decimal(10) ** 6 * b, "0.7"),
+                Decimal("0.0188") * b35_m03,
+                Decimal("0.0063") * _exp_power(19000 * b, "0.8") * b35_m03,
+                b**4 / (1 - b**4),
+            )
+
+    @cached_property
+    def _a_factor(self) -> Decimal:
+        """(19000 β)^0.8, so A = (19000 β)^0.8 Re^−0.8."""
+        with decimal.localcontext(EXACT):
+            return _exp_power(19000 * self.beta, "0.8")
+
+    @cache  # noqa: B019 (a few plates per run, each kept for the run)
+    def _tap_terms(self, taps: OrificeTaps) -> tuple[Decimal, Decimal]:
+        """(0.043 + 0.080 e^(−10 L1) − 0.123 e^(−7 L1)) β⁴/(1 − β⁴) and the downstream term."""
+        with decimal.localcontext(EXACT):
+            d_pipe, b = Decimal(self.d_pipe), self.beta
+            match taps:
+                case "corner":
+                    l1 = l2 = Decimal(0)
+                case "flange":
+                    l1 = l2 = INCH / d_pipe
+                case "d_and_d_2":
+                    l1, l2 = Decimal(1), Decimal("0.47")
+            q = self._fixed[4]
+            up = (
+                Decimal("0.043")
+                + Decimal("0.080") * (-10 * l1).exp()
+                - Decimal("0.123") * (-7 * l1).exp()
+            ) * q
+            m2 = 2 * l2 / (1 - b)
+            down = Decimal("-0.031") * (m2 - Decimal("0.8") * _exp_power(m2, "1.1"))
+            return up, down * _exp_power(b, "1.3")
+
+    def c(self, taps: OrificeTaps, powers: ReynoldsPowers) -> Decimal:
+        """Eq. (4) at the Re whose ``reynolds_powers`` these are."""
+        p07, p03, p08 = powers
+        fixed, k07, k03, k03a, _ = self._fixed
+        up, down = self._tap_terms(taps)
+        with decimal.localcontext(EXACT):
+            a = self._a_factor * p08
+            return (
+                fixed + k07 * p07 + (k03 + k03a * p08) * p03 + up * (1 - Decimal("0.11") * a) + down
+            )
+
+    def ratio(self, taps: OrificeTaps, powers: ReynoldsPowers) -> Decimal:
+        """r = C_ISO(D and D/2)/C_ISO(taps) at one Re (D20's move)."""
+        with decimal.localcontext(EXACT):
+            return self.c("d_and_d_2", powers) / self.c(taps, powers)
+
+
+GRID_POINTS = 3000
+"""Points of the log grid of Re on [Re_lo, GRID_TOP]: a step of 2.8 % in Re, against features of
+r(Re) that span decades (C17's dip runs from about 10⁴ to 10⁶)."""
+GRID_TOP = Decimal(10) ** 40
+"""The grid's top. Beyond it every Reynolds-number term of eq. (4) is below 10⁻⁹ and the
+(10⁶/Re)^0.3 term exceeds the others by more than 10¹⁵; ``least_ratio`` checks that r runs
+strictly monotonically to r(∞) over the grid's last TAIL_POINTS points and at TAIL_EXPONENTS,
+so no smaller r lies beyond the grid."""
+TAIL_POINTS = 50
+TAIL_EXPONENTS = (60, 100)
+"""Re = 10⁶⁰ and 10¹⁰⁰, past the grid, on the way to r(∞) (r − r(∞) is about 10⁻³⁵ at 10¹⁰⁰ on
+these plates, halving per decade as (10⁶/Re)^0.3 does; at 10²⁰⁰ it is below 60 digits)."""
+GOLDEN_STEPS = 240
+"""Golden-section steps from a grid bracket (0.618²⁴⁰ ≈ 10⁻⁵⁰ of it)."""
+
+Where = Literal["re_lo", "infinite", "interior"]
+
+
+@dataclass(frozen=True)
+class LeastRatio:
+    """min r(Re) over [Re_lo, ∞) for a moved C, where it falls, and r at both ends."""
+
+    value: Decimal
+    reynolds: Decimal | None
+    where: Where
+    at_re_lo: Decimal
+    at_infinity: Decimal
+
+
+@cache
+def least_ratio(d_pipe: float, d_bore: float, taps: OrificeTaps) -> LeastRatio:
+    """The least r over [Re_lo, ∞): r at Re_lo and its limit at Re → ∞, and every local minimum of
+    r on a log grid of GRID_POINTS Reynolds numbers, each refined by golden-section search on its
+    two grid neighbours (r is smooth; a grid step brackets a minimum the grid sees)."""
+    eq4 = ExactEq4(d_pipe, d_bore)
+    re_lo = exact_re_lo(d_pipe, d_bore)
+    with decimal.localcontext(EXACT):
+        w_lo, w_top = re_lo.ln(), GRID_TOP.ln()
+        ws = [w_lo + (w_top - w_lo) * i / (GRID_POINTS - 1) for i in range(GRID_POINTS)]
+        res = [re_lo, *(w.exp() for w in ws[1:])]
+        rs = [eq4.ratio(taps, reynolds_powers(re)) for re in res]
+        r_inf = eq4.ratio(taps, reynolds_powers(None))
+        tail = [
+            *rs[-TAIL_POINTS:],
+            *(eq4.ratio(taps, reynolds_powers(Decimal(10) ** e)) for e in TAIL_EXPONENTS),
+            r_inf,
+        ]
+        steps = [b - a for a, b in pairwise(tail)]
+        if not (all(step > 0 for step in steps) or all(step < 0 for step in steps)):
+            raise RuntimeError("r(Re) does not run monotonically to r(∞) beyond the grid")
+
+        def r_at(w: Decimal) -> Decimal:
+            return eq4.ratio(taps, reynolds_powers(w.exp()))
+
+        found: list[tuple[Decimal, Decimal | None, Where]] = [
+            (rs[0], re_lo, "re_lo"),
+            (r_inf, None, "infinite"),
+        ]
+        golden = (Decimal(5).sqrt() - 1) / 2
+        for i in range(1, GRID_POINTS - 1):
+            if not (rs[i] <= rs[i - 1] and rs[i] <= rs[i + 1]):
+                continue
+            a, b = ws[i - 1], ws[i + 1]
+            x1, x2 = b - golden * (b - a), a + golden * (b - a)
+            f1, f2 = r_at(x1), r_at(x2)
+            for _ in range(GOLDEN_STEPS):
+                if f1 < f2:
+                    b, x2, f2 = x2, x1, f1
+                    x1 = b - golden * (b - a)
+                    f1 = r_at(x1)
+                else:
+                    a, x1, f1 = x1, x2, f2
+                    x2 = a + golden * (b - a)
+                    f2 = r_at(x2)
+            w = (a + b) / 2
+            found.append((r_at(w), w.exp(), "interior"))
+    value, reynolds, where = min(found, key=lambda item: item[0])
+    return LeastRatio(value, reynolds, where, rs[0], r_inf)
+
+
+def exact_two_g_a2(d_pipe: float) -> Decimal:
+    """2gA², A = πD²/4 on the inlet pipe's bore, g = fluids.constants.g (``dv.G``)."""
+    with decimal.localcontext(EXACT):
+        a = exact_pi() * Decimal(d_pipe) ** 2 / 4
+        return 2 * Decimal(G) * a * a
+
+
+def exact_k(d_pipe: float, d_bore: float, c: Decimal) -> Decimal:
+    """K(C) = (S/(Cβ²) − 1)², S = √(1 − β⁴(1 − C²)) (D20; ``el.orifice_k``)."""
+    with decimal.localcontext(EXACT):
+        b2 = exact_beta(d_pipe, d_bore) ** 2
+        s = (1 - b2 * b2 * (1 - c * c)).sqrt()
+        return (s / (c * b2) - 1) ** 2
+
+
+def loss_factor(d_pipe: float, d_bore: float, c: Decimal) -> Decimal:
+    """K(C)/(2gA²), s²/m⁵: h = K(C)/(2gA²)·Q|Q|, the number rule (d)'s first test takes."""
+    with decimal.localcontext(EXACT):
+        return exact_k(d_pipe, d_bore, c) / exact_two_g_a2(d_pipe)
+
+
+def c_star(d_pipe: float, d_bore: float) -> Decimal:
+    """C*, the C whose K(C)/(2gA²) is the largest double: with T = LARGEST_DOUBLE·2gA², √T =
+    S/(Cβ²) − 1, so S = (1 + √T)Cβ² and S² = 1 − β⁴ + β⁴C² give C*² β⁴ ((1 + √T)² − 1) = 1 − β⁴
+    (``el.orifice_c_from_k``'s root): C* = √((1 − β⁴)/(β⁴ (2√T + T)))."""
+    with decimal.localcontext(EXACT):
+        b4 = exact_beta(d_pipe, d_bore) ** 4
+        t = LARGEST_DOUBLE * exact_two_g_a2(d_pipe)
+        return ((1 - b4) / (b4 * (2 * t.sqrt() + t))).sqrt()
+
+
+def quoted(c: Decimal) -> str:
+    """C to 6 significant digits as a refusal quotes it (``:.6g``, as on 593378d), after a guard
+    that the C stands 10⁻⁹ relative clear of a rounding boundary, so the solver's doubles quote it
+    the same."""
+    with decimal.localcontext(EXACT):
+        low, high = (f"{float(c * (1 + s * Decimal('1e-9'))):.6g}" for s in (-1, 1))
+    if low != high:
+        raise ValueError(f"{c} is too close to a 6-digit rounding boundary")
+    return low
+
+
+EDGE_LINE_HEAD = 10.0
+"""m: R1's level above R2's in the edge cases' line (test input)."""
+EDGE_LINE_LENGTH = 10.0
+"""m: each custom pipe of the edge cases' line (test input)."""
+EDGE_LIQUID = ("Viscous liquid (custom input)", 1000.0, 10.0)
+"""1000 kg/m³ at 10 Pa·s (test input; open-defects-2.md §3 A1's plate converges in it)."""
+EDGE_MAX_ITERATIONS = 1000
+"""The schema's most Newton iterations (SolverOptions.max_iterations ≤ 1000): from the solver's
+starting flow down to about 10⁻¹⁵⁴ m³/s takes about 500 iterations (measured: 507 on 593378d for
+C15's plate at C_e 2.08·10⁻¹⁵³, which that tree accepts), beyond the default 100."""
+
+
+@dataclass(frozen=True)
+class CoefficientEdge:
+    """One plate of C15-C18 on the edge cases' line: R1 (z 0, level 10 m) → D × 10 m custom pipe
+    → O1 (z 0) → D × 10 m → R2 (z 0, level 0), in EDGE_LIQUID, with its entered C_e (a double),
+    the least C_L its law takes, the C_L at Re_lo (the C a reported zero flow takes), and whether
+    rule (d)'s first test accepts it."""
+
+    label: str
+    d_pipe: float
+    d_bore: float
+    taps: OrificeTaps | None
+    entered: float
+    accepted: bool
+
+    @property
+    def moved(self) -> bool:
+        return self.taps in ("corner", "flange")
+
+    @property
+    def least_ratio(self) -> LeastRatio | None:
+        if not self.moved:
+            return None
+        assert self.taps is not None
+        return least_ratio(self.d_pipe, self.d_bore, self.taps)
+
+    @property
+    def least(self) -> Decimal:
+        """The least C_L at any flow: C_e r_least for a moved C, C_e as entered otherwise."""
+        lr = self.least_ratio
+        with decimal.localcontext(EXACT):
+            return Decimal(self.entered) * (1 if lr is None else lr.value)
+
+    @property
+    def held(self) -> Decimal:
+        """C_L at Re_eff = Re_lo: C_e r(Re_lo) for a moved C, C_e otherwise."""
+        lr = self.least_ratio
+        with decimal.localcontext(EXACT):
+            return Decimal(self.entered) * (1 if lr is None else lr.at_re_lo)
+
+    @property
+    def loss_coefficient(self) -> Decimal:
+        """K(C_L) at the held C_L."""
+        return exact_k(self.d_pipe, self.d_bore, self.held)
+
+    @property
+    def flow(self) -> Decimal:
+        """The line's flow, Q = √(Δh/(K/(2gA²))) at the held C_L: the pipes' laminar loss at that
+        flow, 128 μ L Q/(π ρ g D⁴) per pipe, is below 10⁻¹⁴⁰ m, so it is left out."""
+        with decimal.localcontext(EXACT):
+            return (
+                Decimal(EDGE_LINE_HEAD) / loss_factor(self.d_pipe, self.d_bore, self.held)
+            ).sqrt()
+
+    def project(self) -> Project:
+        name, rho, mu = EDGE_LIQUID
+        line = Line(self.d_pipe, EDGE_LINE_LENGTH)
+        element = orifice(
+            "O1", 0.0, self.d_bore, discharge_coefficient=self.entered, taps=self.taps
+        )
+        project = make_project(
+            _pid(f"orifice-edge-{self.label}"),
+            f"Orifice plate at rule (d)'s coefficient edge, {self.label}",
+            custom_fluid(name, rho, mu),
+            [reservoir("R1", 0.0, EDGE_LINE_HEAD), element, reservoir("R2", 0.0, 0.0)],
+            [
+                line.connect("L1", "R1:port_1", "O1:inlet"),
+                line.connect("L2", "O1:outlet", "R2:port_1"),
+            ],
+        )
+        options = project.settings.solver_options.model_copy(
+            update={"max_iterations": EDGE_MAX_ITERATIONS}
+        )
+        return project.model_copy(
+            update={"settings": project.settings.model_copy(update={"solver_options": options})}
+        )
+
+
+def _entered(value: Decimal) -> float:
+    """C_e as a double (the nearest; the cases are 10⁻⁷ or more from their edges, 10⁹ ulps)."""
+    return float(value)
+
+
+def _require_side(edge: CoefficientEdge, margin: Decimal = EDGE_MARGIN) -> CoefficientEdge:
+    """Guard: the plate's least C_L gives K/(2gA²) at least ``margin`` (relative, twice over in
+    C) inside or outside the largest double, as the case expects."""
+    with decimal.localcontext(EXACT):
+        factor = loss_factor(edge.d_pipe, edge.d_bore, edge.least) / LARGEST_DOUBLE
+        if edge.accepted and not factor < 1 - margin:
+            raise ValueError(f"{edge.label}: K/(2gA²) is not clear below the largest double")
+        if not edge.accepted and not factor > 1 + margin:
+            raise ValueError(f"{edge.label}: K/(2gA²) is not clear above the largest double")
+    return edge
+
+
+C15_PLATE = (0.2, 0.1, "flange")
+"""C15 (A1's RA): D 0.2 m, bore 0.1 m (β 0.5), flange taps (test inputs; open-defects-2.md §3
+A1's documented plate). Its least r is at Re_lo (``test_the_least_ratios_fall_where_stated``)."""
+C16_PLATE = (0.1, 0.01, "corner")
+"""C16 (RB): D 0.1 m, bore 0.01 m (β 0.1), corner taps: its least r is at infinite Re."""
+C17_PLATE = (0.0217, 0.01198925, "flange")
+"""C17 (RC): D 21.7 mm, bore 11.98925 mm (β 0.5525), flange taps: its least r is inside the
+range, near Re 46,437, about 3×10⁻⁷ below both ends."""
+C18_PLATE = (0.2, 0.1, None)
+"""C18 (RD): C15's plate without taps, an entered C used as entered (the control)."""
+
+
+def c15_moved_least_at_re_lo() -> tuple[CoefficientEdge, CoefficientEdge]:
+    """C15 (RA): a moved C whose least r is r(Re_lo), the held C's: C_e = C*/r_least (1 ± 10⁻⁶).
+    Accepted at the + side (its C_L at Re_lo is C*(1 + 10⁻⁶)); refused at the − side, quoting
+    C_e r_least."""
+    d_pipe, d_bore, taps = C15_PLATE
+    lr = least_ratio(d_pipe, d_bore, taps)
+    edge = c_star(d_pipe, d_bore) / lr.value
+    with decimal.localcontext(EXACT):
+        return (
+            _require_side(
+                CoefficientEdge(
+                    "c15-accepted", d_pipe, d_bore, taps, _entered(edge * (1 + EDGE_MARGIN)), True
+                )
+            ),
+            _require_side(
+                CoefficientEdge(
+                    "c15-refused", d_pipe, d_bore, taps, _entered(edge * (1 - EDGE_MARGIN)), False
+                )
+            ),
+        )
+
+
+def c16_moved_least_at_infinity() -> CoefficientEdge:
+    """C16 (RB): a moved C whose least r is r(∞): C_e = C*/r(∞) (1 − 10⁻⁶) is refused, quoting
+    C_e r(∞), although its held C_L, C_e r(Re_lo), gives a finite K/(2gA²) (guarded here: a rule
+    that took the held C alone would accept it)."""
+    d_pipe, d_bore, taps = C16_PLATE
+    lr = least_ratio(d_pipe, d_bore, taps)
+    with decimal.localcontext(EXACT):
+        edge = CoefficientEdge(
+            "c16-refused",
+            d_pipe,
+            d_bore,
+            taps,
+            _entered(c_star(d_pipe, d_bore) / lr.at_infinity * (1 - EDGE_MARGIN)),
+            False,
+        )
+        if not loss_factor(d_pipe, d_bore, edge.held) / LARGEST_DOUBLE < 1 - EDGE_MARGIN:
+            raise ValueError("C16's held K/(2gA²) must be finite")
+    return _require_side(edge)
+
+
+def c17_moved_least_inside() -> tuple[CoefficientEdge, CoefficientEdge]:
+    """C17 (RC): a moved C whose least r lies inside (Re_lo, ∞). C_e at the geometric middle of
+    the window (C*/min(r(Re_lo), r(∞)), C*/r_least) is refused, quoting C_e r_least, although
+    both ends' C_L give finite K/(2gA²) (guarded: a rule that took the ends alone would accept
+    it); C*/r_least (1 + 10⁻⁶) is accepted."""
+    d_pipe, d_bore, taps = C17_PLATE
+    lr = least_ratio(d_pipe, d_bore, taps)
+    star = c_star(d_pipe, d_bore)
+    with decimal.localcontext(EXACT):
+        ends = min(lr.at_re_lo, lr.at_infinity)
+        middle = CoefficientEdge(
+            "c17-window",
+            d_pipe,
+            d_bore,
+            taps,
+            _entered((star / ends * star / lr.value).sqrt()),
+            False,
+        )
+        if not loss_factor(d_pipe, d_bore, Decimal(middle.entered) * ends) / LARGEST_DOUBLE < (
+            1 - INTERIOR_MARGIN
+        ):
+            raise ValueError("C17's window plate must be accepted by a rule on the ends alone")
+        accepted = CoefficientEdge(
+            "c17-accepted",
+            d_pipe,
+            d_bore,
+            taps,
+            _entered(star / lr.value * (1 + EDGE_MARGIN)),
+            True,
+        )
+    return _require_side(accepted), _require_side(middle, INTERIOR_MARGIN)
+
+
+def c18_entered_as_entered() -> tuple[CoefficientEdge, CoefficientEdge]:
+    """C18 (RD, the control): an entered C without taps is its own least C: C_e = C*(1 ± 10⁻⁶),
+    accepted at the + side, refused at the − side quoting C_e."""
+    d_pipe, d_bore, taps = C18_PLATE
+    star = c_star(d_pipe, d_bore)
+    with decimal.localcontext(EXACT):
+        return (
+            _require_side(
+                CoefficientEdge(
+                    "c18-accepted", d_pipe, d_bore, taps, _entered(star * (1 + EDGE_MARGIN)), True
+                )
+            ),
+            _require_side(
+                CoefficientEdge(
+                    "c18-refused", d_pipe, d_bore, taps, _entered(star * (1 - EDGE_MARGIN)), False
+                )
+            ),
+        )
+
+
+@cache
+def coefficient_edges() -> tuple[CoefficientEdge, ...]:
+    """C15-C18's plates, accepted and refused (open-defects-2.md §3 A1, RA-RD)."""
+    c15a, c15r = c15_moved_least_at_re_lo()
+    c17a, c17w = c17_moved_least_inside()
+    c18a, c18r = c18_entered_as_entered()
+    return (c15a, c15r, c16_moved_least_at_infinity(), c17a, c17w, c18a, c18r)
+
+
+def coefficient_edge(label: str) -> CoefficientEdge:
+    """The C15-C18 plate with this label."""
+    return next(edge for edge in coefficient_edges() if edge.label == label)

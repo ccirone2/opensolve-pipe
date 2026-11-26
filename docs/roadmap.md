@@ -29,6 +29,12 @@ Each ships as one verified slice with reference cases and traces. Candidates, in
   - the singular step itself: an assigned flow or a dead end behind, for example, a valve whose loss coefficient is above about 3·10¹⁹ s²/m⁵ still does not converge, though its steady state is finite. On the failure branch only, the bridge's dq could come from the far part's continuity and the far part's head from the bridge's own energy equation; no solve that converges today would take it, and the 57 singular inner steps in the fuzz profiles' seeds would need D13's check;
   - the 31 of those 57 where no single lost weight is found keep the plain "singular matrix" message;
   - a check valve's cracking head `crackingPressure/(ρg)` that overflows: named today when it diverges; whether a closed-off one solves was not measured.
+  - an active PRV's or PSV's held head that overflows, where the steady state needs the valve active: the closed fallback's "no steady state" is reported, naming no overflow (the same on `8535900`); the outer loop could report the active solve's divergence instead, with D13's proof (the review of round two, AS-1);
+  - rule (d)'s stage 2 at the exact edge: the law can hold C one unit in the last place below the least C taken, where K/(2gA²) is not finite; no converged solve at a positive flow was found there (AO-2).
+- **System curves' limits** (`proposals/open-defects-2.md` §7, the review of round two, 2026-11-26):
+  - the true flow limit: `flow_limit` takes the smaller of two cuts, an upper bound, so with flow control valves in series on parallel paths the limit point has no head (correctly, since 1.6.2) and the real limit gets none (0.011 against 0.002 m³/s in the reviewer's network). The maximum flow by augmenting paths would place it, changing `beyond_limit` labels at grid flows (D13's proof);
+  - a floor equal to the limit: both FCVs sit at their switches and any rise holds, but one FCV is held open at a time, so the point kept is a gap;
+  - a limit point where a one-way element passes no flow (an FCV open at zero flow or closed against reverse flow): one head, the open one, is reported, though every rise above it holds there, so the case's duty can sit above the curve's end (1.2009 m against 41 m in `_floor()`'s network).
 - **Speed-controlled pumps, slices 2 and 3** (D11): discharge-pressure and differential-pressure setpoints. See *Shelved*.
 
 ## 3. Shelved (D13)

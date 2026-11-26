@@ -29,6 +29,8 @@ import {
 	wordsInSight
 } from '$lib/testing/helpers';
 import { pumpTransferExample } from '$lib/utils/examples';
+import { ratedCurveRange } from '$lib/utils/pump-chart';
+import { condenserCase, condenserCaseProject } from '$lib/utils/condenser-charts.testing';
 import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
 import type { ChartImageRequest, ChartImageSource } from '$lib/utils/export/chart-image';
 import type { PumpChartConfig } from '$lib/utils/pump-chart-config';
@@ -3994,5 +3996,54 @@ describe('a ring whose label has no place, named in the notes (nit 5, rule 7; sl
 		expect(request.notLabelled!()).toBeNull();
 		drawLabels(request.config, TINY, crowded);
 		expect(request.notLabelled!()).toBe(SENTENCE);
+	});
+});
+
+// docs/proposals/open-defects-2.md §2 C1, on the condenser example's recorded answers
+// (__fixtures__/condenser-charts.json, main's API): one pump and one chiller line, F1's setpoint
+// on /system-curve's grid, so a point at the FCV's limit states its openHead.
+describe('the system curve’s vertical part on the pump chart (open-defects-2.md C1)', () => {
+	const single = () => {
+		const c = condenserCase('single24');
+		const project = condenserCaseProject('single24');
+		return {
+			result: c.pumpResults!.P1!,
+			name: 'Condenser water pump CWP-1',
+			prefs: project.settings.units,
+			ratedRange: ratedCurveRange(project, 'P1'),
+			names: { project },
+			system: { status: 'ready', curve: c.pumpSystemCurve! } as SystemCurveState
+		};
+	};
+
+	it('says the vertical part in its name, its notes and its data table, and keeps the canvas’s rays', async () => {
+		withCanvas();
+		const { container } = render(PumpChart, single());
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		expect(screen.getByRole('img')).toHaveAccessibleName(
+			/ and system curve, vertical at 953\.9 L\/s from 20\.72 m up; operating point 953\.9 L\/s at 33\.4 m/
+		);
+		expect(
+			screen.getByText(
+				/^17 of 41 system-curve points have no head: at 953\.9 L\/s it is undetermined, any head at or above 20\.72 m holding, drawn as the curve's vertical part from there to the top of the head axis; at the 16 flows sampled beyond 953\.9 L\/s no steady state carries the flow; the data table says why for each/
+			)
+		).toBeInTheDocument();
+		// The canvas keeps where the rays went, as each drawing tells it (`data-system-rays`).
+		const config = charts[0]!.config as {
+			plugins: { id: string; afterDatasetsDraw?: () => void }[];
+		};
+		const rays = config.plugins.find((p) => p.id === 'systemRays')!;
+		rays.afterDatasetsDraw!();
+		expect(container.querySelector('canvas')!.dataset.systemRays).toBe('[]');
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		);
+		// Open by default: some of its rows have no head (§9 S7).
+		expect(disclosureOf('System curve').open).toBe(true);
+		const table = screen.getByRole('table', { name: 'System curve' });
+		const row = within(table)
+			.getAllByRole('row')
+			.find((r) => within(r).queryAllByRole('cell')[0]?.textContent === '953.9')!;
+		expect(within(row).getAllByRole('cell')[1]!.textContent).toBe('≥ 20.72');
 	});
 });

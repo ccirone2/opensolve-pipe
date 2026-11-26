@@ -41,6 +41,14 @@ import {
 } from './pump-group-chart';
 import { systemPointNote } from './system-curve-text';
 import { formatNumber, fromSI } from './units';
+import {
+	condenserCase,
+	condenserCaseProject,
+	condenserMembers,
+	condenserProject,
+	type CondenserCase
+} from './condenser-charts.testing';
+import { condenserWaterExample } from './examples';
 
 interface FixtureCase {
 	name: string;
@@ -358,9 +366,17 @@ describe('Read along the curves', () => {
 		const c = named('parallel-ideal');
 		const { data } = card(c);
 		const plugins = (cfg: PumpChartConfig) => (cfg.plugins ?? []).map((p) => p.id);
-		expect(plugins(config(data, { readout: () => null }))).toEqual(['groupLabels', 'groupReadout']);
-		expect(plugins(config(data))).toEqual(['groupLabels']);
-		expect(plugins(config(data, { readout: () => null, forImage: true }))).toEqual(['groupLabels']);
+		// The system curve's vertical parts first, on screen and in the image (open-defects-2.md C1).
+		expect(plugins(config(data, { readout: () => null }))).toEqual([
+			'systemRays',
+			'groupLabels',
+			'groupReadout'
+		]);
+		expect(plugins(config(data))).toEqual(['systemRays', 'groupLabels']);
+		expect(plugins(config(data, { readout: () => null, forImage: true }))).toEqual([
+			'systemRays',
+			'groupLabels'
+		]);
 	});
 });
 
@@ -601,5 +617,219 @@ describe("the duty's reason, worded with each element as solved", () => {
 		fc.valveType = 'prv';
 		expect(notes(edited, c.project)).toEqual(asSolved);
 		expect(notes(edited)).not.toEqual(asSolved);
+	});
+});
+
+// docs/proposals/open-defects-2.md §2 C1, on the condenser example's recorded answers
+// (__fixtures__/condenser-charts.json, main's API): at the FCVs' limit the group system curve's
+// duty point is `valve_at_switch`, any rise at or above its `openHead` holding there. The chart
+// draws that range as the curve's vertical part, and the words relay the API's verdict.
+describe('the group system curve’s vertical part at the FCVs’ limit (open-defects-2.md C1)', () => {
+	const condenserCard = (name: CondenserCase, system = condenserCase(name).systemCurve!) => {
+		const members = condenserMembers(name);
+		const project = condenserCaseProject(name);
+		const group = condenserCase(name).groupCurve!;
+		const prefs = project.settings.units;
+		const data = groupChartData(members, prefs, group, system);
+		const notes = groupNotes({
+			data,
+			members,
+			state: { status: 'ready', response: group },
+			system: { status: 'ready', response: system },
+			project,
+			prefs
+		});
+		return { data, notes, members, project, group, system, prefs };
+	};
+	const dutyPoint = (system: PumpGroupCurveResponse) => system.systemPoints.find((p) => p.isDuty)!;
+
+	it('was recorded from the condenser example as shipped', () => {
+		expect(condenserProject()).toEqual(condenserWaterExample());
+	});
+
+	it('draws the duty point’s range as a ray from its openHead up, joined to the line at its foot', () => {
+		for (const name of ['base', 'basin15'] as const) {
+			const { data, system } = condenserCard(name);
+			const at = dutyPoint(system);
+			expect(at).toMatchObject({ head: null, reason: 'valve_at_switch', openHeadBound: 'lower' });
+			const x = fromSI(at.flow, 'L/s');
+			expect(data.systemRays, name).toEqual([{ x, from: at.openHead, bound: 'lower' }]);
+			expect(
+				data.system!.find((p) => p.x === x),
+				name
+			).toEqual({
+				x,
+				y: at.openHead,
+				bound: 'lower'
+			});
+			// Every other point without a rise stays a gap, never bridged.
+			const gaps = system.systemPoints.filter((p) => p.head === null && !p.isDuty);
+			expect(new Set(gaps.map((p) => p.reason))).toEqual(new Set(['beyond_limit']));
+			expect(data.system!.filter((p) => p.y === null)).toHaveLength(gaps.length);
+			expect(data.systemMissing).toBe(gaps.length + 1);
+			const set = datasets(config(data)).find((d) => d.label === GROUP_SYSTEM_CURVE_LABEL)!;
+			expect((set as unknown as { rays: unknown }).rays).toEqual(data.systemRays);
+			expect(set.spanGaps).toBe(false);
+		}
+		// The photo's project: the same vertical from 10.23 m.
+		expect(condenserCard('basin15').data.systemRays[0]!.from).toBeCloseTo(10.2265, 4);
+	});
+
+	it('says what the points without a rise are: the vertical part, and the flows past the limit', () => {
+		const { notes, system } = condenserCard('base');
+		const at = dutyPoint(system);
+		const past = system.systemPoints.filter((p) => p.reason === 'beyond_limit');
+		expect(new Set(past.map((p) => p.limitFlow))).toEqual(new Set([at.flow]));
+		const q = f4(fromSI(at.flow, 'L/s'));
+		expect(notes.systemCurve).toEqual({
+			kind: 'missing',
+			text: `${past.length + 1} of ${system.systemPoints.length} group-system-curve points have no rise: at ${q} L/s it is undetermined, any rise at or above ${m(at.openHead!)} holding, drawn as the curve's vertical part from there to the top of the plot; at the ${past.length} flows sampled beyond ${q} L/s no steady state carries the flow. The data table says why for each.`
+		});
+		expect(notes.systemCurve!.text).toBe(
+			"25 of 42 group-system-curve points have no rise: at 5678 L/s it is undetermined, any rise at or above 24.63 m holding, drawn as the curve's vertical part from there to the top of the plot; at the 24 flows sampled beyond 5678 L/s no steady state carries the flow. The data table says why for each."
+		);
+		expect(groupNoteLines(notes)).toContain(notes.systemCurve!.text);
+	});
+
+	it('keeps the API’s verdict at the duty (agrees false): its facts beside it, never a crossing of its own', () => {
+		const { data, notes, members, project, group, system } = condenserCard('base');
+		expect(system.systemDutyCheck).toMatchObject({ agrees: false, head: null });
+		expect(data.station).toMatchObject({
+			onCurve: true,
+			onSystem: false,
+			crossing: false,
+			label: 'Group duty, on the group curve',
+			tag: 'Group'
+		});
+		const why = systemPointNote(dutyPoint(system), {
+			project,
+			units: project.settings.units,
+			subject: 'station'
+		}).text;
+		// One paragraph (the card's run of notes, pumps-results-layout.md §5.7 row 7): the verdict
+		// with its reason, then the vertical's facts.
+		expect(notes.systemDuty).toEqual([
+			`The group system curve has no rise at the duty's flow, so whether it passes through the Group point is not known: ${why.charAt(0).toLowerCase()}${why.slice(1)} The curve is drawn vertical at that flow, from ${m(dutyPoint(system).openHead!)} up, the rises that hold there; the duty's rise is ${m(system.duty!.head)}.`
+		]);
+		expect(
+			notes.systemDuty[0]!.endsWith(
+				". The curve is drawn vertical at that flow, from 24.63 m up, the rises that hold there; the duty's rise is 31.48 m."
+			)
+		).toBe(true);
+		// The verdict's full stop before the facts whatever its reason: one the words do not give
+		// (no valve named, so the API's message as sent, here with no stop of its own), or none.
+		for (const [message, verdict] of [
+			['the rise is undetermined at this flow', ': the rise is undetermined at this flow.'],
+			['', '.']
+		] as const) {
+			const bare = structuredClone(system);
+			const at = dutyPoint(bare);
+			at.componentIds = [];
+			at.message = message;
+			expect(condenserCard('base', bare).notes.systemDuty).toEqual([
+				`The group system curve has no rise at the duty's flow, so whether it passes through the Group point is not known${verdict} The curve is drawn vertical at that flow, from 24.63 m up, the rises that hold there; the duty's rise is 31.48 m.`
+			]);
+		}
+		for (const line of groupNoteLines(notes)) {
+			expect(line).not.toMatch(
+				/lies on (that|the|its) vertical|on its vertical part|crosses the group curve/
+			);
+		}
+		expect(systemDutyCheckState(system)).toBe(
+			'not known, the group system curve has no rise at the duty’s flow'
+		);
+		const summary = groupSummary(data, members, group, project, system);
+		expect(summary).toMatch(
+			/, on the group curve; group curve shown; group system curve shown, vertical at 5678 L\/s from 24\.63 m up\.$/
+		);
+	});
+
+	it('words the vertical part as the API decides it once its check agrees there (C2’s shape)', () => {
+		// Synthetic: the system duty check as C2 will give it (open-defects-2.md §3): agrees, its
+		// head null, the rise on the bound's side; every other value as recorded.
+		const recorded = condenserCase('base').systemCurve!;
+		const system = structuredClone(recorded);
+		system.systemDutyCheck = {
+			agrees: true,
+			head: null,
+			message:
+				"the rest of the network with the station's flow 5.67812 m³/s forced from S to D leaves the rise undetermined at this flow: any rise at or above 24.6265 m holds (FCV 'F2' at its setpoint flow), and the solve's rise 31.4781 m is in that range, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part"
+		};
+		const { data, notes } = condenserCard('base', system);
+		expect(data.station).toMatchObject({
+			onCurve: true,
+			onSystem: true,
+			crossing: true,
+			label: 'Group duty, where the group curve and the group system curve cross',
+			tag: 'Group (crossing)'
+		});
+		expect(notes.systemDuty).toEqual([
+			"At the duty's flow the group system curve is vertical, any rise at or above 24.63 m holding, and the solve's rise, 31.48 m, is one of them (within 0.5 % or 0.01 m): it passes through the Group point, where it crosses the group curve."
+		]);
+		expect(systemDutyCheckState(system)).toBe(
+			'the group system curve passes through it, on its vertical part'
+		);
+		// A check that agrees with a head keeps its words.
+		expect(systemDutyCheckState(systemOf(named('parallel-ideal')))).toBe(
+			'the group system curve passes through it'
+		);
+	});
+
+	it('lists the duty point’s rise in the data table as the range that holds', () => {
+		const { system, project, prefs } = condenserCard('base');
+		const rows = groupSystemRows(system, prefs, { project });
+		const duty = rows.find((r) => r.duty)!;
+		expect(duty.rise).toBe('≥ 24.63');
+		expect(duty.note).toBe(
+			systemPointNote(dutyPoint(system), { project, units: prefs, subject: 'station' }).text
+		);
+		expect(rows.filter((r) => r.rise.startsWith('≥'))).toHaveLength(1);
+		expect(rows.filter((r) => r.rise === '—')).toHaveLength(24);
+	});
+
+	it('says the range at the ray’s foot in the tooltip, never a bare rise', () => {
+		const { data, system } = condenserCard('base');
+		const cfg = config(data);
+		const index = datasets(cfg).findIndex((d) => d.label === GROUP_SYSTEM_CURVE_LABEL);
+		const set = datasets(cfg)[index]!;
+		const label = (
+			cfg.options!.plugins!.tooltip as { callbacks: { label: (i: unknown) => string } }
+		).callbacks.label;
+		// The datum at the duty's flow, where the curve is vertical: a bare "24.63 m" there would
+		// state a rise the API calls undetermined.
+		const x = fromSI(dutyPoint(system).flow, 'L/s');
+		const foot = (set.data as { x: number; y: number | null }[]).find((p) => p.x === x)!;
+		expect(label({ raw: foot, dataset: set, datasetIndex: index })).toBe(
+			`${GROUP_SYSTEM_CURVE_LABEL}: 5678 L/s, rise at or above 24.63 m, undetermined`
+		);
+		const sample = (set.data as { x: number; y: number | null }[])[1]!;
+		expect(label({ raw: sample, dataset: set, datasetIndex: index })).toBe(
+			`${GROUP_SYSTEM_CURVE_LABEL}: ${f4(sample.x)} L/s, ${f4(sample.y!)} m`
+		);
+	});
+});
+
+// docs/proposals/open-defects-2.md §2 X: a mark below zero flow past the floor is not drawn and
+// the notes name it. Synthetic: the recorded station's duty moved 1 L/s below zero flow (an
+// oriented station can carry reverse flow; the condenser's does not).
+describe('a mark below zero flow (open-defects-2.md X)', () => {
+	it('draws no Group point there, keys none in the legend, and names it with its values', () => {
+		const c = named('parallel-ideal');
+		const group = structuredClone(groupOf(c)!);
+		group.duty!.flow = -0.001;
+		const { data, notes } = card(c, { status: 'ready', response: group }, null);
+		const cfg = config(data);
+		expect(datasets(cfg).map((d) => d.label)).not.toContain(data.station!.label);
+		expect(groupLegend(data).map((i) => i.key)).not.toContain('station');
+		expect(notes.belowZero).toBe(
+			`Below zero flow, not drawn: the Group point at -1 L/s and ${m(group.duty!.head)}; the data tables list them.`
+		);
+		expect(groupNoteLines(notes)).toContain(notes.belowZero);
+		// As recorded, nothing below: the Group point drawn and keyed.
+		const recorded = card(c, groupState(c), null);
+		expect(recorded.notes.belowZero).toBeNull();
+		expect(datasets(config(recorded.data)).map((d) => d.label)).toContain(
+			recorded.data.station!.label
+		);
 	});
 });

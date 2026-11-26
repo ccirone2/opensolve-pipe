@@ -293,7 +293,8 @@ export function casesNote(others: readonly OtherCaseData[]): string | null {
 /**
  * The image's footer notes: the figure's own sentences, in its order, then the other cases, then
  * the other cases whose rings the image's drawing left unlabelled, each named with its values
- * (`notLabelled`, point-labels.ts notLabelledNote; nit 5, rule 7), then the line naming the cases
+ * (`notLabelled`, point-labels.ts notLabelledNote; nit 5, rule 7), then what lies below zero
+ * flow and is not drawn (`notes.belowZero`; open-defects-2.md X), then the line naming the cases
  * in which the pump is off and that take no slot (`off`, the screen's words: pump-chart.ts
  * offCasesNote; pumps-results-layout.md §6.2 S8).
  */
@@ -313,6 +314,7 @@ export function imageNoteLines(
 		...notes.checks,
 		casesNote(others),
 		notLabelled,
+		notes.belowZero,
 		off
 	].filter((line): line is string => !!line);
 }

@@ -395,7 +395,9 @@
 						readout: () => markNow,
 						compactLabels: compact,
 						curveLabels,
-						onlabels: (placed) => labelsDrawn(element, placed)
+						onlabels: (placed) => labelsDrawn(element, placed),
+						// The group system curve's vertical parts as drawn (open-defects-2.md C1).
+						onrays: (rays) => (element.dataset.systemRays = JSON.stringify(rays))
 					})
 				);
 				drawnChart = chart;
@@ -895,6 +897,8 @@
 			{#if notes.dashed}<p class="text-xs text-slate-700">{notes.dashed}</p>{/if}
 			<!-- A point whose label the chart left out, named with its values (nit 5, rule 7). -->
 			{#if notes.notLabelled}<p class="text-xs text-slate-700">{notes.notLabelled}</p>{/if}
+			<!-- What lies below zero flow and is not drawn, with its values (open-defects-2.md X). -->
+			{#if notes.belowZero}<p class="text-xs text-slate-700">{notes.belowZero}</p>{/if}
 		</div>
 		<!--
 			The reference (§5.3), three native disclosures, closed, each saying what it holds: how to
@@ -1109,7 +1113,7 @@
 						key="group-system"
 						caption="Group system curve (rise the rest of the network needs at each station's flow)"
 						points={systemRows.length}
-						openByDefault={cannotDraw || systemRows.some((row) => row.rise === '—')}
+						openByDefault={cannotDraw || systemRows.some((row) => row.rise === '—' || !!row.note)}
 						bind:choice={tablesOpen['group-system']}
 					>
 						<thead class="bg-slate-50">

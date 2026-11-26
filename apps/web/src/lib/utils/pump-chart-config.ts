@@ -66,8 +66,11 @@ export const CHART_COLORS = {
 /** The legend entry of a pump held at zero flow. */
 export const HELD_LABEL = 'Held at zero flow';
 
-/** A point of a dataset: a null head is a gap. */
-export type ChartDatum = { x: number; y: number | null };
+/**
+ * A point of a dataset: a null head is a gap; `bound`, a system curve's vertical part's foot, its
+ * head the bound of the heads that hold there (system-curve-line.ts; open-defects-2.md C1).
+ */
+export type ChartDatum = { x: number; y: number | null; bound?: 'lower' | 'upper' };
 
 /** The configuration both the screen and the image draw (Chart.js 'line' with linear scales). */
 export type PumpChartConfig = ChartConfiguration<'line', ChartDatum[]>;
@@ -110,6 +113,128 @@ export interface PumpChartConfigOptions {
 	 * measuring the layout: leftovers L16 to L18; absent: not told).
 	 */
 	onlegend?: (drawn: LegendDrawn) => void;
+	/**
+	 * Told after every drawing where the system curves' vertical parts went (the canvas's
+	 * `data-system-rays`; open-defects-2.md C1; absent: not told).
+	 */
+	onrays?: (drawn: SystemRayDrawn[]) => void;
+}
+
+/**
+ * A system curve's vertical part as one drawing drew it (open-defects-2.md C1; the canvas's
+ * `data-system-rays`): its dataset's label, its flow and foot as the data give them (display
+ * units), its bound, and where it is drawn in CSS px: at `x`, from `y1` (its foot, or the edge of
+ * its y axis where the foot lies beyond it) to `y2`, that axis's top ('lower') or foot ('upper').
+ */
+export interface SystemRayDrawn {
+	label: string;
+	flow: number;
+	head: number;
+	bound: 'lower' | 'upper';
+	x: number;
+	y1: number;
+	y2: number;
+}
+
+/** A dataset's vertical parts (display units), as system-curve-line.ts gives them. */
+type RaysOf = { rays?: readonly { x: number; from: number; bound: 'lower' | 'upper' }[] };
+
+/**
+ * The system curves' vertical parts (system-curve-line.ts; open-defects-2.md C1), each drawn right
+ * after its dataset's line, so every mark drawn later (the operating point, the Group's dot, a
+ * ring) stays on top: at its flow, from its foot to the edge of its dataset's own y axis, the top
+ * for 'lower' and the foot for 'upper', in the line's colour, width and dashes, clipped to the
+ * plot's width and that axis (on the pump chart the head panel, never the panels stacked below);
+ * none while its dataset is hidden. Each drawing tells `onrays` where they went.
+ */
+function systemRays(onrays?: (drawn: SystemRayDrawn[]) => void): Plugin<'line'> {
+	let drawn: SystemRayDrawn[] = [];
+	return {
+		id: 'systemRays',
+		beforeDatasetsDraw() {
+			drawn = [];
+		},
+		afterDatasetDraw(chart, args) {
+			const dataset = chart.data.datasets[args.index] as unknown as RaysOf & {
+				label?: string;
+				borderColor?: string;
+				borderWidth?: number;
+				borderDash?: number[];
+				yAxisID?: string;
+			};
+			const rays = dataset.rays;
+			if (!rays?.length || !chart.isDatasetVisible(args.index)) return;
+			const { ctx, chartArea: area, scales } = chart;
+			const x = scales.x;
+			const y = scales[dataset.yAxisID ?? 'y'];
+			if (!x || !y) return;
+			const top = Math.max(area.top, y.top);
+			const bottom = Math.min(area.bottom, y.bottom);
+			ctx.save();
+			ctx.beginPath();
+			ctx.rect(area.left, top, area.right - area.left, bottom - top);
+			ctx.clip();
+			ctx.strokeStyle = dataset.borderColor ?? CHART_COLORS.system;
+			ctx.lineWidth = dataset.borderWidth ?? 2;
+			ctx.setLineDash(dataset.borderDash ?? []);
+			ctx.lineCap = 'butt';
+			for (const ray of rays) {
+				const px = x.getPixelForValue(ray.x);
+				if (px < area.left || px > area.right) continue;
+				const y1 = Math.min(bottom, Math.max(top, y.getPixelForValue(ray.from)));
+				const y2 = ray.bound === 'lower' ? top : bottom;
+				// A foot beyond the edge it runs to: nothing of it lies inside the axis.
+				if (y1 === y2) continue;
+				ctx.beginPath();
+				ctx.moveTo(px, y1);
+				ctx.lineTo(px, y2);
+				ctx.stroke();
+				drawn.push({
+					label: dataset.label ?? '',
+					flow: ray.x,
+					head: ray.from,
+					bound: ray.bound,
+					x: px,
+					y1,
+					y2
+				});
+			}
+			ctx.restore();
+		},
+		afterDatasetsDraw() {
+			onrays?.(drawn);
+		}
+	};
+}
+
+/**
+ * The flow axis never starts below zero flow (the owner, 2026-11-26; open-defects-2.md X): the x
+ * scale's `afterDataLimits`, which Chart.js 4.5.1 runs after the data limits and before the grace
+ * and the ticks (Scale.update), raises its least value to 0. Chart.js's own range (`bounds:
+ * 'ticks'`) takes the nice tick at or below the least flow, so one value at round-off below zero
+ * (a group curve's point at the shutoff rise, −6.08·10⁻¹² L/s) started the axis a step below it,
+ * at −5,000 L/s. The configuration's `min` stays unset: Chart.js then keeps its clip's allowance
+ * for a mark at zero flow (scaleClip gives none at an edge whose bound is set), and no dataset
+ * drawn unparsed is cut short (getUserBounds reads the options only). A line's part below zero is
+ * cut at the plot's left edge; a mark further below than the floor is not drawn, and the notes
+ * name what is not (pump-chart.ts belowZeroNote). The maximum is kept above it.
+ */
+export function flowAxisFloor(scale: { min: number; max: number }): void {
+	if (scale.min < 0) scale.min = 0;
+	if (scale.max <= scale.min) scale.max = scale.min + 1;
+}
+
+/**
+ * The tooltip's words for a vertical part's foot (open-defects-2.md C1): "rise at or above
+ * 24.63 m, undetermined", never a bare head the API calls undetermined.
+ */
+function boundTooltip(
+	value: 'head' | 'rise',
+	bound: 'lower' | 'upper',
+	head: string,
+	unit: string
+): string {
+	return `${value} ${bound === 'lower' ? 'at or above' : 'at or below'} ${head} ${unit}, undetermined`;
 }
 
 /**
@@ -968,7 +1093,8 @@ export function pumpChartConfig(
 		checks = false,
 		compactLabels = false,
 		onlabels,
-		onlegend
+		onlegend,
+		onrays
 	}: PumpChartConfigOptions
 ): PumpChartConfig {
 	const shown = (key: PanelKey) => panels.includes(key);
@@ -1019,12 +1145,14 @@ export function pumpChartConfig(
 					}
 				]
 			: []),
-		...(d.system && d.systemMissing < d.system.length
+		// Shown where some point is drawn: a curve that is only a vertical part's foot is too (C1).
+		...(d.system?.some((p) => p.y !== null)
 			? [
 					{
 						label: 'System curve',
 						yAxisID: 'y',
 						data: d.system,
+						rays: d.systemRays,
 						borderColor: SYSTEM,
 						backgroundColor: SYSTEM,
 						borderWidth: 2,
@@ -1093,6 +1221,7 @@ export function pumpChartConfig(
 							label: `System curve, ${c.tag === 'Base' ? c.label : `case ${c.tag}`}`,
 							yAxisID: 'y',
 							data: c.system,
+							rays: c.systemRays,
 							borderColor: SLATE,
 							backgroundColor: SLATE,
 							borderWidth: 1.5,
@@ -1140,6 +1269,8 @@ export function pumpChartConfig(
 		])
 	];
 	spanDrawnFlows(datasets);
+	// A mark below zero flow past the floor is not drawn (open-defects-2.md X): the notes name it.
+	const drawnSets = datasets.filter((set) => !belowFlowFloor(set, d.flowFloor));
 	// The other cases' rings labelled by placePointLabels (owner, 2026-11-12, nit 5, rules 4 and 7;
 	// slice 5c): "[n] name" where the whole label has a place, else its number alone (a phone's
 	// screen the number alone), each clear of the other marks (the operating point, the held
@@ -1396,18 +1527,20 @@ export function pumpChartConfig(
 			)
 		]);
 	/** A dataset the legend lists: not a lower panel's duty dot, which repeats the operating point's. */
-	const listed = (i: number) => !(datasets[i] as { duty?: boolean } | undefined)?.duty;
+	const listed = (i: number) => !(drawnSets[i] as { duty?: boolean } | undefined)?.duty;
 	return {
 		type: 'line',
 		// panelFloors moves the panels after the layout, before anything is drawn on them.
 		plugins: [
 			panelFloors,
+			// First, so each ray is drawn right after its line (open-defects-2.md C1).
+			systemRays(onrays),
 			checkMarks,
 			caseLabels,
 			lines,
 			...(onlegend ? [legendReport(onlegend)] : [])
 		],
-		data: { datasets },
+		data: { datasets: drawnSets },
 		options: {
 			animation: false,
 			responsive: !forImage,
@@ -1419,6 +1552,8 @@ export function pumpChartConfig(
 				x: {
 					type: 'linear',
 					beginAtZero: true,
+					// Never below zero flow, `min` unset (open-defects-2.md X).
+					afterDataLimits: flowAxisFloor,
 					title: { display: true, text: `Flow (${d.flowUnit})`, color: TEXT, ...font(15) },
 					grid: { color: GRID },
 					ticks: { color: TEXT, ...font(14) }
@@ -1492,7 +1627,10 @@ export function pumpChartConfig(
 									const axis = (item.dataset as { yAxisID?: string }).yAxisID;
 									const unit =
 										axis === 'yEfficiency' ? '%' : axis === 'yPower' ? d.powerUnit : d.headUnit;
-									return `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${fmt(p.y)} ${unit}`;
+									// A vertical part's foot: the heads that hold there (C1).
+									return p.bound
+										? `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${boundTooltip('head', p.bound, fmt(p.y), unit)}`
+										: `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${fmt(p.y)} ${unit}`;
 								}
 							}
 						}
@@ -1612,6 +1750,8 @@ export interface PumpGroupConfigOptions {
 	curveLabels?: CurveLabelTools;
 	/** Told after every drawing where the curve labels went (absent: not told). */
 	onlabels?: (drawn: CurveLabelsDrawn) => void;
+	/** Told after every drawing where the vertical parts went (as pumpChartConfig's; C1). */
+	onrays?: (drawn: SystemRayDrawn[]) => void;
 }
 
 /**
@@ -1646,7 +1786,8 @@ export function pumpGroupConfig(
 		readout,
 		compactLabels = false,
 		curveLabels,
-		onlabels
+		onlabels,
+		onrays
 	}: PumpGroupConfigOptions
 ): PumpChartConfig {
 	const { ink: INK, grid: GRID, text: TEXT, system: SYSTEM, slate: SLATE } = CHART_COLORS;
@@ -1655,9 +1796,9 @@ export function pumpGroupConfig(
 	/**
 	 * A marker's clip (px beyond each edge of the plot): Chart.js's own allowance for a point, its
 	 * radius (hovered, its hover radius) and its border, kept on every edge. Chart.js allows none
-	 * beyond an edge whose bound the configuration sets (x min, x max and y max while other cases'
-	 * curves are drawn, D24 §9.4), which would cut a marker there in half: only other cases'
-	 * curves are cut at the plot's edge.
+	 * beyond an edge whose bound the configuration sets (x max and y max while other cases' curves
+	 * are drawn, D24 §9.4), which would cut a marker there in half: only other cases' curves are
+	 * cut at the plot's edge.
 	 */
 	const markerClip = (radius: number, hoverRadius: number, borderWidth: number) =>
 		Math.max(radius, hoverRadius) + borderWidth;
@@ -1767,6 +1908,7 @@ export function pumpGroupConfig(
 						label: GROUP_SYSTEM_CURVE_LABEL,
 						yAxisID: 'y',
 						data: d.system as ChartDatum[],
+						rays: d.systemRays,
 						borderColor: SYSTEM,
 						backgroundColor: SYSTEM,
 						borderWidth: 2,
@@ -1972,6 +2114,23 @@ export function pumpGroupConfig(
 			const tags: CurveTagDrawn[] = [];
 			const tagsLeftOut: NotLabelledPoint[] = [];
 			const marks = obstacles.filter((o) => o.kind === 'marker').map((o) => o.box);
+			// A vertical part of the system curve (C1): a tag never sits across it.
+			chart.data.datasets.forEach((dataset, i) => {
+				const rays = (dataset as RaysOf).rays;
+				const x = chart.scales.x;
+				const y = chart.scales.y;
+				if (!rays?.length || !chart.isDatasetVisible(i) || !x || !y) return;
+				for (const ray of rays) {
+					const px = x.getPixelForValue(ray.x);
+					const py = Math.min(area.bottom, Math.max(area.top, y.getPixelForValue(ray.from)));
+					marks.push({
+						left: px - 2,
+						right: px + 2,
+						top: ray.bound === 'lower' ? area.top : py,
+						bottom: ray.bound === 'lower' ? py : area.bottom
+					});
+				}
+			});
 			const leaders = placed.labels.flatMap((l) => (l.leader ? [l.leader] : []));
 			chart.data.datasets.forEach((dataset, i) => {
 				const tag = (dataset as { curveTag?: string }).curveTag;
@@ -2138,13 +2297,19 @@ export function pumpGroupConfig(
 			ctx.restore();
 		}
 	};
+	// A mark below zero flow past the floor is not drawn (open-defects-2.md X): the notes name it.
+	const drawnSets = datasets.filter((set) => !belowFlowFloor(set, d.flowFloor));
 	/** A dataset the image's legend lists: not a running pump's point, nor a line's beyond-data part. */
 	const listedInGroup = (i: number) =>
-		(datasets[i] as { legend?: boolean } | undefined)?.legend !== false;
+		(drawnSets[i] as { legend?: boolean } | undefined)?.legend !== false;
 	return {
 		type: 'line',
-		plugins: forImage || !readout ? [pointLabels] : [pointLabels, readoutMark],
-		data: { datasets },
+		// The rays first, each drawn right after its line (C1).
+		plugins:
+			forImage || !readout
+				? [systemRays(onrays), pointLabels]
+				: [systemRays(onrays), pointLabels, readoutMark],
+		data: { datasets: drawnSets },
 		options: {
 			animation: false,
 			responsive: !forImage,
@@ -2156,8 +2321,10 @@ export function pumpGroupConfig(
 				x: {
 					type: 'linear',
 					beginAtZero: true,
+					// Never below zero flow, `min` unset (open-defects-2.md X; it replaced D24 §9.4's x
+					// min, pump-lineups.md item 96).
+					afterDataLimits: flowAxisFloor,
 					// Set only where other cases' curves would widen it: they are cut there (D24 §9.4).
-					...(d.xMin !== null ? { min: d.xMin } : {}),
 					...(d.xMax !== null ? { max: d.xMax } : {}),
 					title: { display: true, text: `Flow (${d.flowUnit})`, color: TEXT, ...font(15) },
 					grid: { color: GRID },
@@ -2242,13 +2409,25 @@ export function pumpGroupConfig(
 								label: (item) => {
 									const p = item.raw as ChartDatum;
 									if (p.y === null) return '';
-									return `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${fmt(p.y)} ${d.headUnit}`;
+									// A vertical part's foot: the rises that hold there (C1).
+									return p.bound
+										? `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${boundTooltip('rise', p.bound, fmt(p.y), d.headUnit)}`
+										: `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${fmt(p.y)} ${d.headUnit}`;
 								}
 							}
 						}
 			}
 		}
 	};
+}
+
+/**
+ * A mark (a point drawn alone) wholly below zero flow, past the floor of a flow drawn at zero
+ * (`floor`, display unit; open-defects-2.md X): the flow axis starts at zero, so it is not drawn,
+ * and the notes name it (pump-chart.ts belowZeroNote). A line's part below zero is cut at the edge.
+ */
+function belowFlowFloor(set: { showLine?: boolean; data: readonly ChartDatum[] }, floor: number) {
+	return set.showLine === false && set.data.length > 0 && set.data.every((p) => p.x < -floor);
 }
 
 /** A dataset's flags the legends read (leftovers L17, L18). */

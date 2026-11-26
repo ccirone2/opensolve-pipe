@@ -60,6 +60,7 @@ import {
 	runningWords,
 	slotStyle,
 	stationPortWords,
+	SYSTEM_DUTY_CHECK_FLOOR,
 	type GroupSlot
 } from './pump-group-chart';
 import { caseNamed, caseTagOf, inCaseOrder, type CaseNumber } from './pump-chart';
@@ -80,6 +81,7 @@ import {
 	type PumpStatusParts
 } from './results';
 import type { CaseId } from './scenarios';
+import { pointRay } from './system-curve-line';
 
 export { DUTY_CLAIM_RULE, runningWords } from './pump-group-chart';
 export { addedNotice, memberLabels, offName, offOverride } from './pump-lineups';
@@ -243,7 +245,15 @@ export function sameStation(a: PumpGroupStation, b: PumpGroupStation): boolean {
 
 /** Whether an other case's duty is called a point of the group system curve shown, or why not. */
 export type DutyClaim =
-	'on' | 'rest_differs' | 'no_curve' | 'zero_flow' | 'beyond_range' | 'gap' | 'shown_duty';
+	| 'on'
+	| 'rest_differs'
+	| 'no_curve'
+	| 'zero_flow'
+	| 'beyond_range'
+	| 'gap'
+	| 'vertical'
+	| 'off_vertical'
+	| 'shown_duty';
 
 export const DUTY_CLAIM_WORDS: Readonly<Record<DutyClaim, string>> = {
 	on: 'Yes: the same rest of the network',
@@ -254,15 +264,25 @@ export const DUTY_CLAIM_WORDS: Readonly<Record<DutyClaim, string>> = {
 	zero_flow: 'Not said: at zero station flow the rest can hold more than one state',
 	beyond_range: 'Not said: its flow is beyond the flows this curve was computed for',
 	gap: 'Not said: the curve has no rise next to its flow',
+	// At a vertical part (open-defects-2.md C1): never "no rise", which the drawing denies.
+	vertical:
+		"Not said: at its flow the curve is vertical (its rise undetermined there), and this case's own system duty check does not agree",
+	off_vertical:
+		'Not said: at its flow the curve is vertical, and its rise is not on that vertical part',
 	shown_duty:
 		"Not said: this case's own duty is not on the curve (several steady states can exist; the duty is the one the solve found)"
 };
 
 /**
  * The first that applies: the rests differ; no group system curve is shown; the duty is at zero
- * station flow (below the duty check's floor); no computed flow of the curve lies at or below it,
- * or at or above it; the nearest of those on either side has no rise; the shown case's own system
- * duty check does not agree; else on.
+ * station flow (below the duty check's floor); then, at a vertical part (a point within the duty
+ * check's floor of its flow states the range of rises that hold there, system-curve-line.ts;
+ * open-defects-2.md C1), its rise off that range ('off_vertical'), else on the curve where the
+ * shown case's own system duty check agrees and 'vertical' where it does not; otherwise no
+ * computed flow of the curve lies at or below it, or at or above it; the nearest of those on
+ * either side has no rise; the shown case's own system duty check does not agree; else on. A rise
+ * within D6's allowance of the vertical's foot (0.5 % or 0.01 m, the system duty check's) is on
+ * its side, as C2 decides the shown case's own duty (open-defects-2.md §3).
  */
 export function dutyClaim(input: {
 	shared: boolean;
@@ -275,6 +295,15 @@ export function dutyClaim(input: {
 	const q = dutyFlow(duty.flow);
 	if (q === 0) return 'zero_flow';
 	const points = [...system.systemPoints].sort((a, b) => a.flow - b.flow);
+	const vertical = points.find((p) => Math.abs(p.flow - q) <= DUTY_CHECK_FLOOR && pointRay(p));
+	const ray = vertical ? pointRay(vertical) : null;
+	if (ray) {
+		const allowance = Math.max(0.005 * Math.abs(ray.from), SYSTEM_DUTY_CHECK_FLOOR);
+		const onSide =
+			ray.bound === 'lower' ? duty.head >= ray.from - allowance : duty.head <= ray.from + allowance;
+		if (!onSide) return 'off_vertical';
+		return system.systemDutyCheck?.agrees ? 'on' : 'vertical';
+	}
 	const below = points.filter((p) => p.flow <= q).at(-1);
 	const above = points.find((p) => p.flow >= q);
 	if (!below || !above) return 'beyond_range';

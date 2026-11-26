@@ -73,6 +73,7 @@
 	} from '$lib/utils/pump-chart';
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
+	import { boundWords, verticalSummary } from '$lib/utils/system-curve-line';
 	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import CaseTag from '$lib/components/ui/CaseTag.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -490,8 +491,13 @@
 			data.operating?.x ?? 0
 		)
 	);
+	// At a vertical part the system head is a range, never a bare head (open-defects-2.md C1).
+	const rangeMark = (item: { bound?: 'lower' | 'upper' }) =>
+		item.bound === 'lower' ? '≥ ' : item.bound === 'upper' ? '≤ ' : '';
 	const readoutText = $derived(
-		readout.map((r) => `${r.label} ${fmt(r.value)} ${r.unit}`).join(', ')
+		readout
+			.map((r) => `${r.label} ${r.bound ? `${boundWords(r.bound)} ` : ''}${fmt(r.value)} ${r.unit}`)
+			.join(', ')
 	);
 	/** The chart drawn on screen (not reactive): the cursor redraws it, the pointer reads it. */
 	let drawnChart: ChartInstance<'line'> | null = null;
@@ -602,7 +608,9 @@
 		const parts = [
 			`Pump curve of ${name} at ${speedText}${off ? ', for reference: the pump is off' : ''}`
 		];
-		if (data.system && data.systemMissing < data.system.length) parts.push('system curve');
+		// Drawn where some point is, a vertical part's foot too, each vertical part said (C1).
+		if (data.system?.some((p) => p.y !== null))
+			parts.push(`system curve${verticalSummary(data.systemRays, data.flowUnit, data.headUnit)}`);
 		const op = data.operating;
 		const held = data.held;
 		const at = op
@@ -686,7 +694,16 @@
 	);
 	/** The figure's sentences under the chart, which the image's footer repeats (export.md §3.4). */
 	const notes = $derived(
-		chartNotes({ data, result, system, othersControlled, shown, speedShown, checksShown })
+		chartNotes({
+			data,
+			result,
+			system,
+			othersControlled,
+			shown,
+			speedShown,
+			checksShown,
+			others: otherData
+		})
 	);
 	/** The notes about the values, in the screen's order (pumps-results-layout.md §5.3). */
 	const valued = $derived(valueNotes(notes, data));
@@ -801,7 +818,9 @@
 						cursor: () => cursorNow,
 						onlabels: (placed) => ringsDrawn(element, d, drawnCases, placed),
 						// The canvas legend as laid out, for measuring the layout (leftovers L16 to L18).
-						onlegend: (laid) => (element.dataset.legend = JSON.stringify(laid))
+						onlegend: (laid) => (element.dataset.legend = JSON.stringify(laid)),
+						// The system curves' vertical parts as drawn (open-defects-2.md C1).
+						onrays: (rays) => (element.dataset.systemRays = JSON.stringify(rays))
 					})
 				);
 				drawnChart = chart;
@@ -909,7 +928,8 @@
 				reasonsIn: IMAGE_REASONS_IN,
 				shown,
 				speedShown,
-				checksShown
+				checksShown,
+				others: otherData
 			}),
 			others: otherData,
 			offCases: offNote,
@@ -1027,7 +1047,8 @@
 								>{#if i}<span class="sr-only">,&nbsp;</span>{/if}<span class="text-slate-600"
 									>{item.label}</span
 								>
-								<span class="font-medium">{fmt(item.value)} {item.unit}</span></span
+								<span class="font-medium">{rangeMark(item)}{fmt(item.value)} {item.unit}</span
+								></span
 							>{:else}<span>no line is drawn at this flow</span>{/each}
 					</p>
 				{/if}
@@ -1161,6 +1182,10 @@
 			<!-- Another case's ring whose label the chart left out, named with its values (nit 5,
 				rule 7: never only counted). -->
 			<p class="text-xs text-slate-700">{notLabelled}</p>
+		{/if}
+		{#if notes.belowZero}
+			<!-- What lies below zero flow and is not drawn, with its values (open-defects-2.md X). -->
+			<p class="text-xs text-slate-700">{notes.belowZero}</p>
 		{/if}
 		{#if valued.method}
 			<!-- How the curve shown was computed, where it is shown (GOALS §4.2): the request
@@ -1427,7 +1452,8 @@
 					caption="System curve, {caseNamed(other.tag, other.label)}"
 					label={systemLabel}
 					points={other.systemRows.length}
-					openByDefault={cannotDraw || other.systemRows.some((row) => row.head === '—')}
+					openByDefault={cannotDraw ||
+						other.systemRows.some((row) => row.head === '—' || !!row.note)}
 					bind:choice={tablesOpen[`system-${caseId(other.key)}`]}
 				>
 					<thead class="bg-slate-50">

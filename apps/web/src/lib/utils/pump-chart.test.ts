@@ -10,6 +10,7 @@ import { pumpTransferExample } from './examples';
 import {
 	caseNamed,
 	caseTagOf,
+	chartReadout,
 	caseTags,
 	caseTagText,
 	caseTagWords,
@@ -31,7 +32,10 @@ import {
 	type PumpChecksInput
 } from './pump-chart';
 import { MAX_SCENARIOS, scenariosOf, withScenarios } from './scenarios';
-import { IMPERIAL_UNITS, SI_UNITS } from './units';
+import { formatNumber, fromSI, IMPERIAL_UNITS, SI_UNITS } from './units';
+import { condenserCase, condenserCaseProject, condenserMembers } from './condenser-charts.testing';
+import { groupChartData } from './pump-group-chart';
+import { pumpChartConfig } from './pump-chart-config';
 
 const GPM = (231 * 0.0254 ** 3) / 60; // m³/s, US gallon = 231 in³
 const FT = 0.3048;
@@ -907,5 +911,135 @@ describe('valueNotes: the notes about the values, in the screen’s order', () =
 			shown: ['head', 'efficiency', 'power']
 		});
 		expect(valueNotes(hidden, data).first).toEqual(rising);
+	});
+});
+
+// docs/proposals/open-defects-2.md §2 C1, on the condenser example's recorded answers
+// (__fixtures__/condenser-charts.json, main's API): one pump and one chiller line, F1's setpoint
+// on /system-curve's grid, so a sampled flow lands on the FCV's limit and states its openHead.
+describe('a pump’s system curve’s vertical part at its FCV’s limit (open-defects-2.md C1)', () => {
+	const pumpCard = (name: 'single24' | 'winter') => {
+		const c = condenserCase(name);
+		const project = condenserCaseProject(name);
+		const prefs = project.settings.units;
+		const result = c.pumpResults!.P1!;
+		const curve = c.pumpSystemCurve!;
+		const data = pumpChartData(result, prefs, ratedCurveRange(project, 'P1'), curve, {
+			project
+		});
+		return { project, prefs, result, curve, data };
+	};
+	const f4 = (v: number) => formatNumber(v, 4);
+
+	it('draws the point at the limit as its foot and a ray up, and says why in each place', () => {
+		const { data, curve, result } = pumpCard('single24');
+		const at = curve.points.find((p) => p.reason === 'valve_at_switch')!;
+		expect(at).toMatchObject({ head: null, openHeadBound: 'lower' });
+		const x = fromSI(at.flow, 'L/s');
+		expect(data.systemRays).toEqual([{ x, from: at.openHead, bound: 'lower' }]);
+		expect(data.system!.find((p) => p.x === x)).toEqual({ x, y: at.openHead, bound: 'lower' });
+		// The pump runs at F1's setpoint, on the vertical part.
+		expect(data.operating!.x).toBeCloseTo(x, 9);
+		expect(data.operating!.y).toBeGreaterThan(at.openHead!);
+		// The data table: the range that holds, its reason unchanged; every other gap a dash.
+		const row = data.systemRows.find((r) => r.flow === f4(x))!;
+		expect(row.head).toBe('≥ 20.72');
+		expect(row.note).toMatch(/^The head across the pump is undetermined: at this flow /);
+		expect(data.systemRows.filter((r) => r.head === '—')).toHaveLength(16);
+		const past = curve.points.filter((p) => p.reason === 'beyond_limit');
+		expect(new Set(past.map((p) => p.limitFlow))).toEqual(new Set([at.flow]));
+		const notes = chartNotes({ data, result, system: { status: 'ready', curve } });
+		expect(notes.curve).toEqual({
+			kind: 'missing',
+			text:
+				`17 of 41 system-curve points have no head: at ${f4(x)} L/s it is undetermined, any head at or above ${f4(at.openHead!)} m holding, drawn as the curve's vertical part from there to the top of the head axis; at the ${past.length} flows sampled beyond ${f4(x)} L/s no steady state carries the flow; ` +
+				'the data table says why for each (no steady state carries the flow, its head is undetermined, its solve did not converge, or it was not computed).'
+		});
+		expect(notes.curve!.text).toMatch(
+			/^17 of 41 system-curve points have no head: at 953\.9 L\/s it is undetermined, any head at or above 20\.72 m holding/
+		);
+		// The readout at that flow: the range, never a bare head.
+		expect(chartReadout(data, ['head'], x).find((i) => i.key === 'system')).toEqual({
+			key: 'system',
+			label: 'System head',
+			value: at.openHead,
+			unit: 'm',
+			bound: 'lower'
+		});
+		expect(
+			chartReadout(data, ['head'], data.system![1]!.x).find((i) => i.key === 'system')
+		).not.toHaveProperty('bound');
+	});
+
+	it('gives another case’s dotted system curve its vertical part too', () => {
+		const { curve, result, project, prefs } = pumpCard('single24');
+		const [other] = otherCasesData(
+			[{ key: 'S1', name: 'One line', result, stale: false, system: curve }],
+			prefs,
+			ratedCurveRange(project, 'P1'),
+			1,
+			{ project },
+			{ S1: 1 }
+		);
+		expect(other!.systemRays).toEqual(pumpCard('single24').data.systemRays);
+		expect(other!.system).toEqual(pumpCard('single24').data.system);
+		expect(other!.systemRows.find((r) => r.head.startsWith('≥'))!.head).toBe('≥ 20.72');
+	});
+
+	it('draws nothing at a limit no point states: the example’s Winter case (C3 adds the point)', () => {
+		// P1 runs at F1's setpoint, between two grid flows: no point states its openHead, so its
+		// line stops at the last flow with a head; the group chart of the same case draws its
+		// vertical at the duty, which the group system curve always solves (D21 4b).
+		const { data, result } = pumpCard('winter');
+		expect(data.systemRays).toEqual([]);
+		const drawn = data.system!.filter((p) => p.y !== null);
+		expect(f4(drawn.at(-1)!.x)).toBe('914.2');
+		expect(f4(fromSI(result.operatingFlow, 'L/s'))).toBe('946.4');
+		const project = condenserCaseProject('winter');
+		const group = condenserCase('winter');
+		const groupData = groupChartData(
+			condenserMembers('winter'),
+			project.settings.units,
+			group.groupCurve!,
+			group.systemCurve!
+		);
+		expect(groupData.systemRays).toHaveLength(1);
+		expect(f4(groupData.systemRays[0]!.x)).toBe('946.4');
+		expect(f4(groupData.systemRays[0]!.from)).toBe('20.31');
+	});
+});
+
+// docs/proposals/open-defects-2.md §2 X: the flow axis starts at zero; what lies further below
+// than the floor (10⁻⁶ m³/s) is not drawn and is named with its values. Synthetic: no answer of
+// the API gives a pump chart such a flow (a system curve's flows start at 0, a pump's are not
+// negative); the shapes are the API's, the flows moved below zero.
+describe('the pump chart below zero flow (open-defects-2.md X)', () => {
+	it('names a line’s points and a mark below the floor, in the notes and the image', () => {
+		const curve = systemCurveResponse();
+		const first = [...curve.points].sort((a, b) => a.flow - b.flow)[0]!;
+		first.flow = -0.001;
+		const result = pumpResult({ operatingFlow: -0.002 });
+		const data = pumpChartData(result, SI_UNITS, [0, 0.03], curve);
+		expect(data.flowFloor).toBeCloseTo(0.001, 12);
+		const notes = chartNotes({ data, result, system: { status: 'ready', curve } });
+		// The pump curve's dashed extrapolation runs to the operating point, below zero too.
+		expect(notes.belowZero).toBe(
+			`Below zero flow, not drawn: the pump curve's point at -2 L/s and 22 m; the system curve's point at -1 L/s and ${formatNumber(first.head!, 4)} m; the operating point at -2 L/s and 22 m; the data tables list them.`
+		);
+		const cfg = pumpChartConfig(data, [], {
+			speedText: '100 % speed',
+			legendLabels: () => [],
+			format: (v) => formatNumber(v, 4)
+		});
+		expect(cfg.data.datasets.map((d) => d.label)).not.toContain('Operating point');
+		expect(cfg.data.datasets.map((d) => d.label)).toContain('System curve');
+		expect(imageNoteLines(notes, [])).toContain(notes.belowZero);
+		// Within the floor: drawn at the edge, nothing named.
+		first.flow = -1e-7;
+		const near = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], curve);
+		expect(near.belowZero).toEqual([]);
+		expect(
+			chartNotes({ data: near, result: pumpResult(), system: undefined }).belowZero
+		).toBeNull();
 	});
 });

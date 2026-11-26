@@ -146,15 +146,19 @@ active PRV or PSV inside does not refuse):
   point has a rise (and then every reason field empty), one of D10's nine codes otherwise; no
   message in a pump's words ('the pump', 'suction', 'discharge', 'head across'); the system
   duty check's rise the duty point's and ``agrees`` as recomputed (|H_sys(Q_st) − ΔH_st| <=
-  max(0.5 % of |ΔH_st|, 0.01 m)). A disagreement is explained, counted and listed when the duty's
-  flow has no rise (its point's reason), or when the check says the rest has more than one
+  max(0.5 % of |ΔH_st|, 0.01 m); or, where the duty's point has no rise because a control valve
+  sits at its switch, ``valve_at_switch`` with a finite ``openHead`` and a bound, ΔH_st on the
+  bound's side of ``openHead`` within the same allowance: the curve's vertical part,
+  open-defects-2.md §3 C2, counted apart). A disagreement is explained, counted and listed when
+  the duty's flow has no rise (its point's reason; a rise on the other side of a vertical part
+  counted apart), or when the check says the rest has more than one
   steady state there (D13) and either the station passes no flow (|Q_st| <= 1e-6 m³/s: a side
   the interior held closed can hang on elements that are closed or open at zero flow) or a
   control outside it, regulating in the case's solve, carries its whole flow (``at_switch``: a
   PRV, PSV or FCV active, or a speed-controlled pump holding its setpoint, in series, so that at
   Q_st it sits at its switch, D10's valve_at_switch, and every rise beyond the open valve's is a
   steady state too); any other is a violation. The largest |H_sys(Q_st) − ΔH_st| of the checks
-  that agree is reported.
+  that agree is reported, and the largest |ΔH_st − openHead| of those on a vertical part.
 - (t2) invariance, every station with a duty: the same group's system curve on the same flows
   (the base's ``flowMin`` and ``flowMax``) after (a) every member's status set to 'off' and (b)
   every member's speed changed (0.8 ×, or halfway to its minimum speed), each grid point equal
@@ -2026,7 +2030,8 @@ def _system_duty_check(
     case: Callable[[], SolvedState] | None,
     project: Project | None = None,
 ) -> list[str]:
-    """(t1): the system duty check recomputed; a disagreement explained by the duty's flow
+    """(t1): the system duty check recomputed (a rise against the duty's, or the rises a vertical
+    part holds, ``on_vertical``); a disagreement explained by the duty's flow
     having no rise, by zero station flow, by a control in series at its switch, or by the rest
     having no rise when solved once warm from the case's own solve (``warm_without_rise``: the
     rise reported is then the state D10's rule finds from another start), the D13 message each
@@ -2040,7 +2045,10 @@ def _system_duty_check(
             f"{label} the system duty check's rise {check.head!r}, the duty point's {at.head!r}"
         )
     allowance = max(DUTY_RTOL * abs(duty.head), HEAD_FLOOR)
-    agrees = check.head is not None and abs(check.head - duty.head) <= allowance
+    vertical = on_vertical(at, duty.head, allowance)
+    agrees = (
+        abs(check.head - duty.head) <= allowance if check.head is not None else vertical is True
+    )
     if check.agrees != agrees:
         return [
             *problems,
@@ -2050,6 +2058,18 @@ def _system_duty_check(
     if check.head is not None and agrees:
         rec.counts["system_agrees"] += 1
         rec.most("|H_sys(Q_st) - rise|, m", abs(check.head - duty.head))
+    elif agrees:
+        # C2: the duty's rise is one of those the vertical part holds (head null).
+        assert at is not None
+        assert at.open_head is not None
+        rec.counts["system_agrees_vertical"] += 1
+        rec.most("rise past the vertical part's foot, m", abs(duty.head - at.open_head))
+    elif vertical is False:
+        rec.counts["system_disagrees: the rise on the other side of the vertical part"] += 1
+        rec.notes.append(
+            "system duty check where the duty's rise is not on the vertical part's side "
+            f"({where}): {check.message}"
+        )
     elif check.head is None:
         why = at.reason if at is not None else "the duty's flow outside the range"
         rec.counts[f"system_disagrees: no rise ({why})"] += 1
@@ -2081,6 +2101,23 @@ def _system_duty_check(
     else:
         problems.append(f"{label} the system duty check disagrees ({where}): {check.message}")
     return problems
+
+
+def on_vertical(at: PumpGroupSystemPoint | None, rise: float, allowance: float) -> bool | None:
+    """(t1), C2 (docs/proposals/open-defects-2.md §3): whether the duty's ``rise`` is one of the
+    rises the group system curve's vertical part holds at the duty's point ``at``, a control valve
+    at its switch (``valve_at_switch`` with a finite ``openHead`` and a bound, D10): on the bound's
+    side of ``openHead`` within ``allowance``. None where ``at`` states no vertical part (no
+    point, a rise, another reason, no finite openHead or no bound)."""
+    if at is None or at.head is not None or at.reason != "valve_at_switch":
+        return None
+    if at.open_head is None or not math.isfinite(at.open_head):
+        return None
+    if at.open_head_bound == "lower":
+        return rise >= at.open_head - allowance
+    if at.open_head_bound == "upper":
+        return rise <= at.open_head + allowance
+    return None
 
 
 def warm_without_rise(project: Project, station: Station, flow: float) -> str | None:
@@ -3007,8 +3044,9 @@ def system_lines(records: list[dict[str, Any]]) -> list[str]:
         f"{_tally(_prefixed(counts, 'default_range: '))}; the duty's flow outside the range "
         f"{counts['duty_outside_range']}",
         "group system curve points by reason: " + _tally(_prefixed(counts, "point:")),
-        f"system duty checks: agree {counts['system_agrees']}; disagree, explained (listed "
-        "with the notes): " + _tally(_prefixed(counts, "system_disagrees: ")),
+        f"system duty checks: agree {counts['system_agrees']}, on the vertical part (C2) "
+        f"{counts['system_agrees_vertical']}; disagree, explained (listed with the notes): "
+        + _tally(_prefixed(counts, "system_disagrees: ")),
         f"invariance (t2): curves compared {counts['invariance_curves']}, grid points "
         f"{counts['invariance_points']}; skipped: grid flows a duty stands for "
         f"{counts['invariance_duty_flow']}, edits refused "
@@ -3024,7 +3062,8 @@ def system_lines(records: list[dict[str, Any]]) -> list[str]:
         f"{one['one_messages']}; the grid flow the duty stands for: "
         + _tally(_prefixed(one, "one_duty_flow: "))
         + f"; their system curves' points by reason {_tally(_prefixed(one, 'point:'))}; system "
-        f"duty checks agree {one['system_agrees']}, disagree explained "
+        f"duty checks agree {one['system_agrees']}, on the vertical part "
+        f"{one['system_agrees_vertical']}, disagree explained "
         + _tally(_prefixed(one, "system_disagrees: ")),
     ]
     notes = [f"  {r['name']} [{p['pump']!r}]: {n}" for r, p in pumps for n in p.get("notes", [])]

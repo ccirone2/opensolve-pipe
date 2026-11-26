@@ -1392,7 +1392,12 @@
 							<tbody>
 								{#each data.systemRows as row, i (i)}
 									<tr class="border-t border-slate-100">
-										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+										<!-- A limit point (open-defects-2.md C3), in flow order, marked. -->
+										<td class="px-2 py-1 text-right tabular-nums"
+											>{row.atLimit ? `${row.flow} ` : row.flow}{#if row.atLimit}<span
+													class="text-xs text-slate-600">(limit point)</span
+												>{/if}</td
+										>
 										<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
 										{#if data.npsh?.available}
 											<td class="px-2 py-1 text-right tabular-nums">{row.npsha}</td>
@@ -1466,7 +1471,11 @@
 					<tbody>
 						{#each other.systemRows as row, i (i)}
 							<tr class="border-t border-slate-100">
-								<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+								<td class="px-2 py-1 text-right tabular-nums"
+									>{row.atLimit ? `${row.flow} ` : row.flow}{#if row.atLimit}<span
+											class="text-xs text-slate-600">(limit point)</span
+										>{/if}</td
+								>
 								<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
 								<td class="px-2 py-1 text-xs text-slate-600"
 									>{row.note}{#if row.detail}<IssueDetail

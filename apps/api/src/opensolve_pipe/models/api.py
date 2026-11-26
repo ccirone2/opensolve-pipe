@@ -302,6 +302,23 @@ class SystemCurveResponse(OutputModel):
     converged: list[bool] = Field(
         description="Whether each point has a head (each point's converged)"
     )
+    limit_points: list[SystemCurvePoint] = Field(
+        description=(
+            "The points at the flows where the curve's range beyond its limit, or below its "
+            "floor, begins (docs/proposals/open-defects-2.md §3 C3), in flow order: the most "
+            "forced flow any steady state carries (every way from the pump's discharge back to "
+            "its suction passes a cut of FCVs at their setpoints and one-way elements against "
+            "the flow, with the assigned flows; the flow of the beyond_limit points' limitFlow) "
+            "and the least, where assigned flows set one (the below_floor points' limitFlow), "
+            "each where it is positive and finite, lies inside (flowMin, flowMax] and is no "
+            "requested flow (to within the status rules' and the solver's tolerances, where a "
+            "point of points already stands for it). There an FCV across the cut passes its "
+            "setpoint, so the point is often valve_at_switch: the curve is vertical at that "
+            "flow, from openHead. Each is solved alone after points, from the network's "
+            "initial state (no warm start), so points are what they are without it; empty "
+            "otherwise. Not counted in converged"
+        )
+    )
     scenario: ScenarioResult | None = Field(description=_SCENARIO_RESULT_DESCRIPTION)
 
 

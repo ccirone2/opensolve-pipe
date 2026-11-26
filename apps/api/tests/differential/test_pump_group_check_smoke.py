@@ -43,6 +43,8 @@ from opensolve_pipe.services.solver.builder import BuiltNetwork, build_network
 from opensolve_pipe.services.solver.system_curve import default_flow_max
 from tests.differential.corpus import API_ROOT, items
 from tests.differential.pump_group_check import (
+    DUTY_RTOL,
+    HEAD_FLOOR,
     NUM_POINTS,
     ONE_POINTS,
     SYSTEM_POINTS,
@@ -1177,16 +1179,49 @@ def _with_fcv() -> dict[str, Any]:
     return data
 
 
-def test_an_fcv_in_series_at_its_setpoint_explains_the_duty_check() -> None:
+def test_an_fcv_in_series_at_its_setpoint_puts_the_duty_on_the_vertical_part() -> None:
     """With the FCV holding the station's flow at its setpoint, the rest has a steady state at
     every rise above the open valve's at that flow: the duty's point has no rise
-    (valve_at_switch), and the disagreement is explained, counted and listed."""
+    (valve_at_switch), and the duty's rise, above the open valve's, is one of them, so the check
+    agrees on the curve's vertical part (open-defects-2.md §3 C2), counted apart."""
     record = _group(_case(_with_fcv()), ("PA", "PB"))
     assert record["violations"] == []
     counts = record["counts"]
-    assert counts["system_disagrees: no rise (valve_at_switch)"] == 1, counts
+    assert counts["system_agrees_vertical"] == 1, counts
+    assert not any(k.startswith("system_disagrees: ") for k in counts), counts
     assert counts["point:beyond_limit"] >= 1, counts
-    assert any("FCV 'FC' passes exactly its setpoint flow" in n for n in record["notes"])
+
+
+def test_a_falsified_vertical_agreement_is_caught() -> None:
+    """C2's rule recomputed from the duty's point: a flipped verdict, and a duty's rise moved to
+    the other side of openHead by twice D6's allowance while the check still agrees, are
+    violations; the same rise with the check disagreeing is explained and counted apart."""
+    solved = _solved(_with_fcv(), ["PA", "PB"])
+    curve = _system(solved)
+    assert curve.duty is not None
+    check = curve.system_duty_check
+    assert check is not None
+    assert (check.agrees, check.head) == (True, None)
+    at = next(p for p in curve.system_points if p.is_duty)
+    assert (at.reason, at.open_head_bound) == ("valve_at_switch", "lower")
+    assert at.open_head is not None
+
+    def problems(c: GroupCurve, duty: Any) -> tuple[list[str], CurveRecord]:
+        rec = CurveRecord()
+        return _system_duty_check(c, duty, at, "(t1)", rec, lambda: solved.case.state), rec
+
+    flipped = dataclasses.replace(
+        curve, system_duty_check=check.model_copy(update={"agrees": False})
+    )
+    found, _ = problems(flipped, curve.duty)
+    assert any("recomputed True" in p for p in found), found
+    allowance = max(DUTY_RTOL * abs(at.open_head), HEAD_FLOOR)
+    below = curve.duty.model_copy(update={"head": at.open_head - 2.0 * allowance})
+    found, _ = problems(curve, below)
+    assert any("recomputed False" in p for p in found), found
+    found, rec = problems(flipped, below)
+    assert found == []
+    assert rec.counts["system_disagrees: the rise on the other side of the vertical part"] == 1
 
 
 def test_falsified_one_member_curves_are_caught() -> None:

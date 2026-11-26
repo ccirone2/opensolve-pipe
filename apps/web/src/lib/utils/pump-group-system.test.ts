@@ -42,6 +42,7 @@ import {
 import { systemPointNote } from './system-curve-text';
 import { formatNumber, fromSI } from './units';
 import {
+	baseBeforeC2,
 	condenserCase,
 	condenserCaseProject,
 	condenserMembers,
@@ -620,10 +621,12 @@ describe("the duty's reason, worded with each element as solved", () => {
 	});
 });
 
-// docs/proposals/open-defects-2.md §2 C1, on the condenser example's recorded answers
-// (__fixtures__/condenser-charts.json, main's API): at the FCVs' limit the group system curve's
-// duty point is `valve_at_switch`, any rise at or above its `openHead` holding there. The chart
-// draws that range as the curve's vertical part, and the words relay the API's verdict.
+// docs/proposals/open-defects-2.md §2 C1 and §3 C2, on the condenser example's recorded answers
+// (__fixtures__/condenser-charts.json, apps/api/tests/fixtures/condenser_charts.py): at the FCVs'
+// limit the group system curve's duty point is `valve_at_switch`, any rise at or above its
+// `openHead` holding there. The chart draws that range as the curve's vertical part, and the words
+// relay the API's verdict: since C2 its system duty check agrees there; an API deployed before C2
+// does not (baseBeforeC2), and its verdict is relayed as given.
 describe('the group system curve’s vertical part at the FCVs’ limit (open-defects-2.md C1)', () => {
 	const condenserCard = (name: CondenserCase, system = condenserCase(name).systemCurve!) => {
 		const members = condenserMembers(name);
@@ -691,8 +694,8 @@ describe('the group system curve’s vertical part at the FCVs’ limit (open-de
 		expect(groupNoteLines(notes)).toContain(notes.systemCurve!.text);
 	});
 
-	it('keeps the API’s verdict at the duty (agrees false): its facts beside it, never a crossing of its own', () => {
-		const { data, notes, members, project, group, system } = condenserCard('base');
+	it('keeps the verdict of an API before C2 at the duty (agrees false): its facts beside it, never a crossing of its own', () => {
+		const { data, notes, members, project, group, system } = condenserCard('base', baseBeforeC2());
 		expect(system.systemDutyCheck).toMatchObject({ agrees: false, head: null });
 		expect(data.station).toMatchObject({
 			onCurve: true,
@@ -744,18 +747,15 @@ describe('the group system curve’s vertical part at the FCVs’ limit (open-de
 		);
 	});
 
-	it('words the vertical part as the API decides it once its check agrees there (C2’s shape)', () => {
-		// Synthetic: the system duty check as C2 will give it (open-defects-2.md §3): agrees, its
-		// head null, the rise on the bound's side; every other value as recorded.
-		const recorded = condenserCase('base').systemCurve!;
-		const system = structuredClone(recorded);
-		system.systemDutyCheck = {
-			agrees: true,
-			head: null,
-			message:
-				"the rest of the network with the station's flow 5.67812 m³/s forced from S to D leaves the rise undetermined at this flow: any rise at or above 24.6265 m holds (FCV 'F2' at its setpoint flow), and the solve's rise 31.4781 m is in that range, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part"
-		};
-		const { data, notes } = condenserCard('base', system);
+	it('words the vertical part as the API decides it, its check agreeing there (C2, as recorded)', () => {
+		// The API's answer (C2): agrees, its head null, the duty's rise on the bound's side.
+		const { data, notes, system, members, group, project } = condenserCard('base');
+		const at = dutyPoint(system);
+		expect(system.systemDutyCheck).toMatchObject({ agrees: true, head: null });
+		expect(system.systemDutyCheck!.message).toMatch(
+			/the solve's rise 31\.4781 m is one of them, within 0\.5 % or 0\.01 m: the group system curve passes through the duty on its vertical part$/
+		);
+		expect(system.duty!.head).toBeGreaterThan(at.openHead!);
 		expect(data.station).toMatchObject({
 			onCurve: true,
 			onSystem: true,
@@ -769,6 +769,19 @@ describe('the group system curve’s vertical part at the FCVs’ limit (open-de
 		expect(systemDutyCheckState(system)).toBe(
 			'the group system curve passes through it, on its vertical part'
 		);
+		expect(groupSummary(data, members, group, project, system)).toMatch(
+			/, on the group curve and the group system curve, where they cross; group curve shown; group system curve shown, vertical at 5678 L\/s from 24\.63 m up\.$/
+		);
+		// The photo's project and the Winter case: the same, from their own feet.
+		for (const [name, from] of [
+			['basin15', '10.23 m'],
+			['winter', '20.31 m']
+		] as const) {
+			const other = condenserCard(name);
+			expect(other.system.systemDutyCheck, name).toMatchObject({ agrees: true, head: null });
+			expect(other.data.station, name).toMatchObject({ crossing: true, tag: 'Group (crossing)' });
+			expect(other.notes.systemDuty[0], name).toContain(`any rise at or above ${from} holding`);
+		}
 		// A check that agrees with a head keeps its words.
 		expect(systemDutyCheckState(systemOf(named('parallel-ideal')))).toBe(
 			'the group system curve passes through it'

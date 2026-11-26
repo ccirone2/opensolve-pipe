@@ -1464,6 +1464,39 @@ def closed_form_failures(
     return failures
 
 
+AT_OR_ABOVE = re.compile(r"at or above (-?\d+(?:\.\d+)?) m(?![\w³²])")
+"""The bound of the rises that hold at a valve's switch, as the messages quote it."""
+METRES = re.compile(r"(-?\d+(?:\.\d+)?) m(?![\w³²])")
+"""Every head or rise a message quotes in metres (not m³/s)."""
+
+
+def vertical_part_failures(
+    message: str, valve_id: str, open_rise: float, duty_rise: float
+) -> list[str]:
+    """What a system duty check's message lacks where the duty's point is a valve's switch with
+    openHeadBound 'lower' and the duty's rise above the bound (open-defects-2 §3 C2): it names
+    the valve, says the rise is undetermined at this flow, quotes the bound (each 'at or above
+    … m' within D6 of ``open_rise``) and the solve's rise (some quoted metres within D6 of
+    ``duty_rise``), and says the curve passes through the duty on its vertical part, never that
+    it is not shown to pass through it."""
+    text = message.lower()
+    failures = []
+    if f"'{valve_id}'" not in message:
+        failures.append(f"does not name '{valve_id}'")
+    if "undetermined" not in text:
+        failures.append("does not say the rise is undetermined")
+    if "passes through the duty" not in text or "vertical part" not in text:
+        failures.append("does not say the curve passes through the duty on its vertical part")
+    if "not shown to pass through" in text:
+        failures.append("says the curve is not shown to pass through the duty")
+    bounds = [float(v) for v in AT_OR_ABOVE.findall(message)]
+    if not bounds or not all(head_ok(b, open_rise) for b in bounds):
+        failures.append(f"bound {bounds} vs H_sys,open {open_rise!r}")
+    if not any(head_ok(float(v), duty_rise) for v in METRES.findall(message)):
+        failures.append(f"no quoted rise within D6 of the duty's {duty_rise!r}")
+    return [f"{f}: {message!r}" for f in failures]
+
+
 def in_station_words(message: str) -> list[str]:
     """What a point's message must not say (the contract): the pump's sides and head, which
     the station's inlet, outlet and rise replace. Another pump may be named as an element."""
@@ -1898,8 +1931,33 @@ def test_pgs8_an_fcv_outside_the_station(api: Api) -> None:
     limitFlow and passedFlow), in the station's words. The case's solve holds the setpoint, so
     Q_st is the setpoint and ΔH_st the group curve's rise at it; the duty's point is the FCV's
     switch, where the rise is undetermined from the open-valve rise up (valve_at_switch,
-    openHeadBound 'lower'), and ΔH_st lies on that vertical stretch. The system duty check
-    then has no rise to compare (head null, agrees false) and names the FCV."""
+    openHeadBound 'lower').
+
+    The system duty check on that vertical part (docs/proposals/open-defects-2.md §1 call 1,
+    §3 C2). At Q = q_f the FCV passes exactly its setpoint, either open, losing nothing (ideal),
+    or active with a drop δ ≥ 0 (D9: an active FCV opens once the head across it falls below
+    its fully open loss, here 0), and nothing fixes the pressure between it and the station. So
+    the rises that hold at q_f are every
+
+        H ≥ H_sys,open(q_f) = H_R2 − H_R1 + h_L1(q_f) + h_L2a(q_f) + h_L2(q_f)
+
+    (``group_system_rise``, the point's openHead): the group system curve is vertical at q_f
+    from openHead up. The duty's rise, ΔH_st = ``rise_at_station_flow``(q_f) (the group curve's
+    rise at the station flow the FCV fixes), is one of them: it lies more than 1 m above
+    H_sys,open(q_f) (both closed forms, asserted below), against D6's allowance of
+    max(0.5 % ΔH_st, 0.01 m) = 0.16 m. So the curve passes through the duty on its vertical
+    part, and the check agrees, with no single rise to quote (head null). Its message names the
+    FCV, says the rise is undetermined there, quotes the bound and the solve's rise (each
+    within D6 of its closed form) and says the curve passes through the duty on its vertical
+    part, never that it is not shown to.
+
+    No case is built with the duty's rise on the wrong side of the bound: none can be from
+    closed forms. A converged case whose station flow is at the valve's switch is a steady state
+    of the same outside at the same flow, so its rise is one the point states, to the status
+    rules' head tolerance (an active FCV is kept while the head across it is at least its open
+    loss less HTOL, ``element_laws.HTOL`` = 10⁻⁴ m, a hundredth of D6's 0.01 m). A rise on the
+    wrong side needs the case and the point in different states of the outside (CLAUDE.md D13),
+    which no closed form chooses between."""
     base = dp.pumps_in_parallel().project
     q_f = OUTLET_FCV_SETPOINT
     assert q_f < 0.9 * dp.pumps_in_parallel().expected.flows["L1"]
@@ -1966,9 +2024,12 @@ def test_pgs8_an_fcv_outside_the_station(api: Api) -> None:
     assert "undetermined" in at["message"]
     assert "'FC'" in at["message"]
     assert "pump" not in at["message"].lower()
+    # C2: the duty's rise is on the bound's side of openHead (closed forms), so the check agrees.
+    duty_rise = dg.rise_at_station_flow(ladder, q_f, 20.0, 40.0)
+    assert duty_rise > open_rise + 1.0
     check = response["systemDutyCheck"]
-    assert (check["head"], check["agrees"]) == (None, False)
-    assert "'FC'" in check["message"]
+    assert (check["head"], check["agrees"]) == (None, True), check["message"]
+    assert vertical_part_failures(check["message"], "FC", open_rise, duty_rise) == []
 
 
 # --------------------------------------------------------------------------- PGS9
@@ -2267,3 +2328,76 @@ def test_pgs_the_methods_describe_the_group_system_curve(api: Api) -> None:
     response = system_curve(api, base, ["PA", "PB"], numPoints=5)
     assert response["methodVersion"] == state["methodVersion"]
     assert state["methodVersion"] in " ".join(response["methods"]["items"])
+
+
+# --------------------------------------------------------------------------- PGS13
+
+
+@pytest.mark.parametrize("q_f", dg.FCV_LINE_SETPOINTS)
+def test_pgs13_a_station_of_one_pump_behind_an_fcv(api: Api, q_f: float) -> None:
+    """A station of one pump whose duty is an FCV's switch (docs/proposals/open-defects-2.md
+    §3 C2 and C3; ``dg.fcv_line``: R1 → L1 → PU1 → L2 → FCV1, ideal at q_f → L3 → R2, PU1
+    unthrottled above q_f). The case's solve holds FCV1 active: Q_st = q_f and ΔH_st = H₀(q_f),
+    PU1 on its curve (``dg.fcv_line_duty``). On the default range's grid, sent explicitly:
+
+    - the group system curve's duty point is PU1's switch: valve_at_switch naming FCV1, the
+      rises that hold every H ≥ H_sys,open(q_f) = H_R2 − H_R1 + Σ h_line(q_f), its openHead,
+      openHeadBound 'lower';
+    - C3: /system-curve for PU1 on the same grid, its grid unchanged (bit for bit the station's
+      grid points, PGS5's rule, and the group system curve is not changed by C3), adds its
+      limit point at q_f, which is no grid flow; its openHead is the station duty point's
+      (D6), and both are the closed form;
+    - C2: ΔH_st = H₀(q_f) lies above H_sys,open(q_f) (by 21.1 m at 0.015 m³/s and 14.7 m at
+      0.021 m³/s, against D6's allowances max(0.5 % ΔH_st, 0.01 m) of 0.214 m and 0.203 m), so
+      the curve passes through the duty on its vertical part: the check agrees, head null, and
+      its message says so (PGS8's rule)."""
+    chain = dg.fcv_line(q_f)
+    project = dg.fcv_line_project(q_f)
+    q_case, duty_rise = dg.fcv_line_duty(chain)
+    open_rise = dg.fcv_line_open_rise(chain, q_f)
+    grid = dg.FCV_LINE_GRID
+    response = system_curve(api, project, ["PU1"], **grid)
+    station_of(response, ("PU1", "suction"), ("PU1", "discharge"), "parallel", ["PU1"], ["PU1"], [])
+    points = check_system_response(response, dg.FCV_LINE_POINTS, flow_max=dg.FCV_LINE_FLOW_MAX)
+    duty = response["duty"]
+    assert flow_ok(duty["flow"], q_case), duty
+    assert head_ok(duty["head"], duty_rise), duty
+    [member] = duty["members"]
+    assert (member["pumpId"], member["status"]) == ("PU1", "running")
+    [at] = [p for p in response["systemPoints"] if p["isDuty"]]
+    assert at["flow"] == duty["flow"]
+    want = {
+        "head": None,
+        "converged": False,
+        "reason": "valve_at_switch",
+        "componentIds": ["FCV1"],
+        "openHeadBound": "lower",
+    }
+    assert {k: at[k] for k in want} == want, at
+    assert head_ok(at["openHead"], open_rise), (at["openHead"], open_rise)
+
+    body = {"project": as_json(project), "pumpId": "PU1", **grid}
+    reply = api.post(SYSTEM, body)
+    assert reply.status_code == 200, reply.text
+    single = reply.json()
+    failures = []
+    for g, s in zip(points, single["points"], strict=True):
+        differ = [k for k in POINT_FIELDS if g[k] != s[k]]
+        if differ:
+            failures.append(f"Q {g['flow']!r}: {differ}: {[(g[k], s[k]) for k in differ]}")
+    assert not failures, "\n".join(failures)
+    [limit] = single["limitPoints"]
+    assert flow_ok(limit["flow"], q_f), limit
+    assert (limit["head"], limit["reason"], limit["openHeadBound"]) == (
+        None,
+        "valve_at_switch",
+        "lower",
+    ), limit
+    assert limit["componentIds"] == ["FCV1"]
+    assert head_ok(limit["openHead"], open_rise), (limit["openHead"], open_rise)
+    assert head_ok(at["openHead"], limit["openHead"]), (at["openHead"], limit["openHead"])
+
+    assert duty_rise > open_rise + 1.0
+    check = response["systemDutyCheck"]
+    assert (check["head"], check["agrees"]) == (None, True), check["message"]
+    assert vertical_part_failures(check["message"], "FCV1", open_rise, duty_rise) == []

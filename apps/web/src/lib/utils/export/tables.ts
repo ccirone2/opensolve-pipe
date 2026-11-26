@@ -50,6 +50,7 @@ import {
 } from '../design-checks';
 import { DIRECTION_NAMES, flowDirection } from '../assigned-flow';
 import { pumpChartData } from '../pump-chart';
+import { systemCurvePoints } from '../system-curve-line';
 import {
 	ARRANGEMENT_WORDS,
 	dutyCheckState,
@@ -707,11 +708,12 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			q('Flow', 'flow'),
 			q('Head', 'head'),
 			bool('Converged'),
+			bool('At a flow limit'),
 			text('Reason code'),
 			text('Reason')
 		],
 		cases,
-		(c) => readyCurves(c).reduce((n, r) => n + r.curve.points.length, 0),
+		(c) => readyCurves(c).reduce((n, r) => n + systemCurvePoints(r.curve).length, 0),
 		function* (c) {
 			for (const { pumpId, result, curve } of readyCurves(c)) {
 				const name = componentName(c, pumpId);
@@ -721,7 +723,9 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 					project: c.names,
 					solved: c.structure
 				}).systemRows;
-				const points = [...curve.points].sort((a, b) => a.flow - b.flow);
+				// The evenly spaced flows and the limit points (open-defects-2.md C3), in flow order,
+				// as the chart draws and lists them; a limit point marked At a flow limit.
+				const points = systemCurvePoints(curve);
 				for (const [i, p] of points.entries()) {
 					yield [
 						pumpId,
@@ -732,6 +736,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 						u.value(p.flow, 'flow'),
 						u.value(p.head, 'head'),
 						p.converged,
+						p.atLimit,
 						p.reason,
 						notes[i]?.note || null
 					];

@@ -1,39 +1,51 @@
-"""The condenser example's chart fixture (docs/proposals/open-defects-2.md §2, C1 and X).
+"""The condenser example's chart fixture of the web app (docs/proposals/open-defects-2.md §2 C1
+and X, §3 C2 and C3).
 
-    cd apps/api && uv run python ../web/src/lib/utils/__fixtures__/condenser-charts.record.py \
-        PROJECT.json ../web/src/lib/utils/__fixtures__/condenser-charts.json
-    cd ../web && pnpm exec prettier --write src/lib/utils/__fixtures__/condenser-charts.json
+    cd apps/api && uv run python -m tests.fixtures.condenser_charts [PROJECT.json] \
+        > ../web/src/lib/utils/__fixtures__/condenser-charts.json
 
-PROJECT.json is the web's condenserWaterExample() as JSON (utils/examples.ts); the web's test
-checks the fixture's project against it, so a changed example asks for the fixture again. Every
-response is main's API's, through the real app (``POST /api/v1/solve``, ``/pump-group-curve``
-with curves ``group`` and ``system``, ``/system-curve``): nothing in it is computed by web code.
-Only what the tests read is kept: the members' PumpResults and flags of each solve, the group
-curves' and the pump's system curves' bodies whole, and each case's inputs.
+``apps/web/scripts/gen-api-types.sh`` (``pnpm gen:types``) writes it with ``openapi.json`` and
+formats it with prettier; it is generated, never edited by hand. PROJECT.json is the web's
+``condenserWaterExample()`` as JSON (``utils/examples.ts``); without it, the project is the one the
+committed fixture already holds (``committed_project``), which the web's test checks against the
+example, so a changed example fails that test and asks for the fixture again with PROJECT.json.
+Every response is the real API's, through the real app (``POST /api/v1/solve``,
+``/pump-group-curve`` with curves ``group`` and ``system``, ``/system-curve``): nothing in it is
+computed by web code. Only what the tests read is kept: the members' PumpResults and flags of
+each solve, the group curves' and the pump's system curves' bodies whole, and each case's inputs.
 
 Each case is the shipped project with ``edits`` (component fields set, in order), ``scenarios``
 (the project's scenarios replaced, when given) and ``scenarioId`` (the case solved):
 
 - ``base``: the example as shipped, its base case.
-- ``winter``: its own Winter case, S1 (P1 alone, F2 to F7 failed closed), with P1's system curve.
+- ``winter``: its own Winter case, S1 (P1 alone, F2 to F7 failed closed), with P1's system curve
+  (its limit point at F1's setpoint, C3).
 - ``basin15``: the base case with the basin's level 15.0 m (the photo's 14.4 m lower curve; its
   group curve's point at the shutoff rise falls at -6.08e-15 m3/s).
 - ``p6off``: a status-only case S2 "5 of 6 running", P6 off, as D24's lineups make one; only its
   group curve is kept (its ring: the station duty).
 - ``single24``: one pump and one chiller line (P2 to P6 off, F2 to F7 failed closed, no
   scenarios), F1's setpoint the 25th flow of /system-curve's grid (np.linspace(0, 1.58987294928,
-  41)[24], the API's default range for P1), with P1's system curve.
+  41)[24], the API's default range for P1), with P1's system curve (no limit point: its limit is
+  a grid flow).
 """
 
 import copy
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from fastapi.testclient import TestClient
 
 from opensolve_pipe.main import app
+
+GENERATED_BY = "apps/api/tests/fixtures/condenser_charts.py"
+WEB_FIXTURE = (
+    Path(__file__).parents[3] / "web" / "src" / "lib" / "utils" / "__fixtures__"
+) / "condenser-charts.json"
+"""Where ``pnpm gen:types`` writes the fixture."""
 
 PUMPS = ["P1", "P2", "P3", "P4", "P5", "P6"]
 GRID = [float(q) for q in np.linspace(0.0, 1.58987294928, 41)]
@@ -73,7 +85,15 @@ P6_OFF = {
 }
 
 
-def _project(base: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
+def committed_project() -> dict[str, Any]:
+    """The example as the committed fixture holds it (the web's test checks it against
+    ``condenserWaterExample()``)."""
+    project: dict[str, Any] = json.loads(WEB_FIXTURE.read_text(encoding="utf-8"))["project"]
+    return project
+
+
+def case_project(base: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
+    """The shipped project with the case's edits and scenarios."""
     project = copy.deepcopy(base)
     for e in case["edits"]:
         next(c for c in project["components"] if c["id"] == e["componentId"])[e["field"]] = e[
@@ -86,17 +106,11 @@ def _project(base: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
     return project
 
 
-def main() -> None:
-    with open(sys.argv[1]) as source:
-        base = json.load(source)
+def generate(base: dict[str, Any]) -> dict[str, Any]:
     client = TestClient(app, client=("192.0.2.247", 50000))
-    out: dict[str, Any] = {
-        "generatedBy": "apps/web/src/lib/utils/__fixtures__/condenser-charts.record.py",
-        "project": base,
-        "cases": {},
-    }
+    out: dict[str, Any] = {"generatedBy": GENERATED_BY, "project": base, "cases": {}}
     for name, case in CASES.items():
-        project = _project(base, case)
+        project = case_project(base, case)
         scenario = {"scenarioId": case["scenarioId"]} if case["scenarioId"] else {}
         members = case.get("members", PUMPS)
         solve = client.post("/api/v1/solve", json={"project": project, **scenario})
@@ -130,8 +144,16 @@ def main() -> None:
         if keep:
             recorded = {k: v for k, v in recorded.items() if k in keep or k in INPUTS}
         out["cases"][name] = recorded
-    with open(sys.argv[2], "w") as target:
-        json.dump(out, target, separators=(",", ":"), sort_keys=True)
+    return out
+
+
+def main() -> None:
+    if len(sys.argv) > 1:
+        base = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    else:
+        base = committed_project()
+    # Compact, as recorded first: prettier then lays it out as before (gen-api-types.sh).
+    print(json.dumps(generate(base), separators=(",", ":"), sort_keys=True))
 
 
 if __name__ == "__main__":

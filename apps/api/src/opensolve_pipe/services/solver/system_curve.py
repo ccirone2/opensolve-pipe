@@ -61,7 +61,7 @@ speed-controlled pump, s is its ``speed`` field, its maximum speed.
 import math
 from collections import deque
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -1030,12 +1030,40 @@ def system_curve_points(
     return points
 
 
+def limit_flows(
+    built: BuiltNetwork,
+    element: "str | Forced",
+    flows: Sequence[float],
+    flow_min: float,
+    flow_max: float,
+) -> list[float]:
+    """The flows where a system curve's range beyond the limit, or below its floor, begins
+    (``flow_limit``; docs/proposals/open-defects-2.md §3 C3), in flow order: each bound that is
+    positive and finite (``_at_limit``'s), lies inside (flow_min, flow_max] and is at none of
+    ``flows`` (``_at_limit``, so no grid point already stands for it). Empty without a way
+    through."""
+    if not has_way_through(built, element):
+        return []
+    limit = flow_limit(built, element)
+    found: set[float] = set()
+    for bound in (limit, limit.floor):
+        if bound is None or not (0.0 < bound.flow < math.inf and flow_min < bound.flow <= flow_max):
+            continue
+        if any(_at_limit(float(q), bound) for q in flows):
+            continue
+        found.add(bound.flow)
+    return sorted(found)
+
+
 @dataclass(frozen=True)
 class SystemCurve:
     pump_id: str
     points: list[SystemCurvePointResult]
     flow_min: float
     flow_max: float
+    limit_points: list[SystemCurvePointResult] = field(default_factory=list)
+    """The points at the flow limit and at its floor (``limit_flows``), in flow order, each
+    solved alone after the grid from the network's initial state (C3); empty otherwise."""
 
 
 def system_curve(
@@ -1046,7 +1074,10 @@ def system_curve(
     flow_max: float | None = None,
     num_points: int = 41,
 ) -> SystemCurve:
-    """The system curve of one pump at ``num_points`` evenly spaced flows.
+    """The system curve of one pump at ``num_points`` evenly spaced flows, and its limit
+    points: where the range beyond the flow limit, or below its floor, begins inside the range
+    at no grid flow (``limit_flows``), one point each, solved after the grid from the network's
+    initial state (no warm start), so every grid point is what the grid alone gives (C3).
 
     Raises ``PumpNotFoundError`` for an unknown pump id (checked first), then ``TopologyError``
     / ``FluidError`` as a solve would, and ``FlowRangeError`` when flow_max <= flow_min."""
@@ -1060,12 +1091,25 @@ def system_curve(
         )
     options = project.settings.solver_options
     flows = curve_flows(flow_min, upper, num_points)
+    p_atm = atmospheric_pressure(project)[0]
     points = system_curve_points(
         built,
         pump_id,
         flows,
         tolerance=options.tolerance,
         max_iterations=options.max_iterations,
-        p_atm=atmospheric_pressure(project)[0],
+        p_atm=p_atm,
     )
-    return SystemCurve(pump_id, points, flow_min, upper)
+    limit_points = [
+        point
+        for q in limit_flows(built, pump_id, flows, flow_min, upper)
+        for point in system_curve_points(
+            built,
+            pump_id,
+            [q],
+            tolerance=options.tolerance,
+            max_iterations=options.max_iterations,
+            p_atm=p_atm,
+        )
+    ]
+    return SystemCurve(pump_id, points, flow_min, upper, limit_points)

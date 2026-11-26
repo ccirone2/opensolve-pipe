@@ -2484,6 +2484,7 @@
 										"min": 0.0,
 										"unit": "m³/s"
 									},
+									"limitPoints": [],
 									"points": [
 										{
 											"assignedFlowNodeIds": [],
@@ -45307,6 +45308,7 @@
 										"min": 0.0,
 										"unit": "m³/s"
 									},
+									"limitPoints": [],
 									"points": [
 										{
 											"assignedFlowNodeIds": [],

@@ -2,15 +2,18 @@
  * The group system curve's vertical part on the Pumps together card (docs/proposals/
  * open-defects-2.md §2 C1), drawn through the card as PumpGroupChart.svelte.test.ts draws it
  * (Chart.js replaced by a recorder), on the condenser example's recorded answers
- * (__fixtures__/condenser-charts.json, main's API): the chart's accessible name, the strip's
- * line, the duty words beside the API's verdict, the data table's cell and the canvas's
- * `data-system-rays`; and what lies below zero flow named in the notes (X).
+ * (__fixtures__/condenser-charts.json, apps/api/tests/fixtures/condenser_charts.py): the chart's
+ * accessible name, the strip's line, the duty words with the API's verdict (since C2 its system
+ * duty check agrees on the vertical part, §3; an API deployed before C2 does not, and its verdict
+ * is relayed as given), the data table's cell and the canvas's `data-system-rays`; and what lies
+ * below zero flow named in the notes (X).
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GroupCurveState } from '$lib/state/project.svelte';
 import { fakeResizeObserver } from '$lib/testing/resize';
 import {
+	baseBeforeC2,
 	condenserCase,
 	condenserCaseProject,
 	condenserMembers,
@@ -78,12 +81,14 @@ function props(name: CondenserCase, system = condenserCase(name).systemCurve!) {
 }
 
 describe('the group system curve’s vertical part on the card (open-defects-2.md C1)', () => {
-	it('names the vertical part, says what it is, keeps the API’s verdict, and lists its range', async () => {
+	it('names the vertical part, says what it is, marks both checks ✓, calls the Group point the crossing, and lists its range (C2, as recorded)', async () => {
+		const system = condenserCase('base').systemCurve!;
+		expect(system.systemDutyCheck).toMatchObject({ agrees: true, head: null });
 		render(PumpGroupChart, props('base'));
 		await drawn();
 		const figure = screen.getByRole('figure');
 		expect(within(figure).getByRole('img')).toHaveAccessibleName(
-			/; group system curve shown, vertical at 5678 L\/s from 24\.63 m up\.$/
+			/on the group curve and the group system curve, where they cross; group curve shown; group system curve shown, vertical at 5678 L\/s from 24\.63 m up\.$/
 		);
 		expect(
 			within(figure).getByText(
@@ -91,21 +96,19 @@ describe('the group system curve’s vertical part on the card (open-defects-2.m
 			)
 		).toBeInTheDocument();
 		const notes = figure.querySelector('[data-group-notes]')!;
-		// The verdict and the vertical's facts in one paragraph (pumps-results-layout.md §5.7 row 7).
+		// The API's verdict in one paragraph (pumps-results-layout.md §5.7 row 7), with its ✓.
 		const verdict = [...notes.querySelectorAll('p')].filter((p) =>
-			/The group system curve has no rise at the duty's flow/.test(p.textContent!)
+			/At the duty's flow the group system curve is vertical/.test(p.textContent!)
 		);
 		expect(verdict).toHaveLength(1);
-		expect(verdict[0]!.textContent).toMatch(
-			/^The group system curve has no rise at the duty's flow, so whether it passes through the Group point is not known: .+\. The curve is drawn vertical at that flow, from 24\.63 m up, the rises that hold there; the duty's rise is 31\.48 m\./
+		expect(verdict[0]!.textContent).toContain(
+			"At the duty's flow the group system curve is vertical, any rise at or above 24.63 m holding, and the solve's rise, 31.48 m, is one of them (within 0.5 % or 0.01 m): it passes through the Group point, where it crosses the group curve."
 		);
-		expect(
-			[...notes.querySelectorAll('p')].filter((p) =>
-				/The curve is drawn vertical at that flow/.test(p.textContent!)
-			)
-		).toEqual(verdict);
-		// No ✓ on the system duty check: the API's does not agree.
-		expect(notes.querySelectorAll('[data-group-check]')).toHaveLength(1);
+		expect(notes.textContent).not.toMatch(/is not known/);
+		expect(notes.querySelectorAll('[data-group-check]')).toHaveLength(2);
+		const labels = (charts[0]!.config as { data: { datasets: { caseLabel?: string }[] } }).data
+			.datasets;
+		expect(labels.some((d) => d.caseLabel === 'Group (crossing)')).toBe(true);
 		// The canvas keeps where the rays went, as each drawing tells it.
 		const config = charts[0]!.config as {
 			plugins: { id: string; afterDatasetsDraw?: () => void }[];
@@ -131,28 +134,32 @@ describe('the group system curve’s vertical part on the card (open-defects-2.m
 		expect(within(row).getAllByRole('cell')[1]!.textContent!.trim()).toBe('≥ 24.63');
 	});
 
-	it('marks the system duty check ✓ and calls the Group point the crossing once the API agrees there (C2’s shape)', async () => {
-		// Synthetic: the system duty check as C2 will give it (open-defects-2.md §3).
-		const system = structuredClone(condenserCase('base').systemCurve!);
-		system.systemDutyCheck = {
-			agrees: true,
-			head: null,
-			message:
-				"the rest of the network with the station's flow 5.67812 m³/s forced from S to D leaves the rise undetermined at this flow: any rise at or above 24.6265 m holds (FCV 'F2' at its setpoint flow), and the solve's rise 31.4781 m is in that range, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part"
-		};
-		render(PumpGroupChart, props('base', system));
+	it('keeps the verdict of an API before C2 (agrees false): its facts beside it in one paragraph, no ✓, no crossing', async () => {
+		render(PumpGroupChart, props('base', baseBeforeC2()));
 		await drawn();
 		const figure = screen.getByRole('figure');
 		expect(within(figure).getByRole('img')).toHaveAccessibleName(
-			/on the group curve and the group system curve, where they cross; group curve shown; group system curve shown, vertical at 5678 L\/s from 24\.63 m up\.$/
+			/; group system curve shown, vertical at 5678 L\/s from 24\.63 m up\.$/
 		);
 		const notes = figure.querySelector('[data-group-notes]')!;
-		expect(notes.querySelectorAll('[data-group-check]')).toHaveLength(2);
-		expect(notes.textContent).toContain(
-			"At the duty's flow the group system curve is vertical, any rise at or above 24.63 m holding, and the solve's rise, 31.48 m, is one of them (within 0.5 % or 0.01 m): it passes through the Group point, where it crosses the group curve."
+		// The verdict and the vertical's facts in one paragraph (pumps-results-layout.md §5.7 row 7).
+		const verdict = [...notes.querySelectorAll('p')].filter((p) =>
+			/The group system curve has no rise at the duty's flow/.test(p.textContent!)
 		);
+		expect(verdict).toHaveLength(1);
+		expect(verdict[0]!.textContent).toMatch(
+			/^The group system curve has no rise at the duty's flow, so whether it passes through the Group point is not known: .+\. The curve is drawn vertical at that flow, from 24\.63 m up, the rises that hold there; the duty's rise is 31\.48 m\./
+		);
+		expect(
+			[...notes.querySelectorAll('p')].filter((p) =>
+				/The curve is drawn vertical at that flow/.test(p.textContent!)
+			)
+		).toEqual(verdict);
+		// No ✓ on the system duty check: that API's does not agree.
+		expect(notes.querySelectorAll('[data-group-check]')).toHaveLength(1);
 		const labels = (charts[0]!.config as { data: { datasets: { caseLabel?: string }[] } }).data
 			.datasets;
-		expect(labels.some((d) => d.caseLabel === 'Group (crossing)')).toBe(true);
+		expect(labels.some((d) => d.caseLabel === 'Group (crossing)')).toBe(false);
+		expect(labels.some((d) => d.caseLabel === 'Group')).toBe(true);
 	});
 });

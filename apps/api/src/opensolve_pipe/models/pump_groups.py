@@ -349,11 +349,18 @@ class PumpGroupSystemDutyCheck(OutputModel):
     agrees: bool = Field(
         description=(
             "The group system curve at the duty's flow gives the duty's rise, within 0.5 % or "
-            "0.01 m, whichever is looser (CLAUDE.md D6)"
+            "0.01 m, whichever is looser (CLAUDE.md D6); or it is vertical there: its point has "
+            "no rise because a control valve sits at its switch (reason valve_at_switch, with a "
+            "finite openHead and an openHeadBound), so every rise on the bound's side of "
+            "openHead holds at that flow, and the duty's rise lies on that side within the same "
+            "allowance (head is then null)"
         )
     )
     head: float | None = Field(
-        description="m: the group system curve's rise at the duty's flow (null: no rise there)"
+        description=(
+            "m: the group system curve's rise at the duty's flow (null: no rise there, or the "
+            "rise undetermined on its vertical part)"
+        )
     )
     message: str = Field(description="What was compared and, when it disagrees, why")
 

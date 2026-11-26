@@ -3999,9 +3999,11 @@ describe('a ring whose label has no place, named in the notes (nit 5, rule 7; sl
 	});
 });
 
-// docs/proposals/open-defects-2.md §2 C1, on the condenser example's recorded answers
-// (__fixtures__/condenser-charts.json, main's API): one pump and one chiller line, F1's setpoint
-// on /system-curve's grid, so a point at the FCV's limit states its openHead.
+// docs/proposals/open-defects-2.md §2 C1 and §3 C3, on the condenser example's recorded answers
+// (__fixtures__/condenser-charts.json, apps/api/tests/fixtures/condenser_charts.py): one pump and
+// one chiller line, F1's setpoint on /system-curve's grid, so a point at the FCV's limit states its
+// openHead; and the example's Winter case, F1's setpoint between two grid flows, where the
+// response's limit point states it (C3).
 describe('the system curve’s vertical part on the pump chart (open-defects-2.md C1)', () => {
 	const single = () => {
 		const c = condenserCase('single24');
@@ -4045,5 +4047,55 @@ describe('the system curve’s vertical part on the pump chart (open-defects-2.m
 			.getAllByRole('row')
 			.find((r) => within(r).queryAllByRole('cell')[0]?.textContent === '953.9')!;
 		expect(within(row).getAllByRole('cell')[1]!.textContent).toBe('≥ 20.72');
+		// Its limit is a grid flow: no limit point, no row marked.
+		expect(within(table).queryByText('(limit point)')).toBeNull();
+	});
+
+	it('draws the Winter case’s limit point: its name, its notes and its row, marked, in flow order (C3)', async () => {
+		withCanvas();
+		const c = condenserCase('winter');
+		const project = condenserCaseProject('winter');
+		const curve = c.pumpSystemCurve!;
+		const { container } = render(PumpChart, {
+			result: c.pumpResults!.P1!,
+			name: 'Condenser water pump CWP-1',
+			prefs: project.settings.units,
+			ratedRange: ratedCurveRange(project, 'P1'),
+			names: { project },
+			system: { status: 'ready', curve } as SystemCurveState
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		expect(screen.getByRole('img')).toHaveAccessibleName(
+			/ and system curve, vertical at 946\.4 L\/s from 21\.9 m up; operating point 946\.4 L\/s at /
+		);
+		expect(
+			screen.getByText(
+				/^18 of 42 system-curve points have no head: at 946\.4 L\/s it is undetermined, any head at or above 21\.9 m holding, drawn as the curve's vertical part from there to the top of the head axis;/
+			)
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				/replaced by each of 41 evenly spaced flows from 0 to 1590 L\/s, then by 946\.4 L\/s, the most the pump can pass, solved alone from the network's initial state \(/
+			)
+		).toBeInTheDocument();
+		const config = charts[0]!.config as {
+			plugins: { id: string; afterDatasetsDraw?: () => void }[];
+		};
+		config.plugins.find((p) => p.id === 'systemRays')!.afterDatasetsDraw!();
+		expect(container.querySelector('canvas')!.dataset.systemRays).toBe('[]');
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		);
+		const table = screen.getByRole('table', { name: 'System curve' });
+		const rows = within(table).getAllByRole('row').slice(1);
+		expect(rows).toHaveLength(curve.points.length + 1);
+		const flows = rows.map((r) => within(r).getAllByRole('cell')[0]!.textContent!);
+		const marked = rows.filter((r) => within(r).queryByText('(limit point)'));
+		expect(marked).toHaveLength(1);
+		const at = rows.indexOf(marked[0]!);
+		expect(flows[at]).toBe('946.4 (limit point)');
+		expect(flows[at - 1]).toBe('914.2');
+		expect(flows[at + 1]).toBe('953.9');
+		expect(within(marked[0]!).getAllByRole('cell')[1]!.textContent).toBe('≥ 21.9');
 	});
 });

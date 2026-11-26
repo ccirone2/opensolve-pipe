@@ -18,8 +18,10 @@
  * limit unless a point there states its `openHead`; a `valve_at_switch` point without a finite
  * `openHead` or a known bound keeps the API's sentence, and is a gap.
  *
- * The points are a flat list in any order, so points from elsewhere (the limit points of C3,
- * open-defects-2.md §3) can be merged in flow order before they are drawn.
+ * The points are a flat list in any order: a /system-curve response's grid and its limit points
+ * (open-defects-2.md §3 C3: the points solved after the grid where its range beyond the flow limit
+ * or below its floor begins) are merged in flow order (`systemCurvePoints`) before they are drawn,
+ * listed or exported, so a limit point's vertical part is drawn like any other.
  */
 import type { SystemCurveResponse } from '../api/types';
 import { formatNumber, fromSI, type UnitId } from './units';
@@ -65,6 +67,27 @@ export interface SystemLine {
 	missing: number;
 	/** The points without a head past a limit, by limit, in flow order of their first point. */
 	past: PastLimit[];
+}
+
+type SystemCurvePoint = SystemCurveResponse['points'][number];
+
+/** A point of a /system-curve response as drawn, listed and exported: `atLimit` for a limit point. */
+export type MergedSystemPoint = SystemCurvePoint & {
+	/** One of the response's `limitPoints` (C3), not one of its evenly spaced flows. */
+	atLimit: boolean;
+};
+
+/**
+ * A /system-curve response's points and its limit points (open-defects-2.md §3 C3), in flow
+ * order, each marked. A response without `limitPoints` (an API deployed before C3) has none.
+ */
+export function systemCurvePoints(
+	curve: Pick<SystemCurveResponse, 'points'> & Partial<Pick<SystemCurveResponse, 'limitPoints'>>
+): MergedSystemPoint[] {
+	return [
+		...curve.points.map((p) => ({ ...p, atLimit: false })),
+		...(curve.limitPoints ?? []).map((p) => ({ ...p, atLimit: true }))
+	].sort((a, b) => a.flow - b.flow);
 }
 
 function finite(value: number | null | undefined): value is number {

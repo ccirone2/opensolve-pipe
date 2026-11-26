@@ -5,8 +5,10 @@
  * condenser responses are drawn in pump-group-system.test.ts and pump-chart.test.ts.
  */
 import { describe, expect, it } from 'vitest';
+import { systemCurvePoint, systemCurveResponse } from '$lib/testing/results';
 import {
 	pointRay,
+	systemCurvePoints,
 	systemLine,
 	verticalCell,
 	verticalSummary,
@@ -181,5 +183,46 @@ describe('the words for a vertical part', () => {
 		).toBe(', vertical at 5678 L/s from 24.63 m up, vertical at 3 L/s from 1 m down');
 		expect(verticalCell(24.626490325577457, 'lower')).toBe('≥ 24.63');
 		expect(verticalCell(24.626490325577457, 'upper')).toBe('≤ 24.63');
+	});
+});
+
+// docs/proposals/open-defects-2.md §3 C3: /system-curve's limit points, solved after the grid at
+// the flows where its range beyond the limit or below its floor begins. Synthetic shapes, the
+// API's SystemCurvePoint; the recorded condenser Winter case is drawn in pump-chart.test.ts.
+describe('a system curve’s limit points (open-defects-2.md C3)', () => {
+	it('merges them into the grid in flow order, each marked, the grid unmarked', () => {
+		const curve = systemCurveResponse();
+		const between = systemCurvePoint({
+			flow: 0.015,
+			reason: 'valve_at_switch',
+			openHead: 17,
+			openHeadBound: 'lower'
+		});
+		const above = systemCurvePoint({ flow: 0.025, head: 28, converged: true });
+		curve.limitPoints = [above, between];
+		const merged = systemCurvePoints(curve);
+		expect(merged.map((p) => [p.flow, p.atLimit])).toEqual([
+			[0, false],
+			[0.01, false],
+			[0.015, true],
+			[0.02, false],
+			[0.025, true],
+			[0.03, false]
+		]);
+		expect(merged[2]).toEqual({ ...between, atLimit: true });
+		expect(merged[0]).toEqual({ ...curve.points[0]!, atLimit: false });
+		// The line takes the limit point's foot and ray like any grid point's.
+		const drawn = systemLine(merged, 'L/s', 'm');
+		expect(drawn.rays).toEqual([{ x: 15, from: 17, bound: 'lower' }]);
+		expect(drawn.line.map((p) => p.x)).toEqual([0, 10, 15, 20, 25, 30]);
+	});
+
+	it('takes a response without limitPoints (an API deployed before C3) as having none', () => {
+		const curve = systemCurveResponse();
+		const old = { ...curve } as Partial<typeof curve>;
+		delete old.limitPoints;
+		const merged = systemCurvePoints(old as typeof curve);
+		expect(merged).toEqual(curve.points.map((p) => ({ ...p, atLimit: false })));
+		expect(systemCurvePoints({ ...curve, limitPoints: [] })).toEqual(merged);
 	});
 });

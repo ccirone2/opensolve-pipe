@@ -65,7 +65,7 @@ import {
 import { pumpLineup } from './pump-lineups';
 import { pumpStatusParts } from './results';
 import { applyScenario, SCENARIO_NAME_LIMIT, withScenarios } from './scenarios';
-import { condenserCase, condenserCaseProject } from './condenser-charts.testing';
+import { baseBeforeC2, condenserCase, condenserCaseProject } from './condenser-charts.testing';
 
 interface Answer {
 	status: number;
@@ -2233,10 +2233,12 @@ describe('the card’s NPSH reading is the margin ratio, the margin hidden by de
 	});
 });
 
-// docs/proposals/open-defects-2.md §2 C1 (the ring on a vertical part), on the condenser example's
-// recorded answers (__fixtures__/condenser-charts.json, main's API): the status-only case "5 of 6
-// running" (P6 off) holds the same FCV limit, its rise above the Base case's foot, so its ring is
-// drawn on the Base case's vertical part.
+// docs/proposals/open-defects-2.md §2 C1 (the ring on a vertical part) and §3 C2, on the condenser
+// example's recorded answers (__fixtures__/condenser-charts.json,
+// apps/api/tests/fixtures/condenser_charts.py): the status-only case "5 of 6 running" (P6 off)
+// holds the same FCV limit, its rise above the Base case's foot, so its ring is drawn on the Base
+// case's vertical part. Since C2 the Base case's own system duty check agrees there; an API
+// deployed before C2 does not (baseBeforeC2).
 describe('a ring on the group system curve’s vertical part (open-defects-2.md C1)', () => {
 	const project = condenserCaseProject('p6off');
 	const system = condenserCase('base').systemCurve!;
@@ -2248,17 +2250,8 @@ describe('a ring on the group system curve’s vertical part (open-defects-2.md 
 		system.station,
 		hydraulicFingerprint
 	);
-	/** Synthetic: the Base case's system duty check as C2 will give it (§3), the rest as recorded. */
-	const agreeing = () => {
-		const c2 = structuredClone(system);
-		c2.systemDutyCheck = {
-			agrees: true,
-			head: null,
-			message:
-				"the rest of the network with the station's flow 5.67812 m³/s forced from S to D leaves the rise undetermined at this flow: any rise at or above 24.6265 m holds (FCV 'F2' at its setpoint flow), and the solve's rise 31.4781 m is in that range, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part"
-		};
-		return c2;
-	};
+	/** The Base case's group system curve as an API before C2 answers it (agrees false there). */
+	const before = baseBeforeC2();
 
 	it('is at the vertical part’s flow and above its foot, the rest of the network the same', () => {
 		const at = system.systemPoints.find((p) => p.isDuty)!;
@@ -2267,18 +2260,22 @@ describe('a ring on the group system curve’s vertical part (open-defects-2.md 
 		expect(duty.flow).not.toBe(at.flow);
 		expect(duty.head).toBeGreaterThan(at.openHead!);
 		expect(shared).toBe(true);
-		expect(system.systemDutyCheck).toMatchObject({ agrees: false, head: null });
+		// C2: the Base case's own check agrees on its vertical part.
+		expect(system.systemDutyCheck).toMatchObject({ agrees: true, head: null });
+		expect(before.systemDutyCheck).toMatchObject({ agrees: false, head: null });
+		expect(before.systemPoints).toEqual(system.systemPoints);
 	});
 
 	it('takes the vertical part as a rise on both sides, every other condition unchanged', () => {
-		// Main's API: the Base case's check does not agree there, so the ring is not called a point
-		// of the curve, in words that do not deny the vertical drawn through it ('gap' did).
-		expect(dutyClaim({ shared, duty, system })).toBe('vertical');
+		// An API before C2: the Base case's check does not agree there, so the ring is not called a
+		// point of the curve, in words that do not deny the vertical drawn through it ('gap' did).
+		expect(dutyClaim({ shared, duty, system: before })).toBe('vertical');
 		expect(DUTY_CLAIM_WORDS.vertical).toBe(
 			"Not said: at its flow the curve is vertical (its rise undetermined there), and this case's own system duty check does not agree"
 		);
-		// C2's check: the ring is a point of the curve.
-		const c2 = agreeing();
+		// C2's check, as recorded: the ring is a point of the curve.
+		const c2 = system;
+		expect(dutyClaim({ shared, duty, system: c2 })).toBe('on');
 		expect(dutyClaim({ shared, duty, system: c2 })).toBe('on');
 		expect(dutyClaim({ shared: false, duty, system: c2 })).toBe('rest_differs');
 		expect(dutyClaim({ shared, duty: { flow: 5e-7, head: duty.head }, system: c2 })).toBe(
@@ -2304,31 +2301,38 @@ describe('a ring on the group system curve’s vertical part (open-defects-2.md 
 
 	it('words the ring so on the Base case’s chart', () => {
 		const tags = caseTags(project);
-		const [ring] = otherGroupCases({
-			valued: [
-				{
-					key: 'S2',
-					caseId: 'S2',
-					name: '5 of 6 running',
-					stale: false,
-					group: { status: 'ready', response: p6off },
-					system: undefined,
-					shared,
-					solved: applyScenario(project, 'S2').project
-				}
-			],
-			tags,
-			shownKeys: new Set(['S2']),
-			othersOn: true,
-			shownSettled: true,
-			station: system.station,
-			systemShown: system,
-			memberIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'],
-			project,
-			boxes: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
-		});
-		expect(ring).toMatchObject({ state: 'ready', number: 2, claim: 'vertical' });
-		expect(ring!.words).toBe(DUTY_CLAIM_WORDS.vertical);
-		expect(ring!.words).not.toMatch(/no rise next to its flow/);
+		const ringOn = (systemShown: typeof system) =>
+			otherGroupCases({
+				valued: [
+					{
+						key: 'S2',
+						caseId: 'S2',
+						name: '5 of 6 running',
+						stale: false,
+						group: { status: 'ready', response: p6off },
+						system: undefined,
+						shared,
+						solved: applyScenario(project, 'S2').project
+					}
+				],
+				tags,
+				shownKeys: new Set(['S2']),
+				othersOn: true,
+				shownSettled: true,
+				station: system.station,
+				systemShown,
+				memberIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'],
+				project,
+				boxes: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+			})[0];
+		// As recorded (C2): a point of the curve, the same rest of the network.
+		const ring = ringOn(system);
+		expect(ring).toMatchObject({ state: 'ready', number: 2, claim: 'on' });
+		expect(ring!.words).toBe(DUTY_CLAIM_WORDS.on);
+		// An API before C2: the vertical, in words that do not deny it.
+		const old = ringOn(before);
+		expect(old).toMatchObject({ state: 'ready', number: 2, claim: 'vertical' });
+		expect(old!.words).toBe(DUTY_CLAIM_WORDS.vertical);
+		expect(old!.words).not.toMatch(/no rise next to its flow/);
 	});
 });

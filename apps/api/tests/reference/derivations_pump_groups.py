@@ -65,7 +65,9 @@ whatever the station holds; an ideal FCV on the delivery line adds nothing while
 (``outlet_fcv_project``). The forced-split construction (``forced_split_project``: the members
 holding flow setpoints that sum to Q) and EPANET's outside (``epanet_station_project``,
 ``epanet_outside_project``: S a junction with demand Q and D one with demand −Q) give the same
-rise by other routes.
+rise by other routes. A pump alone behind an ideal FCV (``fcv_line``, open-defects-2 §3 C2 and
+C3) gives /system-curve's limit point at the FCV's setpoint and a station of one pump whose duty
+is that switch, both by the open-valve closed form.
 """
 
 import itertools
@@ -77,7 +79,14 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import brentq, root
 
-from opensolve_pipe.models.components import Component, Pump, PumpControl, Reservoir, TeeBranch
+from opensolve_pipe.models.components import (
+    Component,
+    ControlValve,
+    Pump,
+    PumpControl,
+    Reservoir,
+    TeeBranch,
+)
 from opensolve_pipe.models.fluids import CustomFluid
 from opensolve_pipe.models.piping import PipeConnection
 from opensolve_pipe.models.project import Project
@@ -101,7 +110,8 @@ from tests.reference.case_format import (
     pump_curve,
     reservoir,
 )
-from tests.reference.derivations_pumps import curve_a
+from tests.reference.derivations_pump_control import SERIES_BETWEEN, SERIES_DISCHARGE, Series
+from tests.reference.derivations_pumps import SUCTION_A, curve_a, solve_decreasing
 from tests.reference.line import Line
 
 FLUID_NAME, RHO, MU = dv.FLUID_A
@@ -1390,6 +1400,92 @@ def rise_at_station_flow(ladder: Ladder, q: float, low: float, high: float) -> f
         return ladder_state(ladder, rise).total - q
 
     return float(brentq(fn, low, high, xtol=1.0e-13, rtol=1.0e-15, maxiter=200))
+
+
+# --------------------------------------------------------------------------- a pump behind an FCV
+# docs/proposals/open-defects-2.md §3 C2 and C3: one pump alone behind an ideal FCV, set below
+# the pump's unthrottled flow, for /system-curve's limit point at the FCV's setpoint and for the
+# group system curve of a station of that one pump. One flow Q through the chain
+#
+#     R1 (H 3 m) → L1 → PU1 (curve_a, fixed at speed 1) → L2 → FCV1 (ideal, q_f) → L3 → R2 (H 20 m)
+#
+# (``derivations_pump_control.pump_flow_control_series_fcv_limits``' chain with a fixed pump).
+# With PU1 replaced by a forced flow q (CLAUDE.md D10), the FCV on EPANET 2.2's fcvstatus in EGL
+# form (D9: an ideal FCV loses nothing open, passes neither reverse flow nor more than q_f, and
+# opens once the head across it falls below its open loss, 0):
+# - q < q_f: open, H_sys(q) = H_sys,open(q) = H_R2 − H_R1 + h_L1(q) + h_L2(q) + h_L3(q), 17 m at 0;
+# - q = q_f: open, or active with any drop δ ≥ 0: every head H ≥ H_sys,open(q_f) holds, nothing
+#   fixing the pressure between FCV1 and PU1 (valve_at_switch, openHead H_sys,open(q_f), 'lower');
+# - q > q_f: every way from PU1's discharge back to its suction passes FCV1, which passes at most
+#   q_f that way: no steady state (beyond_limit, limitFlow = passedFlow = q_f).
+# The case's own solve: PU1 unthrottled would run at Q_u, H₀(Q_u) = H_sys,open(Q_u) (brentq,
+# 0.0304 m³/s), above q_f, so FCV1 is active, Q = q_f, PU1 on its curve at H₀(q_f), FCV1's drop
+# H₀(q_f) − H_sys,open(q_f) (``fcv_line_duty``). A station of PU1 alone (S its suction, D its
+# discharge) has Q_st = q_f and ΔH_st = H₀(q_f), above openHead.
+
+FCV_LINE_SETPOINTS = (0.015, 0.021)
+"""m³/s: FCV1's setpoints (test inputs), each between two flows of /system-curve's default grid
+(0 to 1.2 × 0.04 × 1 = 0.048 m³/s, 41 points, steps of 0.0012) and below Q_u."""
+
+FCV_LINE_FLOW_MAX = 0.048
+FCV_LINE_POINTS = 41
+FCV_LINE_GRID: dict[str, float | int] = {
+    "flowMin": 0.0,
+    "flowMax": FCV_LINE_FLOW_MAX,
+    "numPoints": FCV_LINE_POINTS,
+}
+"""The default range's grid, sent explicitly where two requests must use the same flows."""
+
+
+def fcv_line(setpoint: float) -> Series:
+    """The chain above, FCV1 at ``setpoint`` m³/s."""
+    elements: list[Component] = [
+        pump("PU1", 0.5, curve_a().id),
+        control_valve("FCV1", 0.5, "fcv", setpoint),
+    ]
+    return Series(0.0, 3.0, 18.0, 2.0, [SUCTION_A, SERIES_BETWEEN, SERIES_DISCHARGE], elements)
+
+
+def fcv_line_project(setpoint: float) -> Project:
+    return fcv_line(setpoint).project(
+        "pump_behind_an_fcv", "A pump alone behind an FCV", [curve_a()]
+    )
+
+
+def fcv_line_open_rise(chain: Series, q: float) -> float:
+    """H_sys,open(q) = H_R2 − H_R1 + Σ h_line(q): the head across PU1 at a forced flow q with
+    FCV1 wide open (ideal: no loss)."""
+    return chain.system_head(q, NU)
+
+
+def fcv_line_valve_ports(chain: Series, q: float, rise: float) -> tuple[float, float]:
+    """EGL at FCV1's inlet and outlet with flow q and PU1 adding ``rise`` (FCV1 dropping the rest
+    to R2)."""
+    drop = rise - fcv_line_open_rise(chain, q)
+    egl = chain.egl(q, NU, [rise, -drop])
+    return egl["FCV1:inlet"], egl["FCV1:outlet"]
+
+
+def fcv_line_duty(chain: Series) -> tuple[float, float]:
+    """The case's own solve, (Q, PU1's head): FCV1 active at its setpoint q_f, PU1 on its curve,
+    H₀(q_f). Raises unless the unthrottled flow Q_u lies clearly above q_f and FCV1 is clearly
+    active (its status rule cleared by STATE_MARGIN)."""
+    curve = curve_a()
+    fcv1 = chain.elements[1]
+    assert isinstance(fcv1, ControlValve)
+    q_f = fcv1.setpoint
+    q_u = solve_decreasing(lambda q: el.pump_head(curve, 1.0, q) - fcv_line_open_rise(chain, q))
+    if not q_f < 0.9 * q_u:
+        raise ValueError(f"the setpoint {q_f} must lie clearly below the unthrottled flow {q_u}")
+    rise = el.pump_head(curve, 1.0, q_f)
+    h_in, h_out = fcv_line_valve_ports(chain, q_f, rise)
+    d_in, d_out = chain.lines[1].d, chain.lines[2].d
+    problem = el.valve_state_problem(
+        fcv1, "active", q_f, h_in, h_out, RHO, el.STATE_MARGIN, d_in, d_out
+    )
+    if problem is not None:
+        raise ValueError(f"FCV1 {problem}")
+    return q_f, rise
 
 
 # EPANET's outside (optional proof): S and D become two junctions of EPANET's own network, S

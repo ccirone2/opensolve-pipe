@@ -167,6 +167,7 @@ describe('results per case', () => {
 			flowRange: { min: 0, max: 0.03, unit: 'm³/s' },
 			points: [systemCurvePoint({ flow: 0, head: 10, converged: true })],
 			converged: [true],
+			limitPoints: [],
 			scenario: null
 		};
 		const solver: Solver = {
@@ -336,6 +337,7 @@ describe('Solve all', () => {
 				flowRange: { min: 0, max: 1, unit: 'm³/s' },
 				points: [],
 				converged: [],
+				limitPoints: [],
 				scenario: null
 			};
 		};

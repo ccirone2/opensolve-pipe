@@ -4425,7 +4425,7 @@
 						"Group system curve H_sys(Q): the rest of the network with the station's flow Q forced from S to D: every element inside the station held closed and one virtual link from S to D carrying Q (a fixed flow: a demand at S, a supply at D), every element outside on its own law and status rules as in a solve (other pumps running, a speed-controlled pump regulating, valves by their rules, branch K by the flow split). Its value is EGL(D) \u2212 EGL(S), the rise the rest of the network needs at Q: each pump's system curve with the whole station in place of one pump, by the same code, so for a station of one pump between its own suction and discharge it is that pump's system curve. S and D separate the station from the rest, so the curve depends neither on the pumps' statuses nor on how they share the flow, and an active PRV or PSV inside the station does not matter to it; where the rest has one steady state at a flow, it crosses the group curve at the duty. No NPSHa is given along it, as none is along the group curve: the station is read at its ports, and each pump's NPSHa at the duty is in its own results.",
 						"A pump that is stopped is closed both ways: a stopped pump passing flow (a rotating throttle) is not modelled, so in series it blocks the line.",
 						"Points: 41 flows from 0 to 14.0424 m\u00b3/s, plus the duty's flow; flowMin by default the lower of 0 and the duty's flow, flowMax by default 1.2 \u00d7 the largest of the duty's flow and the group curve's flows. The duty's flow is solved first, from the case's solve; then the flows are solved as each pump's system curve is: in flow order from the network's initial state, each from the last converged point, a point that does not converge solved again from the initial state, and one without a rise solved again from it with the control valves open. A flow beyond what every way from D back to S can pass (a cut of FCVs at their setpoints and one-way elements against the flow, with the assigned flows), or below the least flow the assigned flows need through the station, has no steady state and is not solved again (Ford and Fulkerson's max-flow min-cut theorem, Gale's condition). A point without a rise says why, as each pump's system curve does.",
-						"System duty check: the rest of the network with the station's flow 5.67812 m\u00b3/s forced from S to D has no rise (the rise across the station is undetermined: at this flow FCV 'F2' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 24.6265 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station), so the group system curve is not shown to pass through the duty.",
+						"System duty check: the rest of the network with the station's flow 5.67812 m\u00b3/s forced from S to D leaves the rise undetermined at this flow (the rise across the station is undetermined: at this flow FCV 'F2' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 24.6265 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station): any rise at or above 24.6265 m holds there, and the solve's rise 31.4781 m is one of them, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part.",
 						"No standard defines a pump group's system curve, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD takes the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: at S and D the rest of the network sees only the station's flow.",
 						"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
 					],
@@ -4502,9 +4502,9 @@
 					"outlet": { "componentId": "H5", "portId": "run_outlet" }
 				},
 				"systemDutyCheck": {
-					"agrees": false,
+					"agrees": true,
 					"head": null,
-					"message": "the rest of the network with the station's flow 5.67812 m\u00b3/s forced from S to D has no rise (the rise across the station is undetermined: at this flow FCV 'F2' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 24.6265 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station), so the group system curve is not shown to pass through the duty"
+					"message": "the rest of the network with the station's flow 5.67812 m\u00b3/s forced from S to D leaves the rise undetermined at this flow (the rise across the station is undetermined: at this flow FCV 'F2' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 24.6265 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station): any rise at or above 24.6265 m holds there, and the solve's rise 31.4781 m is one of them, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part"
 				},
 				"systemPoints": [
 					{
@@ -9565,7 +9565,7 @@
 						"Group system curve H_sys(Q): the rest of the network with the station's flow Q forced from S to D: every element inside the station held closed and one virtual link from S to D carrying Q (a fixed flow: a demand at S, a supply at D), every element outside on its own law and status rules as in a solve (other pumps running, a speed-controlled pump regulating, valves by their rules, branch K by the flow split). Its value is EGL(D) \u2212 EGL(S), the rise the rest of the network needs at Q: each pump's system curve with the whole station in place of one pump, by the same code, so for a station of one pump between its own suction and discharge it is that pump's system curve. S and D separate the station from the rest, so the curve depends neither on the pumps' statuses nor on how they share the flow, and an active PRV or PSV inside the station does not matter to it; where the rest has one steady state at a flow, it crosses the group curve at the duty. No NPSHa is given along it, as none is along the group curve: the station is read at its ports, and each pump's NPSHa at the duty is in its own results.",
 						"A pump that is stopped is closed both ways: a stopped pump passing flow (a rotating throttle) is not modelled, so in series it blocks the line.",
 						"Points: 41 flows from 0 to 14.0424 m\u00b3/s, plus the duty's flow; flowMin by default the lower of 0 and the duty's flow, flowMax by default 1.2 \u00d7 the largest of the duty's flow and the group curve's flows. The duty's flow is solved first, from the case's solve; then the flows are solved as each pump's system curve is: in flow order from the network's initial state, each from the last converged point, a point that does not converge solved again from the initial state, and one without a rise solved again from it with the control valves open. A flow beyond what every way from D back to S can pass (a cut of FCVs at their setpoints and one-way elements against the flow, with the assigned flows), or below the least flow the assigned flows need through the station, has no steady state and is not solved again (Ford and Fulkerson's max-flow min-cut theorem, Gale's condition). A point without a rise says why, as each pump's system curve does.",
-						"System duty check: the rest of the network with the station's flow 5.67812 m\u00b3/s forced from S to D has no rise (the rise across the station is undetermined: at this flow FCV 'F2' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 10.2265 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station), so the group system curve is not shown to pass through the duty.",
+						"System duty check: the rest of the network with the station's flow 5.67812 m\u00b3/s forced from S to D leaves the rise undetermined at this flow (the rise across the station is undetermined: at this flow FCV 'F2' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 10.2265 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station): any rise at or above 10.2265 m holds there, and the solve's rise 31.4781 m is one of them, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part.",
 						"No standard defines a pump group's system curve, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD takes the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: at S and D the rest of the network sees only the station's flow.",
 						"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
 					],
@@ -9642,9 +9642,9 @@
 					"outlet": { "componentId": "H5", "portId": "run_outlet" }
 				},
 				"systemDutyCheck": {
-					"agrees": false,
+					"agrees": true,
 					"head": null,
-					"message": "the rest of the network with the station's flow 5.67812 m\u00b3/s forced from S to D has no rise (the rise across the station is undetermined: at this flow FCV 'F2' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 10.2265 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station), so the group system curve is not shown to pass through the duty"
+					"message": "the rest of the network with the station's flow 5.67812 m\u00b3/s forced from S to D leaves the rise undetermined at this flow (the rise across the station is undetermined: at this flow FCV 'F2' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 10.2265 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station): any rise at or above 10.2265 m holds there, and the solve's rise 31.4781 m is one of them, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part"
 				},
 				"systemPoints": [
 					{
@@ -13560,6 +13560,7 @@
 					false
 				],
 				"flowRange": { "max": 1.58987294928, "min": 0.0, "unit": "m\u00b3/s" },
+				"limitPoints": [],
 				"points": [
 					{
 						"assignedFlowNodeIds": [],
@@ -18621,6 +18622,23 @@
 					false
 				],
 				"flowRange": { "max": 1.58987294928, "min": 0.0, "unit": "m\u00b3/s" },
+				"limitPoints": [
+					{
+						"assignedFlowNodeIds": [],
+						"componentIds": ["F1"],
+						"converged": false,
+						"flow": 0.9463529459999999,
+						"head": null,
+						"limitFlow": null,
+						"message": "the head across the pump is undetermined: at this flow FCV 'F1' passes exactly its setpoint flow, so the valve could also hold it throttled, with any head across the pump at or above 21.8962 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the pump",
+						"npshAvailable": null,
+						"openHead": 21.89619252854681,
+						"openHeadBound": "lower",
+						"passedFlow": null,
+						"reason": "valve_at_switch",
+						"startsTried": []
+					}
+				],
 				"points": [
 					{
 						"assignedFlowNodeIds": [],
@@ -19590,7 +19608,7 @@
 						"Group system curve H_sys(Q): the rest of the network with the station's flow Q forced from S to D: every element inside the station held closed and one virtual link from S to D carrying Q (a fixed flow: a demand at S, a supply at D), every element outside on its own law and status rules as in a solve (other pumps running, a speed-controlled pump regulating, valves by their rules, branch K by the flow split). Its value is EGL(D) \u2212 EGL(S), the rise the rest of the network needs at Q: each pump's system curve with the whole station in place of one pump, by the same code, so for a station of one pump between its own suction and discharge it is that pump's system curve. S and D separate the station from the rest, so the curve depends neither on the pumps' statuses nor on how they share the flow, and an active PRV or PSV inside the station does not matter to it; where the rest has one steady state at a flow, it crosses the group curve at the duty. No NPSHa is given along it, as none is along the group curve: the station is read at its ports, and each pump's NPSHa at the duty is in its own results.",
 						"A pump that is stopped is closed both ways: a stopped pump passing flow (a rotating throttle) is not modelled, so in series it blocks the line.",
 						"Points: 41 flows from 0 to 2.41023 m\u00b3/s, plus the duty's flow; flowMin by default the lower of 0 and the duty's flow, flowMax by default 1.2 \u00d7 the largest of the duty's flow and the group curve's flows. The duty's flow is solved first, from the case's solve; then the flows are solved as each pump's system curve is: in flow order from the network's initial state, each from the last converged point, a point that does not converge solved again from the initial state, and one without a rise solved again from it with the control valves open. A flow beyond what every way from D back to S can pass (a cut of FCVs at their setpoints and one-way elements against the flow, with the assigned flows), or below the least flow the assigned flows need through the station, has no steady state and is not solved again (Ford and Fulkerson's max-flow min-cut theorem, Gale's condition). A point without a rise says why, as each pump's system curve does.",
-						"System duty check: the rest of the network with the station's flow 0.946353 m\u00b3/s forced from S to D has no rise (the rise across the station is undetermined: at this flow FCV 'F1' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 20.3079 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station), so the group system curve is not shown to pass through the duty.",
+						"System duty check: the rest of the network with the station's flow 0.946353 m\u00b3/s forced from S to D leaves the rise undetermined at this flow (the rise across the station is undetermined: at this flow FCV 'F1' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 20.3079 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station): any rise at or above 20.3079 m holds there, and the solve's rise 31.9397 m is one of them, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part.",
 						"No standard defines a pump group's system curve, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD takes the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: at S and D the rest of the network sees only the station's flow.",
 						"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
 					],
@@ -19939,9 +19957,9 @@
 					"outlet": { "componentId": "H5", "portId": "run_outlet" }
 				},
 				"systemDutyCheck": {
-					"agrees": false,
+					"agrees": true,
 					"head": null,
-					"message": "the rest of the network with the station's flow 0.946353 m\u00b3/s forced from S to D has no rise (the rise across the station is undetermined: at this flow FCV 'F1' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 20.3079 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station), so the group system curve is not shown to pass through the duty"
+					"message": "the rest of the network with the station's flow 0.946353 m\u00b3/s forced from S to D leaves the rise undetermined at this flow (the rise across the station is undetermined: at this flow FCV 'F1' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 20.3079 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station): any rise at or above 20.3079 m holds there, and the solve's rise 31.9397 m is one of them, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part"
 				},
 				"systemPoints": [
 					{
@@ -20578,7 +20596,7 @@
 			}
 		}
 	},
-	"generatedBy": "apps/web/src/lib/utils/__fixtures__/condenser-charts.record.py",
+	"generatedBy": "apps/api/tests/fixtures/condenser_charts.py",
 	"project": {
 		"components": [
 			{

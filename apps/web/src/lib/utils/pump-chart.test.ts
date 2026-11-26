@@ -34,6 +34,7 @@ import {
 import { MAX_SCENARIOS, scenariosOf, withScenarios } from './scenarios';
 import { formatNumber, fromSI, IMPERIAL_UNITS, SI_UNITS } from './units';
 import { condenserCase, condenserCaseProject, condenserMembers } from './condenser-charts.testing';
+import { systemPointNote } from './system-curve-text';
 import { groupChartData } from './pump-group-chart';
 import { pumpChartConfig } from './pump-chart-config';
 
@@ -914,9 +915,11 @@ describe('valueNotes: the notes about the values, in the screen’s order', () =
 	});
 });
 
-// docs/proposals/open-defects-2.md §2 C1, on the condenser example's recorded answers
-// (__fixtures__/condenser-charts.json, main's API): one pump and one chiller line, F1's setpoint
-// on /system-curve's grid, so a sampled flow lands on the FCV's limit and states its openHead.
+// docs/proposals/open-defects-2.md §2 C1 and §3 C3, on the condenser example's recorded answers
+// (__fixtures__/condenser-charts.json, apps/api/tests/fixtures/condenser_charts.py): one pump and
+// one chiller line, F1's setpoint on /system-curve's grid, so a sampled flow lands on the FCV's
+// limit and states its openHead; and the example's Winter case, F1's setpoint between two grid
+// flows, where /system-curve's limit point states it (C3).
 describe('a pump’s system curve’s vertical part at its FCV’s limit (open-defects-2.md C1)', () => {
 	const pumpCard = (name: 'single24' | 'winter') => {
 		const c = condenserCase(name);
@@ -986,16 +989,57 @@ describe('a pump’s system curve’s vertical part at its FCV’s limit (open-d
 		expect(other!.systemRows.find((r) => r.head.startsWith('≥'))!.head).toBe('≥ 20.72');
 	});
 
-	it('draws nothing at a limit no point states: the example’s Winter case (C3 adds the point)', () => {
-		// P1 runs at F1's setpoint, between two grid flows: no point states its openHead, so its
-		// line stops at the last flow with a head; the group chart of the same case draws its
-		// vertical at the duty, which the group system curve always solves (D21 4b).
-		const { data, result } = pumpCard('winter');
-		expect(data.systemRays).toEqual([]);
-		const drawn = data.system!.filter((p) => p.y !== null);
-		expect(f4(drawn.at(-1)!.x)).toBe('914.2');
-		expect(f4(fromSI(result.operatingFlow, 'L/s'))).toBe('946.4');
-		const project = condenserCaseProject('winter');
+	it('draws the vertical at the Winter case’s limit point, through P1’s operating point (C3)', () => {
+		// P1 runs at F1's setpoint, between two grid flows: /system-curve's limit point there is at
+		// F1's switch, so the line turns vertical where P1 runs, as the group chart of the same case
+		// does at the duty (D21 4b; open-defects-2.md §1 call 2).
+		const { data, result, curve, project } = pumpCard('winter');
+		expect(curve.limitPoints).toHaveLength(1);
+		const limit = curve.limitPoints[0]!;
+		expect(limit).toMatchObject({ head: null, reason: 'valve_at_switch', openHeadBound: 'lower' });
+		expect(curve.points.map((p) => p.flow)).not.toContain(limit.flow);
+		const x = fromSI(limit.flow, 'L/s');
+		expect(data.systemRays).toEqual([{ x, from: limit.openHead, bound: 'lower' }]);
+		expect(data.system).toHaveLength(curve.points.length + 1);
+		const i = data.system!.findIndex((p) => p.x === x);
+		expect(data.system![i]).toEqual({ x, y: limit.openHead, bound: 'lower' });
+		expect(data.system!.map((p) => p.x)).toEqual(
+			[...curve.points, limit].map((p) => fromSI(p.flow, 'L/s')).sort((a, b) => a - b)
+		);
+		// The line reaches it from the last grid flow with a head, and P1 runs on its vertical part.
+		expect(data.system![i - 1]!.y).not.toBeNull();
+		expect(f4(data.system![i - 1]!.x)).toBe('914.2');
+		expect(f4(x)).toBe('946.4');
+		expect(data.operating!.x).toBeCloseTo(x, 9);
+		expect(data.operating!.y).toBeGreaterThan(limit.openHead!);
+		// The data table lists it in flow order, marked, with the range that holds.
+		expect(data.systemRows[i]).toMatchObject({
+			flow: '946.4',
+			head: `≥ ${f4(limit.openHead!)}`,
+			atLimit: true
+		});
+		expect(data.systemRows[i]!.head).toBe('≥ 21.9');
+		expect(data.systemRows.filter((r) => r.atLimit)).toEqual([data.systemRows[i]]);
+		expect(data.systemRows[i]!.note).toBe(
+			systemPointNote(limit, { project, units: project.settings.units }).text
+		);
+		// The notes: one more point without a head, its vertical part, and how it was solved.
+		const missing = curve.points.filter((p) => p.head === null).length + 1;
+		const notes = chartNotes({ data, result, system: { status: 'ready', curve } });
+		expect(notes.curve!.text).toMatch(
+			new RegExp(
+				`^${missing} of ${curve.points.length + 1} system-curve points have no head: at 946\\.4 L/s it is undetermined, any head at or above 21\\.9 m holding, drawn as the curve's vertical part from there to the top of the head axis; at the ${curve.points.filter((p) => p.reason === 'beyond_limit').length} flows sampled beyond 946\\.4 L/s no steady state carries the flow; the data table says why`
+			)
+		);
+		expect(notes.method).toBe(
+			"System curve: the network of this solve, solved again with the pump replaced by each of 41 evenly spaced flows from 0 to 1590 L/s, then by 946.4 L/s, the most the pump can pass, solved alone from the network's initial state (other pumps running, valves following their rules); the system head at each flow is the EGL at the discharge minus the EGL at the suction."
+		);
+		// The readout at that flow: the range, never a bare head.
+		expect(chartReadout(data, ['head'], x).find((r) => r.key === 'system')).toMatchObject({
+			value: limit.openHead,
+			bound: 'lower'
+		});
+		// The group chart of the same case draws its vertical at the same flow.
 		const group = condenserCase('winter');
 		const groupData = groupChartData(
 			condenserMembers('winter'),
@@ -1006,6 +1050,47 @@ describe('a pump’s system curve’s vertical part at its FCV’s limit (open-d
 		expect(groupData.systemRays).toHaveLength(1);
 		expect(f4(groupData.systemRays[0]!.x)).toBe('946.4');
 		expect(f4(groupData.systemRays[0]!.from)).toBe('20.31');
+	});
+
+	it('takes the limit points into another case’s dotted curve and its table (C3)', () => {
+		const { curve, result, project, prefs, data } = pumpCard('winter');
+		const [other] = otherCasesData(
+			[{ key: 'S1', name: 'Winter', result, stale: false, system: curve }],
+			prefs,
+			ratedCurveRange(project, 'P1'),
+			1,
+			{ project },
+			{ S1: 1 }
+		);
+		expect(other!.systemRays).toEqual(data.systemRays);
+		expect(other!.system).toEqual(data.system);
+		expect(other!.systemRows).toEqual(data.systemRows);
+		expect(other!.systemRows.filter((r) => r.atLimit).map((r) => r.flow)).toEqual(['946.4']);
+	});
+
+	it('draws a response without limitPoints (an API deployed before C3) as its grid alone', () => {
+		// The Winter answer as an API before C3 gives it: the same grid, no limitPoints field.
+		const { curve, result, project, prefs } = pumpCard('winter');
+		const old = structuredClone(curve) as Partial<typeof curve>;
+		delete old.limitPoints;
+		const data = pumpChartData(result, prefs, ratedCurveRange(project, 'P1'), old as typeof curve, {
+			project
+		});
+		expect(data.systemRays).toEqual([]);
+		expect(data.system).toHaveLength(curve.points.length);
+		const drawn = data.system!.filter((p) => p.y !== null);
+		expect(f4(drawn.at(-1)!.x)).toBe('914.2');
+		expect(data.systemRows.some((r) => r.atLimit)).toBe(false);
+		const notes = chartNotes({
+			data,
+			result,
+			system: { status: 'ready', curve: old as typeof curve }
+		});
+		expect(notes.method).toContain(
+			'each of 41 evenly spaced flows from 0 to 1590 L/s (other pumps'
+		);
+		// The single-line case's limit is a grid flow: no limit point, its grid point the foot.
+		expect(pumpCard('single24').curve.limitPoints).toEqual([]);
 	});
 });
 

@@ -43,15 +43,17 @@ import type { SystemCurveState } from '../state/project.svelte';
 import { componentById } from './graph';
 import {
 	pointRay,
+	systemCurvePoints,
 	systemLine,
 	verticalCell,
 	verticalWords,
+	type MergedSystemPoint,
 	type PastLimit,
 	type SystemLinePoint,
 	type SystemRay
 } from './system-curve-line';
 import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
-import { displayUnit, formatNumber, fromSI, unitLabel } from './units';
+import { displayUnit, formatNumber, fromSI, unitLabel, type UnitId } from './units';
 
 /** A system-curve row: flow and head formatted, and why a point without a head has none. */
 export interface SystemRow {
@@ -63,6 +65,18 @@ export interface SystemRow {
 	note: string;
 	/** The API's sentence, when `note` is told in the browser. */
 	detail?: string;
+	/** A limit point (C3): solved after the evenly spaced flows, where a flow limit lies. */
+	atLimit?: true;
+}
+
+/**
+ * A limit point of the system curve (open-defects-2.md §3 C3), display unit, and which limit it
+ * is, as the grid's points past it say ('most': the beyond_limit points' limitFlow, the most the
+ * pump can pass; 'least': the below_floor points', the least it must pass; null: neither says).
+ */
+export interface SystemLimit {
+	x: number;
+	kind: 'most' | 'least' | null;
 }
 
 /** The projects a system-curve point's reason is told with (names; kinds as solved). */
@@ -260,6 +274,8 @@ export interface PumpChartData {
 	systemRays: SystemRay[];
 	/** Its points without a head past a flow limit, where no steady state carries the flow. */
 	systemPast: PastLimit[];
+	/** The system curve's limit points (C3), in flow order: in the line, the rows and the notes. */
+	systemLimits: SystemLimit[];
 	/** System-curve points without a head (each row says why). */
 	systemMissing: number;
 	/** The flows the system curve's points span, display unit (SystemCurveResponse.flowRange). */
@@ -375,9 +391,8 @@ export function pumpChartData(
 
 	const held = result.status === 'no_flow' ? point(operatingSI) : null;
 
-	const systemPoints = systemCurve?.points.length
-		? [...systemCurve.points].sort((a, b) => a.flow - b.flow)
-		: null;
+	// The grid and its limit points (C3), in flow order: drawn, listed and exported as one curve.
+	const systemPoints = systemCurve?.points.length ? systemCurvePoints(systemCurve) : null;
 	// Its vertical parts as the line's feet and rays (open-defects-2.md C1).
 	const drawnSystem = systemPoints ? systemLine(systemPoints, flowUnit, headUnit) : null;
 	const system = drawnSystem?.line ?? null;
@@ -434,6 +449,7 @@ export function pumpChartData(
 		system,
 		systemRays: drawnSystem?.rays ?? [],
 		systemPast: drawnSystem?.past ?? [],
+		systemLimits: systemPoints ? systemLimits(systemPoints, flowUnit) : [],
 		operating,
 		held,
 		inCurveRange: result.inCurveRange,
@@ -463,10 +479,25 @@ export function pumpChartData(
 					c.y === null ? '—' : ray ? verticalCell(fromSI(ray.from, headUnit), ray.bound) : fmt(c.y),
 				npsha: npsha === null || npsha === undefined ? '—' : fmt(fromSI(npsha, headUnit)),
 				note: why.text,
-				...(why.detail ? { detail: why.detail } : {})
+				...(why.detail ? { detail: why.detail } : {}),
+				...(p?.atLimit ? { atLimit: true as const } : {})
 			};
 		})
 	};
+}
+
+/** The limit points of `points` (merged, in flow order) and which limit each is (SystemLimit). */
+function systemLimits(points: readonly MergedSystemPoint[], flowUnit: UnitId): SystemLimit[] {
+	return points
+		.filter((p) => p.atLimit)
+		.map((p) => {
+			const past = (reason: string) =>
+				points.some((q) => !q.atLimit && q.reason === reason && q.limitFlow === p.flow);
+			return {
+				x: fromSI(p.flow, flowUnit),
+				kind: past('beyond_limit') ? 'most' : past('below_floor') ? 'least' : null
+			};
+		});
 }
 
 /** The curve facts in display units; `line` is every drawn point of the pump curve. */
@@ -1223,6 +1254,12 @@ export function offCasesNote(
 		: null;
 }
 
+/** Which limit a limit point is (SystemLimit), as the API's limitFlow describes it. */
+const LIMIT_WORDS = {
+	most: 'the most the pump can pass',
+	least: 'the least it must pass'
+} as const;
+
 /** Why a system-curve point has no head, as the API's messages say (TSD §5.6). */
 const NO_HEAD_REASONS =
 	'(no steady state carries the flow, its head is undetermined, its solve did not converge, ' +
@@ -1335,10 +1372,17 @@ export function chartNotes({
 										: `${data.systemMissing} of ${n} system-curve points have no head: the line has gaps there, and ${why}.`
 								}
 							: null;
+	// The limit points (C3), solved after the evenly spaced flows, each from the initial state.
+	const limits = data.systemLimits.map(
+		(l) => `${fmt(l.x)} ${data.flowUnit}, ${l.kind ? LIMIT_WORDS[l.kind] : 'a flow limit'}`
+	);
 	const flows =
 		data.system && data.systemSpan
-			? `${n} evenly spaced flows from ${fmt(data.systemSpan[0])} to ` +
-				`${fmt(data.systemSpan[1])} ${data.flowUnit}`
+			? `${n - limits.length} evenly spaced flows from ${fmt(data.systemSpan[0])} to ` +
+				`${fmt(data.systemSpan[1])} ${data.flowUnit}` +
+				(limits.length
+					? `, then by ${limits.join(' and by ')}, ${limits.length === 1 ? 'solved' : 'each solved'} alone from the network's initial state`
+					: '')
 			: null;
 	const method = flows
 		? `System curve: the network of this solve, solved again with the pump replaced by each of ${flows} (${

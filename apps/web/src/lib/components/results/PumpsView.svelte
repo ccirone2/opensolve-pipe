@@ -498,7 +498,11 @@
 	 */
 	const settled = (state: GroupCurveState | undefined) =>
 		!!state && state.status !== 'loading' && !cancelledByCalculation(state);
-	/** The case shown's curves have answered: the other cases' requests come after them. */
+	/**
+	 * The case shown's curves have answered: the other cases' requests come after them, and the
+	 * card brings back only then the Add cases and methods a solve withdrew (`settled`,
+	 * proposals/open-defects-2.md F3).
+	 */
 	const shownSettled = $derived(settled(groupState) && (!wantsSystem || settled(groupSystemState)));
 
 	/**
@@ -1139,6 +1143,7 @@
 			system={groupSystemState}
 			onretrysystem={() => ws.store.loadGroupSystemCurve(groupMembers, { retry: true })}
 			oncancelsystem={() => ws.store.cancelGroupSystemCurve(groupMembers)}
+			settled={shownSettled}
 			prefs={ws.displayUnits}
 			project={ws.labelsProject}
 			solvedProject={groupSolvedProject}

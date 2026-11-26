@@ -74,6 +74,7 @@
 	import CurveTable from './CurveTable.svelte';
 	import IssueDetail from './IssueDetail.svelte';
 	import PumpGroupOthers from './PumpGroupOthers.svelte';
+	import { CardSections } from './card-sections.svelte';
 	import { registerSection, useSectionNav } from './section-nav.svelte';
 
 	/** Why the pumps are not a station, for one issue: the issue, and its words with names. */
@@ -85,6 +86,17 @@
 	interface Props {
 		/** The figure (bindable): the focus falls back to it. */
 		figure?: HTMLElement;
+		/**
+		 * The two methods' open state, kept by the card while a solve withdraws them
+		 * (proposals/open-defects-2.md F3); the figure alone makes its own.
+		 */
+		sections?: CardSections;
+		/**
+		 * A solve withdrew the methods and the case shown's curves have not all answered yet: they
+		 * are not drawn, and come back with Add cases in one flush (the card's rule, open-defects-2
+		 * F3). Default: false.
+		 */
+		withheld?: boolean;
 		/**
 		 * The data table is shown (bindable: the card keeps it while the section is redrawn, and
 		 * reads it from this browser, which remembers it, §9 S7).
@@ -179,6 +191,8 @@
 
 	let {
 		figure = $bindable(),
+		sections = new CardSections(),
+		withheld = false,
 		showTable = $bindable(false),
 		tablesOpen = $bindable({}),
 		reading = $bindable(null),
@@ -930,9 +944,15 @@
 				{/if}
 			</div>
 		</details>
-		{#if shown}
-			<details class="group">
-				<summary class="more-summary">
+		<!-- How each curve is computed: withdrawn by a solve until the case shown's curves have
+			answered, their open state the card's meanwhile (proposals/open-defects-2.md F3). -->
+		{#if shown && !withheld}
+			<details
+				class="group"
+				bind:open={sections.groupMethodsOpen}
+				data-card-section="group-methods"
+			>
+				<summary class="more-summary" data-focus-key="group-methods">
 					<Icon
 						name="right"
 						class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
@@ -955,9 +975,13 @@
 				</div>
 			</details>
 		{/if}
-		{#if systemShown}
-			<details class="group">
-				<summary class="more-summary">
+		{#if systemShown && !withheld}
+			<details
+				class="group"
+				bind:open={sections.systemMethodsOpen}
+				data-card-section="system-methods"
+			>
+				<summary class="more-summary" data-focus-key="system-methods">
 					<Icon
 						name="right"
 						class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"

@@ -26,6 +26,9 @@
 	The fold (§5.3): the plan is drawn closed only when every planned case exists (nothing to add,
 	some made), open otherwise, and opens itself when cases come to remain (another preset, a
 	scenario deleted, an Undo); it never closes itself, so after the user's own Add it stays as left.
+	A solve that withdraws the block is no drawing (proposals/open-defects-2.md F3): the card keeps
+	the plan's and the stop order's open state and the rule's reading (`sections`) for the block
+	drawn back, and each control a key (`data-focus-key`) the card gives the focus back by.
 
 	The stop order (§7.5) is a native disclosure, closed by default, whose summary says what it
 	holds: an ordered list with two icon buttons per pump (Stop … earlier, Stop … later; at an end
@@ -38,6 +41,7 @@
 -->
 <script lang="ts" module>
 	import type { LineupPlan, LineupPreset } from '$lib/utils/pump-lineups';
+	import { CardSections } from './card-sections.svelte';
 
 	export interface LineupsBlockProps {
 		/** What the block would make now (lineupPlan), or why not. */
@@ -60,6 +64,12 @@
 		 * the button is drawn when it is given.
 		 */
 		ontable?: () => void;
+		/**
+		 * What the block keeps while a solve withdraws it and draws it back
+		 * (proposals/open-defects-2.md F3): the plan's and the stop order's open state, and the fold
+		 * rule's reading. The card gives one per opening; the block alone makes its own.
+		 */
+		sections?: CardSections;
 	}
 </script>
 
@@ -70,15 +80,23 @@
 		ADD_CASES_WORDS,
 		LINEUP_BLOCK_WORDS,
 		LINEUP_PRESET_LABELS,
-		STOP_ORDER_WORDS,
-		type LineupPreset as Preset
+		STOP_ORDER_WORDS
 	} from '$lib/utils/pump-lineups';
+	import type { FoldSeen } from './card-sections.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import SegmentedField from '$lib/components/ui/SegmentedField.svelte';
 	import { registerSection } from './section-nav.svelte';
 
-	let { plan, onpreset, onmove, ondefaultorder, onadd, othersOn, ontable }: LineupsBlockProps =
-		$props();
+	let {
+		plan,
+		onpreset,
+		onmove,
+		ondefaultorder,
+		onadd,
+		othersOn,
+		ontable,
+		sections = new CardSections()
+	}: LineupsBlockProps = $props();
 	const id = $props.id();
 
 	const presets = (Object.keys(LINEUP_PRESET_LABELS) as LineupPreset[]).map((value) => ({
@@ -98,13 +116,14 @@
 
 	/** Every planned case exists (nothing to add, some made): the plan is drawn folded (§5.3). */
 	const done = $derived(plan.add.length === 0 && plan.existing.length > 0);
-	/** The plan disclosure's open state: the user's, but for the fold rule's two moves below. */
-	let planOpen = $state(false);
+	// The plan disclosure's open state, sections.planOpen: the user's, but for the fold rule's two
+	// moves below; kept with the stop order's while a solve withdraws the block (open-defects-2 F3).
 	let planEl: HTMLDetailsElement | undefined = $state();
 	/** The last Add ticked "Also show the other cases' station duties" (§5.3 "Now ticked"). */
 	let ticked = $state(false);
-	/** What the plan was at the last run of the rule below (not reactive). */
-	let seen: { drawn: boolean; done: boolean; preset: Preset; others: boolean } | null = null;
+	// What the plan was at the last run of the rule below: sections.seen (not reactive), so a block
+	// drawn back after a withdrawal goes on from it rather than being drawn anew (F3): a
+	// withdrawal is no drawing.
 	/**
 	 * The fold rule (§5.3), before the DOM is updated so the disclosure is drawn as it says: drawn
 	 * (the block mounted, or a gate lifted), it is closed only when every planned case exists; when
@@ -115,13 +134,13 @@
 	 * there is left alone.
 	 */
 	$effect.pre(() => {
-		const now = { drawn: !plan.gate, done, preset: plan.preset, others: !!othersOn };
-		const before = seen;
-		seen = now;
-		if (now.drawn && !before?.drawn) planOpen = !now.done;
+		const now: FoldSeen = { drawn: !plan.gate, done, preset: plan.preset, others: !!othersOn };
+		const before = sections.seen;
+		sections.seen = now;
+		if (now.drawn && !before?.drawn) sections.planOpen = !now.done;
 		else if (now.drawn && before?.done && !now.done) {
 			// The element too: a user's close reaches `planOpen` only with the queued toggle event.
-			planOpen = true;
+			sections.planOpen = true;
 			if (planEl) planEl.open = true;
 		}
 		if (before && (!now.done || now.preset !== before.preset || !now.others)) {
@@ -202,6 +221,7 @@
 	the same at its foot as at its head. -->
 <section
 	bind:this={section}
+	data-card-section="add-cases"
 	class="space-y-2 rounded-lg border border-slate-300 bg-slate-50 p-3 wrap-break-word [&>:has(+[data-stop-status])]:mb-0"
 	aria-labelledby="{id}-heading"
 	data-add-cases
@@ -213,6 +233,7 @@
 			id="{id}-heading"
 			class="scroll-mt-[calc(var(--pumps-nav-h,0px)-var(--pumps-nav-pad,0px)+0.5rem)] text-sm font-semibold text-slate-900"
 			tabindex="-1"
+			data-focus-key="heading"
 		>
 			{LINEUP_BLOCK_WORDS.heading}
 		</h4>
@@ -233,8 +254,8 @@
 		</div>
 		<!-- 2. The plan: everything the preset would make, one native disclosure that says what it
 			holds, folded once every case exists (§5.3 The fold). -->
-		<details bind:this={planEl} bind:open={planOpen} class="group/plan" data-lineup-plan>
-			<summary class="more-summary hover:bg-slate-100">
+		<details bind:this={planEl} bind:open={sections.planOpen} class="group/plan" data-lineup-plan>
+			<summary class="more-summary hover:bg-slate-100" data-focus-key="plan">
 				<Icon
 					name="right"
 					class="size-4 shrink-0 text-slate-500 transition-transform group-open/plan:rotate-90 motion-reduce:transition-none"
@@ -249,8 +270,9 @@
 				{#if plan.sentence}<p class="text-xs text-slate-600">{plan.sentence}</p>{/if}
 				{#if plan.stopOrder}
 					{@const order = plan.stopOrder}
-					<details class="group/stop text-xs" data-stop-order>
+					<details class="group/stop text-xs" bind:open={sections.stopOpen} data-stop-order>
 						<summary
+							data-focus-key="stop-order"
 							class="flex min-h-11 cursor-pointer list-none items-center gap-1 rounded-md font-medium break-words text-blue-800 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
 						>
 							<Icon
@@ -276,6 +298,7 @@
 												class="btn btn-quiet btn-icon min-w-11"
 												data-stop-id={item.id}
 												data-dir="up"
+												data-focus-key={JSON.stringify(['stop', item.id, 'up'])}
 												aria-disabled={i === 0}
 												aria-describedby={i === 0 ? `${id}-at-first` : undefined}
 												onclick={() => void move(item.id, 'up')}
@@ -289,6 +312,7 @@
 												class="btn btn-quiet btn-icon min-w-11"
 												data-stop-id={item.id}
 												data-dir="down"
+												data-focus-key={JSON.stringify(['stop', item.id, 'down'])}
 												aria-disabled={i === order.items.length - 1}
 												aria-describedby={i === order.items.length - 1
 													? `${id}-at-last`
@@ -309,6 +333,7 @@
 								<button
 									type="button"
 									class="btn btn-quiet"
+									data-focus-key="default-order"
 									aria-describedby="{id}-default"
 									onclick={() => void defaultOrder()}>{STOP_ORDER_WORDS.reset}</button
 								>
@@ -343,6 +368,7 @@
 			<button
 				type="button"
 				class="btn"
+				data-focus-key="add"
 				aria-disabled={!!plan.refusal}
 				aria-describedby={plan.refusal ? `${id}-refusal` : undefined}
 				onclick={() => void addCases()}>{plan.label}</button
@@ -358,8 +384,11 @@
 	{/if}
 	{#if ontable}
 		<!-- 5. At its foot whenever it is drawn, gates included (D24 slice L2, §8.1). -->
-		<button type="button" class="btn btn-quiet text-blue-800" onclick={() => ontable?.()}
-			>{LINEUP_TABLE_WORDS.cardButton}</button
+		<button
+			type="button"
+			class="btn btn-quiet text-blue-800"
+			data-focus-key="table"
+			onclick={() => ontable?.()}>{LINEUP_TABLE_WORDS.cardButton}</button
 		>
 	{/if}
 	<p class="sr-only" aria-live="polite" data-stop-status>{status}</p>

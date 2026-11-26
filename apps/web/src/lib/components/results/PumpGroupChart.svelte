@@ -68,9 +68,18 @@
 	combinations", then the ring notes cut as the owner answered (§12 item 1): the clip note,
 	"How to read the rings" (the frame and the rule), the ring list one line per ring, "Not on the
 	chart" and the left-out count.
+
+	The sections a solve withdraws (proposals/open-defects-2.md F3): once a solve has taken Add cases
+	or the two methods' disclosures away, they come back only when the case shown's curves have
+	answered (`settled`, PumpsView's shownSettled: the group curve and, when wanted, the group
+	system curve), so never with another solve's results, and all in one flush; at the card's first
+	drawing each is drawn with its own answer, as before. Their open sections are kept for the card's
+	opening (CardSections, card-sections.svelte.ts). A control the solve takes from the body hands
+	the focus to the figure, else the toggle, never the page; one of those sections is given back
+	by its key, at the same offset in its pane, unless the user has taken a step of their own.
 -->
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import type { Flag, NodeResult, Project, UnitPreferences } from '$lib/api/types';
 	import type { GroupCurveState, GroupSystemCurveState } from '$lib/state/project.svelte';
 	import type { ChartImageSource } from '$lib/utils/export/chart-image';
@@ -101,6 +110,17 @@
 	import PumpGroupFigure from './PumpGroupFigure.svelte';
 	import PumpGroupStation from './PumpGroupStation.svelte';
 	import PumpLineupsBlock, { type LineupsBlockProps } from './PumpLineupsBlock.svelte';
+	import {
+		CARD_SECTIONS,
+		CardSections,
+		NONE_DRAWN,
+		SeenOffset,
+		controlOf,
+		focusKey,
+		offsetIn,
+		scrollerOf,
+		type CardSection
+	} from './card-sections.svelte';
 	import { registerSection } from './section-nav.svelte';
 
 	interface Props {
@@ -134,6 +154,13 @@
 		onretrysystem?: () => void;
 		/** Cancel the group system curve while it is computed. */
 		oncancelsystem?: () => void;
+		/**
+		 * The case shown's curves have answered (PumpsView's shownSettled: the group curve and, when
+		 * wanted, the group system curve; failed or cancelled by the user counts, cancelled by a
+		 * calculation does not): Add cases and the methods a solve withdrew come back only then
+		 * (proposals/open-defects-2.md F3). Default: true.
+		 */
+		settled?: boolean;
 		prefs: UnitPreferences;
 		/** Names (the labels project). */
 		project: Project;
@@ -212,6 +239,7 @@
 		system: systemCurve,
 		onretrysystem,
 		oncancelsystem,
+		settled = true,
 		prefs,
 		project: labels,
 		solvedProject,
@@ -407,6 +435,138 @@
 	/** The toggle: the section nav's "Pumps together" lands on it (§5.4 Targets). */
 	let toggle: HTMLElement | undefined = $state();
 	registerSection('pumps-together', () => toggle);
+
+	/**
+	 * What the sections a solve withdraws keep (proposals/open-defects-2.md F3): one per opening of
+	 * the card, so a card closed and opened draws them anew (§5.3 The fold).
+	 */
+	const sections = $derived.by(() => {
+		void open;
+		return new CardSections();
+	});
+	/** Each of those sections' own answer: Add cases the station (and its plan), a method its curve. */
+	const answered = $derived<Record<CardSection, boolean>>({
+		'add-cases': !!(lineups && stationShown),
+		'group-methods': !!shown,
+		'system-methods': !!systemShown
+	});
+	/** Withdrawn by a solve, and the case shown's curves not all in yet: none of them is drawn. */
+	const withheld = $derived(sections.withdrawn && !settled);
+	/** Which of those sections are drawn. */
+	const drawnSections = $derived<Record<CardSection, boolean>>(withheld ? NONE_DRAWN : answered);
+	/** Their answers at the last change (not reactive): one that goes is a solve's withdrawal. */
+	let lastAnswered: Record<CardSection, boolean> | null = null;
+	// A solve takes a section's answer away (its curves asked for again: a new response, other
+	// members): the sections stay withdrawn until the case shown's curves have all answered, then
+	// come back together, in one flush, so never pushed down by a curve still to come (F3). Written
+	// here only, before the DOM is updated. The card's first drawing, as before: each section with
+	// its own answer.
+	$effect.pre(() => {
+		const now = answered;
+		const done = settled;
+		untrack(() => {
+			const before = lastAnswered;
+			lastAnswered = now;
+			if (before && CARD_SECTIONS.some((s) => before[s] && !now[s])) sections.withdrawn = true;
+			else if (done) sections.withdrawn = false;
+		});
+	});
+	let body: HTMLElement | undefined = $state();
+	/**
+	 * The control a solve took away with its section, while the figure holds the focus for it (not
+	 * reactive): its section, its key and its offset in its pane, given back when the section is
+	 * drawn again; forgotten at the user's own next step.
+	 */
+	let held: { section: CardSection; key: string; pane: Element; offset: number } | null = null;
+	/** The user's own next step, whatever it is: a press, a key, a wheel or a touch (ui-guide). */
+	const OWN_STEPS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+	/**
+	 * Forget the control held. A step of the user's own does (pumps-results-layout.md §15 item 222:
+	 * a press on the canvas leaves the focus on the figure, a wheel moves none, and neither may end
+	 * in a jump to the control); the page losing the system focus does not (no listener: the focus
+	 * stays on the figure, which still gives it back).
+	 */
+	function letGo() {
+		held = null;
+		for (const type of OWN_STEPS) window.removeEventListener(type, letGo, true);
+	}
+	$effect(() => letGo);
+	/**
+	 * Where the user last saw the control with the focus in a section a solve withdraws: read as it
+	 * takes the focus and at each scroll of its pane, never in the withdrawal's flush, which has
+	 * already changed the DOM above it without the browser's scroll anchoring (open-defects-2 F3:
+	 * 68 px high at 1280 × 800, SeenOffset).
+	 */
+	const seen = new SeenOffset();
+	/** The focus moves in the card's body: a control a withdrawn section gives back is watched. */
+	function watchFocus(event: FocusEvent) {
+		const el = event.target;
+		const given =
+			el instanceof HTMLElement && !!el.closest('[data-card-section]') && !!focusKey(el);
+		if (given) seen.watch(el, scrollerOf(el));
+		else seen.stop();
+	}
+	// The body gone (the card closed) or the card destroyed: nothing watched.
+	$effect(() => {
+		if (body) return () => seen.stop();
+	});
+	// Before the DOM drops what holds the focus in the card's body (a solve's group curves asked
+	// for, or a failed solve): the figure takes it, else the toggle with the figure gone too, never
+	// the page (open-defects-2 F3; the handover of the chart's Cancel, PumpChart.svelte). A control
+	// of a withdrawn section is held by its key and its offset in its pane as the user last saw it
+	// (`seen`), to be given back.
+	$effect.pre(() => {
+		const drawn = drawnSections;
+		// What else a solve takes away from the body (also while the sections are withheld): a
+		// member's box (a pump with no result), the figure's parts drawn from its answer (the
+		// slider), the station's (the group table's columns, the other cases' switch and boxes) and
+		// Running combinations.
+		void pumps;
+		void shown;
+		void stationShown;
+		void others;
+		void combinations;
+		untrack(() => {
+			const active = document.activeElement;
+			if (!(active instanceof HTMLElement) || !body?.contains(active)) return;
+			const at = active.closest<HTMLElement>('[data-card-section]');
+			const section = at?.dataset.cardSection as CardSection | undefined;
+			const key = section && !drawn[section] ? focusKey(active) : null;
+			const pane = key ? scrollerOf(active) : null;
+			const offset = pane ? seen.offsetOf(active, pane) : 0;
+			void tick().then(() => {
+				const now = document.activeElement;
+				if (active.isConnected || (now && now !== document.body)) return;
+				letGo();
+				const to = figure ?? toggle;
+				to?.focus();
+				if (!section || !key || !pane || !figure || to !== figure) return;
+				held = { section, key, pane, offset };
+				for (const type of OWN_STEPS) {
+					window.addEventListener(type, letGo, { capture: true, passive: true });
+				}
+			});
+		});
+	});
+	// And back, in the flush that draws its section again: the same control, focused without the
+	// browser's scroll (which would centre it), then its pane scrolled by what it moved, so it is
+	// where the user last saw it, and watched from there; only while the figure still holds the
+	// focus. With the control gone, or the focus moved on, the focus stays where it is.
+	$effect(() => {
+		const drawn = drawnSections;
+		untrack(() => {
+			const was = held;
+			if (!was || !drawn[was.section]) return;
+			letGo();
+			if (!figure || !body || document.activeElement !== figure) return;
+			const control = controlOf(body, was.section, was.key);
+			if (!control) return;
+			control.focus({ preventScroll: true });
+			const moved = offsetIn(was.pane, control) - was.offset;
+			if (Math.abs(moved) > 0.5) was.pane.scrollTop += moved;
+			seen.watch(control, was.pane);
+		});
+	});
 </script>
 
 <!--
@@ -455,7 +615,7 @@
 		{/if}
 	</div>
 	{#if open}
-		<div id="{id}-body" class="space-y-3">
+		<div bind:this={body} id="{id}-body" class="space-y-3" onfocusin={watchFocus}>
 			<!-- Members (§5.3): the legend the fieldset's first child, so the group keeps its name; the
 				server finder's hint its description (§6.2: kept visible, now also its description). -->
 			<fieldset bind:this={fieldset} aria-describedby="{id}-finder">
@@ -569,6 +729,8 @@
 					reference (§5.1, §9 S2). -->
 				<PumpGroupFigure
 					bind:figure
+					{sections}
+					{withheld}
 					bind:showTable
 					bind:tablesOpen
 					bind:reading
@@ -613,11 +775,12 @@
 					{othersRetryReason}
 					combinations={!!combinations && !!stationShown}
 				/>
-				{#if lineups && stationShown}
+				{#if lineups && stationShown && !withheld}
 					<!-- 3. Add cases (D24 slice L1): the cases of the base case with pumps off, the one
 						part that changes the project, after the group chart (§6.4 item 1), a framed
-						panel in place of the rule every other h4 section has (§5.3, §9 S4). -->
-					<PumpLineupsBlock {...lineups} />
+						panel in place of the rule every other h4 section has (§5.3, §9 S4). Drawn once
+						the case shown's curves have answered, its open sections kept (F3). -->
+					<PumpLineupsBlock {...lineups} {sections} />
 				{/if}
 				{#if combinations && stationShown}
 					<!-- 4. Running combinations (slice 4d), with the extremes over the cases. -->

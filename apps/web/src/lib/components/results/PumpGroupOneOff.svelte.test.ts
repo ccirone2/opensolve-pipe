@@ -2407,3 +2407,52 @@ describe('case numbers on both charts (nit 5, slice 5b)', () => {
 		// (the lineups' curve family, its table opened).
 	}, 30_000);
 });
+
+describe('a base solve with the focus in Add cases (proposals/open-defects-2.md F3)', () => {
+	it('keeps the block and both methods withdrawn until the group system curve answers, then gives them and the focus back as left', async () => {
+		let answer: (() => void) | undefined;
+		const { ws, calls } = setup(withoutScenarios(), {
+			// The second solve's group system curve, answered when the test says.
+			hold: (call) => {
+				if (call.curve !== 'system' || calls.filter((c) => c.curve === 'system').length < 2) {
+					return undefined;
+				}
+				const held = deferred<void>();
+				answer = held.resolve;
+				return held.promise;
+			}
+		});
+		await openCard(ws, calls);
+		await waitFor(() =>
+			expect(within(card()).getByRole('img')).toHaveAccessibleName(/group system curve shown/)
+		);
+		const methods = () =>
+			[...card().querySelectorAll<HTMLDetailsElement>('[data-card-section$="-methods"]')].map(
+				(d) => d.open
+			);
+		for (const d of card().querySelectorAll<HTMLDetailsElement>('[data-card-section$="-methods"]'))
+			await fireEvent.click(d.querySelector(':scope > summary')!);
+		expect(methods()).toEqual([true, true]);
+		await fireEvent.click(block().querySelector('[data-stop-order] > summary')!);
+		// Each disclosure's toggle event, a task of its own, lands before the user's next key.
+		await new Promise((r) => setTimeout(r, 0));
+		const later = () => within(block()).getByRole('button', { name: 'Stop Pump PB later' });
+		later().focus();
+
+		// Ctrl+Enter from the button: the base solved again, its group curve and then its group
+		// system curve asked for; the block and the methods withdrawn meanwhile, the figure holding
+		// the focus.
+		await fireEvent.keyDown(later(), { key: 'Enter', ctrlKey: true });
+		await waitFor(() => expect(calls.filter((c) => c.curve === 'system')).toHaveLength(2));
+		const figure = within(card()).getByRole('figure');
+		expect(within(card()).queryByRole('region', { name: 'Add cases' })).toBeNull();
+		expect(methods()).toEqual([]);
+		expect(figure).toHaveFocus();
+
+		// Its answer: all back in one flush, as the user left them, the focus on the same button.
+		answer!();
+		await waitFor(() => expect(later()).toHaveFocus());
+		expect(block().querySelector<HTMLDetailsElement>('[data-stop-order]')!.open).toBe(true);
+		expect(methods()).toEqual([true, true]);
+	});
+});

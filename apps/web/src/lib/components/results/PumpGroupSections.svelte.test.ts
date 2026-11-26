@@ -275,6 +275,27 @@ describe('the sections withdrawn during a solve (open-defects-2 F3)', () => {
 		expect(within(block()!).getByRole('button', { name: 'Add 1 case' })).toHaveFocus();
 	});
 
+	// The review of open defects round two, WS-1: a section's answer that goes in a flush with
+	// nothing left to wait for (a case switch onto curves the store holds, its group system curve
+	// failed) is a withdrawal already over, so a later wait with no loss (that curve's Try again)
+	// withdraws nothing.
+	it('withdraws nothing on a later wait when the withdrawal was already settled (a failed group system curve, then its Try again)', async () => {
+		const view = render(PumpGroupChart, props());
+		await phase(view, { system: { status: 'error', message: 'No answer.' }, settled: true });
+		expect(block()).not.toBeNull();
+		expect(groupMethods()).toBeDefined();
+		expect(systemMethods()).toBeUndefined();
+		// Try the group system curve again: it loads, nothing taken away meanwhile.
+		await phase(view, { system: { status: 'loading' }, settled: false });
+		expect(block()).not.toBeNull();
+		expect(groupMethods()).toBeDefined();
+		// Its answer: the group system curve's methods with the others.
+		await phase(view, answered());
+		expect(block()).not.toBeNull();
+		expect(groupMethods()).toBeDefined();
+		expect(systemMethods()).toBeDefined();
+	});
+
 	it('gives the focus back to a method’s summary, which comes back with the others', async () => {
 		const view = render(PumpGroupChart, props());
 		await open(systemMethods()!);

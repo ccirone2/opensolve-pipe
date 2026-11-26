@@ -2457,6 +2457,76 @@ describe('a base solve with the focus in Add cases (proposals/open-defects-2.md 
 	});
 });
 
+// The review of open defects round two, WS-1: a case switch onto curves the store holds, the group
+// system curve among them failed, takes a section's answer away with nothing to wait for; the
+// withdrawal is over in that flush, so the curve's Try again, which waits with no loss, withdraws
+// nothing (on d101793 Add cases and the group curve's methods vanished while it loaded).
+describe('a failed group system curve tried again after a case switch (the review of open defects round two, WS-1)', () => {
+	it('keeps Add cases and the group curve’s methods while the retry loads', async () => {
+		let retry: (() => void) | undefined;
+		const s3System = (calls: Call[]) =>
+			calls.filter((c) => c.scenarioId === 'S3' && c.curve === 'system');
+		const { ws, calls } = setup(structuredClone(oneOff.project), {
+			// S3's first group system curve fails as a server's 500 does (made-up words); its
+			// second, the Try again, is answered when the test says.
+			fail: (call) =>
+				call.scenarioId === 'S3' && call.curve === 'system' && s3System(calls).length === 1
+					? new NetworkError('The calculation server failed to answer.', 500)
+					: undefined,
+			hold: (call) => {
+				if (call.scenarioId !== 'S3' || call.curve !== 'system' || s3System(calls).length < 2) {
+					return undefined;
+				}
+				const held = deferred<void>();
+				retry = held.resolve;
+				return held.promise;
+			}
+		});
+		await openCard(ws, calls);
+		await waitFor(() =>
+			expect(within(card()).getByRole('img')).toHaveAccessibleName(/group system curve shown/)
+		);
+		const methods = () =>
+			[...card().querySelectorAll<HTMLElement>('[data-card-section$="-methods"]')].map(
+				(d) => d.dataset.cardSection
+			);
+		expect(methods()).toEqual(['group-methods', 'system-methods']);
+
+		// S3 shown and solved: its group curve answers, its group system curve fails.
+		ws.setCase('S3');
+		await ws.solve();
+		const again = await within(card()).findByRole('button', {
+			name: 'Try the group system curve again'
+		});
+		expect(again).toBeVisible();
+		expect(block()).toBeVisible();
+		expect(methods()).toEqual(['group-methods']);
+		// The base, then S3 again: each case's curves from the store, none asked again.
+		ws.setCase(null);
+		await waitFor(() => expect(methods()).toEqual(['group-methods', 'system-methods']));
+		ws.setCase('S3');
+		await waitFor(() => expect(methods()).toEqual(['group-methods']));
+		expect(block()).toBeVisible();
+		expect(s3System(calls)).toHaveLength(1);
+
+		// Try again: the retry held; Add cases and the group curve's methods stay while it loads.
+		await fireEvent.click(
+			within(card()).getByRole('button', { name: 'Try the group system curve again' })
+		);
+		await waitFor(() => expect(s3System(calls)).toHaveLength(2));
+		expect(ws.store.groupSystemCurve(ws.store.results.response, ['PA', 'PB'])).toEqual({
+			status: 'loading'
+		});
+		expect(within(card()).getByRole('region', { name: 'Add cases' })).toBeVisible();
+		expect(methods()).toEqual(['group-methods']);
+
+		// Its answer: the group system curve's methods with the others.
+		retry!();
+		await waitFor(() => expect(methods()).toEqual(['group-methods', 'system-methods']));
+		expect(block()).toBeVisible();
+	}, 20_000);
+});
+
 // proposals/open-defects-2.md F3, the failed-solve path: the results out of date, a solve that fails
 // hides them behind "Show the earlier results" (ResultsPanel's previousHidden), which unmounts the
 // whole Pumps view, the card with it, so the card's own handover never runs; the focus fell to the

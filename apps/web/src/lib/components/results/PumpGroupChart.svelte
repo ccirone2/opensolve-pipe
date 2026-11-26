@@ -458,16 +458,19 @@
 	let lastAnswered: Record<CardSection, boolean> | null = null;
 	// A solve takes a section's answer away (its curves asked for again: a new response, other
 	// members): the sections stay withdrawn until the case shown's curves have all answered, then
-	// come back together, in one flush, so never pushed down by a curve still to come (F3). Written
-	// here only, before the DOM is updated. The card's first drawing, as before: each section with
-	// its own answer.
+	// come back together, in one flush, so never pushed down by a curve still to come (F3). An
+	// answer that goes in a flush with the case shown's curves already in (a case switch onto
+	// curves the store holds, one failed or refused) leaves nothing to wait for: no withdrawal, so a
+	// later wait with no loss (a Try again) withdraws nothing (the review of open defects round
+	// two, WS-1). Written here only, before the DOM is updated. The card's first drawing, as before:
+	// each section with its own answer.
 	$effect.pre(() => {
 		const now = answered;
 		const done = settled;
 		untrack(() => {
 			const before = lastAnswered;
 			lastAnswered = now;
-			if (before && CARD_SECTIONS.some((s) => before[s] && !now[s])) sections.withdrawn = true;
+			if (before && CARD_SECTIONS.some((s) => before[s] && !now[s])) sections.withdrawn = !done;
 			else if (done) sections.withdrawn = false;
 		});
 	});

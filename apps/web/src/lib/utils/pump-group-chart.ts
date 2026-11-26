@@ -2462,7 +2462,7 @@ export function groupMethods(state: GroupCurveState | undefined): MethodsSection
 	return state?.status === 'ready' ? state.response.methods : null;
 }
 
-/** "Pump group (calculation methods 1.6.1)": the heading the card and the export give a response's methods. */
+/** "Pump group (calculation methods 1.6.2)": the heading the card and the export give a response's methods. */
 export function groupMethodsHeading(r: PumpGroupCurveResponse): string {
 	return `${r.methods.title} (calculation methods ${r.methodVersion})`;
 }

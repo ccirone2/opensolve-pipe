@@ -83,7 +83,7 @@
 				"flowRange": null,
 				"headRange": { "max": 41.148, "min": 0.0, "unit": "m" },
 				"message": "",
-				"methodVersion": "1.6.1",
+				"methodVersion": "1.6.2",
 				"methods": {
 					"items": [
 						"Station: the pumps P1, P2, P3, P4, P5 and P6 and everything between them and the rest of the network: the smallest part that meets the rest at exactly two places, its inlet S = reservoir B1 and its outlet D = H5 (run_outlet), and holds no other pump, no reservoir or reference node and no assigned flow. It is found as a minimum vertex cut between the pumps and every reservoir, reference node, assigned flow and other pump (Menger's theorem, by augmenting paths), tee and wye centres never cut, so a header tee lies whole inside. It holds 23 components and 28 connections; its arrangement is parallel: with the pumps removed it falls into the inlet's side and the outlet's side, each pump from the first to the second.",
@@ -93,7 +93,7 @@
 						"Points: 41 rises from 0 to 41.148 m, plus the duty's rise; by default from the lower of 0 and the duty's rise to the largest rise the station can hold with flow (the largest sum of shutoff heads s\u00b2H\u2080(0) along a way from S to D, of the members it passes forward and of those beside a bypass in the parts it passes, a speed-controlled pump's at its maximum speed, a member that is off adding nothing, above which the status rules close the pumps; every member's that is on, an upper bound, where no way through the station's parts passes a member), or the duty's rise if higher. The duty's rise is solved first, from the case's solve; then the rises above and below it, each from the converged point next to it toward the duty, so the curve is the branch through the duty; a point that does not converge from there is solved again from the initial state. Where a station has several steady states at a rise, a point is the one its solve reaches from there.",
 						"Duty check: at the duty's rise 31.4781 m the station solved alone passes 5.67812 m\u00b3/s (the solve: 5.67812 m\u00b3/s), and every pump its solved flow, each within 0.5 % or 1e-6 m\u00b3/s: the group curve passes through the duty.",
 						"No standard defines a pump group's curves, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD reads the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: it is the header construction (each pump's curve less its own losses on its way to the header, capacities added at equal head) carried out by solves, which also count the station's header fittings and pipes. The catalogue composite curve (flows added at equal flange head) is not drawn: it does not meet the system at the duty.",
-						"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
+						"Method version 1.6.2: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
 					],
 					"references": [
 						"Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 (augmenting paths; Menger's theorem on vertex cuts).",
@@ -4417,7 +4417,7 @@
 				"flowRange": { "max": 14.042380069495696, "min": 0.0, "unit": "m\u00b3/s" },
 				"headRange": null,
 				"message": "",
-				"methodVersion": "1.6.1",
+				"methodVersion": "1.6.2",
 				"methods": {
 					"items": [
 						"Station: the pumps P1, P2, P3, P4, P5 and P6 and everything between them and the rest of the network: the smallest part that meets the rest at exactly two places, its inlet S = reservoir B1 and its outlet D = H5 (run_outlet), and holds no other pump, no reservoir or reference node and no assigned flow. It is found as a minimum vertex cut between the pumps and every reservoir, reference node, assigned flow and other pump (Menger's theorem, by augmenting paths), tee and wye centres never cut, so a header tee lies whole inside. It holds 23 components and 28 connections; its arrangement is parallel: with the pumps removed it falls into the inlet's side and the outlet's side, each pump from the first to the second.",
@@ -4427,7 +4427,7 @@
 						"Points: 41 flows from 0 to 14.0424 m\u00b3/s, plus the duty's flow; flowMin by default the lower of 0 and the duty's flow, flowMax by default 1.2 \u00d7 the largest of the duty's flow and the group curve's flows. The duty's flow is solved first, from the case's solve; then the flows are solved as each pump's system curve is: in flow order from the network's initial state, each from the last converged point, a point that does not converge solved again from the initial state, and one without a rise solved again from it with the control valves open. A flow beyond what every way from D back to S can pass (a cut of FCVs at their setpoints and one-way elements against the flow, with the assigned flows), or below the least flow the assigned flows need through the station, has no steady state and is not solved again (Ford and Fulkerson's max-flow min-cut theorem, Gale's condition). A point without a rise says why, as each pump's system curve does.",
 						"System duty check: the rest of the network with the station's flow 5.67812 m\u00b3/s forced from S to D leaves the rise undetermined at this flow (the rise across the station is undetermined: at this flow FCV 'F2' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 24.6265 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station): any rise at or above 24.6265 m holds there, and the solve's rise 31.4781 m is one of them, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part.",
 						"No standard defines a pump group's system curve, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD takes the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: at S and D the rest of the network sees only the station's flow.",
-						"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
+						"Method version 1.6.2: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
 					],
 					"references": [
 						"Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 (augmenting paths; Menger's theorem on vertex cuts).",
@@ -5223,7 +5223,7 @@
 				"flowRange": null,
 				"headRange": { "max": 41.148, "min": 0.0, "unit": "m" },
 				"message": "",
-				"methodVersion": "1.6.1",
+				"methodVersion": "1.6.2",
 				"methods": {
 					"items": [
 						"Station: the pumps P1, P2, P3, P4, P5 and P6 and everything between them and the rest of the network: the smallest part that meets the rest at exactly two places, its inlet S = reservoir B1 and its outlet D = H5 (run_outlet), and holds no other pump, no reservoir or reference node and no assigned flow. It is found as a minimum vertex cut between the pumps and every reservoir, reference node, assigned flow and other pump (Menger's theorem, by augmenting paths), tee and wye centres never cut, so a header tee lies whole inside. It holds 23 components and 28 connections; its arrangement is parallel: with the pumps removed it falls into the inlet's side and the outlet's side, each pump from the first to the second.",
@@ -5233,7 +5233,7 @@
 						"Points: 41 rises from 0 to 41.148 m, plus the duty's rise; by default from the lower of 0 and the duty's rise to the largest rise the station can hold with flow (the largest sum of shutoff heads s\u00b2H\u2080(0) along a way from S to D, of the members it passes forward and of those beside a bypass in the parts it passes, a speed-controlled pump's at its maximum speed, a member that is off adding nothing, above which the status rules close the pumps; every member's that is on, an upper bound, where no way through the station's parts passes a member), or the duty's rise if higher. The duty's rise is solved first, from the case's solve; then the rises above and below it, each from the converged point next to it toward the duty, so the curve is the branch through the duty; a point that does not converge from there is solved again from the initial state. Where a station has several steady states at a rise, a point is the one its solve reaches from there.",
 						"Duty check: at the duty's rise 31.4781 m the station solved alone passes 5.67812 m\u00b3/s (the solve: 5.67812 m\u00b3/s), and every pump its solved flow, each within 0.5 % or 1e-6 m\u00b3/s: the group curve passes through the duty.",
 						"No standard defines a pump group's curves, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD reads the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: it is the header construction (each pump's curve less its own losses on its way to the header, capacities added at equal head) carried out by solves, which also count the station's header fittings and pipes. The catalogue composite curve (flows added at equal flange head) is not drawn: it does not meet the system at the duty.",
-						"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
+						"Method version 1.6.2: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
 					],
 					"references": [
 						"Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 (augmenting paths; Menger's theorem on vertex cuts).",
@@ -9557,7 +9557,7 @@
 				"flowRange": { "max": 14.04238006949569, "min": 0.0, "unit": "m\u00b3/s" },
 				"headRange": null,
 				"message": "",
-				"methodVersion": "1.6.1",
+				"methodVersion": "1.6.2",
 				"methods": {
 					"items": [
 						"Station: the pumps P1, P2, P3, P4, P5 and P6 and everything between them and the rest of the network: the smallest part that meets the rest at exactly two places, its inlet S = reservoir B1 and its outlet D = H5 (run_outlet), and holds no other pump, no reservoir or reference node and no assigned flow. It is found as a minimum vertex cut between the pumps and every reservoir, reference node, assigned flow and other pump (Menger's theorem, by augmenting paths), tee and wye centres never cut, so a header tee lies whole inside. It holds 23 components and 28 connections; its arrangement is parallel: with the pumps removed it falls into the inlet's side and the outlet's side, each pump from the first to the second.",
@@ -9567,7 +9567,7 @@
 						"Points: 41 flows from 0 to 14.0424 m\u00b3/s, plus the duty's flow; flowMin by default the lower of 0 and the duty's flow, flowMax by default 1.2 \u00d7 the largest of the duty's flow and the group curve's flows. The duty's flow is solved first, from the case's solve; then the flows are solved as each pump's system curve is: in flow order from the network's initial state, each from the last converged point, a point that does not converge solved again from the initial state, and one without a rise solved again from it with the control valves open. A flow beyond what every way from D back to S can pass (a cut of FCVs at their setpoints and one-way elements against the flow, with the assigned flows), or below the least flow the assigned flows need through the station, has no steady state and is not solved again (Ford and Fulkerson's max-flow min-cut theorem, Gale's condition). A point without a rise says why, as each pump's system curve does.",
 						"System duty check: the rest of the network with the station's flow 5.67812 m\u00b3/s forced from S to D leaves the rise undetermined at this flow (the rise across the station is undetermined: at this flow FCV 'F2' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 10.2265 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station): any rise at or above 10.2265 m holds there, and the solve's rise 31.4781 m is one of them, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part.",
 						"No standard defines a pump group's system curve, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD takes the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: at S and D the rest of the network sees only the station's flow.",
-						"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
+						"Method version 1.6.2: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
 					],
 					"references": [
 						"Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 (augmenting paths; Menger's theorem on vertex cuts).",
@@ -10362,7 +10362,7 @@
 				"flowRange": null,
 				"headRange": { "max": 41.148, "min": 0.0, "unit": "m" },
 				"message": "",
-				"methodVersion": "1.6.1",
+				"methodVersion": "1.6.2",
 				"methods": {
 					"items": [
 						"Station: the pumps P1, P2, P3, P4, P5 and P6 and everything between them and the rest of the network: the smallest part that meets the rest at exactly two places, its inlet S = reservoir B1 and its outlet D = H5 (run_outlet), and holds no other pump, no reservoir or reference node and no assigned flow. It is found as a minimum vertex cut between the pumps and every reservoir, reference node, assigned flow and other pump (Menger's theorem, by augmenting paths), tee and wye centres never cut, so a header tee lies whole inside. It holds 23 components and 28 connections; its arrangement is parallel: with the pumps removed it falls into the inlet's side and the outlet's side, each pump from the first to the second.",
@@ -10372,7 +10372,7 @@
 						"Points: 41 rises from 0 to 41.148 m, plus the duty's rise; by default from the lower of 0 and the duty's rise to the largest rise the station can hold with flow (the largest sum of shutoff heads s\u00b2H\u2080(0) along a way from S to D, of the members it passes forward and of those beside a bypass in the parts it passes, a speed-controlled pump's at its maximum speed, a member that is off adding nothing, above which the status rules close the pumps; every member's that is on, an upper bound, where no way through the station's parts passes a member), or the duty's rise if higher. The duty's rise is solved first, from the case's solve; then the rises above and below it, each from the converged point next to it toward the duty, so the curve is the branch through the duty; a point that does not converge from there is solved again from the initial state. Where a station has several steady states at a rise, a point is the one its solve reaches from there.",
 						"Duty check: at the duty's rise 26.9973 m the station solved alone passes 5.67812 m\u00b3/s (the solve: 5.67812 m\u00b3/s), and every pump its solved flow, each within 0.5 % or 1e-6 m\u00b3/s: the group curve passes through the duty.",
 						"No standard defines a pump group's curves, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD reads the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: it is the header construction (each pump's curve less its own losses on its way to the header, capacities added at equal head) carried out by solves, which also count the station's header fittings and pipes. The catalogue composite curve (flows added at equal flange head) is not drawn: it does not meet the system at the duty.",
-						"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
+						"Method version 1.6.2: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
 					],
 					"references": [
 						"Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 (augmenting paths; Menger's theorem on vertex cuts).",
@@ -14267,7 +14267,7 @@
 				"flowRange": null,
 				"headRange": { "max": 41.148, "min": 0.0, "unit": "m" },
 				"message": "",
-				"methodVersion": "1.6.1",
+				"methodVersion": "1.6.2",
 				"methods": {
 					"items": [
 						"Station: the pumps P1, P2, P3, P4, P5 and P6 and everything between them and the rest of the network: the smallest part that meets the rest at exactly two places, its inlet S = reservoir B1 and its outlet D = H5 (run_outlet), and holds no other pump, no reservoir or reference node and no assigned flow. It is found as a minimum vertex cut between the pumps and every reservoir, reference node, assigned flow and other pump (Menger's theorem, by augmenting paths), tee and wye centres never cut, so a header tee lies whole inside. It holds 23 components and 28 connections; its arrangement is parallel: with the pumps removed it falls into the inlet's side and the outlet's side, each pump from the first to the second.",
@@ -14277,7 +14277,7 @@
 						"Points: 41 rises from 0 to 41.148 m, plus the duty's rise; by default from the lower of 0 and the duty's rise to the largest rise the station can hold with flow (the largest sum of shutoff heads s\u00b2H\u2080(0) along a way from S to D, of the members it passes forward and of those beside a bypass in the parts it passes, a speed-controlled pump's at its maximum speed, a member that is off adding nothing, above which the status rules close the pumps; every member's that is on, an upper bound, where no way through the station's parts passes a member), or the duty's rise if higher. The duty's rise is solved first, from the case's solve; then the rises above and below it, each from the converged point next to it toward the duty, so the curve is the branch through the duty; a point that does not converge from there is solved again from the initial state. Where a station has several steady states at a rise, a point is the one its solve reaches from there.",
 						"Duty check: at the duty's rise 31.9397 m the station solved alone passes 0.946353 m\u00b3/s (the solve: 0.946353 m\u00b3/s), and every pump its solved flow, each within 0.5 % or 1e-6 m\u00b3/s: the group curve passes through the duty.",
 						"No standard defines a pump group's curves, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD reads the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: it is the header construction (each pump's curve less its own losses on its way to the header, capacities added at equal head) carried out by solves, which also count the station's header fittings and pipes. The catalogue composite curve (flows added at equal flange head) is not drawn: it does not meet the system at the duty.",
-						"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
+						"Method version 1.6.2: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
 					],
 					"references": [
 						"Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 (augmenting paths; Menger's theorem on vertex cuts).",
@@ -19600,7 +19600,7 @@
 				"flowRange": { "max": 2.4102250891257633, "min": 0.0, "unit": "m\u00b3/s" },
 				"headRange": null,
 				"message": "",
-				"methodVersion": "1.6.1",
+				"methodVersion": "1.6.2",
 				"methods": {
 					"items": [
 						"Station: the pumps P1, P2, P3, P4, P5 and P6 and everything between them and the rest of the network: the smallest part that meets the rest at exactly two places, its inlet S = reservoir B1 and its outlet D = H5 (run_outlet), and holds no other pump, no reservoir or reference node and no assigned flow. It is found as a minimum vertex cut between the pumps and every reservoir, reference node, assigned flow and other pump (Menger's theorem, by augmenting paths), tee and wye centres never cut, so a header tee lies whole inside. It holds 23 components and 28 connections; its arrangement is parallel: with the pumps removed it falls into the inlet's side and the outlet's side, each pump from the first to the second.",
@@ -19610,7 +19610,7 @@
 						"Points: 41 flows from 0 to 2.41023 m\u00b3/s, plus the duty's flow; flowMin by default the lower of 0 and the duty's flow, flowMax by default 1.2 \u00d7 the largest of the duty's flow and the group curve's flows. The duty's flow is solved first, from the case's solve; then the flows are solved as each pump's system curve is: in flow order from the network's initial state, each from the last converged point, a point that does not converge solved again from the initial state, and one without a rise solved again from it with the control valves open. A flow beyond what every way from D back to S can pass (a cut of FCVs at their setpoints and one-way elements against the flow, with the assigned flows), or below the least flow the assigned flows need through the station, has no steady state and is not solved again (Ford and Fulkerson's max-flow min-cut theorem, Gale's condition). A point without a rise says why, as each pump's system curve does.",
 						"System duty check: the rest of the network with the station's flow 0.946353 m\u00b3/s forced from S to D leaves the rise undetermined at this flow (the rise across the station is undetermined: at this flow FCV 'F1' passes exactly its setpoint flow, so the valve could also hold it throttled, with any rise across the station at or above 20.3079 m (with the valve fully open), and no reservoir or reference node fixes the pressure between the valve and the station): any rise at or above 20.3079 m holds there, and the solve's rise 31.9397 m is one of them, within 0.5 % or 0.01 m: the group system curve passes through the duty on its vertical part.",
 						"No standard defines a pump group's system curve, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD takes the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: at S and D the rest of the network sees only the station's flow.",
-						"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
+						"Method version 1.6.2: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
 					],
 					"references": [
 						"Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 (augmenting paths; Menger's theorem on vertex cuts).",

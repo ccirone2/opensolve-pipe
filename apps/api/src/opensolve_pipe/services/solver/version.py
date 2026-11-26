@@ -14,7 +14,7 @@ class MethodChange(TypedDict):
     changes: list[str]
 
 
-METHOD_VERSION = "1.6.1"
+METHOD_VERSION = "1.6.2"
 
 METHOD_CHANGELOG: list[MethodChange] = [
     {
@@ -213,6 +213,58 @@ METHOD_CHANGELOG: list[MethodChange] = [
             "divided by a product that underflows to zero (a tiny set in a very light liquid) is "
             "solved, with that slope in its trace. Apart from these, flows, heads, pressures, "
             "statuses, traces, messages and system curves are unchanged (corpus comparison).",
+        ],
+    },
+    {
+        "version": "1.6.2",
+        "date": "2026-11-26",
+        "changes": [
+            "A pump group's system duty check agrees where the group system curve is vertical at "
+            "the duty's flow: where its point there has no rise because a control valve sits at "
+            "its switch (valve_at_switch, with the rise with the valve fully open and the side of "
+            "it that holds), every rise on that side holds at that flow, and the check agrees "
+            "when the duty's rise lies on that side, within 0.5 % of the rise or 0.01 m, "
+            "whichever is looser. Its head stays null, and its message says that the curve "
+            "passes through the duty on its vertical part, or, for a rise on the other side, "
+            "that it does not. Where both duty checks agree, the Group point is the two curves' "
+            "crossing, as at the flow control valves' setpoints of the condenser water example. "
+            "Every flow, rise and point of every group curve and group system curve is "
+            "unchanged.",
+            "A system curve also gives its limit points: one at the most flow any steady state "
+            "carries and one at the least, where either is positive and finite, lies inside the "
+            "curve's range, above its least flow, and is at none of its evenly spaced flows, "
+            "each solved alone after them from the network's initial state. There a flow "
+            "control valve passes its setpoint, so the point is often at the valve's switch, "
+            "where the curve is vertical from the rise with the valve fully open. Every point "
+            "at the evenly spaced flows is unchanged, bit for bit; the group system curve is "
+            "unchanged.",
+            "An orifice plate's coefficient test (ORIFICE_OUT_OF_RANGE: K/(2gA²) a finite "
+            "positive number at every flow) is taken again, where its closed-form bound refuses "
+            "the plate, at the least discharge coefficient the plate's law takes at any flow: "
+            "the entered value where it is used as entered; for a value entered at corner or "
+            "flange taps, that value times the least ratio of the two tap sets' ISO 5167-2 "
+            "coefficients over every Reynolds number from the lowest; for ISO 5167-2's own "
+            "coefficient, its value at D and D/2 tappings at infinite Reynolds number. A "
+            "coefficient entered at corner or flange taps in a band just above where the refusal "
+            "began (coefficients of about 10⁻¹⁵⁵ to 10⁻¹⁴⁷ on pipes of 1 mm to 1 m) was "
+            "refused and is now accepted, or refused by the slope test instead; no plate is "
+            "newly refused. A plate still refused quotes the least coefficient its law takes.",
+            "A reservoir or reference node whose fixed head, its surface or port elevation plus "
+            "its gauge pressure over ρg, is not a finite number (a density near the least the "
+            "schema allows) is refused as a topology issue (BOUNDARY_HEAD_OUT_OF_RANGE), "
+            "wherever it is: every solve of such a project diverged at its first iteration, "
+            "naming nothing. A goal seek whose bound on such a pressure gives such a head is "
+            "refused. An iteration that diverges where every law gives a finite value now names "
+            "each element whose energy balance is not a finite number, with the EGLs at its ends "
+            "and the component that fixes the head there (nonFiniteBalanceAt).",
+            "Where a Newton step's matrix is singular in floating point, the message and the "
+            "not-converged flag name each link whose weight 1/(dh/dQ) is lost in rounding where "
+            "it alone joins free nodes to every fixed head (for example a valve with a loss "
+            "coefficient above about 3·10¹⁹ s²/m⁵ before an assigned flow or a dead end), with "
+            "its slope, flow and loss coefficient, and say which iteration's flows they are. The "
+            "step is unchanged, so such a solve still does not converge. Apart from these, "
+            "flows, heads, pressures, statuses, traces, messages and system curves are "
+            "unchanged (corpus comparison).",
         ],
     },
 ]

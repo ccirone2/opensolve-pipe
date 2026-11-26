@@ -336,9 +336,29 @@ test('a system-curve point without a head says why, with names and in the displa
 		passedFlow: 0.015
 	});
 	expect(point.message).toContain("passes FCV 'V1', which passes at most 0.015 m³/s that way");
-
+	// The FCV's setpoint is no grid flow, so the API solves a limit point there (open-defects-2.md
+	// §3 C3): the FCV at its switch, every head at or above the open valve's holding, so the curve
+	// is drawn vertical there, through the operating point the FCV holds (C1).
+	expect(curve.points.some((p) => Math.abs(p.flow - 0.015) <= 1e-9)).toBe(false);
+	const [limit] = curve.limitPoints;
+	expect(curve.limitPoints).toHaveLength(1);
+	expect(limit!.flow).toBeCloseTo(0.015, 9);
+	expect(limit).toMatchObject({
+		head: null,
+		reason: 'valve_at_switch',
+		componentIds: ['V1'],
+		openHeadBound: 'lower'
+	});
+	const GPM = (231 * 0.0254 ** 3) / 60; // m³/s
+	const FT = 0.3048; // m
+	const at = sig4(limit!.flow / GPM);
 	const chart = pumps.getByRole('figure', { name: 'Pump and system curves: Transfer pump' });
-	await expect(chart.getByRole('img')).toHaveAccessibleName(/ and system curve; operating point /);
+	await expect(chart.getByRole('img')).toHaveAccessibleName(
+		new RegExp(
+			` and system curve, vertical at ${at.replace('.', '\\.')} gpm from ` +
+				`${sig4(limit!.openHead! / FT).replace('.', '\\.')} ft up; operating point ${at.replace('.', '\\.')} gpm `
+		)
+	);
 	await chart.getByRole('button', { name: 'Show data table of the pump chart' }).click();
 	// Open by default: its Why no head column has an entry (proposal pumps-results-layout.md §9 S7).
 	await expect(curveTableFold(chart, 'System curve')).toHaveAttribute('open', '');
@@ -349,8 +369,18 @@ test('a system-curve point without a head says why, with names and in the displa
 		'NPSHa (ft)',
 		'Why no head'
 	]);
-	const GPM = (231 * 0.0254 ** 3) / 60; // m³/s
-	const row = table.getByRole('row').nth(index + 1);
+	// The table lists the grid and the limit point in flow order, the limit point's row marked.
+	const rows = [...curve.points, ...curve.limitPoints].sort((a, b) => a.flow - b.flow);
+	await expect(table.getByRole('row')).toHaveCount(rows.length + 1);
+	await expect(
+		table
+			.getByRole('row')
+			.nth(rows.indexOf(limit!) + 1)
+			.getByRole('cell')
+			.first()
+	).toHaveText(`${at} (limit point)`);
+	expect(rows.indexOf(point)).toBe(index + 1);
+	const row = table.getByRole('row').nth(rows.indexOf(point) + 1);
 	await expect(row.getByRole('cell').first()).toHaveText(sig4(point.flow / GPM));
 	const why = row.getByRole('cell').nth(3);
 	expect(await toldText(why)).toBe(

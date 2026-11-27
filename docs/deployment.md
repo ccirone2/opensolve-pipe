@@ -58,7 +58,7 @@ gcloud run services describe "$SERVICE" --region="$REGION" --format='value(statu
 
 Then, in the console under Billing → Budgets & alerts, create a spend cap budget for this project and Cloud Run (TSD §11.5). Don't skip it. One instance bounds CPU and memory charges, at about $64 a month, but request fees and outbound data are charged per request and per byte, and only the spend cap bounds them.
 
-**Redeploying the API** after a change to it is merged into `main`. This builds that commit and deploys only a new image: Cloud Run carries every other setting, the environment variables included, into the new revision. Never redeploy with `--set-env-vars`, which deletes every variable it doesn't list.
+**Redeploying the API** after a change to it is merged into `main`. The usual way is the *Deploy API* workflow (§4), which checks the new revision before it serves. By hand, this builds that commit and deploys only a new image: Cloud Run carries every other setting, the environment variables included, into the new revision. Never redeploy with `--set-env-vars`, which deletes every variable it doesn't list. After the workflow has rolled back, the traffic is pinned to the old revision: a deploy by hand then also needs `gcloud run services update-traffic "$SERVICE" --to-latest`.
 
 ```bash
 PROJECT_ID=opensolve-pipe-api
@@ -126,3 +126,58 @@ With a custom domain, `CORS_ORIGINS` lists both origins, comma-separated. A valu
 - On a custom domain whose zone is on Cloudflare, keep the zone's Web Analytics, Bot Fight Mode and Email Address Obfuscation off (TSD §11.1).
 
 **3. Check** the deployment with TSD §11.4. This step matters most for the client-address check. Google documents neither the address its proxy connects from nor where it puts the client's address in `X-Forwarded-For`, so only this check shows that each user gets their own rate limit. Run it over IPv6 too where you can, since the API keys an IPv6 client by its /64. If it fails, TSD §11.2 shows how to find out why.
+
+**4. Deploying from GitHub Actions** ([D25](decisions/D25-api-deploy-workflow.md)). The *Deploy API* workflow (`.github/workflows/deploy-api.yml`) builds a commit on `main` whose CI passed, signs in to Google Cloud with no stored key, deploys a candidate revision with no traffic, checks it, and only then gives it the traffic. If the service then fails its checks, the traffic goes back to the previous revision. You start it from the Actions tab. Claude starts it when you ask, through GitHub's API: it holds no Google Cloud credential. A run can do only what three grants allow: push to the image repository, deploy this one service, and run it as the API's own account, which has no roles. Google gives a run that much only when it is this file on `main`, started by hand, in the `production` environment of this repository.
+
+Once, in Cloud Shell, after step 1:
+
+```bash
+PROJECT_ID=opensolve-pipe-api
+REGION=us-central1
+SERVICE=opensolve-pipe-api
+REPO_ID=1132007392    # GitHub's id of ccirone2/opensolve-pipe (api.github.com/repos/ccirone2/opensolve-pipe: "id")
+OWNER_ID=16159174     # GitHub's id of ccirone2 (the same page: "owner" → "id")
+
+gcloud config set project "$PROJECT_ID"
+gcloud services enable iam.googleapis.com sts.googleapis.com iamcredentials.googleapis.com cloudresourcemanager.googleapis.com
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+
+# Trust GitHub's tokens only from this workflow on main, started by hand, in the production environment
+gcloud iam workload-identity-pools create github --location=global --display-name="GitHub Actions"
+gcloud iam workload-identity-pools providers create-oidc opensolve-pipe --location=global \
+  --workload-identity-pool=github --display-name="opensolve-pipe deploys" \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.environment=assertion.environment,attribute.event_name=assertion.event_name,attribute.workflow_ref=assertion.workflow_ref" \
+  --attribute-condition="assertion.repository_id == '${REPO_ID}' && assertion.repository_owner_id == '${OWNER_ID}' && assertion.ref == 'refs/heads/main' && assertion.environment == 'production' && assertion.event_name == 'workflow_dispatch' && assertion.workflow_ref == 'ccirone2/opensolve-pipe/.github/workflows/deploy-api.yml@refs/heads/main'"
+
+# The deploy account: no project role, and only this repository's tokens may act as it
+gcloud iam service-accounts create api-deployer --display-name="API deploys from GitHub Actions"
+DEPLOYER="api-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
+gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" --role=roles/iam.workloadIdentityUser \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository_id/${REPO_ID}"
+
+# What it may do, each on one resource: push to the image repository, deploy this service,
+# and run it as the API's own account (which has no roles)
+gcloud artifacts repositories add-iam-policy-binding opensolve-pipe --location="$REGION" \
+  --role=roles/artifactregistry.writer --member="serviceAccount:${DEPLOYER}"
+gcloud run services add-iam-policy-binding "$SERVICE" --region="$REGION" \
+  --role=roles/run.developer --member="serviceAccount:${DEPLOYER}"
+gcloud iam service-accounts add-iam-policy-binding "${SERVICE}@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role=roles/iam.serviceAccountUser --member="serviceAccount:${DEPLOYER}"
+
+# The value for GitHub's production environment (below)
+echo "GCP_WIF_PROVIDER=projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/providers/opensolve-pipe"
+```
+
+Then, on GitHub, under the repository's Settings → Environments:
+- Create the environment `production`, named exactly so: the trust condition above names it.
+- Under *Deployment branches and tags*, choose *Selected branches and tags* and add the branch `main`.
+- Add the environment variable `GCP_WIF_PROVIDER` with the value the last command printed. It is not a secret: it names the provider, and the workflow holds no secret at all.
+- Leave *Required reviewers* off. Claude's sessions act on GitHub as you, so a reviewer rule cannot stop one (it could approve as you), and with *Prevent self-review* you could never approve a run it started. What a run can do is bounded by the grants above, whoever starts it.
+
+Google takes up to about 5 minutes to apply new pools, providers and grants. Then run the workflow once with *Check the setup only* ticked: it signs in, reads the service and builds the image, and deploys nothing. Its log shows the deploy account signed in and the revision serving now.
+
+**Deploying.** Actions → *Deploy API* → *Run workflow*, on `main`. Leave *commit* empty for `main`'s latest, or give an older commit of `main` whose CI passed, to go back to it. Or ask Claude. The run's summary lists the commit, the candidate revision, each check, and a rollback if one happened. Only one deploy runs at a time.
+
+If a first deploy fails on a permission the grants above don't give (Google documents only these grants, each on its resource, for a deploy), the run's log names the permission. Add it alone, as a custom role at project level, rather than a wider role.
+

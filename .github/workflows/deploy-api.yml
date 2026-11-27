@@ -1,0 +1,206 @@
+# The API's deployment (CLAUDE.md D25; docs/deployment.md §4). Started by hand: by the owner, or
+# by Claude when the owner asks. It deploys a commit on main whose CI passed:
+# - it builds the image here, from that commit;
+# - it signs in to Google Cloud with no stored key: Workload Identity Federation exchanges this
+#   job's GitHub OIDC token, and Google's trust condition accepts it only for this file on main,
+#   started by hand, in the production environment of this repository;
+# - it deploys a candidate revision with no traffic, checks it (scripts/check_deployment.py), and
+#   only then gives it the traffic;
+# - it checks the service again, and returns the traffic to the previous revision if that fails.
+# The deploy account can push to one image repository and deploy one Cloud Run service, acting as
+# a runtime account that has no roles. It cannot change who may call the service, nor anything
+# else in the project (D25).
+name: Deploy API
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The full commit hash on main to deploy (empty for main's latest)
+        type: string
+        default: ""
+      check_only:
+        description: Check the setup only (sign in, read the service, build the image); deploy nothing
+        type: boolean
+        default: false
+
+permissions: {}
+
+# One deploy at a time, never cancelled midway.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy the API
+    # Also enforced by the environment's branch policy and by Google's trust condition, which a
+    # copy of this file on another branch cannot change (D25).
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read # the checkout
+      actions: read # CI's runs on the commit
+      id-token: write # the OIDC token that Workload Identity Federation exchanges
+    env:
+      # docs/deployment.md §1's names; a fork changes these lines.
+      PROJECT_ID: opensolve-pipe-api
+      REGION: us-central1
+      SERVICE: opensolve-pipe-api
+      IMAGE_REPO: us-central1-docker.pkg.dev/opensolve-pipe-api/opensolve-pipe/api
+      DEPLOY_SA: api-deployer@opensolve-pipe-api.iam.gserviceaccount.com
+      SITE_ORIGIN: https://opensolve-pipe.pages.dev
+      PREVIEW_ORIGIN: https://web-check.opensolve-pipe.pages.dev
+      # projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/opensolve-pipe
+      WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      # Inputs reach the shell through the environment only, never as expressions in a script.
+      INPUT_COMMIT: ${{ inputs.commit }}
+      CHECK_ONLY: ${{ inputs.check_only }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Choose the commit (on main, CI passed)
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$WIF_PROVIDER" =~ ^projects/[0-9]+/locations/global/workloadIdentityPools/[a-z0-9-]+/providers/[a-z0-9-]+$ ]] \
+            || { echo "::error::Set the production environment's variable GCP_WIF_PROVIDER (docs/deployment.md §4)"; exit 1; }
+          sha="${INPUT_COMMIT:-$GITHUB_SHA}"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "::error::The commit must be a full 40-character hash"; exit 1; }
+          git merge-base --is-ancestor "$sha" "$GITHUB_SHA" \
+            || { echo "::error::$sha is not on main"; exit 1; }
+          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&status=success" --jq .total_count)
+          [ "$passed" -ge 1 ] \
+            || { echo "::error::CI has not passed on $sha (a push run of ci.yml)"; exit 1; }
+          git -c advice.detachedHead=false checkout --quiet "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "tag=c-${sha:0:7}" >> "$GITHUB_OUTPUT"
+          echo "Deploying $sha" >> "$GITHUB_STEP_SUMMARY"
+
+      # Built before signing in: no credential exists while the build runs.
+      - name: Build the image
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: docker build --build-arg "SOURCE_COMMIT=$SHA" -t "$IMAGE_REPO:$SHA" apps/api
+
+      - name: Sign in to Google Cloud (keyless)
+        run: |
+          # A URL-sourced external account (google.aip.dev/auth/4117): gcloud asks GitHub for a
+          # fresh OIDC token whenever it needs one, and exchanges it with Google's STS for a
+          # 15-minute token of the deploy account. The file holds the job's token-request
+          # bearer, so it lives outside the workspace and is deleted at the end.
+          creds="$RUNNER_TEMP/gcp-credentials.json"
+          umask 077
+          jq -n \
+            --arg audience "//iam.googleapis.com/$WIF_PROVIDER" \
+            --arg url "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://iam.googleapis.com/$WIF_PROVIDER" \
+            --arg bearer "Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            --arg impersonate "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/$DEPLOY_SA:generateAccessToken" \
+            '{
+              type: "external_account",
+              audience: $audience,
+              subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+              token_url: "https://sts.googleapis.com/v1/token",
+              service_account_impersonation_url: $impersonate,
+              service_account_impersonation: {token_lifetime_seconds: 900},
+              credential_source: {
+                url: $url,
+                headers: {Authorization: $bearer},
+                format: {type: "json", subject_token_field_name: "value"}
+              }
+            }' > "$creds"
+          gcloud auth login --cred-file="$creds" --quiet
+          gcloud config set project "$PROJECT_ID" --quiet
+          gcloud config set run/region "$REGION" --quiet
+          gcloud auth list
+
+      - name: Read the service
+        id: before
+        run: |
+          gcloud run services describe "$SERVICE" --format=json > "$RUNNER_TEMP/before.json"
+          previous=$(jq -r '[.status.traffic[] | select(.percent == 100)][0].revisionName // empty' "$RUNNER_TEMP/before.json")
+          [ -n "$previous" ] || { echo "::error::No revision serves all traffic now: leave the traffic as it is and deploy by hand"; exit 1; }
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "Serving now: $previous ($(jq -r .status.url "$RUNNER_TEMP/before.json"))" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push the image
+        if: env.CHECK_ONLY != 'true'
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker push "$IMAGE_REPO:$SHA"
+
+      # The image only: every other setting, the environment variables included, carries over.
+      # Never --set-env-vars (it deletes the variables it doesn't list), never --allow-unauthenticated.
+      - name: Deploy a candidate revision with no traffic
+        id: candidate
+        if: env.CHECK_ONLY != 'true'
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+          TAG: ${{ steps.commit.outputs.tag }}
+        run: |
+          gcloud run deploy "$SERVICE" --image "$IMAGE_REPO:$SHA" --no-traffic --tag "$TAG" --quiet
+          gcloud run services describe "$SERVICE" --format=json > "$RUNNER_TEMP/candidate.json"
+          revision=$(jq -r --arg tag "$TAG" '.status.traffic[] | select(.tag == $tag) | .revisionName' "$RUNNER_TEMP/candidate.json")
+          url=$(jq -r --arg tag "$TAG" '.status.traffic[] | select(.tag == $tag) | .url' "$RUNNER_TEMP/candidate.json")
+          [ -n "$revision" ] && [ -n "$url" ] || { echo "::error::The candidate's tag is missing"; exit 1; }
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Candidate: $revision at $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check the candidate before it serves
+        if: env.CHECK_ONLY != 'true'
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+          URL: ${{ steps.candidate.outputs.url }}
+        run: python3 apps/api/scripts/check_deployment.py "$URL" --commit "$SHA" --origin "$SITE_ORIGIN" --origin "$PREVIEW_ORIGIN" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Give the candidate all traffic
+        if: env.CHECK_ONLY != 'true'
+        env:
+          TAG: ${{ steps.commit.outputs.tag }}
+          REVISION: ${{ steps.candidate.outputs.revision }}
+        run: |
+          # Only the revision just checked: if another deploy made a newer one meanwhile, stop.
+          latest=$(gcloud run services describe "$SERVICE" --format='value(status.latestReadyRevisionName)')
+          [ "$latest" = "$REVISION" ] || { echo "::error::The latest revision is $latest, not the candidate $REVISION"; exit 1; }
+          gcloud run services update-traffic "$SERVICE" --to-latest --remove-tags "$TAG" --quiet
+
+      - name: Check the service
+        id: after
+        if: env.CHECK_ONLY != 'true'
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          url=$(gcloud run services describe "$SERVICE" --format='value(status.url)')
+          python3 apps/api/scripts/check_deployment.py "$url" --commit "$SHA" --origin "$SITE_ORIGIN" --origin "$PREVIEW_ORIGIN" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Return the traffic to the previous revision
+        if: failure() && steps.after.conclusion == 'failure'
+        env:
+          PREVIOUS: ${{ steps.before.outputs.previous }}
+        run: |
+          gcloud run services update-traffic "$SERVICE" --to-revisions "$PREVIOUS=100" --quiet
+          echo "Rolled back to $PREVIOUS: traffic stays pinned to it until the next deploy" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean up
+        if: always()
+        env:
+          TAG: ${{ steps.commit.outputs.tag }}
+          CANDIDATE: ${{ steps.candidate.outputs.revision }}
+        run: |
+          # A candidate that never got the traffic keeps no tag URL.
+          if [ -n "$CANDIDATE" ] && gcloud run services describe "$SERVICE" --format=json 2>/dev/null \
+              | jq -e --arg tag "$TAG" '.status.traffic[] | select(.tag == $tag)' > /dev/null; then
+            gcloud run services update-traffic "$SERVICE" --remove-tags "$TAG" --quiet || true
+          fi
+          rm -f "$RUNNER_TEMP/gcp-credentials.json"

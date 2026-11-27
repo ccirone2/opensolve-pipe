@@ -30,6 +30,7 @@ D1–D14 are the architecture and the rules of the rebuild. D15 onward each reco
 | [D22](D22-project-library.md) | Project library | built (1.5.0) |
 | [D23](D23-pressure-relief-valve.md) | Pressure relief valve | built (1.6.0) |
 | [D24](D24-pump-lineups.md) | Pump lineups, slices L1, L2 and L3 | built (web only) |
+| [D25](D25-api-deploy-workflow.md) | API deployment from GitHub Actions: keyless, three grants on three resources, the candidate checked before it serves | built (owner's one-time setup pending) |
 
 ## Adding a decision
 

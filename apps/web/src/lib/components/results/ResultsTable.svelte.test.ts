@@ -1410,6 +1410,56 @@ describe('Fields: columns hidden by default, the choice stored as departures fro
 		expect(squash(fieldsButton().textContent)).toBe('Fields (3 of 5)');
 	});
 
+	it('hides and shows a column with every storage call refused, its count following, and nothing throws (open-defects.md W2)', async () => {
+		const refuse = () => {
+			throw new DOMException('Storage refused', 'SecurityError');
+		};
+		const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(refuse);
+		const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(refuse);
+		const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(refuse);
+		// What a handler throws reaches the window as an error event (jsdom), and what an async
+		// handler throws the process as an unhandled rejection: neither reaches the test itself.
+		const thrown: unknown[] = [];
+		const report = (event: ErrorEvent) => thrown.push(event.error);
+		const reject = (reason: unknown) => thrown.push(reason);
+		window.addEventListener('error', report);
+		process.on('unhandledRejection', reject);
+		try {
+			render(ResultsTable, { ...base, table: withDefaults() });
+			expect(get).toHaveBeenCalledWith(KEY);
+			expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m']);
+			expect(squash(fieldsButton().textContent)).toBe('Fields (3 of 5)');
+			await fireEvent.click(fieldsButton());
+			// A column of the user's hidden, then shown again.
+			await fireEvent.click(box(/^Flow/));
+			expect(set).toHaveBeenCalledWith(KEY, '["flow"]');
+			expect(columns()).toEqual(['Pump', 'Status', 'Head m']);
+			expect(squash(fieldsButton().textContent)).toBe('Fields (2 of 5)');
+			expect(box(/^Flow/)).not.toBeChecked();
+			await fireEvent.click(box(/^Flow/));
+			expect(remove).toHaveBeenCalledWith(KEY);
+			expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m']);
+			expect(squash(fieldsButton().textContent)).toBe('Fields (3 of 5)');
+			expect(box(/^Flow/)).toBeChecked();
+			// A column hidden by default shown, then hidden again.
+			await fireEvent.click(box(/^Power/));
+			expect(set).toHaveBeenCalledWith(KEY, '{"hidden":[],"shown":["power"]}');
+			expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m', 'Power kW']);
+			expect(squash(fieldsButton().textContent)).toBe('Fields (4 of 5)');
+			await fireEvent.click(box(/^Power/));
+			expect(columns()).toEqual(['Pump', 'Status', 'Flow L/s', 'Head m']);
+			expect(squash(fieldsButton().textContent)).toBe('Fields (3 of 5)');
+			await new Promise((resolve) => setTimeout(resolve, 0)); // a rejection's report
+			expect(thrown).toEqual([]);
+		} finally {
+			window.removeEventListener('error', report);
+			process.off('unhandledRejection', reject);
+			get.mockRestore();
+			set.mockRestore();
+			remove.mockRestore();
+		}
+	});
+
 	it('Show all stores the defaults as shown; Default fields forgets the choice; each moves the focus to the first box before it goes (ui-guide, Pickers)', async () => {
 		render(ResultsTable, { ...base, table: withDefaults() });
 		const fields = fieldsButton();

@@ -164,6 +164,7 @@ export function systemCurveResponse(
 		flowRange: { min: 0, max: 0.03, unit: 'm³/s' },
 		points,
 		converged: points.map((p) => p.converged),
+		limitPoints: [],
 		scenario: null
 	};
 }

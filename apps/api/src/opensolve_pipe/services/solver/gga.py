@@ -195,7 +195,9 @@ outer loop applies the rules to this early iterate instead (``status._open_bad_v
 
 DIVERGED = "the iteration diverged (non-finite head loss)"
 """The start of the message of an inner solve stopped because a value of its iterate was not a
-finite number; ``diverged_message`` adds the laws that gave one."""
+finite number; ``diverged_message`` adds the laws that gave one. Where none did, an energy
+balance was not a finite number, and the message is ``balance_message``'s instead (method
+1.6.2), so this never stands alone."""
 
 
 @dataclass(frozen=True)
@@ -275,7 +277,7 @@ def diverged_message(found: Sequence[NonFiniteLaw]) -> str:
     and its coefficient: "...: not a finite number in the law of 'V1' (slope dh/dQ at a flow
     of 0.00239 m³/s; loss coefficient K/(2 g A²) = 1.69351e+308 s²/m⁵)". Ids are quoted, as
     every element a message names (the web app gives each its name and links it). With none
-    found (a head that overflowed by itself), ``DIVERGED`` alone."""
+    found, ``DIVERGED`` alone (the solve then names the energy balances, ``balance_message``)."""
     if not found:
         return DIVERGED
     terms = []
@@ -288,9 +290,267 @@ def diverged_message(found: Sequence[NonFiniteLaw]) -> str:
         terms.append(
             f"'{item.element_id}' ({item.value} at a flow of {item.flow:.3g} m³/s{coefficient})"
         )
-    listed = terms[0] if len(terms) == 1 else ", ".join(terms[:-1]) + " and " + terms[-1]
     laws = "law" if len(terms) == 1 else "laws"
-    return f"{DIVERGED}: not a finite number in the {laws} of {listed}"
+    return f"{DIVERGED}: not a finite number in the {laws} of {_listed(terms)}"
+
+
+def _listed(terms: Sequence[str]) -> str:
+    return terms[0] if len(terms) == 1 else ", ".join(terms[:-1]) + " and " + terms[-1]
+
+
+DIVERGED_BALANCE = "the iteration diverged (non-finite energy balance)"
+"""The start of the message of an inner solve stopped because an energy balance of its iterate
+was not a finite number where every law, head offset and held head was one (method 1.6.2);
+``balance_message`` adds the links whose balance it was."""
+
+
+@dataclass(frozen=True)
+class NonFiniteBalance:
+    """A link whose energy balance h − (H_start − H_end) is not a finite number at the iterate
+    where the iteration diverged, though its law is (TSD §12 item 19, method 1.6.2): a head near
+    the largest double against a large loss (a reservoir at -1e5 Pa(g) in a density near the
+    smallest the schema allows: -DBL_MAX + h), or two heads of opposite sign whose difference
+    overflows. Never a ``NonFiniteLaw``: its law gave finite numbers."""
+
+    link: int
+    element_id: str
+    flow: float
+    """m³/s: the link's flow in that iterate."""
+    loss: float
+    """m: h, the link's head loss (or head offset) in that iterate."""
+    start_head: float
+    """m: H_start, the EGL at the link's start node."""
+    end_head: float
+    """m: H_end, the EGL at its end node."""
+    start_holder: str | None = None
+    """The component that fixes H_start (a reservoir, a reference node, an active PRV or PSV),
+    where the balance would be finite without that head; None otherwise."""
+    end_holder: str | None = None
+    """The same for H_end."""
+
+
+def _holder_needed(loss: float, start_head: float, end_head: float) -> tuple[bool, bool]:
+    """Which ends the overflow of h − (H_start − H_end) comes from: each end without whose head
+    the balance would be a finite number; both where neither alone is enough."""
+    start = math.isfinite(loss - (0.0 - end_head))
+    end = math.isfinite(loss - (start_head - 0.0))
+    return (start, end) if start or end else (True, True)
+
+
+def balance_message(found: Sequence[NonFiniteBalance]) -> str:
+    """``DIVERGED_BALANCE``, then each link whose energy balance is not a finite number, with the
+    EGLs at its ends, the component that fixes the head it overflows from, its loss and its flow:
+    "...: not a finite number in the energy balance h − (H_start − H_end) of 'L1' (an EGL of
+    -1.79769e+308 m at its start, fixed by 'R1', and of 0 m at its end, with a head loss of
+    1.7534e+304 m at a flow of 0.00239 m³/s)". Ids are quoted, so the web app names and links
+    them. With none found, ``DIVERGED`` alone."""
+    if not found:
+        return DIVERGED
+    terms = []
+    for item in found:
+        at_start = f", fixed by '{item.start_holder}'" if item.start_holder else ""
+        at_end = f", fixed by '{item.end_holder}'" if item.end_holder else ""
+        terms.append(
+            f"'{item.element_id}' (an EGL of {item.start_head:.6g} m at its start{at_start}, and "
+            f"of {item.end_head:.6g} m at its end{at_end}, with a head loss of {item.loss:.6g} m "
+            f"at a flow of {item.flow:.3g} m³/s)"
+        )
+    what = "balance" if len(terms) == 1 else "balances"
+    return (
+        f"{DIVERGED_BALANCE}: not a finite number in the energy {what} h − (H_start − H_end) of "
+        f"{_listed(terms)}"
+    )
+
+
+SINGULAR = "the linear system could not be solved (singular matrix)"
+"""The start of the message of an inner solve stopped because SuperLU found its Newton step's
+Schur matrix singular; ``singular_message`` adds the links whose weight was lost in rounding."""
+
+
+@dataclass(frozen=True)
+class LostWeight:
+    """A Newton link whose weight 1/(dh/dQ) in the Schur matrix A21 D⁻¹ A12 is lost in rounding
+    where it is added to the weights of the other links at its end in a part of the free nodes,
+    and that leads from that part towards the fixed heads, alone or with others lost likewise
+    (``lost_weights``): that part's rows are then an ungrounded Laplacian in floating point, and
+    SuperLU finds the step singular, though the steady state is determined (TSD §12 item 19,
+    method 1.6.2)."""
+
+    link: int
+    element_id: str
+    flow: float
+    """m³/s: the link's flow in the iterate whose step was singular."""
+    slope: float
+    """s/m²: the slope dh/dQ the Jacobian used (``jacobian_slopes``)."""
+    coefficient: float | None = None
+    """s²/m⁵: its law's loss coefficient at that flow (``law_coefficient``); None if none."""
+    coefficient_name: str = ""
+
+
+def lost_weights(d_inv: FloatArray, sc: IntArray, ec: IntArray, nf: int) -> list[int]:
+    """The Newton positions whose weight is lost from the Schur matrix's diagonal at an end in a
+    part of the free nodes that no kept weight grounds, and that lead from that part towards the
+    fixed heads: each a way from that part to them that its rows lack, the cause of a singular
+    step. ``sc``, ``ec``: each link's head-unknown column at its start and end (−1 at a head the
+    step holds fixed: a reservoir's or reference node's, an active PRV's or PSV's held node, a
+    floating section's held node); ``nf``: the number of columns.
+
+    At each column the weight w of a link is lost where fl(S + w) = S, S the sum of the weights
+    of the other links there, rounded once (``math.fsum``): exact for that sum, which is the
+    matrix's own entry where two links meet (a bridge's far end), across a binade too, where a
+    half-ulp test on the assembled entry is not. A column is grounded where a link reaches it
+    from a fixed head or a grounded column with its weight kept at that column. The columns
+    not grounded fall into parts, two columns joined by a weight kept at both its ends being in
+    one part. Each end of a link is examined on its own: a link is named from an end where its
+    weight is lost, in a part, if its other end is a fixed head, a grounded column, or a column
+    of another part that reaches a fixed head or a grounded column through links (kept or lost)
+    that do not pass through the part at this end. Of two valves in series, each lost at both
+    its ends, both are named: the part between them reaches the fixed heads through the first,
+    and the part beyond the second through it and then the first. A link whose two ends lie in
+    one part joins it to itself and is named from neither. From an end in a part, a link into a
+    part that reaches the fixed heads only back through the first (a dead end beyond it) leads
+    nowhere and is not named from that end; where its weight is lost at the dead end's own end,
+    it is named from there, the dead end's one way to the fixed heads (a valve lost at both its
+    ends before a plug; review of open defects round two, AS-3). A link whose two ends share a
+    column adds nothing to the matrix. The coupling of an active PRV or PSV, which makes the
+    matrix non-symmetric, is not examined: a singularity it causes, or one from a weight lost
+    only in a partial sum, is not found, and [] is returned."""
+    joins = np.flatnonzero(sc != ec).tolist()
+    at_column: list[list[int]] = [[] for _ in range(nf)]
+    for pos in joins:
+        for j in (int(sc[pos]), int(ec[pos])):
+            if j >= 0:
+                at_column[j].append(pos)
+    lost: set[tuple[int, int]] = set()
+    for j, positions in enumerate(at_column):
+        if len(positions) < 2:
+            continue  # a weight alone is the whole entry
+        weights = [float(d_inv[p]) for p in positions]
+        for i, pos in enumerate(positions):
+            others = math.fsum(weights[:i] + weights[i + 1 :])
+            if others + weights[i] == others:
+                lost.add((pos, j))
+    grounded = np.zeros(nf, dtype=bool)
+    reached_from: list[list[int]] = [[] for _ in range(nf)]
+    queue: deque[int] = deque()
+    for pos in joins:
+        a, b = int(sc[pos]), int(ec[pos])
+        for here, there in ((a, b), (b, a)):
+            if here < 0 or (pos, here) in lost:
+                continue
+            if there >= 0:
+                reached_from[there].append(here)
+            elif not grounded[here]:
+                grounded[here] = True
+                queue.append(here)
+    while queue:
+        for v in reached_from[queue.popleft()]:
+            if not grounded[v]:
+                grounded[v] = True
+                queue.append(v)
+
+    # The parts: columns joined by weights kept at both ends (union-find). A kept weight carries
+    # grounding both ways, so a part's columns are all grounded or none.
+    parent = list(range(nf))
+
+    def find(v: int) -> int:
+        while parent[v] != v:
+            parent[v] = parent[parent[v]]
+            v = parent[v]
+        return v
+
+    for pos in joins:
+        a, b = int(sc[pos]), int(ec[pos])
+        if a >= 0 and b >= 0 and (pos, a) not in lost and (pos, b) not in lost:
+            parent[find(a)] = find(b)
+    ground = -1  # the fixed heads and the grounded columns, as one
+
+    def part(j: int) -> int:
+        return ground if j < 0 or grounded[j] else find(j)
+
+    between: defaultdict[int, set[int]] = defaultdict(set)
+    for pos in joins:
+        p, r = part(int(sc[pos])), part(int(ec[pos]))
+        if p != r:
+            between[p].add(r)
+            between[r].add(p)
+    reaches: dict[tuple[int, int], bool] = {}
+
+    def reaches_ground(start: int, avoiding: int) -> bool:
+        """Whether ``start`` reaches the fixed heads through links, never entering ``avoiding``."""
+        if (start, avoiding) not in reaches:
+            seen, frontier, found_way = {start, avoiding}, deque([start]), False
+            while frontier and not found_way:
+                for r in between[frontier.popleft()]:
+                    found_way = found_way or r == ground
+                    if r not in seen:
+                        seen.add(r)
+                        frontier.append(r)
+            reaches[(start, avoiding)] = found_way
+        return reaches[(start, avoiding)]
+
+    found: list[int] = []
+    for pos in joins:
+        a, b = int(sc[pos]), int(ec[pos])
+        for here, there in ((a, b), (b, a)):
+            if here < 0 or grounded[here] or (pos, here) not in lost:
+                continue
+            p, r = find(here), part(there)
+            if r == ground or (r != p and reaches_ground(r, p)):
+                found.append(pos)
+                break
+    return found
+
+
+def singular_message(found: Sequence[LostWeight], iteration: int, *, resumed: bool = False) -> str:
+    """``SINGULAR``, then which iterate the step was taken from (``iteration``: the steps taken
+    before it; 0 at the inner solve's starting flows, which are the previous solve's where
+    ``resumed``: the flows handed in, after a status change in the outer loop, or a warm start)
+    and each link whose weight was lost, with its slope, flow and coefficient: "...: in Newton
+    iteration 1, at the starting flows, the weight 1/(dh/dQ) of 'V1' (a slope of 8.46e+17 s/m²
+    at a flow of 0.00239 m³/s; loss coefficient K/(2 g A²) = 1.76758e+20 s²/m⁵) is lost in
+    rounding: added to the weights of the other links at its end beyond it, it leaves their sum
+    unchanged, so the network beyond it, which reaches a fixed or held head only through it, has
+    none in the Newton step". With none found, ``SINGULAR`` alone."""
+    if not found:
+        return SINGULAR
+    terms = []
+    for item in found:
+        coefficient = (
+            f"; {item.coefficient_name} = {item.coefficient:.6g} s²/m⁵"
+            if item.coefficient is not None
+            else ""
+        )
+        terms.append(
+            f"'{item.element_id}' (a slope of {item.slope:.3g} s/m² at a flow of "
+            f"{item.flow:.3g} m³/s{coefficient})"
+        )
+    start = "the previous solve's flows" if resumed else "the starting flows"
+    where = start if iteration == 0 else f"the flows after iteration {iteration}"
+    # Newton's count restarts with each inner solve: past its first step, say which solve it is.
+    of = f" of a solve started from {start}" if resumed and iteration > 0 else ""
+    # "A fixed or held head": every head the step holds fixed (``lost_weights``), a reservoir's
+    # or reference node's, an active PRV's or PSV's held head, or a floating section's held
+    # level, where no reservoir or reference node is reached.
+    if len(terms) == 1:
+        lost = (
+            "is lost in rounding: added to the weights of the other links at its end beyond it, "
+            "it leaves their sum unchanged, so the network beyond it, which reaches a fixed or "
+            "held head only through it"
+        )
+        weights = "weight"
+    else:
+        lost = (
+            "are lost in rounding: added to the weights of the other links at their ends beyond "
+            "them, each leaves that sum unchanged, so the network beyond them, which reaches a "
+            "fixed or held head only through them"
+        )
+        weights = "weights"
+    return (
+        f"{SINGULAR}: in Newton iteration {iteration + 1}{of}, at {where}, the {weights} "
+        f"1/(dh/dQ) of "
+        f"{_listed(terms)} {lost}, has none in the Newton step"
+    )
 
 
 def evaluate_each(
@@ -368,7 +628,18 @@ class GgaResult:
     nonfinite_laws: list[NonFiniteLaw] = field(default_factory=list)
     """Where the iteration diverged (``DIVERGED``): every link whose own law gave a value that
     is not a finite number at the iterate the result reports, in link order, each element once
-    (``diverged_message`` names them); [] otherwise, and where only a head overflowed."""
+    (``diverged_message`` names them); [] otherwise, and where only a balance overflowed."""
+
+    nonfinite_balances: list[NonFiniteBalance] = field(default_factory=list)
+    """Where the iteration diverged (``DIVERGED_BALANCE``) and no law, head offset or held head
+    gave a value that is not a finite number: every link whose energy balance h − (H_start −
+    H_end) is not one, in link order, each element once (``balance_message``); [] otherwise."""
+
+    lost_weights: list[LostWeight] = field(default_factory=list)
+    """Where the Newton step's Schur matrix was singular (``SINGULAR``): the links whose weight
+    1/(dh/dQ) was lost in rounding and that lead from a part of the free nodes towards the
+    fixed heads (``lost_weights``), in link order, each element once; [] otherwise, and where
+    none was found."""
 
     check_heads: FloatArray | None = None
     """EGL per node at the last finite iterate within CHECK_ITERATIONS (None if none)."""
@@ -1092,6 +1363,36 @@ def _solve_gga(
     check_heads: FloatArray | None = None
     check_flows: FloatArray | None = None
     nonfinite: list[NonFiniteLaw] = []
+    balances: list[NonFiniteBalance] = []
+    singular: list[LostWeight] = []
+    # The component that fixes each fixed or held head, for a balance that overflows from it.
+    holders = {v: nodes[v].component_id for v in np.flatnonzero(boundary).tolist()}
+    holders |= {held[k]: _element_id(links[k]) for k in live_head_fixing}
+
+    def nonfinite_balances(
+        h_all: FloatArray, h_links: FloatArray, q_all: FloatArray
+    ) -> list[NonFiniteBalance]:
+        """The links whose energy balance is not a finite number in this iterate
+        (``NonFiniteBalance``), in link order, each element once."""
+        named: dict[str, NonFiniteBalance] = {}
+        for pos, k in enumerate(solve_links.tolist()):
+            if math.isfinite(energy_all[pos]):
+                continue
+            u, v = int(start[k]), int(end[k])
+            loss, h_u, h_v = float(h_links[k]), float(h_all[u]), float(h_all[v])
+            at_u, at_v = _holder_needed(loss, h_u, h_v)
+            item = NonFiniteBalance(
+                link=k,
+                element_id=_element_id(links[k]),
+                flow=float(q_all[k]),
+                loss=loss,
+                start_head=h_u,
+                end_head=h_v,
+                start_holder=holders.get(u) if at_u else None,
+                end_holder=holders.get(v) if at_v else None,
+            )
+            named.setdefault(item.element_id, item)
+        return list(named.values())
 
     def nonfinite_laws(
         h: FloatArray,
@@ -1172,7 +1473,13 @@ def _solve_gga(
             # Name the laws that gave the values that are not finite numbers (CLAUDE.md D7: the
             # flag names where the solve failed; the largest residual can lie elsewhere).
             nonfinite = nonfinite_laws(h, d, q_all, link_offsets, failed)
-            message = diverged_message(nonfinite)
+            if nonfinite:
+                message = diverged_message(nonfinite)
+            else:
+                # Every law, offset and held head is finite, so an energy balance is not
+                # (method 1.6.2): named in a list of its own, never as a law.
+                balances = nonfinite_balances(h_all, h_links, q_all)
+                message = balance_message(balances)
             break
         if 0 < it <= CHECK_ITERATIONS and np.all(np.isfinite(h_all[reaches_head])):
             check_heads, check_flows = h_all.copy(), q_all.copy()
@@ -1210,19 +1517,36 @@ def _solve_gga(
             st = states[k]
             q_ref = float(q_all[st.reference_link])
             extra[pos] += max(sign * 2.0 * st.coefficient * q_ref, 0.0)
-        d_inv = 1.0 / jacobian_slopes(d + extra, is_pipe, s, e, n)
+        slopes = jacobian_slopes(d + extra, is_pipe, s, e, n)
+        d_inv = 1.0 / slopes
         if nf:
             lhs = (m21 @ sp.diags(d_inv) @ a12).tocsc()
             solved = _solve_linear(lhs, continuity - m21 @ (d_inv * energy))
             if solved is None:
-                message = "the linear system could not be solved (singular matrix)"
+                # Name the links whose weight was lost in rounding (method 1.6.2); the step
+                # itself is unchanged, and with none found the message stays SINGULAR alone.
+                named_lost: dict[str, LostWeight] = {}
+                for pos in lost_weights(d_inv, sc, ec, nf):
+                    k, flow = int(newton[pos]), float(q[pos])
+                    coefficient = law_coefficient(laws[pos], flow)
+                    item = LostWeight(
+                        link=k,
+                        element_id=_element_id(links[k]),
+                        flow=flow,
+                        slope=float(slopes[pos]),
+                        coefficient=coefficient[1] if coefficient else None,
+                        coefficient_name=coefficient[0] if coefficient else "",
+                    )
+                    named_lost.setdefault(item.element_id, item)
+                singular = list(named_lost.values())
+                message = singular_message(singular, it, resumed=initial_flows is not None)
                 break
             dh = solved
         else:
             dh = np.zeros(0)
         dq = -d_inv * (energy + a12 @ dh)
         if not (np.all(np.isfinite(dh)) and np.all(np.isfinite(dq))):
-            message = "the linear system could not be solved (singular matrix)"
+            message = SINGULAR
             break
         h_free += dh
         q += dq
@@ -1255,6 +1579,8 @@ def _solve_gga(
         continuity_exceeded_node=int(free_nodes[jc]) if jc is not None else None,
         energy_exceeded_link=int(solve_links[je]) if je is not None else None,
         nonfinite_laws=nonfinite,
+        nonfinite_balances=balances,
+        lost_weights=singular,
         check_heads=check_heads,
         check_flows=check_flows,
     )

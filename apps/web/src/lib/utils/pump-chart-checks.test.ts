@@ -257,6 +257,8 @@ describe('the chart', () => {
 			],
 			curveLabel: 'Pump curve at 120 % speed (Faster)',
 			system: null,
+			systemRays: [],
+			belowZero: [],
 			row: { flow: '40', head: '20', speed: '120', state: 'Running' },
 			systemRows: []
 		};

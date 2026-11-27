@@ -480,7 +480,7 @@ describe('the card', () => {
 		const response = c.groupCurve.body as PumpGroupCurveResponse;
 		const heading = within(details).getByText(groupMethodsHeading(response));
 		expect(heading).toBeVisible();
-		expect(heading.textContent!.trim()).toBe('Pump group (calculation methods 1.6.1)');
+		expect(heading.textContent!.trim()).toBe('Pump group (calculation methods 1.6.2)');
 	});
 
 	it('shows progress while the curve is computed, with Cancel; the focus follows the controls', async () => {
@@ -1965,7 +1965,8 @@ describe('the group system curve (slice 4b)', () => {
 		expect(charts[0]!.draws).toBeGreaterThan(draws);
 		// The mark: drawn by the chart's own plugin, from the sample read (the response's values).
 		const config = charts[0]!.config as Config;
-		expect(config.plugins.map((p) => p.id)).toEqual(['groupLabels', 'groupReadout']);
+		// The system curve's vertical parts first (open-defects-2.md C1).
+		expect(config.plugins.map((p) => p.id)).toEqual(['systemRays', 'groupLabels', 'groupReadout']);
 		await fireEvent.input(slider, { target: { value: '0' } });
 		expect(slider).toHaveAttribute('aria-valuetext', words(0));
 		// Back to the duty: the button, or Escape. The button goes, so the focus moves to the slider.
@@ -2001,8 +2002,8 @@ describe('the group system curve (slice 4b)', () => {
 		const system = config.data.datasets.find((d) => d.label.startsWith('Group system curve'));
 		expect(system).toMatchObject({ borderColor: '#eb6834' });
 		expect(config.options.plugins.legend.display).toBe(true);
-		// No readout mark in the image.
-		expect(config.plugins.map((p) => p.id)).toEqual(['groupLabels']);
+		// No readout mark in the image; the vertical parts drawn there too (open-defects-2.md C1).
+		expect(config.plugins.map((p) => p.id)).toEqual(['systemRays', 'groupLabels']);
 		// The caption is unchanged; the footer has the group system curve's notes.
 		expect(request.title).toBe('Pumps together: Pump PA, Pump PB (parallel)');
 		expect(request.lines).toContain(

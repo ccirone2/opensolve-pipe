@@ -254,18 +254,7 @@ def test_method_1_6_1_refuses_coefficients_past_the_slope_bound() -> None:
     entry that says so, that a plate's bound is on K at its discharge coefficient's upper bound,
     that a trace value whose square overflows is left out, and that every other value is
     unchanged."""
-    assert METHOD_VERSION == "1.6.1"
-    assert [e["version"] for e in METHOD_CHANGELOG] == [
-        "1.0.0",
-        "1.1.0",
-        "1.2.0",
-        "1.3.0",
-        "1.4.0",
-        "1.5.0",
-        "1.6.0",
-        "1.6.1",
-    ]
-    entry = METHOD_CHANGELOG[-1]
+    [entry] = [e for e in METHOD_CHANGELOG if e["version"] == "1.6.1"]
     assert entry["date"] == "2026-11-03"
     refusal, naming = entry["changes"]
     assert "8.988465674311579·10³⁰⁷" in refusal
@@ -334,3 +323,53 @@ def test_method_changelog_is_one_entry_per_version_in_order() -> None:
     dates = [e["date"] for e in METHOD_CHANGELOG]
     assert dates == sorted(dates)
     assert all(e["changes"] for e in METHOD_CHANGELOG)
+
+
+def test_method_1_6_2_says_what_round_two_of_the_open_defects_changes() -> None:
+    """GOALS §4.3 (docs/proposals/open-defects-2.md §4): the system duty check's verdict on a
+    vertical part (C2), the system curve's limit points (C3), an orifice plate refused on 1.6.1
+    and accepted now (A1), a boundary head refused and a divergence named (A2a) and the singular
+    step named (A2b) change solved values and refusals, so it is method 1.6.2, after 1.6.1, with
+    one changelog entry holding an item for each, and saying what is unchanged."""
+    assert METHOD_VERSION == "1.6.2"
+    assert [e["version"] for e in METHOD_CHANGELOG] == [
+        "1.0.0",
+        "1.1.0",
+        "1.2.0",
+        "1.3.0",
+        "1.4.0",
+        "1.5.0",
+        "1.6.0",
+        "1.6.1",
+        "1.6.2",
+    ]
+    entry = METHOD_CHANGELOG[-1]
+    assert entry["date"] == "2026-11-26"
+    vertical, limits, plate, boundary, singular = entry["changes"]
+    assert vertical.startswith("A pump group's system duty check agrees where the group system")
+    assert "passes through the duty on its vertical part" in vertical
+    # The review of 2026-11-26 (AC-1): a group system curve's point at a flow where an FCV is
+    # held open above its setpoint was a false valve_at_switch on 1.6.1 and now has no head, so
+    # "every point … unchanged" alone was no longer true; the exception is named.
+    assert vertical.endswith(
+        "Apart from a point at a flow where a flow control valve is held open above its setpoint "
+        "(the next item), every flow, rise and point of every group curve and group system curve "
+        "is unchanged."
+    )
+    assert limits.startswith("A system curve also gives its limit points")
+    # The review of 2026-11-26 (AC-1): the limit is a bound no steady state carries a flow
+    # beyond, not the most one carries, and a grid flow at it could change.
+    assert "the most flow any steady state carries" not in limits
+    assert "is no longer read as another valve's switch" in limits
+    assert "Apart from that, every point at the evenly spaced flows is unchanged, bit for bit" in (
+        limits
+    )
+    assert "ORIFICE_OUT_OF_RANGE" in plate
+    assert "no plate is newly refused" in plate
+    assert "BOUNDARY_HEAD_OUT_OF_RANGE" in boundary
+    assert "(nonFiniteBalanceAt)" in boundary
+    assert "The step is unchanged, so such a solve still does not converge." in singular
+    assert singular.endswith(
+        "Apart from these, flows, heads, pressures, statuses, traces, messages and system curves "
+        "are unchanged (corpus comparison)."
+    )

@@ -109,6 +109,33 @@ describe('DesignChecksSettings', () => {
 		expect(lowest()).toHaveValue('130');
 	});
 
+	// proposals/open-defects.md F4: the pump curve's region ends lost the focus on their first
+	// entry; these pairs, keyed on the other end as stored (undefined until set), keep it.
+	it('keeps the focus in a paired limit as it is entered, changed and cleared', async () => {
+		const { dialog } = await openSettings();
+		await fireEvent.click(dialog.getByRole('checkbox', { name: 'Pump operating region' }));
+		await fireEvent.click(dialog.getByRole('checkbox', { name: 'Pipe velocity' }));
+		const pairs = [
+			[/^Lowest flow, of BEP flow/, '70', /^Highest flow, of BEP flow/, '120', '80'],
+			[/^Minimum velocity/, '1 ft/s', /^Maximum velocity/, '10 ft/s', '2 ft/s']
+		] as const;
+		for (const [lowName, low, highName, high, lowAgain] of pairs) {
+			for (const [name, text] of [
+				[lowName, low],
+				[highName, high],
+				[lowName, lowAgain],
+				[lowName, ''],
+				[highName, '']
+			] as const) {
+				const field = dialog.getByRole('textbox', { name });
+				await enter(field, text);
+				expect(dialog.getByRole('textbox', { name })).toBe(field);
+				expect(field).toHaveFocus();
+				expect(field).not.toHaveAttribute('aria-invalid');
+			}
+		}
+	});
+
 	it('removes the field when the last check goes off, one undo step per change', async () => {
 		const { ws, dialog } = await openSettings();
 		const npsh = dialog.getByRole('checkbox', { name: 'NPSH margin' });

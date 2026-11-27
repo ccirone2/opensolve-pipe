@@ -324,8 +324,11 @@
 	 */
 	const pumpCases = $derived(pumpChartCases(others, pumpUnticked, overlay));
 	const overlayKeys = $derived(pumpCases.shown.map((o) => o.key));
-	/** The keys as one value: the requests below are made again only when the cases change. */
-	const overlayList = $derived(overlayKeys.join('\u0000'));
+	/**
+	 * The keys as one value: the requests below are made again only when the cases change. Null
+	 * for none, since the base case's key is '' and [''] joins to '' (proposals/open-defects.md P1).
+	 */
+	const overlayList = $derived(overlayKeys.length ? overlayKeys.join('\u0000') : null);
 
 	const overlayStates = $derived(
 		viewed && overlay && grid
@@ -349,7 +352,7 @@
 		const pumpId = viewed?.key;
 		const range = grid;
 		if (!overlay || !pumpId || !range) return;
-		const keys = overlayList ? overlayList.split('\u0000') : [];
+		const keys = overlayList === null ? [] : overlayList.split('\u0000');
 		const ask = asked;
 		untrack(() => {
 			// Asking again (ticking the box again) computes the ones cancelled or failed.
@@ -495,7 +498,11 @@
 	 */
 	const settled = (state: GroupCurveState | undefined) =>
 		!!state && state.status !== 'loading' && !cancelledByCalculation(state);
-	/** The case shown's curves have answered: the other cases' requests come after them. */
+	/**
+	 * The case shown's curves have answered: the other cases' requests come after them, and the
+	 * card brings back only then the Add cases and methods a solve withdrew (`settled`,
+	 * proposals/open-defects-2.md F3).
+	 */
 	const shownSettled = $derived(settled(groupState) && (!wantsSystem || settled(groupSystemState)));
 
 	/**
@@ -1136,6 +1143,7 @@
 			system={groupSystemState}
 			onretrysystem={() => ws.store.loadGroupSystemCurve(groupMembers, { retry: true })}
 			oncancelsystem={() => ws.store.cancelGroupSystemCurve(groupMembers)}
+			settled={shownSettled}
 			prefs={ws.displayUnits}
 			project={ws.labelsProject}
 			solvedProject={groupSolvedProject}

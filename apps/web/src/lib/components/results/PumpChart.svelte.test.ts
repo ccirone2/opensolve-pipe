@@ -12,6 +12,7 @@ import {
 	caseTags,
 	chartHeightRem,
 	chartNotes,
+	HIDDEN_PANELS_KEY,
 	pumpChartData,
 	type OtherCaseInput,
 	type PanelKey,
@@ -28,6 +29,8 @@ import {
 	wordsInSight
 } from '$lib/testing/helpers';
 import { pumpTransferExample } from '$lib/utils/examples';
+import { ratedCurveRange } from '$lib/utils/pump-chart';
+import { condenserCase, condenserCaseProject } from '$lib/utils/condenser-charts.testing';
 import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
 import type { ChartImageRequest, ChartImageSource } from '$lib/utils/export/chart-image';
 import type { PumpChartConfig } from '$lib/utils/pump-chart-config';
@@ -1100,6 +1103,53 @@ describe('pump chart panels (proposal pump-chart.md §4)', () => {
 			'aria-pressed',
 			'false'
 		);
+	});
+
+	it('hides and shows a panel with every storage call refused, and nothing throws (open-defects.md W2)', async () => {
+		withCanvas();
+		const refuse = () => {
+			throw new DOMException('Storage refused', 'SecurityError');
+		};
+		const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(refuse);
+		const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(refuse);
+		const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(refuse);
+		// What a handler throws reaches the window as an error event (jsdom), and what an async
+		// handler throws the process as an unhandled rejection: neither reaches the test itself.
+		const thrown: unknown[] = [];
+		const report = (event: ErrorEvent) => thrown.push(event.error);
+		const reject = (reason: unknown) => thrown.push(reason);
+		window.addEventListener('error', report);
+		process.on('unhandledRejection', reject);
+		try {
+			render(PumpChart, { result: rich(), name: 'Transfer pump', prefs: SI_UNITS });
+			expect(get).toHaveBeenCalledWith(HIDDEN_PANELS_KEY);
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			const power = within(screen.getByRole('group', { name: 'Show' })).getByRole('button', {
+				name: 'Shaft power'
+			});
+			expect(power).toHaveAttribute('aria-pressed', 'true');
+			await fireEvent.click(power);
+			expect(set).toHaveBeenCalledWith(HIDDEN_PANELS_KEY, '["power"]');
+			expect(power).toHaveAttribute('aria-pressed', 'false');
+			await vi.waitFor(() => expect(charts).toHaveLength(2));
+			expect(axes(1)).toEqual(['x', 'yNpsh', 'yEfficiency', 'y']);
+			expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
+				'below, on the same flow axis: efficiency, npsh'
+			);
+			await fireEvent.click(power);
+			expect(remove).toHaveBeenCalledWith(HIDDEN_PANELS_KEY);
+			expect(power).toHaveAttribute('aria-pressed', 'true');
+			await vi.waitFor(() => expect(charts).toHaveLength(3));
+			expect(axes(2)).toEqual(['x', 'yNpsh', 'yPower', 'yEfficiency', 'y']);
+			await new Promise((resolve) => setTimeout(resolve, 0)); // a rejection's report
+			expect(thrown).toEqual([]);
+		} finally {
+			window.removeEventListener('error', report);
+			process.off('unhandledRejection', reject);
+			get.mockRestore();
+			set.mockRestore();
+			remove.mockRestore();
+		}
 	});
 
 	it('reads every line shown at the duty, and at the slider’s flow', async () => {
@@ -2302,6 +2352,93 @@ describe('pump chart data and other cases (pumps-results-layout.md §5.3)', () =
 		expect(figure.querySelector('[data-overlay-state]')).toBe(line);
 		expect(line.textContent).toBe('');
 		expect(row).toHaveClass('sr-only');
+	});
+
+	// "Cancel the other cases' system curves" goes as its progress ends: where it held the focus,
+	// the switch it belongs to takes it, still ticked, else the figure; the S1 handover pattern
+	// (docs/proposals/open-defects.md F1; pumps-results-layout.md §15 item 229).
+	describe('the focus on “Cancel the other cases’ system curves” as it goes (open-defects.md F1)', () => {
+		const CANCEL = "Cancel the other cases' system curves";
+		const SWITCH = "Also show the other cases' system curves";
+		const props = () => ({
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: READY,
+			tags: TAGS,
+			others: [other('S1', 'Winter'), other('S2', 'Summer'), other('S3', 'Spring')],
+			overlayCurves: true,
+			onoverlay: vi.fn(),
+			oncanceloverlay: vi.fn()
+		});
+
+		it('pressed with the keyboard: the switch takes the focus, still ticked', async () => {
+			withCanvas();
+			const given = props();
+			const view = render(PumpChart, { ...given, overlayProgress: { done: 0, total: 3 } });
+			const cancel = screen.getByRole('button', { name: CANCEL });
+			cancel.focus();
+			// Enter on a focused button: jsdom does not turn the key into the click a browser does.
+			await fireEvent.keyDown(cancel, { key: 'Enter' });
+			await fireEvent.click(cancel);
+			expect(given.oncanceloverlay).toHaveBeenCalledTimes(1);
+			// The Pumps view cancels every request: the progress ends, the switch stays ticked.
+			await view.rerender({ ...given, overlayProgress: null });
+			await tick();
+			expect(screen.queryByRole('button', { name: CANCEL })).toBeNull();
+			const overlay = screen.getByRole('checkbox', { name: SWITCH });
+			expect(overlay).toHaveFocus();
+			expect(overlay).toBeChecked();
+		});
+
+		it('held while the curves finish on their own: the switch takes the focus', async () => {
+			withCanvas();
+			const given = props();
+			const view = render(PumpChart, { ...given, overlayProgress: { done: 2, total: 3 } });
+			screen.getByRole('button', { name: CANCEL }).focus();
+			await view.rerender({ ...given, overlayProgress: null });
+			await tick();
+			expect(screen.queryByRole('button', { name: CANCEL })).toBeNull();
+			expect(screen.getByRole('checkbox', { name: SWITCH })).toHaveFocus();
+			expect(given.oncanceloverlay).not.toHaveBeenCalled();
+		});
+
+		it('held as the switch goes with it (no other case left): the figure takes the focus', async () => {
+			withCanvas();
+			const given = props();
+			const view = render(PumpChart, { ...given, overlayProgress: { done: 0, total: 3 } });
+			screen.getByRole('button', { name: CANCEL }).focus();
+			await view.rerender({ ...given, others: [], overlayProgress: null });
+			await tick();
+			expect(screen.queryByRole('checkbox', { name: SWITCH })).toBeNull();
+			expect(document.activeElement).toBe(
+				screen.getByRole('figure', { name: 'Pump and system curves: P' })
+			);
+		});
+
+		it('not held: the focus stays where it was as the curves finish', async () => {
+			withCanvas();
+			const given = props();
+			const outside = document.createElement('button');
+			outside.textContent = 'Elsewhere';
+			document.body.append(outside);
+			try {
+				const view = render(PumpChart, { ...given, overlayProgress: { done: 1, total: 3 } });
+				outside.focus();
+				await view.rerender({ ...given, overlayProgress: { done: 2, total: 3 } });
+				await view.rerender({ ...given, overlayProgress: null });
+				await tick();
+				expect(outside).toHaveFocus();
+				// Nothing focused (the page): nothing is given the focus either.
+				outside.blur();
+				await view.rerender({ ...given, overlayProgress: { done: 0, total: 3 } });
+				await view.rerender({ ...given, overlayProgress: null });
+				await tick();
+				expect(document.activeElement).toBe(document.body);
+			} finally {
+				outside.remove();
+			}
+		});
 	});
 
 	it('holds “Also show the other cases’ system curves” where it was pressed while the curves it asked for arrive, until the last has answered or the user takes a step of their own (S8 second check LAYOUT-2)', async () => {
@@ -3860,4 +3997,137 @@ describe('a ring whose label has no place, named in the notes (nit 5, rule 7; sl
 		drawLabels(request.config, TINY, crowded);
 		expect(request.notLabelled!()).toBe(SENTENCE);
 	});
+});
+
+// docs/proposals/open-defects-2.md §2 C1 and §3 C3, on the condenser example's recorded answers
+// (__fixtures__/condenser-charts.json, apps/api/tests/fixtures/condenser_charts.py): one pump and
+// one chiller line, F1's setpoint on /system-curve's grid, so a point at the FCV's limit states its
+// openHead; and the example's Winter case, F1's setpoint between two grid flows, where the
+// response's limit point states it (C3).
+describe('the system curve’s vertical part on the pump chart (open-defects-2.md C1)', () => {
+	const single = () => {
+		const c = condenserCase('single24');
+		const project = condenserCaseProject('single24');
+		return {
+			result: c.pumpResults!.P1!,
+			name: 'Condenser water pump CWP-1',
+			prefs: project.settings.units,
+			ratedRange: ratedCurveRange(project, 'P1'),
+			names: { project },
+			system: { status: 'ready', curve: c.pumpSystemCurve! } as SystemCurveState
+		};
+	};
+
+	it('says the vertical part in its name, its notes and its data table, and keeps the canvas’s rays', async () => {
+		withCanvas();
+		const { container } = render(PumpChart, single());
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		expect(screen.getByRole('img')).toHaveAccessibleName(
+			/ and system curve, vertical at 953\.9 L\/s from 20\.72 m up; operating point 953\.9 L\/s at 33\.4 m/
+		);
+		expect(
+			screen.getByText(
+				/^17 of 41 system-curve points have no head: at 953\.9 L\/s it is undetermined, any head at or above 20\.72 m holding, drawn as the curve's vertical part from there to the top of the head axis; at the 16 flows sampled beyond 953\.9 L\/s no steady state carries the flow; the data table says why for each/
+			)
+		).toBeInTheDocument();
+		// The canvas keeps where the rays went, as each drawing tells it (`data-system-rays`).
+		const config = charts[0]!.config as {
+			plugins: { id: string; afterDatasetsDraw?: () => void }[];
+		};
+		const rays = config.plugins.find((p) => p.id === 'systemRays')!;
+		rays.afterDatasetsDraw!();
+		expect(container.querySelector('canvas')!.dataset.systemRays).toBe('[]');
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		);
+		// Open by default: some of its rows have no head (§9 S7).
+		expect(disclosureOf('System curve').open).toBe(true);
+		const table = screen.getByRole('table', { name: 'System curve' });
+		const row = within(table)
+			.getAllByRole('row')
+			.find((r) => within(r).queryAllByRole('cell')[0]?.textContent === '953.9')!;
+		expect(within(row).getAllByRole('cell')[1]!.textContent).toBe('≥ 20.72');
+		// Its limit is a grid flow: no limit point, no row marked.
+		expect(within(table).queryByText('(limit point)')).toBeNull();
+	});
+
+	it('draws the Winter case’s limit point: its name, its notes and its row, marked, in flow order (C3)', async () => {
+		withCanvas();
+		const c = condenserCase('winter');
+		const project = condenserCaseProject('winter');
+		const curve = c.pumpSystemCurve!;
+		const { container } = render(PumpChart, {
+			result: c.pumpResults!.P1!,
+			name: 'Condenser water pump CWP-1',
+			prefs: project.settings.units,
+			ratedRange: ratedCurveRange(project, 'P1'),
+			names: { project },
+			system: { status: 'ready', curve } as SystemCurveState
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		expect(screen.getByRole('img')).toHaveAccessibleName(
+			/ and system curve, vertical at 946\.4 L\/s from 21\.9 m up; operating point 946\.4 L\/s at /
+		);
+		expect(
+			screen.getByText(
+				/^18 of 42 system-curve points have no head: at 946\.4 L\/s it is undetermined, any head at or above 21\.9 m holding, drawn as the curve's vertical part from there to the top of the head axis;/
+			)
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				/replaced by each of 41 evenly spaced flows from 0 to 1590 L\/s, then by 946\.4 L\/s, the flow limit, above which no steady state carries the flow, solved alone from the network's initial state \(/
+			)
+		).toBeInTheDocument();
+		const config = charts[0]!.config as {
+			plugins: { id: string; afterDatasetsDraw?: () => void }[];
+		};
+		config.plugins.find((p) => p.id === 'systemRays')!.afterDatasetsDraw!();
+		expect(container.querySelector('canvas')!.dataset.systemRays).toBe('[]');
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Show data table of the pump chart' })
+		);
+		const table = screen.getByRole('table', { name: 'System curve' });
+		const rows = within(table).getAllByRole('row').slice(1);
+		expect(rows).toHaveLength(curve.points.length + 1);
+		const flows = rows.map((r) => within(r).getAllByRole('cell')[0]!.textContent!);
+		const marked = rows.filter((r) => within(r).queryByText('(limit point)'));
+		expect(marked).toHaveLength(1);
+		const at = rows.indexOf(marked[0]!);
+		expect(flows[at]).toBe('946.4 (limit point)');
+		expect(flows[at - 1]).toBe('914.2');
+		expect(flows[at + 1]).toBe('953.9');
+		expect(within(marked[0]!).getAllByRole('cell')[1]!.textContent).toBe('≥ 21.9');
+	});
+
+	// The review of open defects round two, WC-1: P1 runs at F1's setpoint only to round-off, so the
+	// reading at the duty is at the vertical part's flow within the chart's flow floor; it says the
+	// range there, on screen and in the slider's value (on d101793 Winter's said "System head 21.9 m"
+	// and single24's no system head).
+	for (const [name, flow, range, words] of [
+		['winter', '946.4', '≥ 21.9 m', 'at or above 21.9 m'],
+		['single24', '953.9', '≥ 20.72 m', 'at or above 20.72 m']
+	] as const) {
+		it(`reads the ${name} case’s system head at the duty as the range that holds there`, async () => {
+			withCanvas();
+			const c = condenserCase(name);
+			const project = condenserCaseProject(name);
+			render(PumpChart, {
+				result: c.pumpResults!.P1!,
+				name: 'Condenser water pump CWP-1',
+				prefs: project.settings.units,
+				ratedRange: ratedCurveRange(project, 'P1'),
+				names: { project },
+				system: { status: 'ready', curve: c.pumpSystemCurve! } as SystemCurveState
+			});
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			const readout = screen.getByRole('figure').querySelector('[data-pump-readout]')!;
+			const text = readout.textContent!.replace(/\s+/g, ' ');
+			expect(text).toMatch(new RegExp(`^At the duty ${flow} L/s: Pump head [\\d.]+ m, `));
+			expect(text).toContain(`System head ${range}`);
+			expect(screen.getByRole('slider', { name: 'Read at flow' })).toHaveAttribute(
+				'aria-valuetext',
+				expect.stringContaining(`System head ${words}`)
+			);
+		});
+	}
 });

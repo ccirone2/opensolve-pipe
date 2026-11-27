@@ -9,7 +9,8 @@ import {
 	assignedFlowProject,
 	equipmentProject,
 	libraryProject,
-	orificeProject
+	orificeProject,
+	reliefProject
 } from '../testing/helpers';
 import { pumpTransferExample } from './examples';
 import { issueTextOptions, topologyIssueViews, type IssueTextOptions } from './issue-text';
@@ -1163,6 +1164,85 @@ describe("a fluid at the schema's bounds (TSD §12 item 19 (c), CLAUDE.md D20)",
 		for (const [i, project] of kept) {
 			expect(view(i, project).text, i.message).toBe(i.message);
 			expect(view(i, project).detail).toBeUndefined();
+		}
+	});
+});
+
+describe('a boundary head that is not a finite number (BOUNDARY_HEAD_OUT_OF_RANGE, TSD §12 item 19)', () => {
+	// The API's messages (builder.py _unrepresentable_boundaries) as the real builder printed them
+	// for apps/api tests/unit/test_boundary_head.py's fluids, with the ids of reliefProject: R1 is a
+	// reservoir ("Pump discharge header"), N1 a reference node ("Open discharge").
+	const PSI = (0.45359237 * 9.80665) / (IN * IN); // Pa
+	const LB_FT3 = 0.45359237 / 0.3048 ** 3; // kg/m³
+	const TAIL =
+		'gives a pressure head p/(ρ g) above the largest floating-point number, 1.79769e+308 m, in ' +
+		'magnitude, so its head is not a finite floating-point number; the solver cannot represent ' +
+		'this boundary';
+	const message = (kind: string, id: string, field: string, p: string, rho: string) =>
+		`${kind} '${id}': a ${field} of ${p} Pa(g) with the fluid's density of ${rho} kg/m³ ${TAIL}`;
+	const issue = (text: string, id: string): TopologyIssue => ({
+		code: 'BOUNDARY_HEAD_OUT_OF_RANGE',
+		message: text,
+		componentIds: [id],
+		connectionIds: []
+	});
+	const view = (i: TopologyIssue, units = SI_UNITS) =>
+		topologyIssueViews([i], reliefProject(), true, units)[0]!;
+	const WORDS =
+		'gives a pressure head p/(ρ g) whose magnitude is above the largest floating-point number, so ' +
+		'the solver cannot represent';
+
+	it("tells a reservoir's surface pressure and the density in display units, with a link", () => {
+		const i = issue(message('reservoir', 'R1', 'surface pressure', '1e+08', '5.67236e-302'), 'R1');
+		expect(view(i)).toEqual({
+			text:
+				"Pump discharge header: a surface pressure of 100000 kPa(g) with the fluid's density of " +
+				`5.672e-302 kg/m³ ${WORDS} this reservoir's head. Check its surface pressure and the ` +
+				"fluid's density.",
+			links: [{ componentId: 'R1' }],
+			detail: i.message
+		});
+		expect(view(i, IMPERIAL_UNITS).text).toBe(
+			`Pump discharge header: a surface pressure of ${Number((1e8 / PSI).toPrecision(6))} psig ` +
+				`with the fluid's density of ${sig4(5.67236e-302 / LB_FT3)} lb/ft³ ${WORDS} this ` +
+				"reservoir's head. Check its surface pressure and the fluid's density."
+		);
+		expect(Number((1e8 / PSI).toPrecision(6))).toBe(14503.8);
+	});
+
+	it("tells a reference node's pressure, negative gauge pressures included", () => {
+		const i = issue(message('reference node', 'N1', 'pressure', '-100000', '5.67236e-305'), 'N1');
+		expect(view(i)).toEqual({
+			text:
+				"Open discharge: a pressure of -100 kPa(g) with the fluid's density of 5.672e-305 kg/m³ " +
+				`${WORDS} this reference node's head. Check its pressure and the fluid's density.`,
+			links: [{ componentId: 'N1' }],
+			detail: i.message
+		});
+	});
+
+	it('shows the density as quoted, in kg/m³, where lb/ft³ would lose its digits', () => {
+		const i = issue(message('reservoir', 'R1', 'surface pressure', '100', '5e-308'), 'R1');
+		expect(5e-308 / LB_FT3).toBeLessThan(2 ** -1022); // subnormal in lb/ft³
+		expect(view(i, IMPERIAL_UNITS).text).toContain(
+			`a surface pressure of ${Number((100 / PSI).toPrecision(6))} psig with the fluid's density ` +
+				'of 5e-308 kg/m³ gives'
+		);
+	});
+
+	it("keeps the server's message for another form, kind or component", () => {
+		const reservoirText = message('reservoir', 'R1', 'surface pressure', '1e+08', '5.67236e-302');
+		for (const i of [
+			// Not in the form expected (a changed tail).
+			issue(reservoirText.replace('in magnitude', 'in size'), 'R1'),
+			// A kind that is not the component's: N1 is a reference node.
+			issue(message('reservoir', 'N1', 'surface pressure', '1e+08', '5.67236e-302'), 'N1'),
+			// An id the issue does not list, or the project does not have.
+			issue(reservoirText, 'N1'),
+			issue(reservoirText.replaceAll("'R1'", "'R9'"), 'R9')
+		]) {
+			expect(view(i).text, i.message).toBe(i.message);
+			expect(view(i).detail).toBeUndefined();
 		}
 	});
 });

@@ -18,6 +18,7 @@ import { canonicalJson } from '../json';
 import { fittingFallbackName, portLabel } from '../labels';
 import { groupKey } from '../../state/project.svelte';
 import { pumpChartData } from '../pump-chart';
+import { systemCurvePoints } from '../system-curve-line';
 import {
 	assignedFlowTable,
 	boundaryTable,
@@ -442,11 +443,11 @@ describe('number cells are the API values (items 1 and 2)', () => {
 				(_s, r) => {
 					const curve = input.cases[0]!.systemCurves[key(t, r, 'Pump id')]!;
 					if (curve.status !== 'ready') throw new Error('not ready');
-					const points = [...curve.curve.points].sort((a, b) => a.flow - b.flow);
-					return {
-						point: points[(t.get(r, 'Point #') as number) - 1]!,
-						range: curve.curve.flowRange
-					};
+					// The grid and its limit points (open-defects-2.md C3), in flow order.
+					const points = systemCurvePoints(curve.curve);
+					const point = points[(t.get(r, 'Point #') as number) - 1]!;
+					expect(t.get(r, 'At a flow limit')).toBe(point.atLimit);
+					return { point, range: curve.curve.flowRange };
 				},
 				[
 					['Flow from', (x) => x.range.min, 'flow'],
@@ -986,6 +987,52 @@ describe('system curves (item 12)', () => {
 		).systemRows;
 		expect(t.column('Reason')).toEqual(rows.map((r) => r.note || null));
 		expect(t.rows).toHaveLength(state.curve.points.length);
+		expect(t.column('At a flow limit')).toEqual(state.curve.points.map(() => false));
+	});
+
+	it('write a curve’s limit points as rows in flow order, marked (open-defects-2.md C3)', () => {
+		// Synthetic: the fixture's pumps meet no flow limit inside their ranges (measured), so a
+		// limit point is placed between two of P1's grid flows, the shape the API's, its values
+		// made up: one without a head, at an FCV's switch, as the condenser's Winter case has.
+		const input = fixtureInput('pump-transfer', { units: 'si' });
+		const state = input.cases[0]!.systemCurves.P1!;
+		if (state.status !== 'ready') throw new Error('not ready');
+		const grid = state.curve.points;
+		const flow = (grid[1]!.flow + grid[2]!.flow) / 2;
+		const limit = {
+			...grid[1]!,
+			flow,
+			head: null,
+			converged: false,
+			npshAvailable: null,
+			reason: 'valve_at_switch' as const,
+			componentIds: [],
+			openHead: 12.5,
+			openHeadBound: 'lower' as const,
+			message: 'made-up words: the head across the pump is undetermined at this flow'
+		};
+		state.curve.limitPoints = [limit];
+		const t = readSheet(exportOf(input), 'system-curves');
+		expect(t.rows).toHaveLength(grid.length + 1);
+		expect(t.column('Point #')).toEqual(t.rows.map((_, i) => i + 1));
+		expect(t.column('Flow')).toEqual([...grid.map((p) => p.flow), flow].sort((a, b) => a - b));
+		expect(t.column('At a flow limit')).toEqual(t.rows.map((_, i) => i === 2));
+		const row = t.rows[2]!;
+		expect([t.get(row, 'Head'), t.get(row, 'Converged'), t.get(row, 'Reason code')]).toEqual([
+			null,
+			false,
+			'valve_at_switch'
+		]);
+		// Its reason is the chart's data table's, for the same row.
+		const rows = pumpChartData(
+			input.cases[0]!.response!.solvedState.pumpResults.P1!,
+			input.prefs,
+			null,
+			state.curve,
+			{ project: input.project, solved: input.project }
+		).systemRows;
+		expect(rows[2]!.atLimit).toBe(true);
+		expect(t.column('Reason')).toEqual(rows.map((r) => r.note || null));
 	});
 });
 

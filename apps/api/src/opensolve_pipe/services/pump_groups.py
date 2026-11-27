@@ -61,7 +61,10 @@ depends neither on the members' statuses nor on how they share the flow, and an 
 PSV inside does not matter to it (held closed with everything inside). The flows are solved as
 the system curve's are, from the network's initial state in flow order, each from the last
 converged point, with its retries and reasons; the duty's flow is solved first, from the case's
-solve, and the system duty check compares its rise with the duty's.
+solve, and the system duty check compares its rise with the duty's. Where a control valve sits
+at its switch at the duty's flow (``valve_at_switch``), the rise is undetermined there and every
+rise on one side of the open valve's holds: the curve is vertical, and the check agrees when the
+duty's rise lies on that side (open-defects-2.md §3 C2).
 """
 
 import dataclasses
@@ -1460,10 +1463,14 @@ def _duty_check(duty: PumpGroupDuty, point: _Point) -> PumpGroupDutyCheck:
 def _system_duty_check(
     duty: PumpGroupDuty, point: SystemCurvePointResult, first: str | None = None
 ) -> PumpGroupSystemDutyCheck:
-    """The group system curve at the duty's flow against the duty's rise (D6's tolerance).
-    ``first``: why the duty's first start alone, warm from the case's solve, has no rise, when it
-    has none (the point's rise then comes from another start)."""
+    """The group system curve at the duty's flow against the duty's rise (D6's tolerance), or,
+    where it is vertical there, the rises it holds (``_on_vertical``). ``first``: why the duty's
+    first start alone, warm from the case's solve, has no rise, when it has none (the point's
+    rise then comes from another start)."""
     forced = f"with the station's flow {duty.flow:.6g} m³/s forced from S to D"
+    vertical = _on_vertical(duty, point, forced)
+    if vertical is not None:
+        return vertical
     if point.head is None:
         outcome = (
             f"was not solved ({point.message})"
@@ -1501,6 +1508,43 @@ def _system_duty_check(
             "system curve is the one its solve reaches"
         )
     return PumpGroupSystemDutyCheck(agrees=agrees, head=point.head, message=message)
+
+
+def _on_vertical(
+    duty: PumpGroupDuty, point: SystemCurvePointResult, forced: str
+) -> PumpGroupSystemDutyCheck | None:
+    """The system duty check where the group system curve is vertical at the duty's flow
+    (docs/proposals/open-defects-2.md §3 C2), else None: the point has no rise because a control
+    valve sits at its switch (``valve_at_switch``, D10), with a finite open-valve rise and a
+    bound, so every rise on the bound's side of it holds at that flow. The duty's rise is one of
+    them when it lies on that side within D6's allowance (0.5 % of the rise or 0.01 m, whichever
+    is looser, as for a rise): the check agrees. Its head stays None, the rise being
+    undetermined there."""
+    reason = point.reason
+    if point.head is not None or reason is None or reason.code != "valve_at_switch":
+        return None
+    open_head, bound = reason.open_head, reason.open_head_bound
+    if open_head is None or not math.isfinite(open_head) or bound not in ("lower", "upper"):
+        return None
+    allowance = max(DUTY_RTOL * abs(duty.head), DUTY_HEAD_FLOOR)
+    if bound == "lower":
+        side, other = "above", "below"
+        agrees = duty.head >= open_head - allowance
+    else:
+        side, other = "below", "above"
+        agrees = duty.head <= open_head + allowance
+    holds = (
+        f"the rest of the network {forced} leaves the rise undetermined at this flow "
+        f"({point.message}): any rise at or {side} {open_head:.6g} m holds there"
+    )
+    message = (
+        f"{holds}, and the solve's rise {duty.head:.6g} m is one of them, within 0.5 % or 0.01 m: "
+        "the group system curve passes through the duty on its vertical part"
+        if agrees
+        else f"{holds}, but the solve's rise {duty.head:.6g} m is {other} it by more than 0.5 % "
+        "or 0.01 m: the duty does not lie on the group system curve's vertical part"
+    )
+    return PumpGroupSystemDutyCheck(agrees=agrees, head=None, message=message)
 
 
 def _point_model(point: _Point, is_duty: bool) -> PumpGroupCurvePoint:

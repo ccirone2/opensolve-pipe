@@ -1717,6 +1717,24 @@ def build_solved_state(
                 details["nonFiniteLawFlow"] = first.flow
             if first.coefficient is not None:
                 details["nonFiniteLawCoefficient"] = first.coefficient
+        if reported.nonfinite_balances:
+            # Where it diverged with every law finite: the links whose energy balance is not a
+            # finite number (gga.NonFiniteBalance), a list of their own, never a law's.
+            details["nonFiniteBalanceAt"] = ", ".join(
+                x.element_id for x in reported.nonfinite_balances
+            )
+        if reported.lost_weights:
+            # Where the step's matrix was singular: the links whose weight 1/(dh/dQ) was lost in
+            # rounding (gga.LostWeight); the first one's flow, slope and loss coefficient as
+            # values (finite ones only).
+            lost = reported.lost_weights[0]
+            details["singularStepAt"] = ", ".join(x.element_id for x in reported.lost_weights)
+            if math.isfinite(lost.flow):
+                details["singularStepFlow"] = lost.flow
+            if math.isfinite(lost.slope):
+                details["singularStepSlope"] = lost.slope
+            if lost.coefficient is not None:
+                details["singularStepCoefficient"] = lost.coefficient
         mapper.flags.append(
             make_flag(
                 "NOT_CONVERGED",

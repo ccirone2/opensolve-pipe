@@ -4,17 +4,26 @@
 	line, so the results start near the top; one that did not converge is a red card. When the
 	solve did not converge,
 	the convergence report: where the iteration diverged, the elements whose laws gave a value that
-	is not a finite number (the NOT_CONVERGED flag's nonFiniteLawAt, CLAUDE.md D7), then the other
-	elements its message names (e.g. an assigned-flow node that no reservoir or reference node
-	reaches, and what closes it off), components and pipe connections (by their piping, "Tank →
-	Pump"), each a link; where the largest continuity and energy errors are, and which components
-	kept switching state.
+	is not a finite number (the NOT_CONVERGED flag's nonFiniteLawAt, CLAUDE.md D7), or, with every
+	law finite, whose energy balance was not (nonFiniteBalanceAt); where a Newton step's matrix was
+	singular, the elements whose weight was lost in rounding (singularStepAt; method 1.6.2), each
+	under words of its own; then the other elements its message names (e.g. an assigned-flow node
+	that no reservoir or reference node reaches, and what closes it off, or the reservoir that fixes
+	the head an energy balance overflows from), components and pipe connections (by their piping,
+	"Tank → Pump"), each a link; where the largest continuity and energy errors are, and which
+	components kept switching state.
 -->
 <script lang="ts">
 	import type { SolveResponse } from '$lib/api/types';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import { namedElements, nonFiniteLawIds, readableText } from '$lib/utils/flag-text';
+	import {
+		namedElements,
+		nonFiniteBalanceIds,
+		nonFiniteLawIds,
+		readableText,
+		singularStepIds
+	} from '$lib/utils/flag-text';
 	import { componentById, connectionById } from '$lib/utils/graph';
 	import { portLabel } from '$lib/utils/labels';
 	import { connectionName, Formatter, type ElementRef } from '$lib/utils/results';
@@ -58,17 +67,24 @@
 
 	/** The message with names and display units. */
 	const message = $derived(readableText(report.message, ws.project, ws.units));
+	const notConverged = $derived(
+		converged ? undefined : solved.flags.find((f) => f.code === 'NOT_CONVERGED')
+	);
 	/** Where the iteration diverged: the elements whose laws gave a value that is not a finite
 	 * number, in link order (the NOT_CONVERGED flag's details; the message names them too). */
-	const nonFinite = $derived(
-		converged ? [] : nonFiniteLawIds(solved.flags.find((f) => f.code === 'NOT_CONVERGED'))
-	);
+	const nonFinite = $derived(nonFiniteLawIds(notConverged));
+	/** Where it diverged with every law finite: the elements whose energy balance was not. */
+	const balances = $derived(nonFiniteBalanceIds(notConverged));
+	/** Where the Newton step's matrix was singular: the elements whose weight was lost. */
+	const lostWeights = $derived(singularStepIds(notConverged));
+	/** The elements listed under words of their own above the message's other names. */
+	const listed = $derived([...nonFinite, ...balances, ...lostWeights]);
 	/** The other components and pipe connections the message names, as links. */
 	const named = $derived(
 		converged
 			? []
 			: [...new Set(namedElements(report.message, ws.project).map((e) => e.id))].filter(
-					(elementId) => !nonFinite.includes(elementId)
+					(elementId) => !listed.includes(elementId)
 				)
 	);
 
@@ -138,10 +154,32 @@
 					</ul>
 				</li>
 			{/if}
+			{#if balances.length}
+				<li>
+					<span class="block pt-1"
+						>Not a finite number in the energy {balances.length === 1 ? 'balance' : 'balances'} of:</span
+					>
+					<ul class="space-y-0">
+						{#each balances as elementId (elementId)}
+							<li>{@render link(locate(elementId) ?? { label: elementId, element: null })}</li>
+						{/each}
+					</ul>
+				</li>
+			{/if}
+			{#if lostWeights.length}
+				<li>
+					<span class="block pt-1">Lost in rounding in the Newton step:</span>
+					<ul class="space-y-0">
+						{#each lostWeights as elementId (elementId)}
+							<li>{@render link(locate(elementId) ?? { label: elementId, element: null })}</li>
+						{/each}
+					</ul>
+				</li>
+			{/if}
 			{#if named.length}
 				<li>
 					<span class="block pt-1"
-						>{nonFinite.length ? 'Also named in the message:' : 'Named in the message:'}</span
+						>{listed.length ? 'Also named in the message:' : 'Named in the message:'}</span
 					>
 					<ul class="space-y-0">
 						{#each named as elementId (elementId)}

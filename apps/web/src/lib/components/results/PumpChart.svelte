@@ -73,6 +73,7 @@
 	} from '$lib/utils/pump-chart';
 	import { mediaQuery } from '$lib/utils/media.svelte';
 	import { scrollRegion } from '$lib/utils/scroll-focus';
+	import { boundWords, verticalSummary } from '$lib/utils/system-curve-line';
 	import CaseNamed from '$lib/components/ui/CaseNamed.svelte';
 	import CaseTag from '$lib/components/ui/CaseTag.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -490,8 +491,13 @@
 			data.operating?.x ?? 0
 		)
 	);
+	// At a vertical part the system head is a range, never a bare head (open-defects-2.md C1).
+	const rangeMark = (item: { bound?: 'lower' | 'upper' }) =>
+		item.bound === 'lower' ? '≥ ' : item.bound === 'upper' ? '≤ ' : '';
 	const readoutText = $derived(
-		readout.map((r) => `${r.label} ${fmt(r.value)} ${r.unit}`).join(', ')
+		readout
+			.map((r) => `${r.label} ${r.bound ? `${boundWords(r.bound)} ` : ''}${fmt(r.value)} ${r.unit}`)
+			.join(', ')
 	);
 	/** The chart drawn on screen (not reactive): the cursor redraws it, the pointer reads it. */
 	let drawnChart: ChartInstance<'line'> | null = null;
@@ -522,6 +528,9 @@
 	let cancelButton: HTMLButtonElement | undefined = $state();
 	/** The button that computes the curve again (failed, cancelled or not computed). */
 	let retryButton: HTMLButtonElement | undefined = $state();
+	/** Cancel the other cases' system curves, and the switch it belongs to (open-defects.md F1). */
+	let overlayCancel: HTMLButtonElement | undefined = $state();
+	let overlaySwitch: HTMLInputElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let unavailable = $state(false);
 	/** The data table shown: remembered in this browser (pumps-results-layout.md §9 S7). */
@@ -599,7 +608,9 @@
 		const parts = [
 			`Pump curve of ${name} at ${speedText}${off ? ', for reference: the pump is off' : ''}`
 		];
-		if (data.system && data.systemMissing < data.system.length) parts.push('system curve');
+		// Drawn where some point is, a vertical part's foot too, each vertical part said (C1).
+		if (data.system?.some((p) => p.y !== null))
+			parts.push(`system curve${verticalSummary(data.systemRays, data.flowUnit, data.headUnit)}`);
 		const op = data.operating;
 		const held = data.held;
 		const at = op
@@ -683,7 +694,16 @@
 	);
 	/** The figure's sentences under the chart, which the image's footer repeats (export.md §3.4). */
 	const notes = $derived(
-		chartNotes({ data, result, system, othersControlled, shown, speedShown, checksShown })
+		chartNotes({
+			data,
+			result,
+			system,
+			othersControlled,
+			shown,
+			speedShown,
+			checksShown,
+			others: otherData
+		})
 	);
 	/** The notes about the values, in the screen's order (pumps-results-layout.md §5.3). */
 	const valued = $derived(valueNotes(notes, data));
@@ -728,6 +748,16 @@
 		const retry = untrack(() => retryButton);
 		if (!retry || document.activeElement !== retry) return;
 		void tick().then(() => (cancelButton ?? figure)?.focus());
+	});
+
+	// Before the DOM drops Cancel the other cases' system curves as their progress ends (cancelled
+	// or every curve answered): if it has the focus, the switch it belongs to takes it, still
+	// ticked, else the chart; the handover above (docs/proposals/open-defects.md F1).
+	$effect.pre(() => {
+		if (overlayProgress) return;
+		const cancel = untrack(() => overlayCancel);
+		if (!cancel || document.activeElement !== cancel) return;
+		void tick().then(() => (overlaySwitch ?? figure)?.focus());
 	});
 
 	/**
@@ -788,7 +818,9 @@
 						cursor: () => cursorNow,
 						onlabels: (placed) => ringsDrawn(element, d, drawnCases, placed),
 						// The canvas legend as laid out, for measuring the layout (leftovers L16 to L18).
-						onlegend: (laid) => (element.dataset.legend = JSON.stringify(laid))
+						onlegend: (laid) => (element.dataset.legend = JSON.stringify(laid)),
+						// The system curves' vertical parts as drawn (open-defects-2.md C1).
+						onrays: (rays) => (element.dataset.systemRays = JSON.stringify(rays))
 					})
 				);
 				drawnChart = chart;
@@ -896,7 +928,8 @@
 				reasonsIn: IMAGE_REASONS_IN,
 				shown,
 				speedShown,
-				checksShown
+				checksShown,
+				others: otherData
 			}),
 			others: otherData,
 			offCases: offNote,
@@ -1014,7 +1047,8 @@
 								>{#if i}<span class="sr-only">,&nbsp;</span>{/if}<span class="text-slate-600"
 									>{item.label}</span
 								>
-								<span class="font-medium">{fmt(item.value)} {item.unit}</span></span
+								<span class="font-medium">{rangeMark(item)}{fmt(item.value)} {item.unit}</span
+								></span
 							>{:else}<span>no line is drawn at this flow</span>{/each}
 					</p>
 				{/if}
@@ -1148,6 +1182,10 @@
 			<!-- Another case's ring whose label the chart left out, named with its values (nit 5,
 				rule 7: never only counted). -->
 			<p class="text-xs text-slate-700">{notLabelled}</p>
+		{/if}
+		{#if notes.belowZero}
+			<!-- What lies below zero flow and is not drawn, with its values (open-defects-2.md X). -->
+			<p class="text-xs text-slate-700">{notes.belowZero}</p>
 		{/if}
 		{#if valued.method}
 			<!-- How the curve shown was computed, where it is shown (GOALS §4.2): the request
@@ -1354,7 +1392,12 @@
 							<tbody>
 								{#each data.systemRows as row, i (i)}
 									<tr class="border-t border-slate-100">
-										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+										<!-- A limit point (open-defects-2.md C3), in flow order, marked. -->
+										<td class="px-2 py-1 text-right tabular-nums"
+											>{row.atLimit ? `${row.flow} ` : row.flow}{#if row.atLimit}<span
+													class="text-xs text-slate-600">(limit point)</span
+												>{/if}</td
+										>
 										<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
 										{#if data.npsh?.available}
 											<td class="px-2 py-1 text-right tabular-nums">{row.npsha}</td>
@@ -1414,7 +1457,8 @@
 					caption="System curve, {caseNamed(other.tag, other.label)}"
 					label={systemLabel}
 					points={other.systemRows.length}
-					openByDefault={cannotDraw || other.systemRows.some((row) => row.head === '—')}
+					openByDefault={cannotDraw ||
+						other.systemRows.some((row) => row.head === '—' || !!row.note)}
 					bind:choice={tablesOpen[`system-${caseId(other.key)}`]}
 				>
 					<thead class="bg-slate-50">
@@ -1427,7 +1471,11 @@
 					<tbody>
 						{#each other.systemRows as row, i (i)}
 							<tr class="border-t border-slate-100">
-								<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+								<td class="px-2 py-1 text-right tabular-nums"
+									>{row.atLimit ? `${row.flow} ` : row.flow}{#if row.atLimit}<span
+											class="text-xs text-slate-600">(limit point)</span
+										>{/if}</td
+								>
 								<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
 								<td class="px-2 py-1 text-xs text-slate-600"
 									>{row.note}{#if row.detail}<IssueDetail
@@ -1528,6 +1576,7 @@
 				<div>
 					<label class="flex min-h-11 items-center gap-2 text-sm">
 						<input
+							bind:this={overlaySwitch}
 							type="checkbox"
 							class="size-4 shrink-0"
 							checked={overlayCurves}
@@ -1564,6 +1613,7 @@
 					>
 					{#if overlayProgress && oncanceloverlay}
 						<button
+							bind:this={overlayCancel}
 							type="button"
 							class="btn btn-quiet px-2 text-blue-800"
 							aria-label="Cancel the other cases' system curves"

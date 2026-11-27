@@ -383,7 +383,7 @@
 										"velocity": 3.981279418150011
 									}
 								},
-								"methodVersion": "1.6.1",
+								"methodVersion": "1.6.2",
 								"nodeResults": {
 									"P1:discharge": {
 										"absolutePressure": 341941.2032876365,
@@ -2078,7 +2078,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.1",
+										"methodVersion": "1.6.2",
 										"sections": [
 											{
 												"items": [
@@ -2484,6 +2484,7 @@
 										"min": 0.0,
 										"unit": "m³/s"
 									},
+									"limitPoints": [],
 									"points": [
 										{
 											"assignedFlowNodeIds": [],
@@ -3266,7 +3267,7 @@
 							"message": "Every goal is met, after 10 evaluations.",
 							"met": true,
 							"method": "scan_brent",
-							"methodVersion": "1.6.1",
+							"methodVersion": "1.6.2",
 							"methods": {
 								"items": [
 									"Goal seek on the base case of this project: 1 variable(s) were varied within their bounds to bring 1 goal(s) to their targets. Each evaluation is a full network solve of the case with the variables set to trial values, by the methods in the sections below; nothing is approximated. The values found are not applied to the project: every result below is of the case with them, and applying them gives these results.",
@@ -3484,7 +3485,7 @@
 									"velocity": 3.188457009741728
 								}
 							},
-							"methodVersion": "1.6.1",
+							"methodVersion": "1.6.2",
 							"nodeResults": {
 								"P1:discharge": {
 									"absolutePressure": 299092.2380781431,
@@ -5180,7 +5181,7 @@
 										"opensolve-pipe": "0.1.0",
 										"scipy": "1.18.1"
 									},
-									"methodVersion": "1.6.1",
+									"methodVersion": "1.6.2",
 									"sections": [
 										{
 											"items": [
@@ -7210,7 +7211,7 @@
 										"velocity": 0.0
 									}
 								},
-								"methodVersion": "1.6.1",
+								"methodVersion": "1.6.2",
 								"nodeResults": {
 									"AF1:port_1": {
 										"absolutePressure": 358105.48555784515,
@@ -12092,7 +12093,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.1",
+										"methodVersion": "1.6.2",
 										"sections": [
 											{
 												"items": [
@@ -13908,7 +13909,7 @@
 										"velocity": 3.141277055404692
 									}
 								},
-								"methodVersion": "1.6.1",
+								"methodVersion": "1.6.2",
 								"nodeResults": {
 									"AF1:port_1": {
 										"absolutePressure": 359683.955842621,
@@ -18844,7 +18845,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.1",
+										"methodVersion": "1.6.2",
 										"sections": [
 											{
 												"items": [
@@ -20612,7 +20613,7 @@
 										"velocity": 0.0
 									}
 								},
-								"methodVersion": "1.6.1",
+								"methodVersion": "1.6.2",
 								"nodeResults": {
 									"AF1:port_1": {
 										"absolutePressure": 385364.90665277775,
@@ -25498,7 +25499,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.1",
+										"methodVersion": "1.6.2",
 										"sections": [
 											{
 												"items": [
@@ -27509,7 +27510,7 @@
 										"velocity": 3.7003867491618436
 									}
 								},
-								"methodVersion": "1.6.1",
+								"methodVersion": "1.6.2",
 								"nodeResults": {
 									"R1:port_1": {
 										"absolutePressure": 150260.18349999998,
@@ -28827,7 +28828,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.1",
+										"methodVersion": "1.6.2",
 										"sections": [
 											{
 												"items": [
@@ -30096,7 +30097,7 @@
 										"velocity": 3.385661208497401
 									}
 								},
-								"methodVersion": "1.6.1",
+								"methodVersion": "1.6.2",
 								"nodeResults": {
 									"P1:discharge": {
 										"absolutePressure": 308908.5726155989,
@@ -32190,7 +32191,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.1",
+										"methodVersion": "1.6.2",
 										"sections": [
 											{
 												"items": [
@@ -33491,7 +33492,7 @@
 										"velocity": 3.1884262784009927
 									}
 								},
-								"methodVersion": "1.6.1",
+								"methodVersion": "1.6.2",
 								"nodeResults": {
 									"R1:port_1": {
 										"absolutePressure": 248161.0222820469,
@@ -34731,7 +34732,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.1",
+										"methodVersion": "1.6.2",
 										"sections": [
 											{
 												"items": [
@@ -35597,7 +35598,7 @@
 										"velocity": 3.1946478719021423
 									}
 								},
-								"methodVersion": "1.6.1",
+								"methodVersion": "1.6.2",
 								"nodeResults": {
 									"R1:port_1": {
 										"absolutePressure": 248161.0222820469,
@@ -36827,7 +36828,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.1",
+										"methodVersion": "1.6.2",
 										"sections": [
 											{
 												"items": [
@@ -37769,7 +37770,7 @@
 										"unit": "m"
 									},
 									"message": "",
-									"methodVersion": "1.6.1",
+									"methodVersion": "1.6.2",
 									"methods": {
 										"items": [
 											"Station: the pumps PA and PB and everything between them and the rest of the network: the smallest part that meets the rest at exactly two places, its inlet S = T1 (run_inlet) and its outlet D = T2 (run_outlet), and holds no other pump, no reservoir or reference node and no assigned flow. It is found as a minimum vertex cut between the pumps and every reservoir, reference node, assigned flow and other pump (Menger's theorem, by augmenting paths), tee and wye centres never cut, so a header tee lies whole inside. It holds 4 components and 4 connections; its arrangement is parallel: with the pumps removed it falls into the inlet's side and the outlet's side, each pump from the first to the second.",
@@ -37779,7 +37780,7 @@
 											"Points: 41 rises from 0 to 45 m, plus the duty's rise; by default from the lower of 0 and the duty's rise to the largest rise the station can hold with flow (the largest sum of shutoff heads s²H₀(0) along a way from S to D, of the members it passes forward and of those beside a bypass in the parts it passes, a speed-controlled pump's at its maximum speed, a member that is off adding nothing, above which the status rules close the pumps; every member's that is on, an upper bound, where no way through the station's parts passes a member), or the duty's rise if higher. The duty's rise is solved first, from the case's solve; then the rises above and below it, each from the converged point next to it toward the duty, so the curve is the branch through the duty; a point that does not converge from there is solved again from the initial state. Where a station has several steady states at a rise, a point is the one its solve reaches from there.",
 											"Duty check: at the duty's rise 30.4654 m the station solved alone passes 0.0455506 m³/s (the solve: 0.0455506 m³/s), and every pump its solved flow, each within 0.5 % or 1e-6 m³/s: the group curve passes through the duty.",
 											"No standard defines a pump group's curves, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD reads the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: it is the header construction (each pump's curve less its own losses on its way to the header, capacities added at equal head) carried out by solves, which also count the station's header fittings and pipes. The catalogue composite curve (flows added at equal flange head) is not drawn: it does not meet the system at the duty.",
-											"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
+											"Method version 1.6.2: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
 										],
 										"references": [
 											"Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 (augmenting paths; Menger's theorem on vertex cuts).",
@@ -39067,7 +39068,7 @@
 									},
 									"headRange": null,
 									"message": "",
-									"methodVersion": "1.6.1",
+									"methodVersion": "1.6.2",
 									"methods": {
 										"items": [
 											"Station: the pumps PA and PB and everything between them and the rest of the network: the smallest part that meets the rest at exactly two places, its inlet S = T1 (run_inlet) and its outlet D = T2 (run_outlet), and holds no other pump, no reservoir or reference node and no assigned flow. It is found as a minimum vertex cut between the pumps and every reservoir, reference node, assigned flow and other pump (Menger's theorem, by augmenting paths), tee and wye centres never cut, so a header tee lies whole inside. It holds 4 components and 4 connections; its arrangement is parallel: with the pumps removed it falls into the inlet's side and the outlet's side, each pump from the first to the second.",
@@ -39077,7 +39078,7 @@
 											"Points: 41 flows from 0 to 0.125808 m³/s, plus the duty's flow; flowMin by default the lower of 0 and the duty's flow, flowMax by default 1.2 × the largest of the duty's flow and the group curve's flows. The duty's flow is solved first, from the case's solve; then the flows are solved as each pump's system curve is: in flow order from the network's initial state, each from the last converged point, a point that does not converge solved again from the initial state, and one without a rise solved again from it with the control valves open. A flow beyond what every way from D back to S can pass (a cut of FCVs at their setpoints and one-way elements against the flow, with the assigned flows), or below the least flow the assigned flows need through the station, has no steady state and is not solved again (Ford and Fulkerson's max-flow min-cut theorem, Gale's condition). A point without a rise says why, as each pump's system curve does.",
 											"System duty check: the rest of the network with the station's flow 0.0455506 m³/s forced from S to D needs a rise of 30.4654 m (the solve: 30.4654 m), within 0.5 % or 0.01 m: the group system curve passes through the duty.",
 											"No standard defines a pump group's system curve, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD takes the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: at S and D the rest of the network sees only the station's flow.",
-											"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
+											"Method version 1.6.2: every point is a solve by its laws and rules; the station and the group system curve are defined here, not in the solve."
 										],
 										"references": [
 											"Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 (augmenting paths; Menger's theorem on vertex cuts).",
@@ -40662,7 +40663,7 @@
 										"velocity": 2.369206167612408
 									}
 								},
-								"methodVersion": "1.6.1",
+								"methodVersion": "1.6.2",
 								"nodeResults": {
 									"FC:inlet": {
 										"absolutePressure": 359329.17148368375,
@@ -44603,7 +44604,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.1",
+										"methodVersion": "1.6.2",
 										"sections": [
 											{
 												"items": [
@@ -45307,6 +45308,7 @@
 										"min": 0.0,
 										"unit": "m³/s"
 									},
+									"limitPoints": [],
 									"points": [
 										{
 											"assignedFlowNodeIds": [],
@@ -45985,7 +45987,7 @@
 										"unit": "m"
 									},
 									"message": "",
-									"methodVersion": "1.6.1",
+									"methodVersion": "1.6.2",
 									"methods": {
 										"items": [
 											"Station: the pumps PA and PB and everything between them and the rest of the network: the smallest part that meets the rest at exactly two places, its inlet S = T1 (run_inlet) and its outlet D = T2 (run_outlet), and holds no other pump, no reservoir or reference node and no assigned flow. It is found as a minimum vertex cut between the pumps and every reservoir, reference node, assigned flow and other pump (Menger's theorem, by augmenting paths), tee and wye centres never cut, so a header tee lies whole inside. It holds 4 components and 4 connections; its arrangement is parallel: with the pumps removed it falls into the inlet's side and the outlet's side, each pump from the first to the second.",
@@ -45995,7 +45997,7 @@
 											"Points: 41 rises from 0 to 45 m, plus the duty's rise; by default from the lower of 0 and the duty's rise to the largest rise the station can hold with flow (the largest sum of shutoff heads s²H₀(0) along a way from S to D, of the members it passes forward and of those beside a bypass in the parts it passes, a speed-controlled pump's at its maximum speed, a member that is off adding nothing, above which the status rules close the pumps; every member's that is on, an upper bound, where no way through the station's parts passes a member), or the duty's rise if higher. The duty's rise is solved first, from the case's solve; then the rises above and below it, each from the converged point next to it toward the duty, so the curve is the branch through the duty; a point that does not converge from there is solved again from the initial state. Where a station has several steady states at a rise, a point is the one its solve reaches from there.",
 											"Duty check: at the duty's rise 26.993 m the station solved alone passes 0.037737 m³/s (the solve: 0.037737 m³/s), and every pump its solved flow, each within 0.5 % or 1e-6 m³/s: the group curve passes through the duty.",
 											"No standard defines a pump group's curves, and tools differ: Fathom holds a split (equal, or the solved one), WaterCAD reads the losses along a representative pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: it is the header construction (each pump's curve less its own losses on its way to the header, capacities added at equal head) carried out by solves, which also count the station's header fittings and pipes. The catalogue composite curve (flows added at equal flange head) is not drawn: it does not meet the system at the duty.",
-											"Method version 1.6.1: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
+											"Method version 1.6.2: every point is a solve by its laws and rules; the station and the group curve are defined here, not in the solve."
 										],
 										"references": [
 											"Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 (augmenting paths; Menger's theorem on vertex cuts).",
@@ -48178,7 +48180,7 @@
 										"velocity": 0.0
 									}
 								},
-								"methodVersion": "1.6.1",
+								"methodVersion": "1.6.2",
 								"nodeResults": {
 									"FC:inlet": {
 										"absolutePressure": 343469.1131304975,
@@ -52106,7 +52108,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.1",
+										"methodVersion": "1.6.2",
 										"sections": [
 											{
 												"items": [

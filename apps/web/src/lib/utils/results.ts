@@ -503,7 +503,9 @@ const SI_CATEGORY: Readonly<Record<string, UnitCategory>> = {
  * Text from the API with SI quantities ("0.0475 m³/s", "-52340.5 Pa", "0.1023 m") shown in the
  * display units. The unit symbol decides the conversion; a length shortly after "D_" or
  * "diameter" is shown in the diameter unit (both are lengths, so the number is right either
- * way). A pressure keeps the gauge or absolute wording of the text: no marker is added.
+ * way). A pressure keeps the gauge or absolute wording of the text: no marker is added. A
+ * quantity whose value in the display unit is not a finite number (a head near the largest
+ * double, -1.79769e+308 m, is -5.9e308 ft) is kept as the text quotes it, never shown as "—".
  */
 export function siText(text: string, prefs: UnitPreferences): string {
 	const f = new Formatter(prefs);
@@ -513,6 +515,7 @@ export function siText(text: string, prefs: UnitPreferences): string {
 		if (!category || !Number.isFinite(si)) return whole;
 		const before = text.slice(Math.max(0, offset - 40), offset);
 		if (category === 'length' && /D_\w|diameter/i.test(before)) category = 'diameter';
+		if (!Number.isFinite(fromSI(si, displayUnit(category, prefs)))) return whole;
 		return f.value(si, category);
 	});
 }
@@ -590,14 +593,17 @@ export interface Row {
 	/**
 	 * A cell's sort value where its text does not carry it, by column key, read before sortValue:
 	 * a pump that cavitates with no NPSH margin ratio shows "—" and its words, and sorts as −∞,
-	 * below every ratio (npshRatioSortKeys; docs/proposals/pumps-nits.md item 4, review E-0-1).
+	 * below every ratio (npshRatioSortKeys; docs/proposals/pumps-nits.md item 4, review E-0-1); a
+	 * connection's velocity, signed like its flow, sorts by its speed (linkSpeed;
+	 * proposals/open-defects.md S1).
 	 */
 	sortKeys?: Readonly<Record<string, number>>;
 	/**
 	 * What breaks a tie between equal sort keys, by column key, before the table's order: the NPSH
 	 * margin of a pump whose NPSH margin ratio sorts as ±∞ (npshRatioSortKeys), so two pumps that
 	 * cavitate with no ratio rank by their margins, as the card's extremes rank them
-	 * (docs/proposals/pumps-nits.md §11, leftover L1; critique CR-OWNER-3).
+	 * (docs/proposals/pumps-nits.md §11, leftover L1; critique CR-OWNER-3); a port's pressure, so
+	 * two shown alike rank by the pressures the API returned (proposals/open-defects.md S1).
 	 */
 	sortTies?: Readonly<Record<string, number>>;
 }
@@ -760,20 +766,7 @@ export function nodeTable(project: Project, solved: SolvedState, prefs: UnitPref
 		f.column('egl', 'EGL', 'head')
 	];
 	const results = solved.nodeResults;
-	const keys: string[] = [];
-	for (const component of project.components) {
-		for (const port of component.ports) {
-			const key = `${component.id}:${port.id}`;
-			if (results[key]) keys.push(key);
-		}
-	}
-	const listed = new Set(keys);
-	for (const key of Object.keys(results)) {
-		if (!listed.has(key)) {
-			keys.push(key);
-			listed.add(key);
-		}
-	}
+	const keys = nodeKeys(project, results);
 	const shown = rowsOf
 		? keys.filter((key) =>
 				holdsRowOf({ kind: 'component', id: (results[key] as NodeResult).componentId })
@@ -789,7 +782,7 @@ export function nodeTable(project: Project, solved: SolvedState, prefs: UnitPref
 			detail: portLabel(node.portId),
 			cells: {
 				elevation: f.num(node.elevation, 'length'),
-				pressure: f.num(node.pressure, 'pressure'),
+				pressure: pressureCell(f, node),
 				dynamicPressure: f.num(node.dynamicPressure, 'pressure'),
 				totalPressure: f.num(node.totalPressure, 'pressure'),
 				absolutePressure: f.num(node.absolutePressure, 'pressure'),
@@ -799,10 +792,47 @@ export function nodeTable(project: Project, solved: SolvedState, prefs: UnitPref
 			},
 			flags: solved.flags.filter(
 				(flag) => flag.componentId === node.componentId && flag.portId === node.portId
-			)
+			),
+			sortTies: pressureTies(node)
 		};
 	});
 	return { columns, rows };
+}
+
+/**
+ * The Nodes table's rows in its order: each component's ports in project order, then the results
+ * of no port in the project, in the API's order.
+ */
+function nodeKeys(project: Project, results: SolvedState['nodeResults']): string[] {
+	const keys: string[] = [];
+	for (const component of project.components) {
+		for (const port of component.ports) {
+			const key = `${component.id}:${port.id}`;
+			if (results[key]) keys.push(key);
+		}
+	}
+	const listed = new Set(keys);
+	for (const key of Object.keys(results)) {
+		if (!listed.has(key)) {
+			keys.push(key);
+			listed.add(key);
+		}
+	}
+	return keys;
+}
+
+/** A port's cell in the Nodes table's Pressure column. */
+function pressureCell(f: Formatter, node: NodeResult): Cell {
+	return f.num(node.pressure, 'pressure');
+}
+
+/**
+ * What breaks a tie of the Pressure column's text: two pressures shown alike rank by the API's
+ * values, so the order is the same in every unit and the Summary's extremes are this table's
+ * first rows (open-defects.md S1).
+ */
+function pressureTies(node: NodeResult): Readonly<Record<string, number>> {
+	return { pressure: node.pressure };
 }
 
 /**
@@ -811,17 +841,15 @@ export function nodeTable(project: Project, solved: SolvedState, prefs: UnitPref
  * Velocity, Re, f and regime are per pipe: a connection of one pipe shows its values; a
  * connection of several shows each pipe's ("Pipe 1", "Pipe 2", ...), since one value (the API's
  * top-level LinkResult values are the first pipe's) would hide a faster or transitional pipe
- * further on.
+ * further on. Velocity is shown signed like the flow and sorts by speed (linkSpeed; the owner,
+ * 2026-11-25: "Use absolute value of velocity"; proposals/open-defects.md S1): its pipes carry one
+ * flow, so one sign.
  */
 export function linkTable(project: Project, solved: SolvedState, prefs: UnitPreferences): Table {
 	const f = new Formatter(prefs);
 	const columns = linkColumns(f);
 	const results = solved.linkResults;
-	const resultKeys = Object.keys(results);
-	const present = new Set(resultKeys);
-	const known = project.connections.map((c) => c.id).filter((id) => present.has(id));
-	const listed = new Set(known);
-	const ids = [...known, ...resultKeys.filter((k) => !listed.has(k))];
+	const ids = linkIds(project, results);
 	const labels = resultsProject(project, solved);
 	const shown = rowsOf ? ids.filter((id) => holdsRowOf({ kind: 'connection', id })) : ids;
 	const rows = shown.map((id): Row => {
@@ -845,10 +873,34 @@ export function linkTable(project: Project, solved: SolvedState, prefs: UnitPref
 				frictionFactor: pipeValues(f.plain(link.frictionFactor), (s) => f.plain(s.frictionFactor)),
 				flowRegime: pipeValues(regimeLabel(link.flowRegime), (s) => regimeLabel(s.flowRegime))
 			},
-			flags: flagsForElement(solved.flags, element)
+			flags: flagsForElement(solved.flags, element),
+			sortKeys: linkSortKeys(link)
 		};
 	});
 	return { columns, rows };
+}
+
+/** The Links table's rows in its order: connections in project order, then the rest, in the API's. */
+function linkIds(project: Project, results: SolvedState['linkResults']): string[] {
+	const resultKeys = Object.keys(results);
+	const present = new Set(resultKeys);
+	const known = project.connections.map((c) => c.id).filter((id) => present.has(id));
+	const listed = new Set(known);
+	return [...known, ...resultKeys.filter((k) => !listed.has(k))];
+}
+
+/** A Links row's sort keys: its Velocity column ranks by speed (linkSpeed). */
+function linkSortKeys(link: LinkResult): Readonly<Record<string, number>> {
+	return { velocity: linkSpeed(link) };
+}
+
+/**
+ * A connection's speed: the largest |v| of its pipes, m/s, what the Links table's Velocity column
+ * and the Summary's highest velocity rank by (the owner, 2026-11-25: "Use absolute value of
+ * velocity"; proposals/open-defects.md S1). The API signs a velocity like the flow.
+ */
+export function linkSpeed(link: LinkResult): number {
+	return Math.max(...[link.velocity, ...link.segments.map((s) => s.velocity)].map(Math.abs));
 }
 
 /** The Links table's columns (also the strip's labels for a connection). */
@@ -1971,24 +2023,57 @@ function connectionSummary(
 	return { items, flags, unlisted: own.length - flags.length, notes };
 }
 
-/** The node with the lowest absolute static pressure (closest to vapor pressure), if any. */
-export function lowestPressureNode(solved: SolvedState): NodeResult | null {
-	let lowest: NodeResult | null = null;
-	for (const node of Object.values(solved.nodeResults)) {
-		if (!lowest || node.absolutePressure < lowest.absolutePressure) lowest = node;
-	}
-	return lowest;
+/**
+ * The port with the lowest static pressure (closest to vapor pressure: one atmospheric pressure
+ * holds for every port), if any: by construction the first row of the Nodes table sorted by
+ * pressure, lowest first, the table the Summary's link opens, so the two name one port
+ * (proposals/open-defects.md S1, the pattern of pumps-nits.md §11, leftover L2). That sort ranks
+ * the values shown, then a tie's pressure as the API returned it, then the table's order (the
+ * project's), so it is the same in every unit: `project` orders the ports, as the table does.
+ * Only that column is made, from the table's own parts (nodeKeys, pressureCell, pressureTies)
+ * and sort (firstSortedRow): the whole table cost a network of 999 components about 7 ms, and
+ * Compare pays it once per case column (review S1-R2).
+ */
+export function lowestPressureNode(solved: SolvedState, project: Project): NodeResult | null {
+	return firstNode(solved, project, 'ascending');
 }
 
-/** The connection with the highest speed in any of its segments, if any. */
-export function fastestLink(solved: SolvedState): { id: string; velocity: number } | null {
-	let best: { id: string; velocity: number } | null = null;
-	for (const [id, link] of Object.entries(solved.linkResults)) {
-		const speeds = [link.velocity, ...link.segments.map((s) => s.velocity)].map(Math.abs);
-		const velocity = Math.max(...speeds);
-		if (!best || velocity > best.velocity) best = { id, velocity };
-	}
-	return best;
+/**
+ * The connection with the highest speed, the largest |v| of its pipes (linkSpeed), if any: by
+ * construction the first row of the Links table sorted by velocity, highest first, the table the
+ * Summary's link opens (proposals/open-defects.md S1). Ties keep the table's order (`project`'s).
+ * Only the sort keys are made, from the table's own parts (linkIds, linkSortKeys): no cell is
+ * formatted (review S1-R2).
+ */
+export function fastestLink(
+	solved: SolvedState,
+	project: Project
+): { id: string; velocity: number } | null {
+	const results = solved.linkResults;
+	const rows = linkIds(project, results).map((key) => ({
+		key,
+		cells: {},
+		sortKeys: linkSortKeys(results[key] as LinkResult)
+	}));
+	const first = firstSortedRow(rows, { key: 'velocity', direction: 'descending' });
+	const link = first ? results[first.key] : undefined;
+	return first && link ? { id: first.key, velocity: linkSpeed(link) } : null;
+}
+
+/** The first port of the Nodes table sorted by pressure (lowestPressureNode). */
+function firstNode(
+	solved: SolvedState,
+	project: Project,
+	direction: SortDirection
+): NodeResult | null {
+	const f = new Formatter(SI_UNITS);
+	const results = solved.nodeResults;
+	const rows = nodeKeys(project, results).map((key) => {
+		const node = results[key] as NodeResult;
+		return { key, cells: { pressure: pressureCell(f, node) }, sortTies: pressureTies(node) };
+	});
+	const first = firstSortedRow(rows, { key: 'pressure', direction });
+	return first ? (results[first.key] ?? null) : null;
 }
 
 /** Compare dotted version numbers ("1.10.0" > "1.9.2"); non-numeric parts compare as text. */
@@ -2074,43 +2159,79 @@ export function sortValue(cell: Cell | undefined): number | string | null {
 	return text === '—' || text === '' ? null : text;
 }
 
+/** What sortRows reads of a row: a whole table's Row, or only the column sorted (firstNode). */
+export type SortableRow = Pick<Row, 'cells' | 'sortKeys' | 'sortTies'> & { name?: string };
+
 /** What a row sorts by in a column: its sort key there (Row.sortKeys), else its cell's sortValue. */
-function rowSortValue(row: Row, key: string): number | string | null {
-	if (key === NAME_SORT_KEY) return row.name;
+function rowSortValue(row: SortableRow, key: string): number | string | null {
+	if (key === NAME_SORT_KEY) return row.name ?? null;
 	return row.sortKeys?.[key] ?? sortValue(row.cells[key]);
+}
+
+/** A row as sortRows ranks it: its place in the table, its value in the column and its tie. */
+interface SortEntry<R> {
+	row: R;
+	index: number;
+	value: number | string | null;
+	tie: number;
+}
+
+function sortEntries<R extends SortableRow>(rows: readonly R[], key: string): SortEntry<R>[] {
+	return rows.map((row, index) => ({
+		row,
+		index,
+		value: rowSortValue(row, key),
+		tie: row.sortTies?.[key] ?? 0
+	}));
+}
+
+/**
+ * sortRows' order, `sign` 1 ascending, −1 descending, the table's order breaking every tie: total
+ * on a column of numbers and no values; a column that mixes numbers and text ranks the text in
+ * natural order, which is not transitive against the numbers.
+ */
+function compareEntries<R>(a: SortEntry<R>, b: SortEntry<R>, sign: number): number {
+	if (a.value === null || b.value === null) {
+		return a.value === b.value ? a.index - b.index : a.value === null ? 1 : -1;
+	}
+	// Equal first, so two infinite keys tie rather than give NaN.
+	const order =
+		a.value === b.value
+			? a.tie - b.tie
+			: typeof a.value === 'number' && typeof b.value === 'number'
+				? a.value - b.value
+				: String(a.value).localeCompare(String(b.value), undefined, { numeric: true });
+	return order === 0 ? a.index - b.index : sign * order;
 }
 
 /**
  * Rows in a table's sort order: by the values shown in that column (numbers as numbers, text in
  * natural order), or a row's sort key there (a pump with no NPSH margin ratio: −∞ where it
- * cavitates, +∞ where its NPSHr is 0), rows without a value last. Equal values rank by their rows'
- * ties there (Row.sortTies, the margin of such a pump; none counts as 0), in the sort's direction,
- * then in the table's own order. Null keeps the order.
+ * cavitates, +∞ where its NPSHr is 0; a connection's speed), rows without a value last. Equal
+ * values rank by their rows' ties there (Row.sortTies, the margin of such a pump, a port's
+ * pressure; none counts as 0), in the sort's direction, then in the table's own order. Null keeps
+ * the order.
  */
-export function sortRows(rows: readonly Row[], sort: TableSort | null): Row[] {
+export function sortRows<R extends SortableRow>(rows: readonly R[], sort: TableSort | null): R[] {
 	if (!sort) return [...rows];
 	const sign = sort.direction === 'ascending' ? 1 : -1;
-	return rows
-		.map((row, index) => ({
-			row,
-			index,
-			value: rowSortValue(row, sort.key),
-			tie: row.sortTies?.[sort.key] ?? 0
-		}))
-		.sort((a, b) => {
-			if (a.value === null || b.value === null) {
-				return a.value === b.value ? a.index - b.index : a.value === null ? 1 : -1;
-			}
-			// Equal first, so two infinite keys tie rather than give NaN.
-			const order =
-				a.value === b.value
-					? a.tie - b.tie
-					: typeof a.value === 'number' && typeof b.value === 'number'
-						? a.value - b.value
-						: String(a.value).localeCompare(String(b.value), undefined, { numeric: true });
-			return order === 0 ? a.index - b.index : sign * order;
-		})
+	return sortEntries(rows, sort.key)
+		.sort((a, b) => compareEntries(a, b, sign))
 		.map((entry) => entry.row);
+}
+
+/**
+ * The first row of sortRows(rows, sort), in one pass: on a column of numbers its order is total
+ * (the table's order breaks every tie), so the least entry is the one the sort puts first (the
+ * Summary's extremes; review S1-R2).
+ */
+function firstSortedRow<R extends SortableRow>(rows: readonly R[], sort: TableSort): R | undefined {
+	const sign = sort.direction === 'ascending' ? 1 : -1;
+	let first: SortEntry<R> | undefined;
+	for (const entry of sortEntries(rows, sort.key)) {
+		if (!first || compareEntries(entry, first, sign) < 0) first = entry;
+	}
+	return first?.row;
 }
 
 /** Whether a column can be sorted: some row shows a value in it, or has a sort key there. */
@@ -2118,13 +2239,12 @@ export function sortableColumn(rows: readonly Row[], key: string): boolean {
 	return key === NAME_SORT_KEY || rows.some((row) => rowSortValue(row, key) !== null);
 }
 
-/** The port with the highest static pressure, if any. */
-export function highestPressureNode(solved: SolvedState): NodeResult | null {
-	let highest: NodeResult | null = null;
-	for (const node of Object.values(solved.nodeResults)) {
-		if (!highest || node.pressure > highest.pressure) highest = node;
-	}
-	return highest;
+/**
+ * The port with the highest static pressure, if any: by construction the first row of the Nodes
+ * table sorted by pressure, highest first (lowestPressureNode; proposals/open-defects.md S1).
+ */
+export function highestPressureNode(solved: SolvedState, project: Project): NodeResult | null {
+	return firstNode(solved, project, 'descending');
 }
 
 /**

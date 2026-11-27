@@ -42,6 +42,12 @@
  * Pa·s (a density near the smallest double is 0 in lb/ft³), so no value is shown that the message
  * does not state.
  *
+ * A reservoir or reference node whose head z + p/(ρ g) is not a finite floating-point number, its
+ * gauge pressure over a density near the smallest double (BOUNDARY_HEAD_OUT_OF_RANGE, the
+ * builder's _unrepresentable_boundaries, method 1.6.2), is told with its name, its pressure in the
+ * display unit and the density as above; the largest double the message quotes in metres is left
+ * out, since in feet it is not a finite number.
+ *
  * A speed-controlled pump whose curve does not give one speed for each head
  * (CONTROLLED_PUMP_CURVE) is told with its names, and the curve and the flow interval where it
  * fails are taken from the server's message (an issue has no details) and shown in the display
@@ -363,6 +369,8 @@ function tell(issue: TopologyIssue, links: IssueLink[], context: Context): Issue
 			return orificeIssue(issue, links, component, only, units);
 		case 'RELIEF_VALVE_OUT_OF_RANGE':
 			return reliefIssue(issue, links, component, only, units);
+		case 'BOUNDARY_HEAD_OUT_OF_RANGE':
+			return boundaryIssue(issue, links, component, only, units);
 		case 'UNKNOWN_PIPE_SPEC':
 		case 'UNKNOWN_RESISTANCE':
 		case 'FITTING_RESISTANCE_OUT_OF_RANGE':
@@ -587,6 +595,55 @@ function propertyText(
 	if (Math.abs(fromSI(si, displayUnit(category, units))) >= MIN_NORMAL)
 		return formatValue(si, category, units);
 	return formatValue(si, category, { ...units, density: 'kg/m3', viscosity: 'Pa.s' }, 6);
+}
+
+/** A reservoir or reference node whose head is not a finite number (the builder's
+ * _unrepresentable_boundaries): its kind, id, the quantity's name, the gauge pressure (Pa) and
+ * the fluid's density (kg/m³). */
+const BOUNDARY_HEAD = new RegExp(
+	`^(reservoir|reference node) '${ID}': a (surface pressure|pressure) of ${NUM} Pa\\(g\\) with ` +
+		`the fluid's density of ${NUM} kg/m³ gives a pressure head p/\\(ρ g\\) above the largest ` +
+		`floating-point number, ${NUM} m, in magnitude, so its head is not a finite floating-point ` +
+		'number; the solver cannot represent this boundary$'
+);
+
+/** Each boundary's words: the component type, the quantity that sets its head, and its noun. */
+const BOUNDARY_KINDS: Readonly<Record<string, readonly [string, string, string]>> = {
+	reservoir: ['reservoir', 'surface pressure', 'reservoir'],
+	'reference node': ['reference_node', 'pressure', 'reference node']
+};
+
+/**
+ * A reservoir or reference node whose head, z + p/(ρ g), is not a finite floating-point number
+ * (BOUNDARY_HEAD_OUT_OF_RANGE, the builder's _unrepresentable_boundaries, TSD §12 item 19): told
+ * with its name, the message's gauge pressure in the display unit and the density as
+ * `propertyText` shows it (as quoted, in kg/m³, where it is not a normal number in the display
+ * unit). The largest double the message quotes in metres is left out: in feet it is not a finite
+ * number. Null (the server's message) when the message is not in the form expected, or names a
+ * kind, field or id that is not the component's.
+ */
+function boundaryIssue(
+	issue: TopologyIssue,
+	links: IssueLink[],
+	component: Component | undefined,
+	only: string | undefined,
+	units: UnitPreferences
+): IssueView | null {
+	const match = BOUNDARY_HEAD.exec(issue.message);
+	if (!match || match[2] !== only || !component) return null;
+	const [, kind = '', , field, pressure = '', density = ''] = match;
+	const words = BOUNDARY_KINDS[kind];
+	if (!words || words[0] !== component.type || words[1] !== field) return null;
+	const [, quantity, noun] = words;
+	const p = formatValue(Number(pressure), 'pressure', units, 6, { gauge: true });
+	return {
+		text:
+			`${component.name}: a ${quantity} of ${p} with the fluid's density of ` +
+			`${propertyText(density, 'density', units)} gives a pressure head p/(ρ g) whose magnitude ` +
+			`is above the largest floating-point number, so the solver cannot represent this ${noun}'s ` +
+			`head. Check its ${quantity} and the fluid's density.`,
+		links
+	};
 }
 
 /**

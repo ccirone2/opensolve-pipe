@@ -37,10 +37,12 @@ from ..models.components import (
     ControlValve,
     EffectiveOrifice,
     Equipment,
+    IdealReferenceNode,
     Orifice,
     Pump,
     RatedPoint,
     ReliefValve,
+    Reservoir,
 )
 from ..models.fluids import FluidProperties
 from ..models.goal_seek import (
@@ -2135,6 +2137,56 @@ def _relief_bound_issues(
     return []
 
 
+BOUNDARY_FIELDS: dict[type[BaseComponent], tuple[str, str]] = {
+    Reservoir: ("surfacePressure", "surface pressure"),
+    IdealReferenceNode: ("pressure", "pressure"),
+}
+"""The pressure that sets a boundary's head, by component type, and its name in a message
+(BOUNDARY_HEAD_OUT_OF_RANGE, method 1.6.2): the head z + p/(ρ g) must be a finite floating-point
+number. Keyed by type, so that a field of the same name on another component is never built."""
+
+
+def _boundary_field(trial: Project, request: ComponentVariable) -> str | None:
+    """The name of ``request``'s field in a message, where it is the pressure that sets its
+    component's head (``BOUNDARY_FIELDS``); None otherwise."""
+    component = next((c for c in trial.components if c.id == request.component_id), None)
+    keyed = BOUNDARY_FIELDS.get(type(component)) if component is not None else None
+    return keyed[1] if keyed is not None and keyed[0] == request.field else None
+
+
+def _boundary_bound_issues(
+    trial: Project, fluid: FluidProperties, var: _Var, side: str, what: str
+) -> list[TopologyIssue]:
+    """The network built at one bound of a reservoir's surface pressure or a reference node's
+    pressure (the other values as the case holds them); BOUNDARY_HEAD_OUT_OF_RANGE for this
+    element there, as an input problem located by index that quotes no value (D10, SDD §5.1.2).
+    fl(p/(ρ g)) and z + it are monotone in p, the density does not vary in a goal seek (a fluid's
+    temperature only for a built-in fluid, whose density is far from the edge), and each head
+    depends on its own pressure alone, so the two builds per variable prove that every trial
+    builds. The case's own 422 keeps the builder's quoting text."""
+    try:
+        build_network(trial, fluid)
+    except TopologyError as exc:
+        element = _element_of(var.request)
+        found: list[TopologyIssue] = []
+        for problem in exc.issues:
+            if (
+                problem.code == "BOUNDARY_HEAD_OUT_OF_RANGE"
+                and var.element_id in problem.component_ids
+            ):
+                text = (
+                    f"the head z + p/(ρ g) is not a finite floating-point number at this {what} "
+                    "with the case's fluid"
+                )
+            else:  # the case builds, and only this value changed: not expected
+                text = f"the project does not build at this bound ({problem.code})"
+            found.append(
+                _issue(problem.code, f"body.variables.{var.index}.{side}: {text}", element)
+            )
+        return found
+    return []
+
+
 def _check_bounds(
     dump: Mapping[str, Any], variables: Sequence[_Var], fluid: FluidProperties
 ) -> None:
@@ -2147,7 +2199,8 @@ def _check_bounds(
     bore on an entered coefficient moved from corner or flange taps, a trial they do not cover
     can still be refused, and is then an unusable trial. A relief valve's set pressure, orifice
     area, rated coefficient and overpressure likewise (proposal pressure-relief-valve.md
-    decision 19, ``_relief_bound_issues``)."""
+    decision 19, ``_relief_bound_issues``), and a reservoir's surface pressure and a reference
+    node's pressure (BOUNDARY_HEAD_OUT_OF_RANGE, ``_boundary_bound_issues``)."""
     issues: list[TopologyIssue] = []
     for var in variables:
         element = _element_of(var.request)
@@ -2165,10 +2218,14 @@ def _check_bounds(
                         issues.append(_issue(str(error["type"]), message, element))
                 continue
             request = var.request
-            if isinstance(request, ComponentVariable) and request.field in ORIFICE_FIELDS:
+            if not isinstance(request, ComponentVariable):
+                continue
+            if request.field in ORIFICE_FIELDS:
                 issues.extend(_orifice_bound_issues(trial, fluid, var, side))
-            elif isinstance(request, ComponentVariable) and request.field in RELIEF_FIELDS:
+            elif request.field in RELIEF_FIELDS:
                 issues.extend(_relief_bound_issues(trial, fluid, var, side, variables))
+            elif (what := _boundary_field(trial, request)) is not None:
+                issues.extend(_boundary_bound_issues(trial, fluid, var, side, what))
     if issues:
         raise GoalSeekInputError(issues)
 

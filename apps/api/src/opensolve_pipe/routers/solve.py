@@ -62,7 +62,9 @@ async def system_curve_endpoint(request: SystemCurveRequest, http: Request) -> S
     base project or one of its scenarios (scenarioId).
 
     At each flow the pump is replaced by that fixed flow and the network solved; other pumps
-    keep running. Default range: 0 to 1.2 x the curve's largest flow x the pump's speed.
+    keep running. Default range: 0 to 1.2 x the curve's largest flow x the pump's speed. Then
+    the limit points, where the range beyond the flow limit or below its floor begins, each
+    solved alone from the network's initial state (limitPoints).
     Unknown scenario id, then invalid scenario values (400), then an unknown pump id: 404
     NOT_FOUND; topology and fluid errors as for /solve."""
     # PumpNotFoundError, FlowRangeError, TopologyError, FluidError and the scenario errors are
@@ -96,6 +98,7 @@ async def system_curve_endpoint(request: SystemCurveRequest, http: Request) -> S
         flow_range=RangeInfo(min=curve.flow_min, max=curve.flow_max, unit="m³/s"),
         points=[_point(p) for p in curve.points],
         converged=[p.converged for p in curve.points],
+        limit_points=[_point(p) for p in curve.limit_points],
         scenario=scenario,
     )
 

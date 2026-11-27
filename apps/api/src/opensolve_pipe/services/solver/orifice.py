@@ -43,11 +43,18 @@ c_high, through dK/dC; ``refusal``). c_high need not be reached (r_max can be 1,
 a moved C's law takes: D 1 m, bore 0.5 m, corner or flange taps), so a plate the rule accepts
 can still have K past the bound at some flows or at every flow, and its slope can overflow in
 dK/dC above Re_lo while K is within the bound; where an iterate reaches such a flow, the
-divergence message names the plate (D7). Rule (d)'s first test, K/(2 g A²) at c_low, is taken
-at a closed-form bound the law need not reach either, so it can refuse a plate whose law gives a
-finite K/(2 g A²) (``refusal``).
+divergence message names the plate (D7). Rule (d)'s first test refuses a plate whose K/(2 g A²)
+is not a finite positive double at the least C_L its law takes at any flow, or at c_high, up to
+the rounding of eq. (4) (``least_coefficient``: an entered C used as entered; a moved C times
+the least ratio of the two tap sets' C over [Re_lo, ∞), found at either end or at a root of a
+sparse polynomial in Re^(−1/10), ``least_ratio``; ISO's C at infinite Re). It is taken first at
+c_low, a closed-form bound below that C, as it was to 1.6.1, so every plate that passed then
+still passes, and it is retaken at the least C only where that fails (``refusal``). It still
+refuses a plate whose flows never reach that C, as decision 17 means it to (finite at every
+flow, whatever the fluid).
 """
 
+import itertools
 import math
 from dataclasses import dataclass
 from typing import Literal
@@ -490,16 +497,20 @@ class Refusal:
 
     rule: Rule
     """beta: β ≥ 1; iso_coefficient: eq. (4) can exceed 1 (at ``where``); moved_coefficient: an
-    entered C moved from corner or flange taps can exceed 1; coefficient: K/(2 g A²) at c_low,
-    the smallest bound of C_L, is not a finite positive double (or computing it raises); slope:
+    entered C moved from corner or flange taps can exceed 1; coefficient: K/(2 g A²) at the least
+    C_L the law takes at any flow (``least_coefficient``), or at c_high, is not a finite positive
+    double (or computing it raises), so the plate can be refused though the flows of a solve
+    never reach that C (decision 17: finite at every flow, whatever the fluid); slope:
     it is, but K at c_high, an upper bound of every C the law takes (so a lower bound of every K
     it takes), is above ``coefficients.SLOPE_COEFFICIENT_MAX``, so the law's slope, which forms
     2.0 · K, is not a finite number at any flow but zero; fluid: the case's fluid leaves the
     plate's Reynolds number unrepresentable (``fluid_refusal``, ``fluid``)."""
     beta: float
     coefficient: float | None = None
-    """The C bound broken: the largest C (iso_coefficient, moved_coefficient), c_high (slope) or
-    c_low, the smallest bound of C_L (coefficient)."""
+    """The C bound broken: the largest C (iso_coefficient, moved_coefficient), c_high (slope) or,
+    for coefficient, the least C_L the law takes at any flow (``least_coefficient``), or c_low,
+    the closed-form bound below it, where that least cannot be computed (None where eq. (4)'s
+    bounds raise)."""
     where: str | None = None
     """iso_coefficient: the tap set where eq. (4) can exceed 1; fluid (iso_at_meter_re_lo): the
     plate's taps, where ISO's C_M cannot be evaluated."""
@@ -551,10 +562,171 @@ def ratio_range(d_pipe: float, d_bore: float, taps: str, re_from: float) -> tupl
     return 1.0 + min(low, top, 0.0) / c_taps_min, 1.0 + max(low, top, 0.0) / c_taps_min
 
 
+def rhg_powers(d_pipe: float, d_bore: float) -> tuple[float, float, float, float]:
+    """(s1, s2, s3, τ): eq. (4) as a polynomial in x = Re^(−1/10), with ``rhg_terms_at``'s
+    constants (decision 17 (d), ``least_ratio``). Its slope terms are 0.000521 (10⁶ β/Re)^0.7 =
+    s1 x⁷ and (0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 = s2 x³ + s3 x¹¹, and its upstream term is
+    U q (1 − 0.11 A) = U q − U q τ x⁸, A = (19000 β/Re)^0.8 = (τ/0.11) x⁸, U q that term at
+    infinite Re. So at every tap set C(x) = G + s2 x³ + s1 x⁷ − U q τ x⁸ + s3 x¹¹, G and U q
+    its C and upstream term at infinite Re (``rhg_terms`` at ``math.inf``); s1, s2, s3 and τ
+    are the same at every tap set. If ``rhg_terms_at``'s constants change, these must too
+    (test_orifice_least_c.py compares the two)."""
+    beta = d_bore / d_pipe
+    a8 = 2648.5177066967326 * beta**0.8  # (19000 β)^0.8, A = a8 x⁸
+    beta35 = beta * beta * beta * math.sqrt(beta)
+    s1 = 0.000521 * (1e6 * beta) ** 0.7
+    s2 = 0.0188 * beta35 * 63.095734448019314  # (10⁶)^0.3
+    s3 = 0.0063 * a8 * beta35 * 63.095734448019314
+    return s1, s2, s3, 0.11 * a8
+
+
+Polynomial = list[tuple[int, float]]
+"""Σ c xᵉ as (e, c) pairs, integer exponents ascending (``positive_roots`` sorts its own)."""
+
+
+def _reduced_derivative(terms: Polynomial) -> Polynomial:
+    """The derivative of x^(−e₀) p(x), e₀ p's least exponent: a polynomial of one term fewer,
+    whose roots on x > 0 separate those of p (Rolle's theorem; ``positive_roots``)."""
+    e0 = terms[0][0]
+    return [(e - e0 - 1, (e - e0) * c) for e, c in terms[1:]]
+
+
+def positive_roots(terms: Polynomial, lo: float, hi: float) -> list[float]:
+    """Every x in (lo, hi), 0 ≤ lo < hi, where p(x) = Σ c xᵉ changes sign, ascending, each the
+    end of a bisection to adjacent doubles, and each separator (below) at which p is exactly 0,
+    whether p crosses 0 there or only touches it. On x > 0, x^(−e₀) p(x) has the roots of p, and
+    between consecutive separators, the roots of its derivative (``_reduced_derivative``, a
+    polynomial of one term fewer, so the recursion ends), it is monotone: it has at most one
+    root there, where its sign changes (Rolle's theorem)."""
+    terms = sorted((e, c) for e, c in terms if c != 0.0)
+    if len(terms) < 2:
+        return []
+    e0 = terms[0][0]
+
+    def p(x: float) -> float:
+        return math.fsum(c * x ** (e - e0) for e, c in terms)
+
+    separators = positive_roots(_reduced_derivative(terms), lo, hi)
+    roots: list[float] = []
+    for a, b in itertools.pairwise([lo, *separators, hi]):
+        pa, pb = p(a), p(b)
+        if pb == 0.0 and b < hi:
+            roots.append(b)
+        if pa == 0.0 or pb == 0.0 or (pa < 0.0) == (pb < 0.0):
+            continue
+        while (m := 0.5 * (a + b)) != a and m != b:
+            pm = p(m)
+            if pm == 0.0:
+                a = b = m
+            elif (pm < 0.0) == (pa < 0.0):
+                a, pa = m, pm
+            else:
+                b = m
+        roots.append(0.5 * (a + b))
+    return roots
+
+
+def least_ratio(d_pipe: float, d_bore: float, taps: str, re_from: float) -> float:
+    """The least r = C_ISO(D and D/2)/C_ISO(taps) over Re ∈ [re_from, ∞) (decision 17 (d)): a
+    moved entered C's law takes C_e r at every flow, held at r(Re_lo) below Re_lo (decision 13),
+    so C_e times this is the least C_L it takes. r is least at re_from, at infinite Re (G_dd/G_t,
+    which eq. (4) reaches to the last bit at a large finite Re) or where dr/dx = 0, x =
+    Re^(−1/10). With ``rhg_powers``' polynomials, dr/dx = x² M(x)/C_t(x)²,
+
+        M(x) = −3 s2 ΔG − 7 s1 ΔG x⁴ − 8 κ x⁵ − (11 s3 ΔG + 5 τ ΔU s2) x⁸ − τ ΔU s1 x¹²
+               + 3 τ ΔU s3 x¹⁶,
+
+    ΔG = G_dd − G_t (``tap_difference`` at infinite Re), ΔU = U q_dd − U q_t, κ = τ (U q_dd G_t −
+    U q_t G_dd) = τ (G_dd ΔU − U q_dd ΔG): its roots in (0, re_from^(−1/10)) are
+    ``positive_roots``'. Between two roots of M lies one of the Rolle chain's first separators
+    (the roots of M's ``_reduced_derivative``), so r is taken there too: should rounding hide a
+    close pair of M's roots, r at their separator is within rounding of the least between them,
+    and every r taken is one the law takes, so it can only lower the least to a value attained.
+    The least can lie inside the range (flange taps on pipes of about 10 to 25 mm, β about 0.2
+    to 0.6, up to 3·10⁻⁷ below both ends), so neither end alone gives it. Every r is the
+    transcription's (``rhg_terms``), so this does not depend on the fluid; one that is not a
+    finite positive number raises ValueError."""
+    dd = rhg_terms(d_pipe, d_bore, math.inf, LOSS_TAPS)
+    tp = rhg_terms(d_pipe, d_bore, math.inf, taps)
+    s1, s2, s3, tau = rhg_powers(d_pipe, d_bore)
+    dg = tap_difference(d_pipe, d_bore, taps, math.inf)
+    du = dd.upstream - tp.upstream
+    kappa = tau * (dd.total * du - dd.upstream * dg)
+    m: Polynomial = [
+        (0, -3.0 * s2 * dg),
+        (4, -7.0 * s1 * dg),
+        (5, -8.0 * kappa),
+        (8, -(11.0 * s3 * dg + 5.0 * tau * du * s2)),
+        (12, -tau * du * s1),
+        (16, 3.0 * tau * du * s3),
+    ]
+
+    def ratio(re: float) -> float:
+        return (
+            rhg_terms(d_pipe, d_bore, re, LOSS_TAPS).total
+            / rhg_terms(d_pipe, d_bore, re, taps).total
+        )
+
+    def at(x: float) -> float:
+        """r at x = Re^(−1/10), Re clamped to re_from (x within rounding of its end) and taken
+        as infinite where x^(−10) overflows."""
+        try:
+            re = x**-10.0 if x > 0.0 else math.inf
+        except OverflowError:
+            re = math.inf
+        return ratio(max(re, re_from))
+
+    x_end = re_from**-0.1
+    found = positive_roots(m, 0.0, x_end)
+    nonzero = [(e, c) for e, c in m if c != 0.0]
+    if len(nonzero) >= 2:
+        found += positive_roots(_reduced_derivative(nonzero), 0.0, x_end)
+    ratios = [dd.total / tp.total, ratio(re_from), *(at(x) for x in found)]
+    if not all(math.isfinite(r) and r > 0.0 for r in ratios):
+        raise ValueError("the ratio of eq. (4)'s two tap sets is not a finite positive number")
+    return min(ratios)
+
+
+def least_coefficient(
+    d_pipe: float, d_bore: float, entered: float | None, taps: OrificeTaps | None
+) -> float:
+    """The least C_L the plate's law takes at any flow (decision 17 (d), ``refusal``): an entered
+    C used as entered (without taps, or at D and D/2 taps), C_e; a C entered at corner or flange
+    taps, moved, C_e times ``least_ratio``; ISO's C, eq. (4) at D and D/2 tappings at infinite
+    Re. For ISO's C, C(Re) ≥ C(∞) at Re ≥ Re_lo (and below it C is held at C(Re_lo)): C(Re) −
+    C(∞) is the slope terms less 0.11 A U q (U q the upstream term at infinite Re), at least A
+    ((S1 + S2a)/A − 0.11 U q), with S1 = 0.000521 (10⁶ β/Re)^0.7 and S2a = 0.0188 β^3.5
+    (10⁶/Re)^0.3, whose quotients by A = (19000 β/Re)^0.8, S1/A = 0.0031177 β^(−0.1) Re^0.1 and
+    S2a/A = 0.00044787 β^2.7 Re^0.5, rise with Re, so Re_lo suffices. For β < 0.56, Re_lo ≥ 5000
+    and S1/A ≥ 0.0031177·5000^0.1 ≥ 0.00730, against 0.11 U q = 0.0047181 β⁴/(1 − β⁴) ≤
+    0.000515. For 0.56 ≤ β ≤ 0.9785, Re_lo = 16000 β² and S2a/A ≥ 0.05665 β^3.7, at least
+    0.0047181 β⁴/(1 − β⁴): 0.05665 (1 − β⁴) falls and 0.0047181 β^0.3 rises with β, and at β
+    0.9785 the first is 0.004717 and the second 0.004687. Each constant is rounded toward the
+    inequality's safe side (0.0073069, 0.056652, 0.00471806 and 0.0005146 unrounded). Rule (b)
+    refuses ISO's C at every β above about 0.9706, below 0.9785 (test_orifice_least_c.py)."""
+    if entered is not None and taps not in ("corner", "flange"):
+        return entered
+    if entered is None:
+        return rhg_terms(d_pipe, d_bore, math.inf, LOSS_TAPS).total
+    assert taps is not None
+    beta = d_bore / d_pipe
+    return entered * least_ratio(d_pipe, d_bore, taps, re_lo(beta, d_pipe, LOSS_TAPS))
+
+
 def loss_factor(d_pipe: float, d_bore: float, c: float, g: float) -> float:
     """K(C)/(2 g A²), s²/m⁵: h = this × Q|Q|."""
     area = 0.25 * math.pi * d_pipe * d_pipe
     return k_of_c(d_pipe, d_bore, c) / (2.0 * g * area * area)
+
+
+def _factors_finite(d_pipe: float, d_bore: float, c_low: float, c_high: float, g: float) -> bool:
+    """Rule (d)'s first test (``refusal``): c_low is positive and K/(2 g A²) is a finite positive
+    double at c_low and at c_high, without raising."""
+    try:
+        ends = [loss_factor(d_pipe, d_bore, c, g) for c in (c_low, c_high)] if c_low > 0.0 else []
+    except (ZeroDivisionError, OverflowError, ValueError):
+        ends = []
+    return len(ends) == 2 and all(math.isfinite(x) and x > 0.0 for x in ends)
 
 
 def refusal(
@@ -596,16 +768,22 @@ def refusal(
             c_low, c_high = c_range(d_pipe, d_bore, LOSS_TAPS, loss_re_lo)
     except (ZeroDivisionError, OverflowError, ValueError):
         return Refusal("coefficient", beta)
-    # (d): K decreases in C, so h's coefficient is largest at the smallest C_L; both ends finite
-    # and positive bound every flow's. c_low is a closed-form bound the law need not reach
-    # (entered × r_min can lie below every C a moved C's law takes), so this test can refuse a
-    # plate whose law gives a finite K/(2 g A²) (recorded, unchanged since 1.4.0: TSD §4.10).
-    try:
-        ends = [loss_factor(d_pipe, d_bore, c, g) for c in (c_low, c_high)] if c_low > 0.0 else []
-    except (ZeroDivisionError, OverflowError, ValueError):
-        ends = []
-    if len(ends) != 2 or not all(math.isfinite(x) and x > 0.0 for x in ends):
-        return Refusal("coefficient", beta, c_low)
+    # (d): K decreases in C, so h's coefficient is largest at the least C_L the law takes; finite
+    # and positive there and at c_high, it is at every flow. The test is taken first at c_low, a
+    # closed-form bound at or below every C the law takes (entered × r_min can lie below them
+    # all), as it was to 1.6.1, so it passes every plate it passed then; only where that fails
+    # is it retaken at the least C_L the law takes at any flow (``least_coefficient``), up to the
+    # rounding of eq. (4), and a refusal quotes that C. Where the least C cannot be computed, the
+    # refusal at c_low stands. It still refuses a plate whose flows never reach that C (decision
+    # 17: finite at every flow, whatever the fluid): an entered C at corner taps whose least
+    # ratio is at infinite Re, in a liquid viscous enough to hold C_L at every flow of its solve.
+    if not _factors_finite(d_pipe, d_bore, c_low, c_high, g):
+        try:
+            least = least_coefficient(d_pipe, d_bore, entered, taps)
+        except (ZeroDivisionError, OverflowError, ValueError):
+            return Refusal("coefficient", beta, c_low)
+        if not _factors_finite(d_pipe, d_bore, least, c_high, g):
+            return Refusal("coefficient", beta, least)
     # (d), the slope: OrificeLaw.evaluate forms 2.0 · K before 1/(2 g A²). Every C the law takes
     # is at most c_high (held below Re_lo, and the move's r at most r_max) up to the rounding of
     # eq. (4), so K at c_high is at most every K it takes (c_high need not be reached): past half

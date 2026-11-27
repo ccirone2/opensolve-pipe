@@ -222,7 +222,7 @@ describe('beyond the limit', () => {
 });
 
 describe('below the floor', () => {
-	it('what only the pump can feed: the least it must pass', () => {
+	it('what only the pump can feed: the flow it must pass at least', () => {
 		const point = systemCurvePoint({
 			flow: 0.006,
 			reason: 'below_floor',

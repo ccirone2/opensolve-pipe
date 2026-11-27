@@ -919,6 +919,7 @@ describe('system curves (D10: on demand, per solve)', () => {
 			flowRange: { min: 0, max: 0.01, unit: 'm³/s' },
 			points: [systemCurvePoint({ flow: 0, head, converged: true })],
 			converged: [true],
+			limitPoints: [],
 			scenario: null
 		};
 	}

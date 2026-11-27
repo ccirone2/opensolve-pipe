@@ -16,7 +16,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ValidationError } from '$lib/api/client';
+import { NetworkError, ValidationError } from '$lib/api/client';
 import type { Project, PumpGroupCurveResponse, Scenario, SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
@@ -2406,4 +2406,169 @@ describe('case numbers on both charts (nit 5, slice 5b)', () => {
 		// The group chart's "Other cases' group curves" row-group headers: PumpGroupChart.svelte.test.ts
 		// (the lineups' curve family, its table opened).
 	}, 30_000);
+});
+
+describe('a base solve with the focus in Add cases (proposals/open-defects-2.md F3)', () => {
+	it('keeps the block and both methods withdrawn until the group system curve answers, then gives them and the focus back as left', async () => {
+		let answer: (() => void) | undefined;
+		const { ws, calls } = setup(withoutScenarios(), {
+			// The second solve's group system curve, answered when the test says.
+			hold: (call) => {
+				if (call.curve !== 'system' || calls.filter((c) => c.curve === 'system').length < 2) {
+					return undefined;
+				}
+				const held = deferred<void>();
+				answer = held.resolve;
+				return held.promise;
+			}
+		});
+		await openCard(ws, calls);
+		await waitFor(() =>
+			expect(within(card()).getByRole('img')).toHaveAccessibleName(/group system curve shown/)
+		);
+		const methods = () =>
+			[...card().querySelectorAll<HTMLDetailsElement>('[data-card-section$="-methods"]')].map(
+				(d) => d.open
+			);
+		for (const d of card().querySelectorAll<HTMLDetailsElement>('[data-card-section$="-methods"]'))
+			await fireEvent.click(d.querySelector(':scope > summary')!);
+		expect(methods()).toEqual([true, true]);
+		await fireEvent.click(block().querySelector('[data-stop-order] > summary')!);
+		// Each disclosure's toggle event, a task of its own, lands before the user's next key.
+		await new Promise((r) => setTimeout(r, 0));
+		const later = () => within(block()).getByRole('button', { name: 'Stop Pump PB later' });
+		later().focus();
+
+		// Ctrl+Enter from the button: the base solved again, its group curve and then its group
+		// system curve asked for; the block and the methods withdrawn meanwhile, the figure holding
+		// the focus.
+		await fireEvent.keyDown(later(), { key: 'Enter', ctrlKey: true });
+		await waitFor(() => expect(calls.filter((c) => c.curve === 'system')).toHaveLength(2));
+		const figure = within(card()).getByRole('figure');
+		expect(within(card()).queryByRole('region', { name: 'Add cases' })).toBeNull();
+		expect(methods()).toEqual([]);
+		expect(figure).toHaveFocus();
+
+		// Its answer: all back in one flush, as the user left them, the focus on the same button.
+		answer!();
+		await waitFor(() => expect(later()).toHaveFocus());
+		expect(block().querySelector<HTMLDetailsElement>('[data-stop-order]')!.open).toBe(true);
+		expect(methods()).toEqual([true, true]);
+	});
+});
+
+// The review of open defects round two, WS-1: a case switch onto curves the store holds, the group
+// system curve among them failed, takes a section's answer away with nothing to wait for; the
+// withdrawal is over in that flush, so the curve's Try again, which waits with no loss, withdraws
+// nothing (on d101793 Add cases and the group curve's methods vanished while it loaded).
+describe('a failed group system curve tried again after a case switch (the review of open defects round two, WS-1)', () => {
+	it('keeps Add cases and the group curve’s methods while the retry loads', async () => {
+		let retry: (() => void) | undefined;
+		const s3System = (calls: Call[]) =>
+			calls.filter((c) => c.scenarioId === 'S3' && c.curve === 'system');
+		const { ws, calls } = setup(structuredClone(oneOff.project), {
+			// S3's first group system curve fails as a server's 500 does (made-up words); its
+			// second, the Try again, is answered when the test says.
+			fail: (call) =>
+				call.scenarioId === 'S3' && call.curve === 'system' && s3System(calls).length === 1
+					? new NetworkError('The calculation server failed to answer.', 500)
+					: undefined,
+			hold: (call) => {
+				if (call.scenarioId !== 'S3' || call.curve !== 'system' || s3System(calls).length < 2) {
+					return undefined;
+				}
+				const held = deferred<void>();
+				retry = held.resolve;
+				return held.promise;
+			}
+		});
+		await openCard(ws, calls);
+		await waitFor(() =>
+			expect(within(card()).getByRole('img')).toHaveAccessibleName(/group system curve shown/)
+		);
+		const methods = () =>
+			[...card().querySelectorAll<HTMLElement>('[data-card-section$="-methods"]')].map(
+				(d) => d.dataset.cardSection
+			);
+		expect(methods()).toEqual(['group-methods', 'system-methods']);
+
+		// S3 shown and solved: its group curve answers, its group system curve fails.
+		ws.setCase('S3');
+		await ws.solve();
+		const again = await within(card()).findByRole('button', {
+			name: 'Try the group system curve again'
+		});
+		expect(again).toBeVisible();
+		expect(block()).toBeVisible();
+		expect(methods()).toEqual(['group-methods']);
+		// The base, then S3 again: each case's curves from the store, none asked again.
+		ws.setCase(null);
+		await waitFor(() => expect(methods()).toEqual(['group-methods', 'system-methods']));
+		ws.setCase('S3');
+		await waitFor(() => expect(methods()).toEqual(['group-methods']));
+		expect(block()).toBeVisible();
+		expect(s3System(calls)).toHaveLength(1);
+
+		// Try again: the retry held; Add cases and the group curve's methods stay while it loads.
+		await fireEvent.click(
+			within(card()).getByRole('button', { name: 'Try the group system curve again' })
+		);
+		await waitFor(() => expect(s3System(calls)).toHaveLength(2));
+		expect(ws.store.groupSystemCurve(ws.store.results.response, ['PA', 'PB'])).toEqual({
+			status: 'loading'
+		});
+		expect(within(card()).getByRole('region', { name: 'Add cases' })).toBeVisible();
+		expect(methods()).toEqual(['group-methods']);
+
+		// Its answer: the group system curve's methods with the others.
+		retry!();
+		await waitFor(() => expect(methods()).toEqual(['group-methods', 'system-methods']));
+		expect(block()).toBeVisible();
+	}, 20_000);
+});
+
+// proposals/open-defects-2.md F3, the failed-solve path: the results out of date, a solve that fails
+// hides them behind "Show the earlier results" (ResultsPanel's previousHidden), which unmounts the
+// whole Pumps view, the card with it, so the card's own handover never runs; the focus fell to the
+// page (reproduced 8 of 8 in Chromium, on 63184ca and 8535900).
+describe('a failed solve of the edited project with the focus in Add cases (open-defects-2.md F3, the failed-solve path)', () => {
+	it('gives the focus to “Show the earlier results”, never the page, and that button’s press to the Pumps tab', async () => {
+		let solved = 0;
+		const { ws, calls } = setup(withoutScenarios(), {
+			// The first solve the fixture's; the next fails as a server's 500 does (made-up words).
+			solve: async () => {
+				if (++solved > 1) throw new NetworkError('The calculation server failed to answer.', 500);
+				return structuredClone(oneOff.solve);
+			}
+		});
+		await openCard(ws, calls);
+		await waitFor(() =>
+			expect(within(card()).getByRole('img')).toHaveAccessibleName(/group system curve shown/)
+		);
+		// Reservoir R2's level edited: the results shown are out of date.
+		ws.store.update((p) => {
+			const r2 = p.components.find((c) => c.id === 'R2');
+			if (r2?.type !== 'reservoir') throw new Error('no Reservoir R2');
+			r2.liquidLevel = 2.5;
+		}, 'change R2 level');
+		await waitFor(() => expect(ws.store.results.stale).toBe(true));
+		const table = within(block()).getByRole('button', { name: 'Pump lineups table…' });
+		table.focus();
+		expect(table).toHaveFocus();
+
+		await fireEvent.keyDown(table, { key: 'Enter', ctrlKey: true });
+		const earlier = await results().findByRole('button', { name: 'Show the earlier results' });
+		await waitFor(() => expect(ws.store.calculating).toBeNull());
+		expect(solved).toBe(2);
+		expect(results().queryByRole('region', { name: /^Pumps together/ })).toBeNull();
+		expect(table.isConnected).toBe(false);
+		await waitFor(() => expect(earlier).toHaveFocus());
+
+		// Its press: the earlier results back, the focus on the Pumps tab, the view the user was in.
+		await fireEvent.click(earlier);
+		const pumps = results().getByRole('tab', { name: 'Pumps' });
+		await waitFor(() => expect(pumps).toHaveFocus());
+		expect(pumps).toHaveAttribute('aria-selected', 'true');
+		expect(earlier.isConnected).toBe(false);
+	});
 });

@@ -252,7 +252,9 @@ export interface paths {
          *     base project or one of its scenarios (scenarioId).
          *
          *     At each flow the pump is replaced by that fixed flow and the network solved; other pumps
-         *     keep running. Default range: 0 to 1.2 x the curve's largest flow x the pump's speed.
+         *     keep running. Default range: 0 to 1.2 x the curve's largest flow x the pump's speed. Then
+         *     the limit points, where the range beyond the flow limit or below its floor begins, each
+         *     solved alone from the network's initial state (limitPoints).
          *     Unknown scenario id, then invalid scenario values (400), then an unknown pump id: 404
          *     NOT_FOUND; topology and fluid errors as for /solve.
          */
@@ -3121,12 +3123,12 @@ export interface components {
         PumpGroupSystemDutyCheck: {
             /**
              * Agrees
-             * @description The group system curve at the duty's flow gives the duty's rise, within 0.5 % or 0.01 m, whichever is looser (CLAUDE.md D6)
+             * @description The group system curve at the duty's flow gives the duty's rise, within 0.5 % or 0.01 m, whichever is looser (CLAUDE.md D6); or it is vertical there: its point has no rise because a control valve sits at its switch (reason valve_at_switch, with a finite openHead and an openHeadBound), so every rise on the bound's side of openHead holds at that flow, and the duty's rise lies on that side within the same allowance (head is then null)
              */
             agrees: boolean;
             /**
              * Head
-             * @description m: the group system curve's rise at the duty's flow (null: no rise there)
+             * @description m: the group system curve's rise at the duty's flow (null: no rise there, or the rise undetermined on its vertical part)
              */
             head: number | null;
             /**
@@ -3983,7 +3985,7 @@ export interface components {
             head: number | null;
             /**
              * Limitflow
-             * @description m³/s. beyond_limit: the most the pump can pass (negative: the reverse flow it would have to pass is -limitFlow); below_floor: the least it must pass; null otherwise
+             * @description m³/s. beyond_limit: the flow limit, above which no steady state carries the forced flow, the pump passing at most this across the cut the message names (negative: the reverse flow it would have to pass is -limitFlow); below_floor: the floor, below which none does, the pump passing at least this across that cut; null otherwise
              */
             limitFlow: number | null;
             /**
@@ -4065,6 +4067,11 @@ export interface components {
             converged: boolean[];
             /** @description m³/s, the flows the points span */
             flowRange: components["schemas"]["RangeInfo"];
+            /**
+             * Limitpoints
+             * @description The points at the flows where the curve's range beyond its limit, or below its floor, begins (docs/proposals/open-defects-2.md §3 C3), in flow order: the flow limit, above which no steady state carries the forced flow (every way from the pump's discharge back to its suction passes a cut of FCVs at their setpoints and one-way elements against the flow, with the assigned flows; the beyond_limit points' limitFlow), and its floor, below which none does, where assigned flows set one (the below_floor points' limitFlow), each where it is positive and finite, lies inside (flowMin, flowMax] and inside the window between the floor and the limit, and is no requested flow (to within the status rules' and the solver's tolerances, where a point of points already stands for it); a floor equal to the limit to within those tolerances is one point, at the limit's flow. There an FCV across the cut often sits at its switch (valve_at_switch): the curve is vertical at that flow, from openHead. Each is a bound from one cut, not always reached: where the cut is not the least, no steady state carries that flow either, and the point has no head and says why. Each is solved alone after points, from the network's initial state (no warm start), so points are what they are without it; empty otherwise. Not counted in converged
+             */
+            limitPoints: components["schemas"]["SystemCurvePoint"][];
             /**
              * Points
              * @description One per requested flow, in flow order

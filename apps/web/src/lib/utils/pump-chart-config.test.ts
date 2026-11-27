@@ -8,18 +8,21 @@ import { BasicPlatform } from 'chart.js';
 import { describe, expect, it } from 'vitest';
 import { Chart } from '$lib/components/results/chart-setup';
 import { pumpResult, systemCurveResponse } from '../testing/results';
-import { otherCasesData, pumpChartData, type OtherCaseData } from './pump-chart';
+import { otherCasesData, pumpChartData, ratedCurveRange, type OtherCaseData } from './pump-chart';
 import {
 	CHART_COLORS,
 	fillLabel,
 	labelTag,
 	pumpChartConfig,
+	type ChartDatum,
 	type PointLabelsDrawn,
 	type PumpChartConfig,
 	type PumpChartConfigOptions,
-	pumpGroupConfig
+	pumpGroupConfig,
+	type SystemRayDrawn
 } from './pump-chart-config';
-import type { LegendItem } from 'chart.js';
+import type { Chart as ChartInstance, LegendItem } from 'chart.js';
+import { condenserCase, condenserCaseProject, condenserMembers } from './condenser-charts.testing';
 import { lineupView } from '../testing/curve-family';
 import {
 	GROUP_AQUA,
@@ -29,7 +32,7 @@ import {
 	type GroupChartData,
 	type GroupMemberInput
 } from './pump-group-chart';
-import { formatNumber, SI_UNITS } from './units';
+import { formatNumber, fromSI, SI_UNITS } from './units';
 
 describe('pump chart configuration', () => {
 	const legendLabels = () => [];
@@ -1656,3 +1659,221 @@ function drawnLegend(
 		chart.destroy();
 	}
 }
+
+// docs/proposals/open-defects-2.md §2 X: the flow axis never starts below zero, with `min` unset
+// so Chart.js keeps its clip's allowance for a mark at zero flow (Chart.js 4.5.1, laid out here).
+describe('the flow axis from zero flow (open-defects-2.md X)', () => {
+	const legendLabels = () => [];
+	const format = (v: number) => formatNumber(v, 4);
+
+	it('starts the pump chart at 0 with a datum at −10⁻⁹ L/s, where Chart.js took a tick below', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], systemCurveResponse());
+		// Synthetic: the system curve's first point at round-off below zero flow.
+		data.system![0] = { ...data.system![0]!, x: -1e-9 };
+		const config = pumpChartConfig(data, [], { speedText: '100 % speed', legendLabels, format });
+		expect(config.options!.scales!.x!.min).toBeUndefined();
+		const chart = laidOut(config, 800, 500);
+		try {
+			expect(chart.scales.x!.min).toBe(0);
+			expect(chart.scales.x!.ticks[0]!.value).toBe(0);
+		} finally {
+			chart.destroy();
+		}
+	});
+
+	it('keeps the allowance for a mark at zero flow on the pump chart, which a set min would take', () => {
+		// The held pump's diamond and the operating point carry no clip of their own: with `min: 0`
+		// Chart.js allows them nothing beyond the left edge, and the diamond at zero flow is halved.
+		const data = pumpChartData(
+			pumpResult({ status: 'no_flow', operatingFlow: 0, operatingHead: 31 }),
+			SI_UNITS,
+			[0, 0.03],
+			systemCurveResponse()
+		);
+		const config = pumpChartConfig(data, [], { speedText: '100 % speed', legendLabels, format });
+		const held = config.data.datasets.findIndex((d) => d.label === 'Held at zero flow');
+		const set = config.data.datasets[held]! as unknown as Record<string, number>;
+		expect(set.clip).toBeUndefined();
+		const clipLeft = (cfg: PumpChartConfig) => {
+			const chart = laidOut(cfg, 800, 500);
+			try {
+				expect(chart.getDatasetMeta(held).data[0]!.x).toBeCloseTo(chart.chartArea.left, 6);
+				return (chart.getDatasetMeta(held) as unknown as { _clip: { left: number } })._clip.left;
+			} finally {
+				chart.destroy();
+			}
+		};
+		// Chart.js's allowance for a point: its radius (hovered, its hover radius) and its border.
+		const allowance = Math.max(set.pointRadius!, set.pointHoverRadius!) + set.borderWidth!;
+		expect(clipLeft(config)).toBe(allowance);
+		const scales = config.options!.scales!;
+		const withMin = {
+			...config,
+			options: { ...config.options, scales: { ...scales, x: { ...scales.x!, min: 0 } } }
+		} as PumpChartConfig;
+		expect(clipLeft(withMin)).toBe(0);
+	});
+
+	it('starts the group chart at 0 with the photo-like project’s shutoff point at −6.08·10⁻¹² L/s', () => {
+		const c = condenserCase('basin15');
+		const prefs = condenserCaseProject('basin15').settings.units;
+		const shutoff = c.groupCurve!.points.reduce((a, b) => ((b.flow ?? 1) < (a.flow ?? 1) ? b : a));
+		expect(shutoff.flow).toBe(-6.077682791319427e-15);
+		const data = groupChartData(condenserMembers('basin15'), prefs, c.groupCurve!, c.systemCurve!);
+		const config = pumpGroupConfig(data, { legendLabels, format });
+		expect(config.options!.scales!.x!.min).toBeUndefined();
+		const chart = laidOut(config, 390, 400);
+		try {
+			expect(chart.scales.x!.min).toBe(0);
+			expect(chart.scales.x!.ticks[0]!.value).toBe(0);
+		} finally {
+			chart.destroy();
+		}
+	});
+});
+
+// docs/proposals/open-defects-2.md §2 C1: the vertical parts drawn by Chart.js itself, through a
+// recording context, on the one-pump condenser case's recorded answers.
+describe('the system curve’s vertical part on the canvas (open-defects-2.md C1)', () => {
+	const legendLabels = () => [];
+	const format = (v: number) => formatNumber(v, 4);
+	const single = () => {
+		const c = condenserCase('single24');
+		const project = condenserCaseProject('single24');
+		return {
+			c,
+			data: pumpChartData(
+				c.pumpResults!.P1!,
+				project.settings.units,
+				ratedCurveRange(project, 'P1'),
+				c.pumpSystemCurve!,
+				{ project }
+			)
+		};
+	};
+	/** `config` drawn by Chart.js, its strokes recorded: each path's points, colour and dashes. */
+	const drawn = (config: PumpChartConfig) => {
+		const strokes: { points: [number, number][]; color: unknown; dash: number[] }[] = [];
+		let path: [number, number][] = [];
+		let dash: number[] = [];
+		const state: Record<string, unknown> = {};
+		const ctx: Record<string | symbol, unknown> = new Proxy(state, {
+			get(target, prop) {
+				if (prop in target) return target[prop as string];
+				if (prop === 'measureText') return (text: string) => ({ width: String(text).length * 6 });
+				if (prop === 'setLineDash') return (d: number[]) => (dash = [...d]);
+				if (prop === 'getLineDash') return () => [...dash];
+				if (prop === 'beginPath') return () => (path = []);
+				if (prop === 'moveTo' || prop === 'lineTo')
+					return (x: number, y: number) => path.push([x, y]);
+				if (prop === 'stroke')
+					return () => strokes.push({ points: path, color: target.strokeStyle, dash: [...dash] });
+				return () => undefined;
+			},
+			set(target, prop, value) {
+				target[prop as string] = value;
+				return true;
+			}
+		});
+		const canvas = { width: 800, height: 600, style: {}, getContext: () => ctx };
+		ctx.canvas = canvas;
+		const chart = new Chart(
+			canvas as never,
+			{ ...config, platform: BasicPlatform } as never
+		) as unknown as ChartInstance;
+		return { chart, strokes };
+	};
+
+	it('draws the ray from its foot to the top of the head axis, never into the panels below', () => {
+		const { data } = single();
+		expect(data.systemRays).toHaveLength(1);
+		const told: SystemRayDrawn[][] = [];
+		for (const bound of ['lower', 'upper'] as const) {
+			// Synthetic for 'upper': the recorded ray turned down (the floor case, a valve beside the
+			// pump feeding an assigned flow), to draw its other side.
+			const d = structuredClone(data);
+			d.systemRays = d.systemRays.map((r) => ({ ...r, bound }));
+			told.length = 0;
+			const config = pumpChartConfig(d, [], {
+				speedText: '100 % speed',
+				legendLabels,
+				format,
+				panels: ['head', 'efficiency', 'power'],
+				onrays: (r) => told.push(r)
+			});
+			const { chart, strokes } = drawn(config);
+			try {
+				const ray = d.systemRays[0]!;
+				const x = chart.scales.x!.getPixelForValue(ray.x);
+				const head = chart.scales.y!;
+				const foot = head.getPixelForValue(ray.from);
+				const end = bound === 'lower' ? head.top : head.bottom;
+				expect(told.at(-1)).toEqual([
+					{ label: 'System curve', flow: ray.x, head: ray.from, bound, x, y1: foot, y2: end }
+				]);
+				// Drawn once, in the system curve's colour, inside the head panel.
+				const stroke = strokes.filter(
+					(s) =>
+						s.points.length === 2 &&
+						s.points.every(([px]) => px === x) &&
+						s.color === CHART_COLORS.system
+				);
+				expect(stroke, bound).toEqual([
+					{
+						points: [
+							[x, foot],
+							[x, end]
+						],
+						color: CHART_COLORS.system,
+						dash: []
+					}
+				]);
+				for (const id of ['yEfficiency', 'yPower'])
+					expect(chart.scales[id]!.top, id).toBeGreaterThanOrEqual(head.bottom);
+				// Hidden by its legend entry: no ray.
+				const index = chart.data.datasets.findIndex((s) => s.label === 'System curve');
+				chart.setDatasetVisibility(index, false);
+				chart.update();
+				expect(told.at(-1)).toEqual([]);
+			} finally {
+				chart.destroy();
+			}
+		}
+	});
+
+	it('shows a system curve whose only drawn point is a vertical part’s foot, and says its range in the tooltip', () => {
+		const { c, data } = single();
+		const config = pumpChartConfig(data, [], { speedText: '100 % speed', legendLabels, format });
+		const index = config.data.datasets.findIndex((s) => s.label === 'System curve');
+		const set = config.data.datasets[index]!;
+		expect((set as unknown as { rays: unknown }).rays).toEqual(data.systemRays);
+		const label = (
+			config.options!.plugins!.tooltip as { callbacks: { label: (i: unknown) => string } }
+		).callbacks.label;
+		const at = c.pumpSystemCurve!.points.find((p) => p.reason === 'valve_at_switch')!;
+		const foot = (set.data as ChartDatum[]).find((p) => p.x === fromSI(at.flow, 'L/s'))!;
+		expect(label({ raw: foot, dataset: set, datasetIndex: index })).toBe(
+			'System curve: 953.9 L/s, head at or above 20.72 m, undetermined'
+		);
+		// Synthetic: every other point without a head, so the foot is all the line draws.
+		const only = structuredClone(c.pumpSystemCurve!);
+		for (const p of only.points)
+			if (p.reason !== 'valve_at_switch') Object.assign(p, { head: null, reason: 'not_computed' });
+		const project = condenserCaseProject('single24');
+		const footOnly = pumpChartData(
+			c.pumpResults!.P1!,
+			project.settings.units,
+			ratedCurveRange(project, 'P1'),
+			only,
+			{ project }
+		);
+		expect(footOnly.systemMissing).toBe(footOnly.system!.length);
+		expect(
+			pumpChartConfig(footOnly, [], {
+				speedText: '100 % speed',
+				legendLabels,
+				format
+			}).data.datasets.map((s) => s.label)
+		).toContain('System curve');
+	});
+});

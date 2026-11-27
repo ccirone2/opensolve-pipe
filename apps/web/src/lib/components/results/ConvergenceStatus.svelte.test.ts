@@ -2,10 +2,13 @@
  * The convergence report of a solve whose iteration diverged (CLAUDE.md D7, TSD §12 item 19): the
  * elements whose laws gave a value that is not a finite number, from the NOT_CONVERGED flag's
  * `nonFiniteLawAt`, each a link, a pipe connection named by its piping ("Tank → Pump"), then the
- * other elements the message names. The solve results are made-up test inputs shaped like the
- * API's (apps/api solver/gga.py diverged_message, solver/results.py; the messages as the real
- * solver printed them for tests/unit/test_nonfinite_laws.py, with this project's ids); the API is
- * replaced by fakes.
+ * other elements the message names. An energy balance that is not a finite number
+ * (`nonFiniteBalanceAt`) and a weight lost in rounding in the Newton step (`singularStepAt`) are
+ * listed under words of their own, never as a law (method 1.6.2). The solve results are made-up
+ * test inputs shaped like the API's (apps/api solver/gga.py diverged_message, balance_message,
+ * singular_message, solver/results.py; the messages as the real solver printed them for
+ * tests/unit/test_nonfinite_laws.py, test_boundary_head.py and test_singular_step.py, with this
+ * project's ids); the API is replaced by fakes.
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
@@ -146,5 +149,58 @@ describe('a solve whose iteration diverged', () => {
 				.map((b) => b.textContent?.trim())
 		).toEqual(['Suction tank → Transfer pump']);
 		expect(within(item).getByText('L9')).toBeInTheDocument();
+	});
+});
+
+describe('a solve whose energy balance overflowed, or whose Newton step lost a weight', () => {
+	it('lists the connection under the energy balance and the reservoir as also named', async () => {
+		const message =
+			'the iteration diverged (non-finite energy balance): not a finite number in the energy ' +
+			"balance h − (H_start − H_end) of 'L1' (an EGL of -1.79769e+308 m at its start, fixed by " +
+			"'R1', and of 0 m at its end, with a head loss of 1.7534e+304 m at a flow of 0.00239 m³/s)";
+		await solveWith(
+			diverged(message, {
+				maxContinuityResidualAt: 'P1:suction',
+				maxEnergyResidualAt: 'L1',
+				nonFiniteBalanceAt: 'L1'
+			})
+		);
+		expect(linksUnder('Not a finite number in the energy balance of:')).toEqual([
+			'Suction tank → Transfer pump'
+		]);
+		expect(linksUnder('Also named in the message:')).toEqual(['Suction tank']);
+		// Its law is finite: never under the law's words.
+		expect(results().queryByText(/^Not a finite number in the laws? of:$/)).toBeNull();
+		// The message names the reservoir that fixes the head it overflows from.
+		const report = within(results().getByRole('region', { name: 'Did not converge' }));
+		expect(report.getByText(/fixed by “Suction tank”/)).toBeInTheDocument();
+	});
+
+	it('lists the element whose weight was lost under its own words, as a link', async () => {
+		const message =
+			'the linear system could not be solved (singular matrix): in Newton iteration 1, at the ' +
+			"starting flows, the weight 1/(dh/dQ) of 'V1' (a slope of 8.46e+17 s/m² at a flow of " +
+			'0.00239 m³/s; loss coefficient K/(2 g A²) = 1.76758e+20 s²/m⁵) is lost in rounding: ' +
+			'added to the weights of the other links at its end beyond it, it leaves their sum ' +
+			'unchanged, so the network beyond it, which reaches a fixed or held head only through ' +
+			'it, has none in the Newton step';
+		const ws = await solveWith(
+			diverged(message, {
+				maxEnergyResidualAt: 'V1',
+				singularStepAt: 'V1',
+				singularStepFlow: 0.002393893602035422,
+				singularStepSlope: 8.462810398359405e17,
+				singularStepCoefficient: 1.7675828180425084e20
+			})
+		);
+		expect(linksUnder('Lost in rounding in the Newton step:')).toEqual([
+			'Discharge isolation valve'
+		]);
+		// The only element the message names: no second list repeats it, and no law's list.
+		expect(results().queryByText(/named in the message:/i)).toBeNull();
+		expect(results().queryByText(/^Not a finite number/)).toBeNull();
+		const item = results().getByText('Lost in rounding in the Newton step:').closest('li')!;
+		await fireEvent.click(within(item).getByRole('button', { name: 'Discharge isolation valve' }));
+		expect(ws.inspected).toEqual({ kind: 'component', id: 'V1' });
 	});
 });

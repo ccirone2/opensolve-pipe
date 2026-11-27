@@ -13,9 +13,10 @@ flow (``tests/unit/relief_stations.py``); and the checks must catch falsified re
 S, a wrong interior, a perturbed route loss, a reported loss that does not add up, a point's
 flow changed, a wrong arrangement, duty check and grid, a refusal that names the wrong
 elements; and for the group system curve a perturbed rise, a moved isDuty, a wrong range or
-grid, a reason beside a rise, a pump's words, a disagreement nothing explains, a one-member
-point or message changed, and an invariance point that differs. The full corpus run is the
-command-line tool."""
+grid, a reason beside a rise, a pump's words, a disagreement nothing explains, a verdict
+flipped on a vertical part beyond the checked range (whose duty point the check requests again),
+a one-member point or message changed, and an invariance point that differs. The full corpus run
+is the command-line tool."""
 
 import copy
 import dataclasses
@@ -43,6 +44,8 @@ from opensolve_pipe.services.solver.builder import BuiltNetwork, build_network
 from opensolve_pipe.services.solver.system_curve import default_flow_max
 from tests.differential.corpus import API_ROOT, items
 from tests.differential.pump_group_check import (
+    DUTY_RTOL,
+    HEAD_FLOOR,
     NUM_POINTS,
     ONE_POINTS,
     SYSTEM_POINTS,
@@ -70,6 +73,8 @@ from tests.differential.pump_group_check import (
 )
 from tests.differential.pump_group_random import check_seed
 from tests.unit import relief_stations as rs
+from tests.unit import test_system_curve_reasons as reasons
+from tests.unit.helpers import connection, project_dict, reservoir
 
 SMOKE = (
     [f"fuzz_{s}" for s in range(40)]
@@ -1177,16 +1182,123 @@ def _with_fcv() -> dict[str, Any]:
     return data
 
 
-def test_an_fcv_in_series_at_its_setpoint_explains_the_duty_check() -> None:
+def test_an_fcv_in_series_at_its_setpoint_puts_the_duty_on_the_vertical_part() -> None:
     """With the FCV holding the station's flow at its setpoint, the rest has a steady state at
     every rise above the open valve's at that flow: the duty's point has no rise
-    (valve_at_switch), and the disagreement is explained, counted and listed."""
+    (valve_at_switch), and the duty's rise, above the open valve's, is one of them, so the check
+    agrees on the curve's vertical part (open-defects-2.md §3 C2), counted apart."""
     record = _group(_case(_with_fcv()), ("PA", "PB"))
     assert record["violations"] == []
     counts = record["counts"]
-    assert counts["system_disagrees: no rise (valve_at_switch)"] == 1, counts
+    assert counts["system_agrees_vertical"] == 1, counts
+    assert not any(k.startswith("system_disagrees: ") for k in counts), counts
     assert counts["point:beyond_limit"] >= 1, counts
-    assert any("FCV 'FC' passes exactly its setpoint flow" in n for n in record["notes"])
+
+
+def test_a_falsified_vertical_agreement_is_caught() -> None:
+    """C2's rule recomputed from the duty's point: a flipped verdict, and a duty's rise moved to
+    the other side of openHead by twice D6's allowance while the check still agrees, are
+    violations; the same rise with the check disagreeing is explained and counted apart."""
+    solved = _solved(_with_fcv(), ["PA", "PB"])
+    curve = _system(solved)
+    assert curve.duty is not None
+    check = curve.system_duty_check
+    assert check is not None
+    assert (check.agrees, check.head) == (True, None)
+    at = next(p for p in curve.system_points if p.is_duty)
+    assert (at.reason, at.open_head_bound) == ("valve_at_switch", "lower")
+    assert at.open_head is not None
+
+    def problems(c: GroupCurve, duty: Any) -> tuple[list[str], CurveRecord]:
+        rec = CurveRecord()
+        return _system_duty_check(c, duty, at, "(t1)", rec, lambda: solved.case.state), rec
+
+    flipped = dataclasses.replace(
+        curve, system_duty_check=check.model_copy(update={"agrees": False})
+    )
+    found, _ = problems(flipped, curve.duty)
+    assert any("recomputed True" in p for p in found), found
+    allowance = max(DUTY_RTOL * abs(at.open_head), HEAD_FLOOR)
+    below = curve.duty.model_copy(update={"head": at.open_head - 2.0 * allowance})
+    found, _ = problems(curve, below)
+    assert any("recomputed False" in p for p in found), found
+    found, rec = problems(flipped, below)
+    assert found == []
+    assert rec.counts["system_disagrees: the rise on the other side of the vertical part"] == 1
+
+
+def _beyond_the_range() -> dict[str, Any]:
+    """The review of 2026-11-26 (AC-2): R1 (30 m) -> PU -> FCV V (setpoint 0.055 m³/s) -> R2
+    (0 m), 10 m pipes of 0.2 m bore, PU on ``test_system_curve_reasons``' curve (its largest flow
+    0.04 m³/s, so ``default_flow_max`` 1.2 × 0.04 = 0.048 m³/s). The FCV holds the pump at its
+    setpoint, beyond the (t3) range [0, 0.048 m³/s]; there the rest has a steady state at every
+    rise at or above the open valve's (valve_at_switch, C2's vertical part)."""
+    comps = [
+        reservoir("R1", level=30.0),
+        reasons.pump(),
+        reasons.valve("V", "fcv", setpoint=0.055),
+        reservoir("R2", level=0.0),
+    ]
+    conns = [
+        connection("L1", ("R1", "port_1"), ("PU", "suction"), length=10.0, diameter=0.2),
+        connection("L2", ("PU", "discharge"), ("V", "inlet"), length=10.0, diameter=0.2),
+        connection("L3", ("V", "outlet"), ("R2", "port_1"), length=10.0, diameter=0.2),
+    ]
+    library = [
+        {"id": "C1", "name": "C1", "points": [{"flow": q, "head": h} for q, h in reasons.CURVE]}
+    ]
+    return project_dict(comps, conns, pump_library=library)
+
+
+def test_a_duty_on_a_vertical_part_beyond_the_range_is_checked_at_its_own_point() -> None:
+    """The API solves the duty's point whatever the range (``pump_groups.group_system_curve``)
+    and agrees on its vertical part, head null, though the (t3) range does not reach the duty's
+    flow. The check requests the same station's group system curve again on a range reaching
+    it, takes its isDuty point (its duty this one) and recomputes C2's rule from it, counted
+    apart: no violation (on d101793 the rule was recomputed without that point, False, a
+    violation)."""
+    case = _case(_beyond_the_range())
+    flow_max = default_flow_max(case.built, "PU")
+    assert case.state.pump_results["PU"].operating_flow > flow_max
+    record = check_one(case.project, case.built, case.graph, "PU", lambda: case.state)
+    assert record["violations"] == []
+    counts = record["counts"]
+    assert counts["duty_outside_range"] == 1, counts
+    assert counts["duty_outside_range: its point requested again"] == 1, counts
+    assert counts["system_agrees_vertical"] == 1, counts
+    assert not any(k.startswith("system_disagrees: ") for k in counts), counts
+
+
+def test_a_falsified_verdict_beyond_the_range_is_caught() -> None:
+    """The same curve with its system duty check's verdict flipped: C2's rule, recomputed from
+    the duty's point requested again, agrees, so the flipped verdict is a violation (on d101793
+    it was counted as a disagreement without a rise, the duty's flow outside the range)."""
+    case = _case(_beyond_the_range())
+    flow_max = default_flow_max(case.built, "PU")
+    curve = group_system_curve(
+        case.project, ["PU"], flow_min=0.0, flow_max=flow_max, num_points=ONE_POINTS
+    )
+    check = curve.system_duty_check
+    assert check is not None
+    assert (check.agrees, check.head) == (True, None)
+    assert not any(p.is_duty for p in curve.system_points)
+    flipped = dataclasses.replace(
+        curve, system_duty_check=check.model_copy(update={"agrees": False})
+    )
+    station = find_station(case.project, case.built, ["PU"])
+    found = system_problems(
+        flipped,
+        station,
+        flow_min=0.0,
+        flow_max=flow_max,
+        exact=True,
+        num_points=ONE_POINTS,
+        label="(t3) PU alone:",
+        case=lambda: case.state,
+        project=case.project,
+    )
+    assert any("agrees False, recomputed True" in p for p in found.problems), found.problems
+    assert found.counts["duty_outside_range: its point requested again"] == 1, found.counts
 
 
 def test_falsified_one_member_curves_are_caught() -> None:

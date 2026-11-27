@@ -13,6 +13,7 @@ apps/web/src/lib/utils/__fixtures__/scenario-cases.json         merge=generated
 apps/web/src/lib/utils/__fixtures__/goal-seek-cases.json        merge=generated
 apps/web/src/lib/utils/__fixtures__/export-input.json           merge=generated
 apps/web/src/lib/utils/__fixtures__/pump-groups-input.json      merge=generated
+apps/web/src/lib/utils/__fixtures__/condenser-charts.json       merge=generated
 
 # apps/api/scripts/generate_pipe_data.py and generate_relief_data.py
 apps/api/src/opensolve_pipe/data/pipe_materials.json            merge=generated

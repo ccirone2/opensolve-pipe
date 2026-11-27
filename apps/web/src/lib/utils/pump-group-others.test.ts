@@ -2200,20 +2200,35 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		});
 	});
 
-	it('sets the axes from the data: x min and max where other curves would widen it, y max while they are drawn; neither without them', () => {
+	it('sets the axes from the data: x max where other curves would widen it, y max while they are drawn, neither without them; the flow axis from zero always', () => {
+		// The flow axis drawn (Chart.js), then the bounds the configuration sets: x min never, the
+		// floor raising Chart.js's own (open-defects-2.md X, which replaced D24 §9.4's x min).
 		const axes = (data: GroupChartData) => {
 			const scales = config(data).options!.scales as Record<string, Record<string, unknown>>;
-			return [scales.x!.min, scales.x!.max, scales.y!.max];
+			const chart = new Chart(
+				fakeCanvas(800, 500) as never,
+				{ ...config(data, { curveLabels: tools }), platform: BasicPlatform } as never
+			);
+			try {
+				return [chart.scales.x!.min, scales.x!.min, scales.x!.max, scales.y!.max];
+			} finally {
+				chart.destroy();
+			}
 		};
 		// The base shown: other curves' shutoff round-off (−10⁻¹¹ L/s) below zero; y near the pumps.
-		expect(axes(lineupView('').data)).toEqual([0, undefined, 50]);
+		expect(axes(lineupView('').data)).toEqual([0, undefined, undefined, 50]);
 		// "1 of 4 running" shown: cut at 100 L/s.
-		expect(axes(lineupView('S3').data)).toEqual([0, 100, 50]);
-		// "2 of 4 running" shown: its own group curve has the round-off too, so x min is Chart.js's,
-		// as on 4d's chart (the family does not widen it).
-		expect(axes(lineupView('S2').data)).toEqual([undefined, 120, 50]);
-		// Without the family: Chart.js's own range (4b's and 4d's charts).
-		expect(axes(lineupView('', { without: true }).data)).toEqual([undefined, undefined, undefined]);
+		expect(axes(lineupView('S3').data)).toEqual([0, undefined, 100, 50]);
+		// "2 of 4 running" shown: its own group curve has the round-off too, which started the axis a
+		// tick below zero (D24 §9.4 set x min only for the family's): from zero all the same.
+		expect(axes(lineupView('S2').data)).toEqual([0, undefined, 120, 50]);
+		// Without the family: no bound set, the flow axis from zero (4b's and 4d's charts).
+		expect(axes(lineupView('', { without: true }).data)).toEqual([
+			0,
+			undefined,
+			undefined,
+			undefined
+		]);
 		const scales = config(lineupView('', { without: true }).data).options!.scales as Record<
 			string,
 			object
@@ -2231,7 +2246,8 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 				: m
 		);
 		const data = groupChartData(held, lineupPrefs, view.response, view.system, view.others, 3);
-		expect([data.xMin, data.yMax]).toEqual([0, 50]);
+		expect(data.yMax).toBe(50);
+		expect(config(data).options!.scales!.x!.min).toBeUndefined();
 		expect(data.points.find((p) => p.id === 'P4')).toMatchObject({ held: true, point: { x: 0 } });
 		const chart = new Chart(
 			fakeCanvas(800, 500) as never,
@@ -2241,6 +2257,8 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 			} as never
 		);
 		try {
+			// The flow axis from zero (open-defects-2.md X), its min unset.
+			expect(chart.scales.x!.min).toBe(0);
 			const area = chart.chartArea;
 			const markers = datasets(config(data)).flatMap((d, i) => (d.showLine === false ? [i] : []));
 			// The members' points, the Group point and the rings.
@@ -2364,14 +2382,28 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 		}
 	});
 
-	it('sets x min only when the other curves alone reach below zero flow', () => {
+	it('starts the flow axis at zero whatever reaches below it, and names what lies further below than the floor', () => {
+		/** The flow axis's least value as Chart.js draws it. */
+		const drawnMin = (data: GroupChartData) => {
+			const chart = new Chart(
+				fakeCanvas(800, 500) as never,
+				{ ...config(data, { curveLabels: tools }), platform: BasicPlatform } as never
+			);
+			try {
+				return chart.scales.x!.min;
+			} finally {
+				chart.destroy();
+			}
+		};
 		const { data } = lineupView('');
 		const below = data.otherCurves.flatMap((c) =>
 			[...c.solid, ...c.beyond].flat().filter((p) => p.x < 0)
 		);
 		expect(below.length).toBeGreaterThan(0);
 		for (const p of below) expect(p.x).toBeGreaterThan(-1e-9);
-		expect(data.xMin).toBe(0);
+		expect(drawnMin(data)).toBe(0);
+		// Round-off within the floor (10⁻⁶ m³/s): drawn at the edge, nothing named.
+		expect(data.belowZero).toEqual([]);
 		// Everything else at or above zero flow: the members, the curve, the system curve, the rings.
 		const else_ = [
 			...data.lines.flatMap((l) => [...l.curve, ...l.extrapolated.flat()]),
@@ -2382,14 +2414,31 @@ describe('the curve family: the chart configuration (pumpGroupConfig, the UI hal
 			...data.others.map((r) => r.point)
 		];
 		expect(Math.min(...else_.map((p) => p.x))).toBeGreaterThanOrEqual(0);
-		// Synthetic: this case's own group system curve below zero flow too: Chart.js's range.
+		// Synthetic: this case's own group system curve 1 L/s below zero flow, past the floor: the
+		// axis still from zero, the point not drawn and named with its values (D24 §9.4 let
+		// Chart.js widen the axis for it).
 		const view = lineupView('');
 		const reaching = structuredClone(view.system);
-		reaching.systemPoints[0]!.flow = -0.001;
+		const first = [...reaching.systemPoints].sort((a, b) => a.flow - b.flow)[0]!;
+		expect(first).toMatchObject({ flow: 0 });
+		first.flow = -0.001;
 		const own = groupChartData(view.members, lineupPrefs, view.response, reaching, view.others, 4);
-		expect(own.xMin).toBeNull();
-		// Without the family: none.
-		expect(lineupView('', { without: true }).data.xMin).toBeNull();
+		expect(drawnMin(own)).toBe(0);
+		const notes = groupNotes({
+			data: own,
+			members: view.members,
+			state: { status: 'ready', response: view.response },
+			system: { status: 'ready', response: reaching },
+			project: lineups.project,
+			prefs: lineupPrefs,
+			others: view.others
+		});
+		expect(notes.belowZero).toBe(
+			`Below zero flow, not drawn: the group system curve's point at -1 L/s and ${f4(first.head!)} m; the data tables list them.`
+		);
+		expect(groupNoteLines(notes)).toContain(notes.belowZero);
+		// Without the family: from zero too.
+		expect(drawnMin(lineupView('', { without: true }).data)).toBe(0);
 	});
 
 	// Leftover L21a (pumps-nits.md §8.14 bullet 8; §11.5): the curve labels' boxes were unfilled, so

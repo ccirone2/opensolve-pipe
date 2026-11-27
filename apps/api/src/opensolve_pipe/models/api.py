@@ -259,9 +259,10 @@ class SystemCurvePoint(OutputModel):
     )
     limit_flow: float | None = Field(
         description=(
-            "m³/s. beyond_limit: the most the pump can pass (negative: the reverse flow it "
-            "would have to pass is -limitFlow); below_floor: the least it must pass; null "
-            "otherwise"
+            "m³/s. beyond_limit: the flow limit, above which no steady state carries the forced "
+            "flow, the pump passing at most this across the cut the message names (negative: the "
+            "reverse flow it would have to pass is -limitFlow); below_floor: the floor, below "
+            "which none does, the pump passing at least this across that cut; null otherwise"
         )
     )
     passed_flow: float | None = Field(
@@ -301,6 +302,27 @@ class SystemCurveResponse(OutputModel):
     points: list[SystemCurvePoint] = Field(description="One per requested flow, in flow order")
     converged: list[bool] = Field(
         description="Whether each point has a head (each point's converged)"
+    )
+    limit_points: list[SystemCurvePoint] = Field(
+        description=(
+            "The points at the flows where the curve's range beyond its limit, or below its "
+            "floor, begins (docs/proposals/open-defects-2.md §3 C3), in flow order: the flow "
+            "limit, above which no steady state carries the forced flow (every way from the "
+            "pump's discharge back to its suction passes a cut of FCVs at their setpoints and "
+            "one-way elements against the flow, with the assigned flows; the beyond_limit "
+            "points' limitFlow), and its floor, below which none does, where assigned flows set "
+            "one (the below_floor points' limitFlow), each where it is positive and finite, lies "
+            "inside (flowMin, flowMax] and inside the window between the floor and the limit, "
+            "and is no requested flow (to within the status rules' and the solver's tolerances, "
+            "where a point of points already stands for it); a floor equal to the limit to within "
+            "those tolerances is one point, at the limit's flow. There an FCV across the cut "
+            "often sits at its switch (valve_at_switch): the curve is vertical at that flow, from "
+            "openHead. Each is a bound from one cut, not always reached: where the cut is not "
+            "the least, no steady state carries that flow either, and the point has no head and "
+            "says why. Each is solved alone after points, from the network's initial state (no "
+            "warm start), so points are what they are without it; empty otherwise. Not counted "
+            "in converged"
+        )
     )
     scenario: ScenarioResult | None = Field(description=_SCENARIO_RESULT_DESCRIPTION)
 

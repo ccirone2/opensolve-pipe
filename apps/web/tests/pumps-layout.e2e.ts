@@ -24,10 +24,11 @@ import {
 	type JSHandle,
 	type Locator,
 	type Page,
+	type Route,
 	type TestInfo
 } from '@playwright/test';
 import { gzip } from 'pako';
-import type { Project } from '../src/lib/api/types';
+import type { Project, SystemCurveRequest, SystemCurveResponse } from '../src/lib/api/types';
 import type {
 	CurveLabelsDrawn,
 	LegendDrawn,
@@ -5077,6 +5078,47 @@ test('a 40-character unbroken pump name and case name show their ends in the car
 	await page.setViewportSize(viewport);
 });
 
+// ---- Open defects W1.1, W1.2: the long name outside the card (proposals/open-defects.md) -------
+
+test('open defects W1.1, W1.2: a 40-character unbroken pump name never makes the Results pane’s scroller scroll sideways at 320×640: the Summary’s links, the Pumps tab with Pumps together closed (its members beside the heading) and open (§5.7 row 1; proposals/open-defects.md W1.1, W1.2)', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(!isMobile, 'a phone’s narrowest width; 1280 px holds the name');
+	test.setTimeout(240_000);
+	const project = projectOf('lineups');
+	project.components.find((c) => c.id === 'P1')!.name = LONG_PUMP;
+	await open(page, project);
+	await solveConverged(page);
+	await page.setViewportSize({ width: 320, height: 640 });
+	const where = `the long pump name at ${sizeOf(page)}`;
+
+	// W1.1: the Summary's links name the pump (its line under Pumps, an extreme's port of it).
+	await showPane(page, 'Results');
+	const summary = await resultsView(page, 'Summary');
+	await expect(
+		summary
+			.getByRole('region', { name: 'Pumps' })
+			.getByRole('button', { name: LONG_PUMP, exact: true })
+	).toBeVisible();
+	await noSidewaysScroll(page, `the Summary, ${where}`);
+
+	// W1.2: Pumps together closed, its default, names its members beside the heading.
+	const tab = await pumpsTab(page);
+	await settle(page);
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const toggle = card.getByRole('button', { name: /^Pumps together/ });
+	await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+	await expect(toggle).toContainText(LONG_PUMP);
+	await noSidewaysScroll(page, `the Pumps tab, Pumps together closed, ${where}`);
+
+	// And open, where the members are boxes in the card (the long-name test above reads the card's
+	// own names, not the scroller).
+	await openCard(page, tab);
+	await expect(card.getByRole('group', { name: 'Pumps in the group' })).toContainText(LONG_PUMP);
+	await noSidewaysScroll(page, `the Pumps tab, Pumps together open, ${where}`);
+});
+
 /**
  * Every case's box drawn in the Pumps tab and the name after it (docs/proposals/pumps-nits.md
  * §11.4, leftover L12; ui-guide, "A case is its number": the box beside the name's first line,
@@ -7186,6 +7228,378 @@ test('Add cases in one structure: the plan, its fold and its new lines, no Solve
 	await expect(status).toHaveText('');
 });
 
+// ---- Open defects round two, F3: a base solve withdraws the card's sections and gives them back --
+
+/** The control "Stop Pump P4 later" in the stop order (STOP_ORDER_WORDS.later). */
+const STOP_P4_LATER = '[data-stop-id="P4"][data-dir="down"]';
+
+/**
+ * The lineups without their scenarios, solved, the Pumps together card open, as the designers'
+ * probes set it (proposals/open-defects-2.md §2 F3): the plan open as drawn, the stop order and
+ * both "How … is computed" disclosures opened by their summaries, and the focus on "Stop Pump P4
+ * later".
+ */
+async function f3Card(page: Page) {
+	const project = projectOf('lineups');
+	delete project.scenarios;
+	await open(page, project);
+	await solveConverged(page);
+	const tab = await pumpsTab(page);
+	const card = await openCard(page, tab);
+	const block = card.getByRole('region', { name: 'Add cases' });
+	const figure = card.locator('[data-group-chart] figure');
+	const disclosures = {
+		plan: block.locator('[data-lineup-plan]'),
+		'stop order': block.locator('[data-stop-order]'),
+		'How the group curve is computed': card.locator(
+			'xpath=.//details[summary[normalize-space()="How the group curve is computed"]]'
+		),
+		'How the group system curve is computed': card.locator(
+			'xpath=.//details[summary[normalize-space()="How the group system curve is computed"]]'
+		)
+	};
+	await expect(disclosures.plan).toHaveAttribute('open', '');
+	for (const [name, details] of Object.entries(disclosures)) {
+		await expect(details, name).toHaveCount(1);
+		if (name !== 'plan') await details.locator(':scope > summary').click();
+		await expect(details, `${name} open`).toHaveAttribute('open', '');
+	}
+	const button = block.locator(STOP_P4_LATER);
+	await expect(button).toHaveAccessibleName('Stop Pump P4 later');
+	await button.focus();
+	await expect(button).toBeFocused();
+	await settle(page, 500);
+	return { card, block, figure, button, disclosures };
+}
+
+/**
+ * The Results pane's scroller as an expression for the page: ResultsPanel's `overflow-y-auto`, the
+ * first ancestor of the "Results view" row that scrolls, as resultsScroller finds it.
+ */
+const PANE = `(() => {
+	const pane = document.querySelector('section[aria-label="Results"]');
+	const row = pane?.querySelector('[role="tablist"][aria-label="Results view"]');
+	for (let e = row?.parentElement; e && e !== pane; e = e.parentElement) {
+		if (/(auto|scroll)/.test(getComputedStyle(e).overflowY)) return e;
+	}
+	throw new Error("no Results pane's scroller");
+})()`;
+
+/** How far the control in `selector` lies below the top of the Results pane's box, px. */
+const offsetInPane = (page: Page, selector: string) =>
+	page.evaluate(`(() => {
+		const el = document.querySelector('[data-pumps-together] ${selector}');
+		return el.getBoundingClientRect().top - ${PANE}.getBoundingClientRect().top;
+	})()`) as Promise<number>;
+
+/** Where the focus is: the group figure, the body, "Stop Pump P4 later", or another element. */
+function focusName(): string {
+	const a = document.activeElement;
+	const card = document.querySelector('[data-pumps-together]');
+	if (!a || a === document.body) return 'BODY';
+	if (a === card?.querySelector('[data-group-chart] figure')) return 'figure';
+	if (a.matches('[data-stop-id="P4"][data-dir="down"]')) return 'Stop Pump P4 later';
+	return `${a.tagName} ${(a.textContent ?? '').trim().slice(0, 40)}`;
+}
+
+/**
+ * From now on, at every frame: whether Add cases is drawn (`[data-add-cases]`, the block on any
+ * build) and where the focus is, each change kept with its time; and at the user's next press or
+ * wheel, whether Add cases was drawn then.
+ */
+async function recordWithdrawal(page: Page) {
+	await page.evaluate(`(() => {
+		const focusName = ${focusName.toString()};
+		const w = window;
+		w.__f3 = { frames: [], step: null, stop: false };
+		const t0 = performance.now();
+		const drawn = () => !!document.querySelector('[data-pumps-together] [data-add-cases]');
+		let last = '';
+		const frame = () => {
+			const now = { block: drawn(), focus: focusName() };
+			const key = JSON.stringify(now);
+			if (key !== last) w.__f3.frames.push({ ...now, ms: Math.round(performance.now() - t0) });
+			last = key;
+			if (!w.__f3.stop) requestAnimationFrame(frame);
+		};
+		requestAnimationFrame(frame);
+		for (const type of ['pointerdown', 'wheel']) {
+			window.addEventListener(type, () => (w.__f3.step ??= { type, block: drawn() }), {
+				capture: true,
+				passive: true
+			});
+		}
+	})()`);
+}
+
+async function withdrawalRecord(page: Page) {
+	return (await page.evaluate(`(() => {
+		window.__f3.stop = true;
+		return { frames: window.__f3.frames, step: window.__f3.step };
+	})()`)) as {
+		frames: { block: boolean; focus: string; ms: number }[];
+		step: { type: string; block: boolean } | null;
+	};
+}
+
+/** Press Ctrl+Enter (the solve's shortcut) and wait for the base solve's answer. */
+async function ctrlEnterSolve(page: Page) {
+	const solved = page.waitForResponse(
+		(r) => r.url().endsWith('/api/v1/solve') && r.request().method() === 'POST'
+	);
+	await page.keyboard.press('Control+Enter');
+	expect((await solved).status()).toBe(200);
+}
+
+/**
+ * The group system curve answered `ms` later than the API answers it, from now on: the card's
+ * wait for the case shown's curves (F3) lasts long enough for a press or a wheel to land in it.
+ */
+async function slowGroupSystemCurve(page: Page, ms: number) {
+	await page.route('**/api/v1/pump-group-curve', async (route) => {
+		const request = route.request().postDataJSON() as { curve?: string };
+		if (request.curve === 'system') await new Promise((done) => setTimeout(done, ms));
+		await route.continue();
+	});
+}
+
+test('open defects F3: Ctrl+Enter with the focus on “Stop Pump P4 later”: while the card’s sections are withdrawn the focus is on the group figure, then back on the same button at the same offset in the pane, the plan, the stop order and both methods open as left (proposals/open-defects-2.md §2 F3)', async ({
+	page
+}) => {
+	test.setTimeout(240_000);
+	const { block, button, disclosures } = await f3Card(page);
+	const before = await offsetInPane(page, STOP_P4_LATER);
+	await recordWithdrawal(page);
+	await ctrlEnterSolve(page);
+	await expect(block).toBeVisible({ timeout: 120_000 });
+	await settle(page);
+	const { frames } = await withdrawalRecord(page);
+	console.log(`F3 at ${sizeOf(page)}: ${JSON.stringify(frames)}`);
+	const withdrawn = frames.filter((f) => !f.block);
+	expect(withdrawn.length, 'frames with Add cases withdrawn').toBeGreaterThan(0);
+	// Soft from here, so a run reports each of them.
+	expect
+		.soft(
+			withdrawn.filter((f) => f.focus !== 'figure').map((f) => `${f.ms} ms: ${f.focus}`),
+			'the focus while Add cases is withdrawn, where it is not the group figure'
+		)
+		.toEqual([]);
+	await expect.soft(button, 'the focus back on "Stop Pump P4 later"').toBeFocused();
+	const after = await offsetInPane(page, STOP_P4_LATER);
+	console.log(`F3 at ${sizeOf(page)}: "Stop Pump P4 later" ${before} px, then ${after} px`);
+	expect
+		.soft(Math.abs(after - before), 'the button at the same offset in the pane, px')
+		.toBeLessThanOrEqual(2);
+	for (const [name, details] of Object.entries(disclosures)) {
+		await expect.soft(details, `${name} open, as left`).toHaveAttribute('open', '');
+	}
+});
+
+test('open defects F3: a press on the group canvas while the card waits leaves the focus where the press put it, and no later jump scrolls the pane (proposals/open-defects-2.md §2 F3; ui-guide, item 222)', async ({
+	page
+}) => {
+	test.setTimeout(240_000);
+	const { card, block, figure, button } = await f3Card(page);
+	await slowGroupSystemCurve(page, 4000);
+	await recordWithdrawal(page);
+	await ctrlEnterSolve(page);
+	await expect(card.locator('[data-add-cases]')).toHaveCount(0);
+	await expect(
+		figure,
+		'the group figure holds the focus while Add cases is withdrawn'
+	).toBeFocused();
+	await card.locator('[data-group-chart] canvas').click();
+	const put = await page.evaluate(focusName);
+	const scrolled = (await paneScrollTop(page))!;
+	await expect(block).toBeVisible({ timeout: 120_000 });
+	await settle(page);
+	const { frames, step } = await withdrawalRecord(page);
+	console.log(
+		`F3, a press on the canvas, at ${sizeOf(page)}: ${JSON.stringify(step)}; focus "${put}", pane ${scrolled} px; ${JSON.stringify(frames)}`
+	);
+	expect(step, 'the press landed while Add cases was withdrawn').toEqual({
+		type: 'pointerdown',
+		block: false
+	});
+	expect(await page.evaluate(focusName), 'the focus where the press put it').toBe(put);
+	await expect(button).not.toBeFocused();
+	expect(
+		Math.abs((await paneScrollTop(page))! - scrolled),
+		'the pane not scrolled after the press'
+	).toBeLessThanOrEqual(1);
+});
+
+test('open defects F3: a wheel scroll while the card waits is not scrolled back when its sections return (proposals/open-defects-2.md §2 F3; ui-guide, item 222)', async ({
+	page
+}) => {
+	test.setTimeout(240_000);
+	const { card, block, figure, button } = await f3Card(page);
+	await slowGroupSystemCurve(page, 4000);
+	await recordWithdrawal(page);
+	await ctrlEnterSolve(page);
+	await expect(card.locator('[data-add-cases]')).toHaveCount(0);
+	await expect(
+		figure,
+		'the group figure holds the focus while Add cases is withdrawn'
+	).toBeFocused();
+	const start = (await paneScrollTop(page))!;
+	// The pointer over the pane's middle, then a wheel up by 400 px.
+	const pane = (await page.evaluate(`(() => {
+		const r = ${PANE}.getBoundingClientRect();
+		return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+	})()`)) as { x: number; y: number };
+	await page.mouse.move(pane.x, pane.y);
+	await page.mouse.wheel(0, -400);
+	await expect.poll(async () => (await paneScrollTop(page))!).toBeLessThan(start);
+	// Until the wheel's scroll has ended: the same scrollTop over 300 ms.
+	let scrolled = (await paneScrollTop(page))!;
+	for (let i = 0; i < 20; i++) {
+		await page.waitForTimeout(300);
+		const now = (await paneScrollTop(page))!;
+		if (now === scrolled) break;
+		scrolled = now;
+	}
+	await expect(block).toBeVisible({ timeout: 120_000 });
+	await settle(page);
+	const { frames, step } = await withdrawalRecord(page);
+	console.log(
+		`F3, a wheel, at ${sizeOf(page)}: ${JSON.stringify(step)}; pane ${start} → ${scrolled} px, then ${await paneScrollTop(page)} px; ${JSON.stringify(frames)}`
+	);
+	expect(step, 'the wheel turned while Add cases was withdrawn').toEqual({
+		type: 'wheel',
+		block: false
+	});
+	await expect(figure, 'the focus stays on the figure').toBeFocused();
+	await expect(button).not.toBeFocused();
+	expect(
+		Math.abs((await paneScrollTop(page))! - scrolled),
+		'the pane not scrolled back after the wheel'
+	).toBeLessThanOrEqual(1);
+});
+
+// ---- Open defects round two, F3, the failed-solve path: "Show the earlier results" takes the focus
+
+/** Where the focus is, as a name: the body, or a control's tag and its first words. */
+function focusLabel(): string {
+	const a = document.activeElement;
+	if (!a || a === document.body) return 'BODY';
+	return `${a.tagName} ${(a.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 40)}`;
+}
+
+/** From now on, at every frame, where the focus is, each change kept with its time. */
+async function recordFocus(page: Page) {
+	await page.evaluate(`(() => {
+		const focusLabel = ${focusLabel.toString()};
+		const w = window;
+		w.__focus = { frames: [], stop: false };
+		const t0 = performance.now();
+		let last = '';
+		const frame = () => {
+			const now = focusLabel();
+			if (now !== last) w.__focus.frames.push({ focus: now, ms: Math.round(performance.now() - t0) });
+			last = now;
+			if (!w.__focus.stop) requestAnimationFrame(frame);
+		};
+		requestAnimationFrame(frame);
+	})()`);
+}
+
+async function focusRecord(page: Page) {
+	return (await page.evaluate(`(() => {
+		window.__focus.stop = true;
+		return window.__focus.frames;
+	})()`)) as { focus: string; ms: number }[];
+}
+
+/**
+ * Solved, then Reservoir R2's level set to `level` (m): the results shown are out of date. The
+ * Pumps view shown, the Pumps together card open and at rest.
+ */
+async function staleCard(page: Page, level: string): Promise<Locator> {
+	await solveConverged(page);
+	await showPane(page, 'Build');
+	await buildPane(page).getByRole('button', { name: 'Jump to a component' }).click();
+	const jump = page.getByRole('dialog', { name: 'Jump to a component' });
+	const filter = jump.getByRole('searchbox', { name: 'Filter' });
+	if (await filter.count()) await filter.fill('Reservoir R2');
+	await jump.getByRole('button', { name: /^Reservoir R2/ }).click();
+	await expect(jump).toBeHidden();
+	await setNumber(buildPane(page), /^Liquid level/, level);
+	const tab = await pumpsTab(page);
+	await expect(
+		resultsPane(page).getByText(/^Results are out of date: the project changed after this solve/)
+	).toBeVisible();
+	const card = tab.getByRole('region', { name: /^Pumps together/ });
+	const toggle = card.getByRole('button', { name: /^Pumps together/ });
+	if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+	await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+	await settle(page);
+	return card;
+}
+
+test('open defects F3, the failed-solve path: the results out of date and the focus on “Pump lineups table…”, a Ctrl+Enter whose solve fails (a 500, a network abort) gives the focus to “Show the earlier results”, never the page, and its press to the Pumps tab (proposals/open-defects-2.md §2 F3)', async ({
+	page
+}) => {
+	test.setTimeout(240_000);
+	const project = projectOf('lineups');
+	delete project.scenarios;
+	await open(page, project);
+	const earlier = resultsPane(page).getByRole('button', { name: 'Show the earlier results' });
+	const pumps = resultsPane(page)
+		.getByRole('tablist', { name: 'Results view' })
+		.getByRole('tab', { name: 'Pumps', exact: true });
+	const failures = [
+		[
+			'a 500',
+			'3',
+			(route: Route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
+		],
+		['a network abort', '4', (route: Route) => route.abort('failed')]
+	] as const;
+	for (const [failure, level, answer] of failures) {
+		const card = await staleCard(page, level);
+		const where = `${failure}, at ${sizeOf(page)}`;
+		const table = card
+			.getByRole('region', { name: 'Add cases' })
+			.getByRole('button', { name: 'Pump lineups table…' });
+		await table.focus();
+		await expect(table).toBeFocused();
+		await page.route('**/api/v1/solve', answer);
+		await recordFocus(page);
+		await page.keyboard.press('Control+Enter');
+		await expect(earlier, where).toBeVisible();
+		await expect(card, `the card gone with the view, ${where}`).toHaveCount(0);
+		await page.unroute('**/api/v1/solve');
+		// Soft from here, so a run reports each of them.
+		await expect.soft(earlier, `the focus on “Show the earlier results”, ${where}`).toBeFocused();
+		// Its press with Enter, from the button (focused here where the app left the focus elsewhere).
+		if (!(await earlier.evaluate((b) => b === document.activeElement))) await earlier.focus();
+		const pressed = await page.evaluate(focusLabel);
+		await page.keyboard.press('Enter');
+		await expect(earlier, where).toHaveCount(0);
+		await expect(pumps, where).toHaveAttribute('aria-selected', 'true');
+		await expect.soft(pumps, `the focus on the Pumps tab after the press, ${where}`).toBeFocused();
+		console.log(
+			`F3, the failed-solve path, ${where}: Enter pressed on "${pressed}", the focus then on "${await page.evaluate(focusLabel)}"`
+		);
+		// The card back without Add cases: it shows nothing from an earlier version of the project
+		// after a failed solve, so the control the user was in is not drawn again.
+		await expect(card, where).toContainText(
+			'The latest solve failed; the card shows nothing from an earlier version of the project.'
+		);
+		await expect(card.getByRole('region', { name: 'Add cases' }), where).toHaveCount(0);
+		await settle(page, 500);
+		const frames = await focusRecord(page);
+		console.log(`F3, the failed-solve path, ${where}: ${JSON.stringify(frames)}`);
+		expect
+			.soft(
+				frames.filter((f) => f.focus === 'BODY').map((f) => `${f.ms} ms`),
+				`frames with the focus on the page, ${where}`
+			)
+			.toEqual([]);
+	}
+});
+
 // ---- S7: the curve tables folded, the boxes measured, the choice remembered (§9 S7) -------------
 
 /**
@@ -9251,6 +9665,74 @@ test('Nits item 4: a pump that cavitates with no NPSH margin ratio (NPSHr 0) say
 		await showPane(page, 'Results');
 	}
 	await page.setViewportSize(viewport);
+});
+
+// ---- Open defect P1: the base case's system curve beside its one scenario's ---------------------
+
+test('open defect P1: shown on the one scenario, the base case the only other case, “Also show the other cases’ system curves” asks for the base case’s curve on the grid of the curve shown and names it in the canvas’s legend (proposals/open-defects.md P1; pumps-nits.md §11.7, §11.10)', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(isMobile, 'at 1280×800 the legend names each case’s curve; a phone’s gathers them');
+	test.setTimeout(240_000);
+	// Every system curve asked for, and the range each case's own curve (no grid sent) came back on.
+	const sent: { scenarioId: string | null; flowMin: number; flowMax: number | null }[] = [];
+	const own = new Map<string, { flowMin: number; flowMax: number }>();
+	page.on('request', (r) => {
+		if (!r.url().endsWith('/api/v1/system-curve') || r.method() !== 'POST') return;
+		const body = r.postDataJSON() as SystemCurveRequest;
+		sent.push({
+			scenarioId: body.scenarioId ?? null,
+			flowMin: body.flowMin ?? 0,
+			flowMax: body.flowMax ?? null
+		});
+	});
+	page.on('response', async (r) => {
+		if (!r.url().endsWith('/api/v1/system-curve') || !r.ok()) return;
+		const body = r.request().postDataJSON() as SystemCurveRequest;
+		if (body.flowMax !== null && body.flowMax !== undefined) return;
+		try {
+			const { flowRange } = (await r.json()) as SystemCurveResponse;
+			own.set(body.scenarioId ?? '', { flowMin: flowRange.min, flowMax: flowRange.max });
+		} catch {
+			// The page closed first: nothing more is read.
+		}
+	});
+	const counter = solveCounter(page);
+	await open(page, cavitatingTransfer());
+	await solveAll(page, counter, 2);
+	await chooseCase(page, 'Suction tank open to the air (1 change)');
+	const tab = await pumpsTab(page);
+	await settle(page);
+	await expect.poll(() => own.has('S1'), { timeout: 60_000 }).toBe(true);
+	const grid = own.get('S1')!;
+	const figure = tab.getByRole('figure', { name: /^Pump and system curves/ });
+	const curves = figure.getByRole('checkbox', { name: "Also show the other cases' system curves" });
+	await expect(curves).not.toBeChecked();
+	const from = sent.length;
+	await curves.check();
+	// The base case's curve asked for, no scenarioId, on the grid of the scenario's curve shown.
+	await expect
+		.poll(
+			() =>
+				sent
+					.slice(from)
+					.filter((s) => s.scenarioId === null)
+					.map(({ flowMin, flowMax }) => ({ flowMin, flowMax })),
+			{ timeout: 60_000 }
+		)
+		.toEqual([grid]);
+	await settle(page);
+	// And drawn: its entry in the canvas's legend, not struck through.
+	await expect
+		.poll(
+			async () =>
+				(await page.evaluate(readPumpLegend))?.entries
+					.filter((e) => !e.hidden)
+					.map((e) => e.text) ?? [],
+			{ timeout: 30_000 }
+		)
+		.toContain('System curve, Base case');
 });
 
 /**

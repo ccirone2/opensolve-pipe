@@ -8,7 +8,15 @@ import type { Project } from '../api/types';
 import { assignedFlowProject } from '../testing/helpers';
 import { flag } from '../testing/results';
 import { gravityBranchExample, pumpTransferExample } from './examples';
-import { flagText, messageText, namedElements, nonFiniteLawIds, readableText } from './flag-text';
+import {
+	flagText,
+	messageText,
+	namedElements,
+	nonFiniteBalanceIds,
+	nonFiniteLawIds,
+	readableText,
+	singularStepIds
+} from './flag-text';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
 const IN = 0.0254;
@@ -450,6 +458,33 @@ describe('a solve that diverged (NOT_CONVERGED, CLAUDE.md D7)', () => {
 			{ kind: 'connection', id: 'L3' },
 			{ kind: 'component', id: 'P1' }
 		]);
+	});
+
+	it("takes the energy balances and the lost weights from their own details, never the law's", () => {
+		// The API's lists (apps/api solver/results.py: gga.NonFiniteBalance, gga.LostWeight).
+		const notConverged = (details: Record<string, string | number>) =>
+			flag({ code: 'NOT_CONVERGED', severity: 'invalid', message: 'x', details });
+		const balance = notConverged({ maxEnergyResidualAt: 'L1', nonFiniteBalanceAt: 'L1' });
+		expect(nonFiniteBalanceIds(balance)).toEqual(['L1']);
+		expect(nonFiniteLawIds(balance)).toEqual([]);
+		expect(singularStepIds(balance)).toEqual([]);
+		const lost = notConverged({ singularStepAt: 'VA, VB, VA', singularStepSlope: 8.46e17 });
+		expect(singularStepIds(lost)).toEqual(['VA', 'VB']);
+		expect(nonFiniteLawIds(lost)).toEqual([]);
+		expect(nonFiniteBalanceIds(lost)).toEqual([]);
+		// Another flag, or details not in the form expected: none.
+		expect(nonFiniteBalanceIds(undefined)).toEqual([]);
+		expect(singularStepIds(notConverged({ singularStepAt: 3 }))).toEqual([]);
+		expect(
+			singularStepIds(
+				flag({
+					code: 'ISOLATED_SECTION',
+					severity: 'warning',
+					message: 'x',
+					details: { singularStepAt: 'V1' }
+				})
+			)
+		).toEqual([]);
 	});
 
 	it("takes the laws that were not finite from the flag's details, in link order", () => {

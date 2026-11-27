@@ -29,6 +29,7 @@ not resolve.
 """
 
 import math
+import sys
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -1208,6 +1209,61 @@ def _unrepresentable_relief_valves(project: Project, fluid: FluidProperties) -> 
     ]
 
 
+def boundary_head(comp: BoundaryComponent, port_id: str, rho_g: float) -> float:
+    """The EGL a reservoir's or reference node's port holds, m (CLAUDE.md D4, D7: a quiescent
+    boundary, v = 0): its liquid surface (elevation + level) + p_s/(ρ g) for a reservoir, its
+    port elevation + p/(ρ g) for a reference node. ``rho_g`` is the fluid's ρ·g as the build
+    forms it, so ``_unrepresentable_boundaries`` tests the very value the solve holds. The
+    expressions are the build's before method 1.6.2, term for term."""
+    if isinstance(comp, Reservoir):
+        surface = comp.elevation + comp.liquid_level
+        return surface + comp.surface_pressure / rho_g
+    return port_elevation(comp, port_id) + comp.pressure / rho_g
+
+
+def _unrepresentable_boundaries(project: Project, fluid: FluidProperties) -> list[TopologyIssue]:
+    """BOUNDARY_HEAD_OUT_OF_RANGE (TSD §12 item 19, method 1.6.2): one issue per reservoir or
+    reference node whose head (``boundary_head``) is not a finite floating-point number, quoting
+    its pressure and the density; listed after RELIEF_VALVE_OUT_OF_RANGE.
+
+    p/(ρ g) overflows for a gauge pressure and a density the schema accepts (1e8 Pa(g) below
+    about 5.67e-302 kg/m³, -1e5 Pa(g) below about 5.67e-305 kg/m³), and the head is then not
+    finite either; conversely, it is not finite only then: |elevation + level| ≤ 1.1e4 m is far
+    below half a unit in the last place of the largest double, 2⁹⁷⁰. Every port has a
+    connection, a pipe, which the solve always holds and whose energy residual subtracts this
+    head at the first iterate, so every inner solve of such a project stopped as diverged, naming
+    nothing (method 1.6.1); the boundary is refused wherever it is, as the other inputs the
+    floating point cannot represent are, even closed off behind a closed valve (its connection
+    still lies in its own grounded part). An active PRV's or PSV's setpoint head is not refused.
+    Where the steady state has that valve open or closed, the status rules leave the active
+    state and the case converges; where the network needs it active, the solve ends not
+    converged with the closed state's message, naming no overflow (proposal open-defects-2.md
+    §7)."""
+    rho_g = fluid.density * G
+    issues: list[TopologyIssue] = []
+    for comp in project.components:
+        if not isinstance(comp, BoundaryComponent):
+            continue
+        if all(math.isfinite(boundary_head(comp, port.id, rho_g)) for port in comp.ports):
+            continue
+        if isinstance(comp, Reservoir):
+            what, quantity, p = "reservoir", "surface pressure", comp.surface_pressure
+        else:
+            what, quantity, p = "reference node", "pressure", comp.pressure
+        issues.append(
+            issue(
+                "BOUNDARY_HEAD_OUT_OF_RANGE",
+                f"{what} '{comp.id}': a {quantity} of {p:g} Pa(g) with the fluid's density of "
+                f"{fluid.density:g} kg/m³ gives a pressure head p/(ρ g) above the largest "
+                f"floating-point number, {sys.float_info.max:.6g} m, in magnitude, so its head is "
+                "not a finite floating-point number; the solver cannot represent this boundary",
+                [comp.id],
+                [],
+            )
+        )
+    return issues
+
+
 def _orifice_input_flags(comp: Orifice, law: OrificeLaw, d_out: float) -> list[Flag]:
     """The plate's flags known before solving (decisions 11, 12): ISO 5167-2's geometric limits
     wherever eq. (4) is used, one per inequality broken, and an outlet pipe whose bore differs
@@ -1277,6 +1333,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     issues.extend(_unrepresentable_equipment(project))
     issues.extend(_unrepresentable_orifices(project, resolved, fluid))
     issues.extend(_unrepresentable_relief_valves(project, fluid))
+    issues.extend(_unrepresentable_boundaries(project, fluid))
     if issues:
         raise TopologyError(issues)
 
@@ -1306,7 +1363,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
             node = add_node(node_key(comp.id, port.id), comp, port.id, z)
             if isinstance(comp, Reservoir):
                 surface = comp.elevation + comp.liquid_level
-                node.fixed_head = surface + comp.surface_pressure / rho_g
+                node.fixed_head = boundary_head(comp, port.id, rho_g)
                 if z > surface:
                     flags.append(
                         make_flag(
@@ -1320,7 +1377,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
                         )
                     )
             elif isinstance(comp, IdealReferenceNode):
-                node.fixed_head = z + comp.pressure / rho_g
+                node.fixed_head = boundary_head(comp, port.id, rho_g)
             elif isinstance(comp, AssignedFlow):
                 node.demand = comp.flow
         if isinstance(comp, BranchComponent):

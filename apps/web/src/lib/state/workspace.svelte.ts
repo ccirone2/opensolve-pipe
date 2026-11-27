@@ -134,6 +134,14 @@ export interface Notice {
 	id: number;
 }
 
+/** Some ids' remembered unticks, per list (Workspace.casesUnticked and each chart's own). */
+interface Unticks {
+	cases: readonly string[];
+	pump: readonly string[];
+	group: readonly string[];
+}
+const NO_UNTICKS: Unticks = { cases: [], pump: [], group: [] };
+
 /** What an undo or redo did (Workspace.undoStep, redoStep; proposal pump-lineups.md §8.9). */
 export interface HistoryStep {
 	step: 'undo' | 'redo';
@@ -289,6 +297,16 @@ export class Workspace {
 	 * case, else the default), never written by an effect (decision 26).
 	 */
 	pumpStopOrder = $state.raw<readonly string[]>([]);
+	/**
+	 * The unticks a step's new scenarios took from the deleted ones whose ids they took
+	 * (proposals/open-defects-2.md F2), by each Scenario object the step made: an Undo of that step
+	 * gives them back to the ids, now free, and its Redo takes them again (`held` is then the new
+	 * scenarios' own). Keyed by the scenarios, not the project: #recordMethodVersion copies the
+	 * project but keeps its scenarios, and a scenario object comes and goes only with the step that
+	 * made it, undone or redone (copy-on-write gives an edited scenario a new object). So a new
+	 * scenario starts ticked, and each keeps its own unticks over Undo and Redo.
+	 */
+	#takenUnticks = new WeakMap<Scenario, { ids: readonly string[]; held: Unticks }>();
 	#noticeId = 0;
 	/** The project of the case shown (the base, or the base with the active scenario's changes). */
 	#caseProject: Project;
@@ -662,8 +680,21 @@ export class Workspace {
 
 	#history(step: 'undo' | 'redo'): HistoryStep | null {
 		const before = this.store.activeCase;
+		const from = this.store.project;
 		const label = (step === 'undo' ? this.store.undoLabel : this.store.redoLabel) ?? '';
 		if (!(step === 'undo' ? this.store.undo() : this.store.redo())) return null;
+		// A step that made scenarios in ids taken from deleted ones (F2), undone (its scenarios
+		// leave) or redone (they come back): the ids' unticks are swapped back, once per step.
+		const [moved, stays] =
+			step === 'undo' ? [from, this.store.project] : [this.store.project, from];
+		const kept = scenariosOf(stays).map((s) => s.id);
+		const swapped: object[] = [];
+		for (const scenario of scenariosOf(moved)) {
+			const taken = kept.includes(scenario.id) ? undefined : this.#takenUnticks.get(scenario);
+			if (!taken || swapped.includes(taken)) continue;
+			swapped.push(taken);
+			taken.held = this.#swapUnticks(taken.ids, taken.held);
+		}
 		const after = this.store.activeCase;
 		const caseChanged = after !== before;
 		const text = historyText(step, label, caseChanged ? this.caseWords(after) : null);
@@ -811,16 +842,52 @@ export class Workspace {
 	):
 		| { ok: true; changed: boolean; notes: readonly string[]; renamed: string }
 		| { ok: false; problem: string } {
+		const before = this.store.project;
 		const result = this.store.update(change, label);
 		if (!result.ok) {
 			return { ok: false, problem: result.problems[0] ?? 'the change is not valid.' };
 		}
+		if (result.changed) this.#tickCreated(before);
 		return {
 			ok: true,
 			changed: result.changed,
 			notes: result.notes ?? [],
 			renamed: renameNotice(result.renamed ?? [])
 		};
+	}
+
+	/**
+	 * A new scenario starts ticked under both charts' lists (proposals/open-defects-2.md F2, the
+	 * owner's answer of 2026-11-26): the step's new scenarios, which may take a deleted one's id
+	 * (newScenarioId), lose the unticks remembered for those ids; #takenUnticks keeps them, under
+	 * each scenario made, for the step's Undo. It keeps a record for none taken too, so the Undo
+	 * takes a new scenario's own unticks away with it and never gives them to the deleted one whose
+	 * id it took. Every step that can make a scenario comes through here (#step): the Scenarios
+	 * manager, the Pump lineups table, Add cases and goal seek's Apply.
+	 */
+	#tickCreated(before: Project): void {
+		const had = scenariosOf(before).map((s) => s.id);
+		const made = scenariosOf(this.store.project).filter((s) => !had.includes(s.id));
+		if (!made.length) return;
+		const ids = made.map((s) => s.id);
+		const record = { ids, held: this.#swapUnticks(ids, NO_UNTICKS) };
+		for (const scenario of made) this.#takenUnticks.set(scenario, record);
+	}
+
+	/** Take the unticks of `ids` out of the three lists, put `put` in their place; give those taken. */
+	#swapUnticks(ids: readonly string[], put: Unticks): Unticks {
+		const of = (list: readonly string[]) => list.filter((k) => ids.includes(k));
+		const held = {
+			cases: of(this.casesUnticked),
+			pump: of(this.pumpChartUnticked),
+			group: of(this.pumpGroupUnticked)
+		};
+		const swap = (list: readonly string[], taken: readonly string[], add: readonly string[]) =>
+			taken.length || add.length ? [...list.filter((k) => !ids.includes(k)), ...add] : list;
+		this.casesUnticked = swap(this.casesUnticked, held.cases, put.cases);
+		this.pumpChartUnticked = swap(this.pumpChartUnticked, held.pump, put.pump);
+		this.pumpGroupUnticked = swap(this.pumpGroupUnticked, held.group, put.group);
+		return held;
 	}
 
 	/**

@@ -1422,11 +1422,16 @@ def test_no_pump_or_curve_sheet_without_pumps() -> None:
 
 
 def _network_extremes(ss: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
-    # export.md §2.7 names `lowestPressureNode`: the least absolute pressure, the first of equal
-    # ones in the API's own nodeResults order (the fixture's relief valve discharges to 0 kPa(g),
-    # so its outlet port and the discharge's reference node tie at exactly 0 Pa(g) while it is
-    # closed).
-    low = min(ss["nodeResults"], key=lambda k: ss["nodeResults"][k]["absolutePressure"])
+    # export.md §2.7 names `lowestPressureNode`: since proposals/open-defects.md S1, the first row
+    # of the Nodes table sorted by pressure, lowest first, as the Summary names it: the least
+    # pressure, the first of equal ones in the table's order (components in project order, each
+    # one's ports in its order, then results of no component in the project, in the API's order).
+    # The fixture's relief valve discharges to 0 kPa(g), so while it is closed its outlet port and
+    # the discharge's reference node tie at exactly 0 Pa(g): the outlet, the earlier component.
+    ports = [f"{c['id']}:{p['id']}" for c in project["components"] for p in c["ports"]]
+    order = [k for k in ports if k in ss["nodeResults"]]
+    order += [k for k in ss["nodeResults"] if k not in order]
+    low = min(order, key=lambda k: ss["nodeResults"][k]["pressure"])
     links = [c["id"] for c in project["connections"] if c["id"] in ss["linkResults"]]
 
     def speed(cid: str) -> float:

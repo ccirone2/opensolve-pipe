@@ -33,7 +33,12 @@
  * display units. Where the iteration diverged, they name each element whose law gave a value that
  * is not a finite number, a component or a pipe connection (by its piping, "Tank → Pump"), with
  * the flow and the law's loss coefficient c (s²/m⁵, SI: it has no display unit); the convergence
- * report links them (namedElements, nonFiniteLawIds; CLAUDE.md D7).
+ * report links them (namedElements, nonFiniteLawIds; CLAUDE.md D7). Where it diverged with every
+ * law finite, they name each element whose energy balance was not, with the EGLs at its ends and
+ * the component that fixes the head it overflows from; where a Newton step's matrix was singular,
+ * each element whose weight 1/(dh/dQ) was lost in rounding, with its slope (s/m², SI), flow and
+ * coefficient. The report lists these under words of their own, never as laws
+ * (nonFiniteBalanceIds, singularStepIds; method 1.6.2).
  */
 import type { Flag, Project, UnitPreferences } from '../api/types';
 import { componentById, connectionById } from './graph';
@@ -121,7 +126,29 @@ export function namedElements(text: string, project: Project): ElementRef[] {
  * for another flag or without that detail.
  */
 export function nonFiniteLawIds(flag: Flag | undefined): string[] {
-	const listed = flag?.code === 'NOT_CONVERGED' ? flag.details.nonFiniteLawAt : undefined;
+	return listedIds(flag, 'nonFiniteLawAt');
+}
+
+/**
+ * The elements whose energy balance h − (H_start − H_end) was not a finite number where the
+ * iteration diverged with every law finite (`nonFiniteBalanceAt`; apps/api gga.NonFiniteBalance,
+ * method 1.6.2), in link order, each once; never a law's (nonFiniteLawIds).
+ */
+export function nonFiniteBalanceIds(flag: Flag | undefined): string[] {
+	return listedIds(flag, 'nonFiniteBalanceAt');
+}
+
+/**
+ * The elements whose weight 1/(dh/dQ) was lost in rounding where the Newton step's matrix was
+ * singular (`singularStepAt`; apps/api gga.LostWeight, method 1.6.2), in link order, each once.
+ */
+export function singularStepIds(flag: Flag | undefined): string[] {
+	return listedIds(flag, 'singularStepAt');
+}
+
+/** A NOT_CONVERGED flag's comma-joined list of ids under `key`, each once; none otherwise. */
+function listedIds(flag: Flag | undefined, key: string): string[] {
+	const listed = flag?.code === 'NOT_CONVERGED' ? flag.details[key] : undefined;
 	if (typeof listed !== 'string') return [];
 	const ids = listed
 		.split(',')

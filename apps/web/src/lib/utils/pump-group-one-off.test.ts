@@ -65,6 +65,7 @@ import {
 import { pumpLineup } from './pump-lineups';
 import { pumpStatusParts } from './results';
 import { applyScenario, SCENARIO_NAME_LIMIT, withScenarios } from './scenarios';
+import { baseBeforeC2, condenserCase, condenserCaseProject } from './condenser-charts.testing';
 
 interface Answer {
 	status: number;
@@ -300,11 +301,16 @@ describe('the rest of the network and the duty claim', () => {
 			zero_flow: 'Not said: at zero station flow the rest can hold more than one state',
 			beyond_range: 'Not said: its flow is beyond the flows this curve was computed for',
 			gap: 'Not said: the curve has no rise next to its flow',
+			// A ring on a vertical part (open-defects-2.md C1).
+			vertical:
+				"Not said: at its flow the curve is vertical (its rise undetermined there), and this case's own system duty check does not agree",
+			off_vertical:
+				'Not said: at its flow the curve is vertical, and its rise is not on that vertical part',
 			shown_duty:
 				"Not said: this case's own duty is not on the curve (several steady states can exist; the duty is the one the solve found)"
 		});
 		expect(DUTY_CLAIM_RULE).toBe(
-			"A ring is called a point of the group system curve shown only when its case, as solved, is the same as this one outside the station, its station flow is above zero, the curve has a rise at the computed flows on both sides of it, and this case's own duty is on the curve. Its duty is then a steady state of the same rest of the network, so it lies on the curve wherever the rest has one state at its flow; the curve is drawn through sampled points, each the state the system curve's starts find."
+			"A ring is called a point of the group system curve shown only when its case, as solved, is the same as this one outside the station, its station flow is above zero, the curve has a rise at the computed flows on both sides of it or is vertical at its flow with its rise in the range that holds there, and this case's own duty is on the curve. Its duty is then a steady state of the same rest of the network, so it lies on the curve wherever the rest has one state at its flow; the curve is drawn through sampled points, each the state the system curve's starts find."
 		);
 	});
 });
@@ -2224,5 +2230,166 @@ describe('the card’s NPSH reading is the margin ratio, the margin hidden by de
 		expect(mixed.table.rows[0]!.cells[2]!.amount).toBe(
 			sig4(ratioOf(scenarioCase('S3').solve, 'PA')!)
 		);
+	});
+});
+
+// docs/proposals/open-defects-2.md §2 C1 (the ring on a vertical part) and §3 C2, on the condenser
+// example's recorded answers (__fixtures__/condenser-charts.json,
+// apps/api/tests/fixtures/condenser_charts.py): the status-only case "5 of 6 running" (P6 off)
+// holds the same FCV limit, its rise above the Base case's foot, so its ring is drawn on the Base
+// case's vertical part. Since C2 the Base case's own system duty check agrees there; an API
+// deployed before C2 does not (baseBeforeC2).
+describe('a ring on the group system curve’s vertical part (open-defects-2.md C1)', () => {
+	const project = condenserCaseProject('p6off');
+	const system = condenserCase('base').systemCurve!;
+	const p6off = condenserCase('p6off').groupCurve!;
+	const duty = { flow: p6off.duty!.flow, head: p6off.duty!.head };
+	const shared = sharedRest(
+		project,
+		applyScenario(project, 'S2').project,
+		system.station,
+		hydraulicFingerprint
+	);
+	/** The Base case's group system curve as an API before C2 answers it (agrees false there). */
+	const before = baseBeforeC2();
+
+	it('is at the vertical part’s flow and above its foot, the rest of the network the same', () => {
+		const at = system.systemPoints.find((p) => p.isDuty)!;
+		expect(at).toMatchObject({ head: null, reason: 'valve_at_switch', openHeadBound: 'lower' });
+		expect(Math.abs(duty.flow - at.flow)).toBeLessThanOrEqual(DUTY_CHECK_FLOOR);
+		expect(duty.flow).not.toBe(at.flow);
+		expect(duty.head).toBeGreaterThan(at.openHead!);
+		expect(shared).toBe(true);
+		// C2: the Base case's own check agrees on its vertical part.
+		expect(system.systemDutyCheck).toMatchObject({ agrees: true, head: null });
+		expect(before.systemDutyCheck).toMatchObject({ agrees: false, head: null });
+		expect(before.systemPoints).toEqual(system.systemPoints);
+	});
+
+	it('takes the vertical part as a rise on both sides, every other condition unchanged', () => {
+		// An API before C2: the Base case's check does not agree there, so the ring is not called a
+		// point of the curve, in words that do not deny the vertical drawn through it ('gap' did).
+		expect(dutyClaim({ shared, duty, system: before })).toBe('vertical');
+		expect(DUTY_CLAIM_WORDS.vertical).toBe(
+			"Not said: at its flow the curve is vertical (its rise undetermined there), and this case's own system duty check does not agree"
+		);
+		// C2's check, as recorded: the ring is a point of the curve.
+		const c2 = system;
+		expect(dutyClaim({ shared, duty, system: c2 })).toBe('on');
+		expect(dutyClaim({ shared, duty, system: c2 })).toBe('on');
+		expect(dutyClaim({ shared: false, duty, system: c2 })).toBe('rest_differs');
+		expect(dutyClaim({ shared, duty: { flow: 5e-7, head: duty.head }, system: c2 })).toBe(
+			'zero_flow'
+		);
+		// Its rise on the other side of the foot: off the vertical part, in words saying so.
+		const foot = system.systemPoints.find((p) => p.isDuty)!.openHead!;
+		expect(dutyClaim({ shared, duty: { flow: duty.flow, head: foot - 1 }, system: c2 })).toBe(
+			'off_vertical'
+		);
+		expect(DUTY_CLAIM_WORDS.off_vertical).toBe(
+			'Not said: at its flow the curve is vertical, and its rise is not on that vertical part'
+		);
+		// Within D6's allowance of the foot (0.5 % or 0.01 m) is on its side.
+		expect(dutyClaim({ shared, duty: { flow: duty.flow, head: foot - 0.005 }, system: c2 })).toBe(
+			'on'
+		);
+		// More than the duty check's floor off the vertical's flow: its neighbours decide, as before.
+		expect(
+			dutyClaim({ shared, duty: { flow: duty.flow + 2e-6, head: duty.head }, system: c2 })
+		).toBe('gap');
+	});
+
+	// The review of open defects round two, WC-3: the allowance is 0.5 % of the ring's rise, as C2
+	// takes it for the duty's (pump_groups._on_vertical: max(DUTY_RTOL·|rise|, DUTY_HEAD_FLOOR),
+	// 0.005 and 0.01 m), not of the foot. Above 2 m of rise the 0.5 % is the looser, so on a
+	// 'lower' ray the least rise on the vertical part solves rise = openHead − 0.005·rise:
+	// rise = openHead/1.005, 24.50397 m from the Base case's foot, 24.62649 m. On d101793, 0.5 % of
+	// the foot put it at 0.995·openHead, 24.50336 m, so 24.5035 m was 'on'.
+	it('takes the allowance from the rise, as C2 does: the least rise on a vertical part is openHead/1.005 (WC-3)', () => {
+		const foot = system.systemPoints.find((p) => p.isDuty)!.openHead!;
+		expect(foot).toBeCloseTo(24.62649, 5);
+		const least = foot / 1.005;
+		expect(least).toBeCloseTo(24.50397, 5);
+		const claim = (head: number) => dutyClaim({ shared, duty: { flow: duty.flow, head }, system });
+		expect(claim(least * (1 + 1e-9))).toBe('on');
+		expect(claim(least * (1 - 1e-9))).toBe('off_vertical');
+		// The review's two rises, either side of it.
+		expect(claim(24.504)).toBe('on');
+		expect(claim(24.5035)).toBe('off_vertical');
+		// Below 2 m of rise the 0.01 m floor is the looser: the least rise is openHead − 0.01 m (a
+		// foot of 1 m, made up).
+		const low = structuredClone(system);
+		low.systemPoints.find((p) => p.isDuty)!.openHead = 1;
+		const lowClaim = (head: number) =>
+			dutyClaim({ shared, duty: { flow: duty.flow, head }, system: low });
+		expect(lowClaim(0.99 + 1e-9)).toBe('on');
+		expect(lowClaim(0.99 - 1e-9)).toBe('off_vertical');
+	});
+
+	// The same rule on an 'upper' ray (pump_groups._on_vertical: rise ≤ openHead + max(0.005·|rise|,
+	// 0.01 m)), the side every recorded response leaves untried (the skeptic of the review of open
+	// defects round two). Above 2 m of rise the most rise on the vertical part solves
+	// rise = openHead + 0.005·rise: rise = openHead/0.995, 10.0502513 m from a foot of 10 m; 0.5 %
+	// of the foot (d101793) put it at 1.005·openHead, 10.05 m, so 10.0501 m was 'off_vertical'.
+	// Below 2 m the 0.01 m floor is the looser: openHead + 0.01 m, 1.01 m from a foot of 1 m. The
+	// feet and their bound are made up, at the Base case's duty point (its own check agrees).
+	it('takes the allowance from the rise on an upper ray too: the most rise on it is openHead/0.995 (WC-3)', () => {
+		const upper = (openHead: number) => {
+			const s = structuredClone(system);
+			const at = s.systemPoints.find((p) => p.isDuty)!;
+			at.openHead = openHead;
+			at.openHeadBound = 'upper';
+			return (head: number) => dutyClaim({ shared, duty: { flow: duty.flow, head }, system: s });
+		};
+		const most = 10 / 0.995;
+		expect(most).toBeCloseTo(10.0502513, 7);
+		const high = upper(10);
+		expect(high(most * (1 - 1e-9))).toBe('on');
+		expect(high(most * (1 + 1e-9))).toBe('off_vertical');
+		expect(high(10.0501)).toBe('on');
+		expect(high(20)).toBe('off_vertical');
+		// Below the foot is the ray's side, however far: on.
+		expect(high(9)).toBe('on');
+		expect(high(0.5)).toBe('on');
+		const low = upper(1);
+		expect(low(1.01 - 1e-9)).toBe('on');
+		expect(low(1.01 + 1e-9)).toBe('off_vertical');
+	});
+
+	it('words the ring so on the Base case’s chart', () => {
+		const tags = caseTags(project);
+		const ringOn = (systemShown: typeof system) =>
+			otherGroupCases({
+				valued: [
+					{
+						key: 'S2',
+						caseId: 'S2',
+						name: '5 of 6 running',
+						stale: false,
+						group: { status: 'ready', response: p6off },
+						system: undefined,
+						shared,
+						solved: applyScenario(project, 'S2').project
+					}
+				],
+				tags,
+				shownKeys: new Set(['S2']),
+				othersOn: true,
+				shownSettled: true,
+				station: system.station,
+				systemShown,
+				memberIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'],
+				project,
+				boxes: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+			})[0];
+		// As recorded (C2): a point of the curve, the same rest of the network.
+		const ring = ringOn(system);
+		expect(ring).toMatchObject({ state: 'ready', number: 2, claim: 'on' });
+		expect(ring!.words).toBe(DUTY_CLAIM_WORDS.on);
+		// An API before C2: the vertical, in words that do not deny it.
+		const old = ringOn(before);
+		expect(old).toMatchObject({ state: 'ready', number: 2, claim: 'vertical' });
+		expect(old!.words).toBe(DUTY_CLAIM_WORDS.vertical);
+		expect(old!.words).not.toMatch(/no rise next to its flow/);
 	});
 });

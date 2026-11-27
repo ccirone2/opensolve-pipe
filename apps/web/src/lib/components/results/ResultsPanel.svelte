@@ -22,7 +22,10 @@
 	to base. The Scenarios menu's line, or the header's twin while it is closed, announces Solve
 	all's progress; the status line here is the case shown's, and a case switch replaces it (the
 	switch is announced once, by the workspace). Switching tab from a control that goes (a column
-	header of Compare cases, the card's Compare cases) gives the focus to the tab shown.
+	header of Compare cases, the card's Compare cases) gives the focus to the tab shown. A failed
+	solve that hides the earlier results gives a focus it removes to "Show the earlier results", and
+	that button's press gives it to the view's tab (proposals/open-defects-2.md F3, the failed-solve
+	path).
 
 	Goal seek (proposal goal-seek.md §6.2): the Goal seek button at the right of the header opens
 	its dialog, without a solve; its icon spins while one runs.
@@ -383,6 +386,37 @@
 	);
 
 	/**
+	 * The swap between the results and "Show the earlier results" removes what held the focus
+	 * (proposals/open-defects-2.md F3, the failed-solve path). A failed solve hides the whole view,
+	 * the Pumps together card with it, whose own handover then never runs, and the header's Export;
+	 * the results shown again (the button's press, an undo, a solve that succeeds) remove the
+	 * button. A focus in the pane is noted before the flush that swaps them; where the flush removed
+	 * it and the focus fell to the page, it goes to what the swap draws in its place, never the
+	 * page. Hidden: "Show the earlier results", one press from the results the user was in. Shown:
+	 * the view's tab, the pane's rule for a control that goes (the tab shown), drawn in that same
+	 * flush and naming the view they were in; the control they were in may not come back with it
+	 * (after a failed solve the card shows nothing from an earlier version of the project). A focus
+	 * the swap leaves drawn (the header's Goal seek, an open trace, Build) is not moved.
+	 */
+	let paneRoot: HTMLElement | undefined = $state();
+	let hiddenBefore: boolean | null = null;
+	$effect.pre(() => {
+		const hidden = previousHidden;
+		untrack(() => {
+			const before = hiddenBefore;
+			hiddenBefore = hidden;
+			if (before === null || before === hidden) return;
+			const active = document.activeElement;
+			if (!(active instanceof HTMLElement) || !paneRoot?.contains(active)) return;
+			void tick().then(() => {
+				const now = document.activeElement;
+				if (active.isConnected || (now && now !== document.body)) return;
+				document.getElementById(hidden ? `${id}-earlier` : `${id}-tab-${view}`)?.focus();
+			});
+		});
+	});
+
+	/**
 	 * A fluid error the browser can tell in the display unit (a glycol with no concentration),
 	 * decided from the project as it was when the error arrived: it stays the same, in its own
 	 * words, when the project changes afterwards (the error is then marked out of date).
@@ -589,7 +623,7 @@
 	}
 </script>
 
-<div class="relative flex h-full min-h-0 flex-col">
+<div bind:this={paneRoot} class="relative flex h-full min-h-0 flex-col">
 	<!--
 		One compact row (owner, 2026-10-31; proposal build-density.md §15): the status with its mark,
 		then Export and Goal seek. The title is for screen readers on phones, where the view tab
@@ -865,7 +899,12 @@
 			{#if failedNow}<ResultsStateNotice />{/if}
 
 			{#if previousHidden}
-				<button type="button" class="btn" onclick={() => (previousShownFor = results.error)}>
+				<button
+					type="button"
+					id="{id}-earlier"
+					class="btn"
+					onclick={() => (previousShownFor = results.error)}
+				>
 					<Icon name="right" class="size-4" /> Show the earlier results
 				</button>
 			{:else if response && solved}

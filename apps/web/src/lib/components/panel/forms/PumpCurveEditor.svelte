@@ -281,8 +281,11 @@
 				check (Settings → Design checks); the solve does not use them.
 			</p>
 			<div class="grid gap-3 sm:grid-cols-2">
-				<!-- Keyed by the other end as stored: a refusal against it goes when it changes. -->
-				{#key region?.flowMax}
+				<!-- Keyed by the other end as stored: a refusal against it goes when it changes. No
+					region and an end not given are one key (null), so a field's own first entry, or
+					clearing a draft's only end, does not draw it again and drop its focus
+					(proposals/open-defects.md F4). -->
+				{#key region?.flowMax ?? null}
 					<NumberField
 						label="Allowable operating region, lowest flow"
 						value={region?.flowMin}
@@ -295,7 +298,7 @@
 						onchange={(v) => setRegion('flowMin', v)}
 					/>
 				{/key}
-				{#key region?.flowMin}
+				{#key region?.flowMin ?? null}
 					<NumberField
 						label="Allowable operating region, highest flow"
 						value={region?.flowMax}

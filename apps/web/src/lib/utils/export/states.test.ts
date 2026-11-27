@@ -33,7 +33,7 @@ import { addPipe } from '../piping';
 import { pumpChartData } from '../pump-chart';
 import { refusalWords, wordsText } from '../pump-groups';
 import groupFixture from '../__fixtures__/pump-groups-input.json';
-import { Formatter } from '../results';
+import { fastestLink, Formatter, lowestPressureNode } from '../results';
 import { withScenarios } from '../scenarios';
 import { displayUnit, fromSI, IMPERIAL_UNITS, SI_UNITS } from '../units';
 import { writeCsvZip } from './csv';
@@ -491,6 +491,86 @@ describe('Compare cases (item 9)', () => {
 		}
 		expect(t.rows.flat()).not.toContain('Same');
 		expect(t.column('Row')).toContain('Network · Lowest pressure (where)');
+	});
+});
+
+// proposals/open-defects.md S1: About names the network's extremes as the Summary names them, the
+// first row of the table the Summary's link sorts (results.ts lowestPressureNode, fastestLink).
+describe('About names the extremes the Summary names (proposals/open-defects.md S1)', () => {
+	it('of values exactly equal, the element its table lists first, whatever order the API gave', async () => {
+		// Made-up results: the discharge tank first in the API's order, at the pump suction's
+		// pressure exactly; L3 before L2, at 4 m/s and −4 m/s (L2's flow against its drawn direction).
+		const { nodeResults, linkResults } = pumpTransferSolved();
+		const { 'R2:port_1': tank, ...rest } = nodeResults;
+		const ws = workspace(pumpTransferExample(), () =>
+			converged({
+				nodeResults: {
+					'R2:port_1': tank!,
+					...rest,
+					'P1:suction': {
+						...rest['P1:suction']!,
+						pressure: tank!.pressure,
+						absolutePressure: tank!.absolutePressure
+					}
+				},
+				linkResults: {
+					L3: linkResults.L3!,
+					L1: linkResults.L1!,
+					L2: link({ flow: -0.02, velocity: -4 })
+				}
+			})
+		);
+		await ws.store.solve();
+		const about = readSheet(bundleOf(ws), 'about');
+		const at = (label: string) => about.rows.find((r) => r[1] === label)?.[2];
+		expect(at('Lowest static pressure at')).toBe('Suction of Transfer pump');
+		expect(at('Highest velocity in')).toBe('Transfer pump → Discharge isolation valve');
+	});
+
+	it('of an out-of-date case, the element the Summary and Compare cases name, ordered as the project is now (review S1-R1)', async () => {
+		// Made-up results: the valve's inlet and the discharge tank tie exactly at the lowest
+		// pressure, the valve first in the project as solved; L3 before L2 in the API's order, at one
+		// speed, the fastest. Deleting the valve with its connections, not joining them, puts its
+		// port and L2 and L3 after the rest in the tables the Summary's links sort (results.ts
+		// nodeTable, linkTable; the rest in the API's order), so the Summary names the tank and L3;
+		// About, naming from the project as sent, must pick them too.
+		const { nodeResults, linkResults } = pumpTransferSolved();
+		const tie = { pressure: -5000, absolutePressure: nodeResults['R2:port_1']!.absolutePressure };
+		const ws = workspace(twoScenarios(), () =>
+			converged({
+				nodeResults: {
+					...nodeResults,
+					'V1:inlet': { ...nodeResults['V1:inlet']!, ...tie },
+					'R2:port_1': { ...nodeResults['R2:port_1']!, ...tie }
+				},
+				linkResults: {
+					L3: link({ flow: 0.03, velocity: 6 }),
+					L1: linkResults.L1!,
+					L2: link({ flow: 0.03, velocity: 6 })
+				}
+			})
+		);
+		await ws.store.solveAll();
+		expect(ws.remove('V1', false)).toBe(true);
+		expect(ws.store.caseStatus(null)).toBe('stale');
+		const solved = ws.store.resultsFor(null).response!.solvedState;
+		expect(lowestPressureNode(solved, ws.labelsProject)).toMatchObject({
+			componentId: 'R2',
+			portId: 'port_1'
+		});
+		expect(fastestLink(solved, ws.labelsProject)?.id).toBe('L3');
+		const bundle = bundleOf(ws, ALL);
+		const about = readSheet(bundle, 'about');
+		const compare = readSheet(bundle, 'compare-cases');
+		const where = compare.rows.find((r) => r.includes('Lowest pressure (where)'))!;
+		for (const label of ['Base case', 'Winter (S1)', 'Peak (S2)']) {
+			const at = (item: string) =>
+				about.rows.find((r) => r[0] === `Case: ${label}` && r[1] === item)?.[2];
+			expect(at('Lowest static pressure at'), label).toBe('Port 1 of Discharge tank');
+			expect(compare.get(where, label), label).toBe('Port 1 of Discharge tank');
+			// Named from the project as solved, where L3 still runs from the valve to the tank.
+			expect(at('Highest velocity in'), label).toBe('Discharge isolation valve → Discharge tank');
+		}
 	});
 });
 

@@ -32,11 +32,13 @@
 		rowKey,
 		rowLabel,
 		rowUnit,
+		type CompareCell,
 		type CompareColumn
 	} from '$lib/utils/compare';
 	import { noteParts, type ElementRef } from '$lib/utils/results';
 	import type { CaseId } from '$lib/utils/scenarios';
 	import CompareRowsDialog from './CompareRowsDialog.svelte';
+	import FlagIcon from './FlagIcon.svelte';
 
 	/** Show a case's results (a column header was used): the owner shows them and moves the focus. */
 	let { onshow }: { onshow?: (caseId: CaseId) => void } = $props();
@@ -129,6 +131,24 @@
 	{@const [head, tail] = noteParts(text)}<span class="block text-xs text-slate-600"
 		>{head}{#if tail}<span data-value-unit class="whitespace-nowrap">{tail}</span>{/if}</span
 	>
+{/snippet}
+
+<!-- A cell's value, marked where its element is physically invalid in that case as the Pumps tab
+	marks it (pumps-results-layout.md §5.2; proposals/open-defects.md S2): the red octagon, never
+	the triangle, then "physically invalid:" for a screen reader. The value sits on the line's
+	baseline by its text; the octagon is centred in a box one line tall at the top of the value
+	(`self-start`: out of the baseline alignment), so it stands beside the first line of a state's
+	words however they wrap in a narrow column (ui-guide "No value is not a safe value", Running
+	combinations' octagon). -->
+{#snippet value(cell: CompareCell)}
+	<span class="inline-flex items-baseline gap-1">
+		{#if cell.invalid}
+			<span class="flex h-lh shrink-0 items-center self-start"
+				><FlagIcon severity="invalid" class="size-3.5" /></span
+			><span class="sr-only">physically invalid:</span>
+		{/if}
+		{cell.text}
+	</span>
 {/snippet}
 
 <section class="space-y-3" aria-labelledby="{id}-title">
@@ -241,14 +261,7 @@
 										]}
 										title={cell.text === '—' ? (cell.note ?? noValues(i)) : undefined}
 									>
-										<span class="inline-flex items-center gap-1">
-											{#if cell.invalid}
-												<Icon name="alert" class="size-3.5 text-red-700" /><span class="sr-only"
-													>physically invalid:</span
-												>
-											{/if}
-											{cell.text}
-										</span>
+										{@render value(cell)}
 										{#if cell.note}{@render note(cell.note)}{/if}
 										{#if cell.where}<span class="block text-xs text-slate-600">{cell.where}</span
 											>{/if}
@@ -305,14 +318,7 @@
 										>{/if}
 								</dt>
 								<dd class="text-right wrap-anywhere tabular-nums">
-									<span class="inline-flex items-center gap-1">
-										{#if cell.invalid}
-											<Icon name="alert" class="size-3.5 text-red-700" /><span class="sr-only"
-												>physically invalid:</span
-											>
-										{/if}
-										{cell.text}
-									</span>
+									{@render value(cell)}
 									{#if cell.note}{@render note(cell.note)}{/if}
 									{#if cell.where}<span class="block text-xs text-slate-600">{cell.where}</span
 										>{/if}

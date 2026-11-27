@@ -700,7 +700,7 @@ Every base edit runs inside `carryChanges(change)`, a wrapper applied in `store.
 - Under each scenario value: scenario minus base, with a true minus sign and + for increases, for example "−2.20 (−17.9 %)". The relative part appears only for flow, velocity, pump head, head loss, power and speed. It is never given for gauge pressures, HGL, EGL, elevations or NPSH margin.
 - "Same" (muted) appears only when the two values display identically; the exact difference is in the title. There is no tolerance snapping (decision 30).
 - Text rows show the scenario's text, and "base: Open" when it differs.
-- An alert icon, with screen-reader text, marks an element with a physically invalid flag in that case.
+- An alert icon, with screen-reader text, marks an element with a physically invalid flag in that case. *Since `open-defects.md` S2 (2026-11-25) it is the red octagon (`FlagIcon severity="invalid"`), as the Pumps tab marks it, in a box one line tall beside the value's first line, with "physically invalid:" for a screen reader.*
 - A column that **did not converge** shows "—" with the header "Did not converge: no values shown". Its own results tab still shows them, with today's warnings.
 - "Not solved", "Failed" and not-reached columns show "—" (a response kept is from an earlier version of the project). Out-of-date values are tinted amber, under an amber "Out of date" header. A long status has a short form in the header ("Not reached"), its full words for screen readers.
 - Footnote: "Differences are the scenario's value minus the base case's, in the units shown; 'Same' means the values agree to the precision shown. Values are from each case's last solve."

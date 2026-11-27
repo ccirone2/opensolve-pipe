@@ -1718,7 +1718,7 @@ def test_the_api_solves_a_relief_valve_and_refuses_one_outside_asmes_scope() -> 
     response = client.post("/api/v1/solve", json={"project": series_dict(1.05e6)})
     assert response.status_code == 200, response.text
     state = response.json()["solvedState"]
-    assert state["methodVersion"] == "1.6.1"
+    assert state["methodVersion"] == "1.6.2"
     assert state["valveResults"] == {}
     assert list(state["reliefValveResults"]["RV1"]) == [
         "state",

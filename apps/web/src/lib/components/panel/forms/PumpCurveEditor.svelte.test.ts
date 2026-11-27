@@ -160,4 +160,46 @@ describe('PumpCurveEditor', () => {
 		await enter(low(), '');
 		expect(high()).not.toHaveAttribute('aria-invalid');
 	});
+
+	// proposals/open-defects.md F4: the first end entered with no region yet was drawn again by its
+	// own entry, so Enter dropped the focus to the page (and its "Converted from" note went).
+	it.each([
+		['lowest', 'highest', '5', /Must be greater than 6\.30902 L\/s\./, '4'],
+		['highest', 'lowest', '7', /Must be less than 6\.30902 L\/s\./, '8']
+	] as const)(
+		'keeps the focus in the %s flow, the first end of the region entered, and in it cleared',
+		async (first, other, refused, reason, moved) => {
+			const ws = testWorkspace(pumpTransferExample());
+			ws.nav.jumpTo('P1');
+			render(WorkspaceView, { workspace: ws });
+			expect(ws.project.pumpLibrary[0]!.allowableOperatingRegion).toBeUndefined();
+			const curve = within(screen.getByRole('region', { name: 'Pump curve' }));
+			const details = curve.getByText('Manufacturer data (optional)').closest('details')!;
+			const end = (which: string) =>
+				within(details).getByRole('textbox', {
+					name: new RegExp(`^Allowable operating region, ${which} flow`)
+				});
+			const field = end(first);
+			await enter(field, '100 gpm');
+			expect(end(first)).toBe(field);
+			expect(field).toHaveFocus();
+			expect(field).toHaveValue('6.30902');
+			expect(field).toHaveAccessibleDescription(/Converted from 100 gpm\./);
+			// What the {#key} is for still holds: a refusal against this end goes when it changes.
+			await enter(end(other), refused);
+			expect(end(other)).toHaveAccessibleDescription(reason);
+			await enter(field, moved);
+			expect(end(first)).toBe(field);
+			expect(field).toHaveFocus();
+			expect(end(other)).not.toHaveAccessibleDescription(reason);
+			expect(end(other)).toHaveAccessibleDescription(
+				/Enter both ends of the allowable operating region\./
+			);
+			// The draft's only end cleared: no region again, the same field still focused.
+			await enter(field, '');
+			expect(end(first)).toBe(field);
+			expect(field).toHaveFocus();
+			expect(ws.project.pumpLibrary[0]!.allowableOperatingRegion).toBeUndefined();
+		}
+	);
 });

@@ -1,0 +1,108 @@
+{
+  "name": "boundary_head_at_largest_double",
+  "description": "A reservoir 10 m deep under 1e8 Pa(g), in a custom fluid of the smallest density (5.672359721482876e-302 kg/m3) for which 1e8/(rho g) is finite, feeding a plugged line: verifies that the largest finite boundary head (DBL_MAX) solves, with no flow, every EGL equal to the reservoir's head and 1e8 Pa(g) at the plug, rather than being refused as a head that is not finite.",
+  "source": "closed-form: tests/reference/derivations_boundary_heads.py::boundary_head_at_largest_double (dead end: no flow, every EGL the reservoir's z + level + p/(rho g) = DBL_MAX at the smallest density whose p/(rho g) is finite (bisection over the doubles' bit patterns), static pressure p_s + rho g (z + level - z_plug))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-boundary-head-at-largest-double",
+    "metadata": {
+      "name": "Plugged line from a reservoir whose head is the largest double",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid at the finite-head edge (custom input)",
+      "density": 5.672359721482876e-302,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 10.0,
+        "surfacePressure": 100000000.0
+      },
+      {
+        "id": "P1",
+        "name": "Plug P1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.0254,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "plug"
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "P1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1,
+              "length": 10.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 5.672359721482876e-302,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.0
+    },
+    "egl": {
+      "R1:port_1": 1.7976931348623157e+308,
+      "P1:port_1": 1.7976931348623157e+308
+    },
+    "pressures": {
+      "R1:port_1": 100000000.0,
+      "P1:port_1": 100000000.0
+    }
+  }
+}

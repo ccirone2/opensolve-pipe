@@ -61,10 +61,14 @@ import { readableText } from './flag-text';
 import { componentById } from './graph';
 import { portLabel } from './labels';
 import {
+	belowFloor,
+	belowZeroNote,
 	caseNamed,
 	caseTagText,
 	compareCaseTags,
 	pumpChartData,
+	ZERO_FLOW_FLOOR,
+	type BelowZero,
 	type CaseNumber,
 	type ChartPoint
 } from './pump-chart';
@@ -81,6 +85,18 @@ import {
 	type Column,
 	type PumpStatusParts
 } from './results';
+import {
+	boundWords,
+	pointRay,
+	systemLine,
+	verticalCell,
+	verticalSummary,
+	verticalWords,
+	type PastLimit,
+	type RayBound,
+	type SystemLinePoint,
+	type SystemRay
+} from './system-curve-line';
 import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
 import { displayUnit, formatNumber, fromSI, unitLabel, type UnitId } from './units';
 
@@ -152,10 +168,11 @@ export const OTHER_CURVES_LABEL = "Other cases' group curves (slate; dashed beyo
 
 /**
  * When a ring is called a point of the group system curve shown (pump-group-one-off.ts
- * dutyClaim): the notes' sentence, while a ring and a group system curve are drawn.
+ * dutyClaim; a vertical part since open-defects-2.md C1): the notes' sentence, while a ring and a
+ * group system curve are drawn.
  */
 export const DUTY_CLAIM_RULE =
-	"A ring is called a point of the group system curve shown only when its case, as solved, is the same as this one outside the station, its station flow is above zero, the curve has a rise at the computed flows on both sides of it, and this case's own duty is on the curve. Its duty is then a steady state of the same rest of the network, so it lies on the curve wherever the rest has one state at its flow; the curve is drawn through sampled points, each the state the system curve's starts find.";
+	"A ring is called a point of the group system curve shown only when its case, as solved, is the same as this one outside the station, its station flow is above zero, the curve has a rise at the computed flows on both sides of it or is vertical at its flow with its rise in the range that holds there, and this case's own duty is on the curve. Its duty is then a steady state of the same rest of the network, so it lies on the curve wherever the rest has one state at its flow; the curve is drawn through sampled points, each the state the system curve's starts find.";
 
 /**
  * The station and its duty the card shows: the group curve's ready response, else the group
@@ -238,11 +255,20 @@ export interface GroupChartData {
 	} | null;
 	/**
 	 * The group system curve in flow order (station's flow, rise): a null rise is a point without
-	 * one (a gap); null without a group system curve response or points. While other cases' curves
-	 * are drawn, the line as drawn under `yMax` (D24 §9.4: its points inside the plot and those
-	 * next to one); `systemMissing` and `systemTotal` count the whole curve.
+	 * one (a gap), a vertical part's point its `openHead` with its `bound` (system-curve-line.ts;
+	 * open-defects-2.md C1); null without a group system curve response or points. While other
+	 * cases' curves are drawn, the line as drawn under `yMax` (D24 §9.4: its points inside the plot
+	 * and those next to one); `systemMissing` and `systemTotal` count the whole curve.
 	 */
-	system: { x: number; y: number | null }[] | null;
+	system: SystemLinePoint[] | null;
+	/**
+	 * Its vertical parts drawn (open-defects-2.md C1): at a point where a control valve sits at its
+	 * switch, every rise on its bound's side of its `openHead` holds, drawn from there to the plot's
+	 * edge; one whose foot lies above `yMax` is not drawn.
+	 */
+	systemRays: SystemRay[];
+	/** Its points without a rise past a flow limit, where no steady state carries the flow. */
+	systemPast: PastLimit[];
 	/** Points of the group system curve without a rise (gaps), of `systemTotal`. */
 	systemMissing: number;
 	systemTotal: number;
@@ -269,12 +295,6 @@ export interface GroupChartData {
 	 */
 	curvesCut: boolean;
 	/**
-	 * The x-axis minimum (display units, §9.4: other cases' curves do not widen the x-axis): 0 when
-	 * only they reach below zero flow (round-off at their shutoff rise, about −10⁻¹¹ L/s, would
-	 * start the axis a tick below zero). Null: Chart.js's own range.
-	 */
-	xMin: number | null;
-	/**
 	 * The y-axis maximum (display units, §9.4, decision 25): while other cases' curves are drawn,
 	 * from every drawn head but the group system curve's, whose points above it are cut from
 	 * `system`. Null: Chart.js's own range (4b's and 4d's charts).
@@ -282,6 +302,13 @@ export interface GroupChartData {
 	yMax: number | null;
 	/** The group system curve had a rise above `yMax`: it is cut at the plot's top (the clip note). */
 	systemCut: boolean;
+	/**
+	 * The floor of a flow drawn at zero, display unit (ZERO_FLOW_FLOOR, the duty check's): the
+	 * flow axis starts at zero (open-defects-2.md X), a mark further below it is not drawn.
+	 */
+	flowFloor: number;
+	/** What lies below zero flow past `flowFloor`, which the notes name (belowZeroNote; X). */
+	belowZero: BelowZero[];
 }
 
 /**
@@ -437,26 +464,55 @@ export function groupChartData(
 		}
 	}
 	const duty = response?.duty ?? system?.duty ?? null;
-	const systemPoints = system?.systemPoints.length
-		? [...system.systemPoints].sort((a, b) => a.flow - b.flow)
+	// Its vertical parts as the line's feet and rays (open-defects-2.md C1).
+	const drawnSystem = system?.systemPoints.length
+		? systemLine(system.systemPoints, flowUnit, headUnit)
 		: null;
-	const systemLine =
-		systemPoints?.map((p) => ({
-			x: fromSI(p.flow, flowUnit),
-			y: p.head === null ? null : fromSI(p.head, headUnit)
-		})) ?? null;
-	const systemDrawn = !!systemLine?.some((p) => p.y !== null);
+	const groupSystemLine = drawnSystem?.line ?? null;
+	const systemDrawn = !!groupSystemLine?.some((p) => p.y !== null);
 	const onCurve = !!response?.dutyCheck?.agrees;
 	const onSystem = !!system?.systemDutyCheck?.agrees;
 	const crossing = onCurve && onSystem && !!response?.points.length && systemDrawn;
 	const curve = response && response.points.length ? groupCurveRuns(response.points, at) : null;
 	const rings = otherRings(others, at, flowUnit, headUnit);
 	const otherCurves = familyCurves(others, at);
+	// Below zero flow past the floor: not drawn, named in the notes (open-defects-2.md X).
+	const flowFloor = fromSI(ZERO_FLOW_FLOOR, flowUnit);
+	const below = (points: readonly { x: number; y: number | null }[]) =>
+		belowFloor(points, flowFloor);
+	const memberName = (id: string) => members.find((m) => m.id === id)?.name ?? id;
+	const runsOf = (c: { solid: ChartPoint[][]; beyond: ChartPoint[][] } | null) =>
+		c ? [...c.solid, ...c.beyond].flat() : [];
+	const belowZero: BelowZero[] = [
+		...lines.map((l) => ({
+			name: `the curve of ${andList(l.ids.map(memberName))}`,
+			points: below([...l.curve, ...l.extrapolated.flat()]),
+			mark: false
+		})),
+		...points.map((p) => ({ name: `${p.name}'s point`, points: below([p.point]), mark: true })),
+		{ name: 'the group curve', points: below(runsOf(curve)), mark: false },
+		...otherCurves.map((c) => ({
+			name: `the group curve of ${c.number === 'Base' ? c.name : `case ${c.number}, ${c.name}`}`,
+			points: below(runsOf(c)),
+			mark: false
+		})),
+		{ name: 'the group system curve', points: below(groupSystemLine ?? []), mark: false },
+		...(duty
+			? [{ name: 'the Group point', points: below([at(duty.flow, duty.head)]), mark: true }]
+			: []),
+		...rings.flatMap((r) =>
+			r.cases.map((c) => ({
+				name: `${c.number === 'Base' ? c.name : `case ${c.number}, ${c.name}`}, its ring`,
+				points: below([r.point]),
+				mark: true
+			}))
+		)
+	].filter((item) => item.points.length);
 	const axes = familyAxes({
 		lines,
 		points,
 		curve,
-		system: systemLine,
+		system: groupSystemLine,
 		station: duty ? at(duty.flow, duty.head) : null,
 		rings,
 		otherCurves
@@ -490,16 +546,22 @@ export function groupChartData(
 			: null,
 		// The line as drawn (cut above y max while the family is drawn); its gaps counted whole.
 		system: axes.system,
-		systemMissing: (systemLine ?? []).filter((p) => p.y === null).length,
-		systemTotal: systemLine?.length ?? 0,
+		// A ray whose foot is cut above y max is not drawn: it would lie wholly above the plot.
+		systemRays: (drawnSystem?.rays ?? []).filter(
+			(r) => axes.yMax === null || r.bound === 'upper' || r.from <= axes.yMax
+		),
+		systemPast: drawnSystem?.past ?? [],
+		systemMissing: drawnSystem?.missing ?? 0,
+		systemTotal: groupSystemLine?.length ?? 0,
 		others: rings,
 		otherCurves,
 		on,
-		xMin: axes.xMin,
 		xMax: axes.xMax,
 		curvesCut: axes.curvesCut,
 		yMax: axes.yMax,
-		systemCut: axes.systemCut
+		systemCut: axes.systemCut,
+		flowFloor,
+		belowZero
 	};
 }
 
@@ -581,28 +643,29 @@ export function roundUpNice(value: number): number | null {
  *   members' lines and points, this case's group curve and its group system curve as drawn, the
  *   Group point, every ring), that flow × 1.05, rounded up; the other curves are cut at it, where
  *   a point of one lies beyond it (`curvesCut`, the clip note's clause).
- * - x min: 0 when only the other cases' curves reach below zero flow (nor do they widen it there).
+ * The flow axis starts at zero flow whatever the data (pump-chart-config.ts flowAxisFloor;
+ * open-defects-2.md X), which replaced §9.4's x min, set only where other cases' curves alone
+ * reached below it (pump-lineups.md item 96).
  */
 function familyAxes(input: {
 	lines: readonly GroupLine[];
 	points: readonly GroupPoint[];
 	curve: { solid: ChartPoint[][]; beyond: ChartPoint[][] } | null;
-	system: { x: number; y: number | null }[] | null;
+	system: SystemLinePoint[] | null;
 	station: ChartPoint | null;
 	rings: readonly OtherRing[];
 	otherCurves: readonly OtherCurve[];
 }): {
-	xMin: number | null;
 	xMax: number | null;
 	curvesCut: boolean;
 	yMax: number | null;
-	system: { x: number; y: number | null }[] | null;
+	system: SystemLinePoint[] | null;
 	systemCut: boolean;
 } {
 	const { lines, points, curve, station, rings, otherCurves } = input;
 	if (!otherCurves.length) {
 		const system = input.system;
-		return { xMin: null, xMax: null, curvesCut: false, yMax: null, system, systemCut: false };
+		return { xMax: null, curvesCut: false, yMax: null, system, systemCut: false };
 	}
 	const runs = (c: { solid: ChartPoint[][]; beyond: ChartPoint[][] } | null) =>
 		c ? [...c.solid, ...c.beyond].flat() : [];
@@ -628,14 +691,12 @@ function familyAxes(input: {
 		// lies wholly above the plot or beyond the line drawn there.
 		system = line.filter((_, i) => inside(i) || inside(i - 1) || inside(i + 1));
 	}
-	const drawnSystem = (system ?? []).filter((p): p is ChartPoint => p.y !== null);
+	const drawnSystem = (system ?? []).filter((p): p is SystemLinePoint & ChartPoint => p.y !== null);
 	const largest = Math.max(...[...own, ...drawnSystem].map((p) => p.x));
 	const familyLargest = Math.max(...family.map((p) => p.x));
 	const xMax = familyLargest > largest ? roundUpNice(largest * 1.05) : null;
 	const curvesCut = xMax !== null && family.some((p) => p.x > xMax);
-	const smallest = Math.min(...[...own, ...drawnSystem].map((p) => p.x));
-	const xMin = Math.min(...family.map((p) => p.x)) < 0 && smallest >= 0 ? 0 : null;
-	return { xMin, xMax, curvesCut, yMax, system, systemCut };
+	return { xMax, curvesCut, yMax, system, systemCut };
 }
 
 /** Two duties agree within the duty checks' tolerances (the flow's, and the rise's of 4b). */
@@ -828,6 +889,8 @@ export function groupLegend(
 			mark: 'member'
 		}));
 	};
+	/** A mark the chart draws: not below zero flow past the floor (open-defects-2.md X). */
+	const drawn = (p: ChartPoint) => p.x >= -data.flowFloor;
 	/** ", its point at {flow} and {head}" where `key`'s label is left out, else nothing. */
 	const valuesOf = (key: string) => {
 		const left = keys.get(key);
@@ -892,7 +955,7 @@ export function groupLegend(
 			: []),
 		// A pump held at zero flow: the hollow diamond in its line's colour, named in words (rule 5).
 		...data.points
-			.filter((p) => p.held)
+			.filter((p) => p.held && drawn(p.point))
 			.map((p): GroupLegendItem => ({
 				key: `point-${p.id}`,
 				label: `${p.name}, held at zero flow${valuesOf(`point-${p.id}`)}`,
@@ -901,7 +964,7 @@ export function groupLegend(
 				mark: 'held'
 			})),
 		// The Group: the ink dot, its entry starting "Group" (rule 3).
-		...(data.station
+		...(data.station && drawn(data.station.point)
 			? [
 					{
 						key: 'station',
@@ -912,14 +975,16 @@ export function groupLegend(
 					}
 				]
 			: []),
-		...data.others.map((ring): GroupLegendItem => ({
-			key: `other-${ring.numbers.join('-')}`,
-			label: ring.label,
-			kind: 'marker',
-			color: GROUP_OTHER,
-			mark: 'ring',
-			tags: ring.numbers
-		}))
+		...data.others
+			.filter((ring) => drawn(ring.point))
+			.map((ring): GroupLegendItem => ({
+				key: `other-${ring.numbers.join('-')}`,
+				label: ring.label,
+				kind: 'marker',
+				color: GROUP_OTHER,
+				mark: 'ring',
+				tags: ring.numbers
+			}))
 	];
 }
 
@@ -1181,6 +1246,8 @@ export interface GroupNotes {
 	 * is labelled.
 	 */
 	notLabelled: string | null;
+	/** What lies below zero flow and is not drawn, with its values (open-defects-2.md X). */
+	belowZero: string | null;
 	/**
 	 * Other cases' station duties (slice 4d): what a ring is, when one is called a point of the
 	 * group system curve shown, the rings, and the cases without one and why; one line while
@@ -1457,6 +1524,7 @@ export function groupNotes({
 			"Each pump's own system curve is on its pump chart above; it crosses that pump's curve, not the group curve.",
 		dashed,
 		notLabelled: notLabelledNote(notLabelled),
+		belowZero: belowZeroNote(data.belowZero, data.flowUnit, data.headUnit),
 		// The footer's lines are the screen's parts joined (pumps-results-layout.md §5.3).
 		others: otherNoteLines(otherParts),
 		otherParts
@@ -1653,6 +1721,18 @@ export function otherNoteLines(parts: OtherNoteParts): string[] {
 export const SYSTEM_DUTY_CHECK_FLOOR = 0.01;
 
 /**
+ * Whether a rise (m) is one of those that hold at a vertical part of a group system curve, by
+ * C2's rule (open-defects-2.md §3; the API's pump_groups._on_vertical): on the ray's side of its
+ * foot (`from`, m), or short of it by no more than the duty check's allowance, 0.5 % of the rise
+ * or SYSTEM_DUTY_CHECK_FLOOR, whichever is looser (D6). The allowance is the rise's, not the
+ * foot's (the review of open defects round two, WC-3).
+ */
+export function riseOnVertical(rise: number, ray: { from: number; bound: RayBound }): boolean {
+	const allowance = Math.max(0.005 * Math.abs(rise), SYSTEM_DUTY_CHECK_FLOOR);
+	return ray.bound === 'lower' ? rise >= ray.from - allowance : rise <= ray.from + allowance;
+}
+
+/**
  * The group system curve's notes (slice 4b): its state, what it is, and whether it passes through
  * the Group point at the duty's flow (crossing the group curve there when the group curve's duty
  * check agrees too), or why that is not known.
@@ -1668,6 +1748,11 @@ function groupSystemNotes(
 	const headUnit = displayUnit('head', prefs);
 	const head = (m: number) => `${formatNumber(fromSI(m, headUnit), 4)} ${data.headUnit}`;
 	const response = system?.status === 'ready' ? system.response : null;
+	// The vertical parts drawn, and where no steady state carries the flow (open-defects-2.md C1).
+	const vertical = verticalWords(
+		{ rays: data.systemRays, missing: data.systemMissing, past: data.systemPast },
+		{ value: 'rise', edge: 'the plot', flowUnit: data.flowUnit, headUnit: data.headUnit }
+	);
 	const systemCurve: GroupNotes['systemCurve'] =
 		system === undefined
 			? null
@@ -1703,7 +1788,9 @@ function groupSystemNotes(
 											kind: 'no_duty',
 											text: `No group system curve for this case: ${sentence(system.response.message || 'the station has no duty in this case')}`
 										}
-									: data.systemTotal && data.systemMissing === data.systemTotal
+									: data.systemTotal &&
+										  data.systemMissing === data.systemTotal &&
+										  !data.systemRays.length
 										? {
 												kind: 'missing',
 												text: 'No point of the group system curve has a rise, so it is not drawn; the data table says why for each.'
@@ -1711,7 +1798,9 @@ function groupSystemNotes(
 										: data.systemMissing
 											? {
 													kind: 'missing',
-													text: `${data.systemMissing} of ${data.systemTotal} group-system-curve points have no rise: the line has gaps there, and the data table says why for each.`
+													text: vertical
+														? `${data.systemMissing} of ${data.systemTotal} group-system-curve points have no rise: ${vertical}. The data table says why for each.`
+														: `${data.systemMissing} of ${data.systemTotal} group-system-curve points have no rise: the line has gaps there, and the data table says why for each.`
 												}
 											: null;
 
@@ -1724,17 +1813,38 @@ function groupSystemNotes(
 		const check = response.systemDutyCheck;
 		const groupAgrees = state?.status === 'ready' && !!state.response.dutyCheck?.agrees;
 		const tolerance = `0.5 % or ${head(SYSTEM_DUTY_CHECK_FLOOR)}`;
+		const point = response.systemPoints.find((p) => p.isDuty);
+		// The duty's point a vertical part (open-defects-2.md C1): the words relay the API's verdict,
+		// never one of their own (D21: the crossing needs both checks to agree).
+		const ray = point && check?.head === null ? pointRay(point) : null;
 		if (check?.agrees) {
 			duty.push(
-				`At the duty's flow the group system curve gives the solve's rise (within ${tolerance}): it passes through the Group point${groupAgrees ? ', where it crosses the group curve' : ''}.`
+				ray
+					? `At the duty's flow the group system curve is vertical, any rise ${boundWords(ray.bound)} ${head(ray.from)} holding, and the solve's rise, ${head(response.duty.head)}, is one of them (within ${tolerance}): it passes through the Group point${groupAgrees ? ', where it crosses the group curve' : ''}.`
+					: `At the duty's flow the group system curve gives the solve's rise (within ${tolerance}): it passes through the Group point${groupAgrees ? ', where it crosses the group curve' : ''}.`
+			);
+		} else if (check && check.head === null && ray && !riseOnVertical(response.duty.head, ray)) {
+			// Since C2 an API that does not agree on the vertical part has found the duty's rise off
+			// it: said as such, never as a rise not known (the review of open defects round two,
+			// WC-2). Its rise on the ray's side, the verdict is an API's before C2: its words below.
+			duty.push(
+				`The group system curve does not pass through the Group point: at the duty's flow it is vertical, any rise ${boundWords(ray.bound)} ${head(ray.from)} holding, and the solve's rise, ${head(response.duty.head)}, is not one of them (more than ${tolerance} off).`
 			);
 		} else if (check && check.head === null) {
-			const point = response.systemPoints.find((p) => p.isDuty);
 			const why = point
 				? systemPointNote(point, { project, solved, units: prefs, subject: 'station' }).text
 				: '';
+			const verdict = sentence(
+				`The group system curve has no rise at the duty's flow, so whether it passes through the Group point is not known${why ? `: ${lowerFirst(why)}` : ''}`
+			);
+			// Beside the verdict, in its paragraph, the API's facts only: the range that holds, and the
+			// solve's rise. One paragraph, so the card's run of notes keeps its budget (pumps-results-
+			// layout.md §5.7 row 7, 5 in the card): as two, the condenser's after Add cases was 6 at
+			// 320 × 640 (open-defects-2.md C1).
 			duty.push(
-				`The group system curve has no rise at the duty's flow, so whether it passes through the Group point is not known${why ? `: ${lowerFirst(why)}` : '.'}`
+				ray
+					? `${verdict} The curve is drawn vertical at that flow, from ${head(ray.from)} ${ray.bound === 'lower' ? 'up' : 'down'}, the rises that hold there; the duty's rise is ${head(response.duty.head)}.`
+					: verdict
 			);
 		} else if (check) {
 			duty.push(
@@ -1879,6 +1989,7 @@ export function groupNoteLines(notes: GroupNotes, refusals: readonly string[] = 
 		...notes.members,
 		notes.dashed,
 		notes.notLabelled,
+		notes.belowZero,
 		notes.systemCurves
 	].filter((line): line is string => !!line);
 }
@@ -1940,7 +2051,7 @@ export function groupSummary(
 		data.curve && data.missing < data.total ? '; group curve shown' : '; no group curve shown';
 	const systemCurve = system
 		? systemShown
-			? '; group system curve shown'
+			? `; group system curve shown${verticalSummary(data.systemRays, data.flowUnit, data.headUnit)}`
 			: '; no group system curve shown'
 		: '';
 	return `Pump curves and points of ${parts.join('; ')}${station}${others}${family}${curve}${systemCurve}.`;
@@ -2211,7 +2322,7 @@ export const OTHER_CURVES_CAPTION = "Other cases' group curves (station's flow a
 /** A group system curve's sample as the data table lists it (formatted, display units). */
 export interface GroupSystemRow {
 	flow: string;
-	/** The rise ('—' without one). */
+	/** The rise ('—' without one; at a vertical part's foot the range, "≥ 24.63": C1). */
 	rise: string;
 	/** Duty: the point at the duty's flow (the system duty check). */
 	duty: boolean;
@@ -2244,9 +2355,16 @@ export function groupSystemRows(
 					: names
 						? systemPointNote(p, { ...names, units: prefs, subject: 'station' })
 						: { text: p.message };
+			// A vertical part's point: the range that holds there (open-defects-2.md C1).
+			const ray = pointRay(p);
 			return {
 				flow: fmt(fromSI(p.flow, flowUnit)),
-				rise: p.head === null ? '—' : fmt(fromSI(p.head, headUnit)),
+				rise:
+					p.head !== null
+						? fmt(fromSI(p.head, headUnit))
+						: ray
+							? verticalCell(fromSI(ray.from, headUnit), ray.bound)
+							: '—',
 				duty: p.isDuty,
 				note: why.text,
 				...(why.detail ? { detail: why.detail } : {})
@@ -2258,8 +2376,17 @@ export function groupSystemRows(
 export function systemDutyCheckState(response: PumpGroupCurveResponse): string {
 	const check = response.systemDutyCheck;
 	if (!check) return '';
+	// Through it at a vertical part, as the API decides (open-defects-2.md §3 C2).
+	const point = response.systemPoints.find((p) => p.isDuty);
+	const ray = point ? pointRay(point) : null;
+	if (check.agrees && check.head === null && ray)
+		return 'the group system curve passes through it, on its vertical part';
 	if (check.agrees) return 'the group system curve passes through it';
 	if (check.head !== null) return 'the group system curve does not pass through it';
+	// Not through it, the duty's rise off the vertical part (C2's verdict; the review of open
+	// defects round two, WC-2); on its side, the verdict of an API before C2.
+	if (ray && response.duty && !riseOnVertical(response.duty.head, ray))
+		return 'the group system curve does not pass through it, the duty’s rise off its vertical part';
 	return 'not known, the group system curve has no rise at the duty’s flow';
 }
 
@@ -2360,7 +2487,7 @@ export function groupMethods(state: GroupCurveState | undefined): MethodsSection
 	return state?.status === 'ready' ? state.response.methods : null;
 }
 
-/** "Pump group (calculation methods 1.6.1)": the heading the card and the export give a response's methods. */
+/** "Pump group (calculation methods 1.6.2)": the heading the card and the export give a response's methods. */
 export function groupMethodsHeading(r: PumpGroupCurveResponse): string {
 	return `${r.methods.title} (calculation methods ${r.methodVersion})`;
 }

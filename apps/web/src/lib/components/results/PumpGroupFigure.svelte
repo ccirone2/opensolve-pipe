@@ -74,6 +74,7 @@
 	import CurveTable from './CurveTable.svelte';
 	import IssueDetail from './IssueDetail.svelte';
 	import PumpGroupOthers from './PumpGroupOthers.svelte';
+	import { CardSections } from './card-sections.svelte';
 	import { registerSection, useSectionNav } from './section-nav.svelte';
 
 	/** Why the pumps are not a station, for one issue: the issue, and its words with names. */
@@ -85,6 +86,17 @@
 	interface Props {
 		/** The figure (bindable): the focus falls back to it. */
 		figure?: HTMLElement;
+		/**
+		 * The two methods' open state, kept by the card while a solve withdraws them
+		 * (proposals/open-defects-2.md F3); the figure alone makes its own.
+		 */
+		sections?: CardSections;
+		/**
+		 * A solve withdrew the methods and the case shown's curves have not all answered yet: they
+		 * are not drawn, and come back with Add cases in one flush (the card's rule, open-defects-2
+		 * F3). Default: false.
+		 */
+		withheld?: boolean;
 		/**
 		 * The data table is shown (bindable: the card keeps it while the section is redrawn, and
 		 * reads it from this browser, which remembers it, §9 S7).
@@ -179,6 +191,8 @@
 
 	let {
 		figure = $bindable(),
+		sections = new CardSections(),
+		withheld = false,
 		showTable = $bindable(false),
 		tablesOpen = $bindable({}),
 		reading = $bindable(null),
@@ -395,7 +409,9 @@
 						readout: () => markNow,
 						compactLabels: compact,
 						curveLabels,
-						onlabels: (placed) => labelsDrawn(element, placed)
+						onlabels: (placed) => labelsDrawn(element, placed),
+						// The group system curve's vertical parts as drawn (open-defects-2.md C1).
+						onrays: (rays) => (element.dataset.systemRays = JSON.stringify(rays))
 					})
 				);
 				drawnChart = chart;
@@ -895,6 +911,8 @@
 			{#if notes.dashed}<p class="text-xs text-slate-700">{notes.dashed}</p>{/if}
 			<!-- A point whose label the chart left out, named with its values (nit 5, rule 7). -->
 			{#if notes.notLabelled}<p class="text-xs text-slate-700">{notes.notLabelled}</p>{/if}
+			<!-- What lies below zero flow and is not drawn, with its values (open-defects-2.md X). -->
+			{#if notes.belowZero}<p class="text-xs text-slate-700">{notes.belowZero}</p>{/if}
 		</div>
 		<!--
 			The reference (§5.3), three native disclosures, closed, each saying what it holds: how to
@@ -926,9 +944,15 @@
 				{/if}
 			</div>
 		</details>
-		{#if shown}
-			<details class="group">
-				<summary class="more-summary">
+		<!-- How each curve is computed: withdrawn by a solve until the case shown's curves have
+			answered, their open state the card's meanwhile (proposals/open-defects-2.md F3). -->
+		{#if shown && !withheld}
+			<details
+				class="group"
+				bind:open={sections.groupMethodsOpen}
+				data-card-section="group-methods"
+			>
+				<summary class="more-summary" data-focus-key="group-methods">
 					<Icon
 						name="right"
 						class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
@@ -951,9 +975,13 @@
 				</div>
 			</details>
 		{/if}
-		{#if systemShown}
-			<details class="group">
-				<summary class="more-summary">
+		{#if systemShown && !withheld}
+			<details
+				class="group"
+				bind:open={sections.systemMethodsOpen}
+				data-card-section="system-methods"
+			>
+				<summary class="more-summary" data-focus-key="system-methods">
 					<Icon
 						name="right"
 						class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
@@ -1109,7 +1137,7 @@
 						key="group-system"
 						caption="Group system curve (rise the rest of the network needs at each station's flow)"
 						points={systemRows.length}
-						openByDefault={cannotDraw || systemRows.some((row) => row.rise === '—')}
+						openByDefault={cannotDraw || systemRows.some((row) => row.rise === '—' || !!row.note)}
 						bind:choice={tablesOpen['group-system']}
 					>
 						<thead class="bg-slate-50">

@@ -9,10 +9,18 @@ import type {
 	PumpGroupCurveResponse,
 	SolvedState,
 	SolveRequest,
-	SolveResponse
+	SolveResponse,
+	SystemCurveResponse
 } from '../src/lib/api/types';
+import { condenserWaterExample } from '../src/lib/utils/examples';
+import type {
+	CurveLabelsDrawn,
+	PointLabelsDrawn,
+	SystemRayDrawn
+} from '../src/lib/utils/pump-chart-config';
 import {
 	caseTagBoxes,
+	chooseCase,
 	curveTableFold,
 	downloadFrom,
 	expectNothingSent,
@@ -609,6 +617,281 @@ test('a PRV inside the station: no group curve there, the group system curve all
 		legend.getByRole('listitem').filter({ hasText: 'Group duty, on the group system curve' })
 	).toHaveCount(1);
 	await expect(card.getByRole('slider')).toHaveCount(0);
+	await noSidewaysScroll(page);
+});
+
+// ---- Open defects round two, C1 and X (proposals/open-defects-2.md §2) --------------------------
+
+/** The condenser example's recorded answers (apps/api/tests/fixtures/condenser_charts.py, the API). */
+const condenserCharts = JSON.parse(
+	readFileSync(
+		new URL('../src/lib/utils/__fixtures__/condenser-charts.json', import.meta.url),
+		'utf8'
+	)
+) as {
+	project: Project;
+	cases: Record<string, { memberIds: string[]; groupCurve: PumpGroupCurveResponse }>;
+};
+
+/** The Pumps together card's screen canvas (the group chart's; the image is drawn off the page). */
+const groupCanvas = (card: Locator) => card.locator('[data-group-chart] canvas');
+
+/** A canvas's JSON hook (`data-system-rays`, `data-point-labels`, `data-curve-labels`), or null. */
+async function hookOf<T>(canvas: Locator, name: string): Promise<T | null> {
+	const text = await canvas.getAttribute(name);
+	return text === null ? null : (JSON.parse(text) as T);
+}
+
+test('the condenser example: the group system curve turns vertical at the FCVs’ limit, through the Group point; its name, its table row and the Group label follow the API (open-defects-2.md C1)', async ({
+	page
+}) => {
+	test.setTimeout(180_000);
+	await open(page, condenserWaterExample());
+	await solveConverged(page);
+	const { card, toggle } = await openCard(page);
+	const { group, system } = await answersOf(page, () => toggle.click());
+	expect(group.status).toBe(200);
+	expect(system.status).toBe(200);
+	expect(system.request).toMatchObject({
+		pumpIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'],
+		curve: 'system'
+	});
+	// The API's facts at the duty's flow: no rise, any rise at or above openHead holding.
+	const duty = system.body.systemPoints.find((p) => p.isDuty)!;
+	expect(duty.head).toBeNull();
+	expect(duty.reason).toBe('valve_at_switch');
+	expect(duty.openHeadBound).toBe('lower');
+	expect(Number.isFinite(duty.openHead)).toBe(true);
+	const openHead = duty.openHead!;
+	// The Group label follows the API's system duty check (D21: "crossing" only when both checks
+	// agree); since C2 (open-defects-2.md §3) it agrees on the vertical part, its rise null, so the
+	// label is "Group (crossing)".
+	expect(system.body.systemDutyCheck).toMatchObject({ agrees: true, head: null });
+	const crossing = group.body.dutyCheck!.agrees && system.body.systemDutyCheck!.agrees;
+	expect(crossing).toBe(true);
+	const expectedLabel = crossing ? 'Group (crossing)' : 'Group';
+	console.log(
+		`C1 at ${page.viewportSize()!.width}×${page.viewportSize()!.height}: duty ${duty.flow} m³/s, openHead ${openHead} m, systemDutyCheck.agrees ${system.body.systemDutyCheck!.agrees}`
+	);
+
+	// The canvas's rays as drawn: one, the group system curve's, at the duty's flow from openHead
+	// up to the top of the plot.
+	const canvas = groupCanvas(card);
+	await expect(canvas).toHaveCount(1);
+	await expect
+		.poll(async () => (await hookOf<SystemRayDrawn[]>(canvas, 'data-system-rays'))?.length ?? -1, {
+			timeout: 60_000
+		})
+		.toBe(1);
+	const [ray] = (await hookOf<SystemRayDrawn[]>(canvas, 'data-system-rays'))!;
+	console.log(`C1 ray: ${JSON.stringify(ray)}`);
+	expect(ray!.label).toMatch(/^Group system curve/);
+	expect(ray!.bound).toBe('lower');
+	expect(Math.abs(ray!.flow - duty.flow * 1000)).toBeLessThanOrEqual(1e-9 * duty.flow * 1000);
+	expect(Math.abs(ray!.head - openHead)).toBeLessThanOrEqual(1e-9 * openHead);
+	expect(ray!.y2).toBeLessThan(ray!.y1);
+
+	// The Group mark on it: within 2 px of its x, inside its y extent; its label the API's.
+	const points = (await hookOf<PointLabelsDrawn>(canvas, 'data-point-labels'))!;
+	const mark = points.items.find((item) => item.kind === 'group');
+	expect(mark, 'the Group mark in data-point-labels').toBeDefined();
+	console.log(`C1 Group mark: ${JSON.stringify(mark)}`);
+	expect(Math.abs(mark!.x - ray!.x)).toBeLessThanOrEqual(2);
+	expect(mark!.y).toBeGreaterThanOrEqual(Math.min(ray!.y1, ray!.y2));
+	expect(mark!.y).toBeLessThanOrEqual(Math.max(ray!.y1, ray!.y2));
+	const label = points.labels.find((l) => l.kind === 'group');
+	expect(label, 'the Group label drawn').toBeDefined();
+	expect(label!.text).toBe(expectedLabel);
+
+	// The accessible name says where it is vertical, from where, and which way.
+	const chart = card.locator('[data-group-chart] figure [role="img"]');
+	await expect(chart).toHaveAccessibleName(/group system curve shown, vertical at /);
+	const name = (await chart.getAttribute('aria-label'))!;
+	const said = / vertical at ([\d.]+) L\/s from ([\d.]+) m up/.exec(name);
+	expect(said, name).not.toBeNull();
+	shows(said![1]!, duty.flow * 1000);
+	shows(said![2]!, openHead);
+
+	// The data table: the duty's row reads "≥ openHead" in its rise cell.
+	await card.getByRole('button', { name: 'Show data table of the group chart' }).click();
+	const caption = "Group system curve (rise the rest of the network needs at each station's flow)";
+	const fold = curveTableFold(card, caption);
+	await expect(fold).toHaveCount(1);
+	if ((await fold.getAttribute('open')) === null) await fold.locator('summary').first().click();
+	await expect(fold).toHaveAttribute('open', '');
+	const table = card.getByRole('table', { name: caption, exact: true });
+	const sorted = [...system.body.systemPoints].sort((a, b) => a.flow - b.flow);
+	const row = table.getByRole('row').nth(sorted.indexOf(duty) + 1);
+	const cells = (await row.getByRole('cell').allInnerTexts()).map(squash);
+	console.log(`C1 table row: ${JSON.stringify(cells.slice(0, 2))}`);
+	shows(cells[0]!, duty.flow * 1000);
+	expect(cells[1]).toMatch(/^≥ [\d.]+$/);
+	shows(cells[1]!.slice(2), openHead);
+	await noSidewaysScroll(page);
+});
+
+test('the condenser example’s Winter case: P1’s system curve turns vertical at its limit point, through its operating point; its name and its table row say so (open-defects-2.md C3)', async ({
+	page
+}) => {
+	test.setTimeout(240_000);
+	await open(page, condenserWaterExample());
+	await solveAll(page, { done: true });
+	// P1's own system curve in the Winter case (S1), as the pump chart asks for it.
+	const answer = page.waitForResponse((r) => {
+		if (!r.url().endsWith('/api/v1/system-curve') || r.request().method() !== 'POST') return false;
+		const request = r.request().postDataJSON() as { pumpId: string; scenarioId?: string | null };
+		return request.pumpId === 'P1' && request.scenarioId === 'S1';
+	});
+	await chooseCase(page, 'Winter: tower bypassed (19 changes)');
+	await resultsView(page, 'Pumps');
+	const curve = (await (await answer).json()) as SystemCurveResponse;
+	// The API's limit point at F1's setpoint, between two grid flows: F1 at its switch.
+	expect(curve.limitPoints).toHaveLength(1);
+	const limit = curve.limitPoints[0]!;
+	expect(limit).toMatchObject({ head: null, reason: 'valve_at_switch', openHeadBound: 'lower' });
+	expect(curve.points.map((p) => p.flow)).not.toContain(limit.flow);
+	console.log(`C3 Winter P1: limit point ${limit.flow} m³/s, openHead ${limit.openHead} m`);
+
+	// The canvas's rays as drawn: one, the system curve's, at the limit's flow from openHead up.
+	const pumpChart = page.getByRole('figure', { name: /^Pump and system curves/ });
+	const canvas = pumpChart.locator('canvas').first();
+	await expect
+		.poll(async () => (await hookOf<SystemRayDrawn[]>(canvas, 'data-system-rays'))?.length ?? -1, {
+			timeout: 60_000
+		})
+		.toBe(1);
+	const [ray] = (await hookOf<SystemRayDrawn[]>(canvas, 'data-system-rays'))!;
+	console.log(`C3 ray: ${JSON.stringify(ray)}`);
+	expect(ray!.bound).toBe('lower');
+	expect(Math.abs(ray!.flow - limit.flow * 1000)).toBeLessThanOrEqual(1e-9 * limit.flow * 1000);
+	expect(Math.abs(ray!.head - limit.openHead!)).toBeLessThanOrEqual(1e-9 * limit.openHead!);
+	expect(ray!.y2).toBeLessThan(ray!.y1);
+	// The accessible name: vertical at the limit, where P1 runs.
+	const chart = pumpChart.locator('[role="img"]').first();
+	const name = (await chart.getAttribute('aria-label'))!;
+	const said = / vertical at ([\d.]+) L\/s from ([\d.]+) m up; operating point ([\d.]+) L\/s/.exec(
+		name
+	);
+	expect(said, name).not.toBeNull();
+	shows(said![1]!, limit.flow * 1000);
+	shows(said![2]!, limit.openHead!);
+	shows(said![3]!, limit.flow * 1000);
+
+	// The data table: the limit point's row, in flow order, marked, its head the range that holds.
+	await pumpChart.getByRole('button', { name: 'Show data table of the pump chart' }).click();
+	const fold = curveTableFold(pumpChart, 'System curve');
+	await expect(fold).toHaveCount(1);
+	if ((await fold.getAttribute('open')) === null) await fold.locator('summary').first().click();
+	await expect(fold).toHaveAttribute('open', '');
+	const table = pumpChart.getByRole('table', { name: 'System curve', exact: true });
+	const rows = table.getByRole('row');
+	await expect(rows).toHaveCount(curve.points.length + 2);
+	const flows = (await table.locator('tbody tr td:first-child').allInnerTexts()).map(squash);
+	const at = flows.findIndex((f) => f.endsWith('(limit point)'));
+	expect(flows.filter((f) => f.endsWith('(limit point)'))).toHaveLength(1);
+	shows(flows[at]!.replace(' (limit point)', ''), limit.flow * 1000);
+	expect(Number(flows[at - 1])).toBeLessThan(Number(flows[at]!.split(' ')[0]));
+	expect(Number(flows[at + 1])).toBeGreaterThan(Number(flows[at]!.split(' ')[0]));
+	const cells = (
+		await rows
+			.nth(at + 1)
+			.getByRole('cell')
+			.allInnerTexts()
+	).map(squash);
+	expect(cells[1]).toMatch(/^≥ [\d.]+$/);
+	shows(cells[1]!.slice(2), limit.openHead!);
+	await noSidewaysScroll(page);
+});
+
+test('the flow axes start at zero flow: the group chart as shipped and with its group curve’s point at the shutoff rise at round-off below zero, and a pump chart (open-defects-2.md X)', async ({
+	page
+}) => {
+	test.setTimeout(240_000);
+	const project = condenserWaterExample();
+	const pumpChart = page.getByRole('figure', { name: /^Pump and system curves/ });
+	/** The group chart's flow axis's least value (display units), as its canvas last drew it. */
+	const groupXMin = async (card: Locator) =>
+		(await hookOf<CurveLabelsDrawn>(groupCanvas(card), 'data-curve-labels'))?.x?.min ?? null;
+	/**
+	 * Zero flow on the pump chart against the plot's left edge (px): the shutoff head's dash, the
+	 * one mark at zero flow and the leftmost of the single-point marks (data-point-labels'
+	 * obstacles), is at the left edge exactly when the flow axis starts at 0.
+	 */
+	const pumpZeroFromLeft = async () => {
+		const placed = await hookOf<PointLabelsDrawn>(
+			pumpChart.locator('canvas').first(),
+			'data-point-labels'
+		);
+		if (!placed?.obstacles.length) return null;
+		const centres = placed.obstacles.map((o) => (o.left + o.right) / 2);
+		return Math.min(...centres) - placed.plot.left;
+	};
+
+	// 1. As shipped: the group curve's point at the shutoff rise is at +1.20e-14 m³/s.
+	await open(page, project);
+	await solveConverged(page);
+	const { card, toggle } = await openCard(page);
+	await answersOf(page, () => toggle.click());
+	await expect.poll(() => groupXMin(card), { timeout: 60_000 }).not.toBeNull();
+	expect(await groupXMin(card)).toBe(0);
+	await expect.poll(pumpZeroFromLeft, { timeout: 60_000 }).not.toBeNull();
+	console.log(`X as shipped: pump chart's zero flow ${await pumpZeroFromLeft()} px from the left`);
+	expect(Math.abs((await pumpZeroFromLeft())!)).toBeLessThanOrEqual(0.5);
+
+	// 2. The group curve answered with the recorded response, its point at the shutoff rise set to
+	// −1.2e-14 m³/s (the photo's sign of the round-off), and each pump's system curve with its
+	// least flow set to −1.2e-14 m³/s: routed data, the live API's sign being input-dependent.
+	const recorded = structuredClone(condenserCharts.cases.base!.groupCurve);
+	const shutoff = recorded.points.reduce((a, b) => (b.head > a.head ? b : a));
+	expect(Math.abs(shutoff.flow!)).toBeLessThan(1e-12);
+	shutoff.flow = -1.2e-14;
+	const groupRouted: string[][] = [];
+	const systemRouted: number[] = [];
+	await page.route('**/api/v1/pump-group-curve', async (route) => {
+		const request = route.request().postDataJSON() as PumpGroupCurveRequest;
+		if (request.curve !== 'group' || request.scenarioId) return route.continue();
+		groupRouted.push(request.pumpIds);
+		return route.fulfill({ status: 200, json: recorded });
+	});
+	await page.route('**/api/v1/system-curve', async (route) => {
+		const response = await route.fetch();
+		const body = (await response.json()) as SystemCurveResponse;
+		const least = body.points.reduce((a, b) => (b.flow < a.flow ? b : a));
+		systemRouted.push(least.flow);
+		least.flow = -1.2e-14;
+		return route.fulfill({ response, json: body });
+	});
+	await page.reload();
+	await expect(page).toHaveURL(/\/p#[A-Za-z0-9_-]+$/);
+	await solveConverged(page);
+	const again = await openCard(page);
+	await answersOf(page, () => again.toggle.click());
+	// The recorded answer is the base case's of the same six pumps; each pump's least flow was 0.
+	expect(groupRouted).toEqual([condenserCharts.cases.base!.memberIds]);
+	await expect.poll(() => systemRouted.length, { timeout: 60_000 }).toBeGreaterThan(0);
+	expect(new Set(systemRouted)).toEqual(new Set([0]));
+	await expect.poll(() => groupXMin(again.card), { timeout: 60_000 }).not.toBeNull();
+	// Both charts drawn from the routed answers before they are read.
+	await expect(again.card.locator('[data-group-chart] [role="img"]')).toHaveAttribute(
+		'aria-busy',
+		'false',
+		{ timeout: 60_000 }
+	);
+	await expect(pumpChart.locator('[role="img"]')).toHaveAttribute('aria-busy', 'false', {
+		timeout: 60_000
+	});
+	const xMin = await groupXMin(again.card);
+	const zero = await pumpZeroFromLeft();
+	console.log(
+		`X routed: group chart x.min ${xMin}; pump chart's zero flow ${zero} px from the left (${groupRouted.length} group, ${systemRouted.length} system-curve answers routed)`
+	);
+	// Soft, so a run reports both charts.
+	expect.soft(xMin, "the group chart's flow axis from").toBe(0);
+	expect(zero).not.toBeNull();
+	expect(
+		Math.abs(zero!),
+		"the pump chart's zero flow from the plot's left edge, px"
+	).toBeLessThanOrEqual(0.5);
 	await noSidewaysScroll(page);
 });
 

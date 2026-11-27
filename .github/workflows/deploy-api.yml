@@ -1,22 +1,24 @@
 # The API's deployment (CLAUDE.md D25; docs/deployment.md §4). Started by hand: by the owner, or
-# by Claude when the owner asks. It deploys a commit on main whose CI passed:
+# by Claude when the owner asks. It deploys an earlier or current head of main whose CI passed
+# on main:
 # - it builds the image here, from that commit;
 # - it signs in to Google Cloud with no stored key: Workload Identity Federation exchanges this
 #   job's GitHub OIDC token, and Google's trust condition accepts it only for this file on main,
-#   started by hand, in the production environment of this repository;
+#   started by hand (a first attempt, not a re-run), in the production environment of this
+#   repository;
 # - it deploys a candidate revision with no traffic, checks it (scripts/check_deployment.py), and
 #   only then gives it the traffic;
 # - it checks the service again, and returns the traffic to the previous revision if that fails.
-# The deploy account can push to one image repository and deploy one Cloud Run service, acting as
-# a runtime account that has no roles. It cannot change who may call the service, nor anything
-# else in the project (D25).
+# The job runs no action code: an action in it could mint the job's OIDC token. The deploy account
+# can push to one image repository and deploy one Cloud Run service, acting as a runtime account
+# that has no roles (D25).
 name: Deploy API
 
 on:
   workflow_dispatch:
     inputs:
       commit:
-        description: The full commit hash on main to deploy (empty for main's latest)
+        description: The full hash of an earlier or current head of main to deploy (empty for main's latest)
         type: string
         default: ""
       check_only:
@@ -58,19 +60,22 @@ jobs:
       DEPLOY_SA: api-deployer@opensolve-pipe-api.iam.gserviceaccount.com
       SITE_ORIGIN: https://opensolve-pipe.pages.dev
       PREVIEW_ORIGIN: https://web-check.opensolve-pipe.pages.dev
-      # projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/opensolve-pipe
+      # projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/opensolve-pipe-deploy/providers/github
       WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
       # Inputs reach the shell through the environment only, never as expressions in a script.
       INPUT_COMMIT: ${{ inputs.commit }}
       CHECK_ONLY: ${{ inputs.check_only }}
     steps:
+      # Plain git, not actions/checkout: no action code runs in a job that can mint the OIDC
+      # token. The repository is public; main's whole history is fetched for the checks below.
       - name: Check out main
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+        run: |
+          git init --quiet .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --quiet --no-tags origin main
+          git -c advice.detachedHead=false checkout --quiet "$GITHUB_SHA"
 
-      - name: Choose the commit (on main, CI passed)
+      - name: Choose the commit (a head of main, CI passed on main)
         id: commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,12 +85,21 @@ jobs:
           sha="${INPUT_COMMIT:-$GITHUB_SHA}"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] \
             || { echo "::error::The commit must be a full 40-character hash"; exit 1; }
-          git merge-base --is-ancestor "$sha" "$GITHUB_SHA" \
-            || { echo "::error::$sha is not on main"; exit 1; }
-          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&status=success" --jq .total_count)
+          # A head main has had (its first-parent history), not a commit merged in from a branch:
+          # what was reviewed and run as main. Not grep -q, which pipefail would turn into a
+          # failure once grep stops reading.
+          git rev-list --first-parent "$GITHUB_SHA" | grep -xF "$sha" > /dev/null \
+            || { echo "::error::$sha has not been a head of main"; exit 1; }
+          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&branch=main&event=push&status=success" --jq .total_count)
           [ "$passed" -ge 1 ] \
-            || { echo "::error::CI has not passed on $sha (a push run of ci.yml)"; exit 1; }
+            || { echo "::error::CI has not passed on $sha on main (a push run of ci.yml)"; exit 1; }
           git -c advice.detachedHead=false checkout --quiet "$sha"
+          # A commit from before the check script borrows main's copy, so it can still be checked
+          # and deployed, to go back to it (D25).
+          if ! git cat-file -e "$sha:apps/api/scripts/check_deployment.py" 2>/dev/null; then
+            git show "$GITHUB_SHA:apps/api/scripts/check_deployment.py" > apps/api/scripts/check_deployment.py
+            echo "The commit has no check script: main's is used" >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "tag=c-${sha:0:7}" >> "$GITHUB_OUTPUT"
           echo "Deploying $sha" >> "$GITHUB_STEP_SUMMARY"
@@ -134,7 +148,11 @@ jobs:
           previous=$(jq -r '[.status.traffic[] | select(.percent == 100)][0].revisionName // empty' "$RUNNER_TEMP/before.json")
           [ -n "$previous" ] || { echo "::error::No revision serves all traffic now: leave the traffic as it is and deploy by hand"; exit 1; }
           echo "previous=$previous" >> "$GITHUB_OUTPUT"
-          echo "Serving now: $previous ($(jq -r .status.url "$RUNNER_TEMP/before.json"))" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "Serving now: $previous ($(jq -r .status.url "$RUNNER_TEMP/before.json"))"
+            # Visible each run: the deploy account could change these too (D25, the ceiling).
+            jq -r '.spec.template | "Settings: max instances \(.metadata.annotations["autoscaling.knative.dev/maxScale"] // "unset"), cpu \(.spec.containers[0].resources.limits.cpu // "unset"), memory \(.spec.containers[0].resources.limits.memory // "unset"), concurrency \(.spec.containerConcurrency // "unset")"' "$RUNNER_TEMP/before.json"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Push the image
         if: env.CHECK_ONLY != 'true'
@@ -167,9 +185,20 @@ jobs:
         env:
           SHA: ${{ steps.commit.outputs.sha }}
           URL: ${{ steps.candidate.outputs.url }}
-        run: python3 apps/api/scripts/check_deployment.py "$URL" --commit "$SHA" --origin "$SITE_ORIGIN" --origin "$PREVIEW_ORIGIN" | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          # Up to 3 tries, 15 s apart, so one dropped connection or cold start is not a failure.
+          for attempt in 1 2 3; do
+            if python3 apps/api/scripts/check_deployment.py "$URL" --commit "$SHA" \
+                --origin "$SITE_ORIGIN" --origin "$PREVIEW_ORIGIN" > "$RUNNER_TEMP/check.txt"; then
+              ok=1; break
+            fi
+            [ "$attempt" = 3 ] || sleep 15
+          done
+          { echo "Candidate checks (try $attempt):"; cat "$RUNNER_TEMP/check.txt"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "${ok:-0}" = 1 ]
 
       - name: Give the candidate all traffic
+        id: promote
         if: env.CHECK_ONLY != 'true'
         env:
           TAG: ${{ steps.commit.outputs.tag }}
@@ -187,26 +216,43 @@ jobs:
           SHA: ${{ steps.commit.outputs.sha }}
         run: |
           url=$(gcloud run services describe "$SERVICE" --format='value(status.url)')
-          python3 apps/api/scripts/check_deployment.py "$url" --commit "$SHA" --origin "$SITE_ORIGIN" --origin "$PREVIEW_ORIGIN" | tee -a "$GITHUB_STEP_SUMMARY"
+          for attempt in 1 2 3; do
+            if python3 apps/api/scripts/check_deployment.py "$url" --commit "$SHA" \
+                --origin "$SITE_ORIGIN" --origin "$PREVIEW_ORIGIN" > "$RUNNER_TEMP/check.txt"; then
+              ok=1; break
+            fi
+            [ "$attempt" = 3 ] || sleep 15
+          done
+          { echo "Service checks (try $attempt):"; cat "$RUNNER_TEMP/check.txt"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "${ok:-0}" = 1 ]
 
+      # Whenever the traffic may have moved and the service was not checked good: a failed or
+      # cancelled promote, a failed or cancelled check. Where the promote stopped before moving
+      # anything, the traffic is on the previous revision already and this changes nothing.
       - name: Return the traffic to the previous revision
-        if: failure() && steps.after.conclusion == 'failure'
+        if: always() && steps.promote.outcome != '' && steps.promote.outcome != 'skipped' && steps.after.outcome != 'success'
         env:
           PREVIOUS: ${{ steps.before.outputs.previous }}
         run: |
           gcloud run services update-traffic "$SERVICE" --to-revisions "$PREVIOUS=100" --quiet
-          echo "Rolled back to $PREVIOUS: traffic stays pinned to it until the next deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "Rolled back to $PREVIOUS: traffic stays pinned to it until the next deploy (docs/deployment.md §4)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Clean up
         if: always()
         env:
           TAG: ${{ steps.commit.outputs.tag }}
-          DEPLOYED: ${{ steps.candidate.conclusion != 'skipped' && steps.candidate.outcome != '' }}
+          DEPLOYED: ${{ steps.candidate.outcome != '' && steps.candidate.outcome != 'skipped' }}
+          KEPT: ${{ steps.after.outcome == 'success' }}
+          PREVIOUS: ${{ steps.before.outputs.previous }}
         run: |
-          # A candidate that never got the traffic keeps no tag URL (whatever step stopped the run).
+          # A candidate that did not get the traffic keeps no tag URL, whatever step stopped the
+          # run. The spec, not the status: the tag is there as soon as the deploy is submitted.
           if [ "$DEPLOYED" = true ] && [ -n "$TAG" ] \
               && gcloud run services describe "$SERVICE" --format=json 2>/dev/null \
-              | jq -e --arg tag "$TAG" '.status.traffic[] | select(.tag == $tag)' > /dev/null; then
+              | jq -e --arg tag "$TAG" '.spec.traffic[] | select(.tag == $tag)' > /dev/null; then
             gcloud run services update-traffic "$SERVICE" --remove-tags "$TAG" --quiet || true
+          fi
+          if [ "$DEPLOYED" = true ] && [ "$KEPT" != true ]; then
+            echo "Not kept: the traffic stays pinned to $PREVIOUS, and the service's template is the candidate that was not kept. Deploy again before any change by hand (docs/deployment.md §4)." >> "$GITHUB_STEP_SUMMARY"
           fi
           rm -f "$RUNNER_TEMP/gcp-credentials.json"

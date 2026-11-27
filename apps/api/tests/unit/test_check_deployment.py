@@ -124,3 +124,17 @@ def test_the_script_refuses_a_commit_that_is_not_a_full_hash(check: ModuleType) 
     with pytest.raises(SystemExit) as raised:
         check.main(["https://example.invalid", "--commit", SHA[:7]])
     assert raised.value.code == 2
+
+
+def test_a_deployment_that_does_not_answer_fails_every_check_without_stopping(
+    check: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A refused connection (nothing listens on 127.0.0.1:9, the discard port) is status 0 for
+    every request, so each check prints its FAIL line and the run exits 1, never a traceback."""
+    status, headers, _ = check.http_request("http://127.0.0.1:9", timeout=5)(
+        "GET", "/health", {}, None
+    )
+    assert (status, headers) == (0, {})
+    assert check.main(["http://127.0.0.1:9", "--commit", SHA, "--origin", SITE]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert [line.split(":")[0] for line in lines] == ["FAIL"] * 6

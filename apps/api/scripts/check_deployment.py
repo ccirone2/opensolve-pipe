@@ -20,6 +20,7 @@ browser) need a second network or a person, and stay by hand.
 """
 
 import argparse
+import http.client
 import json
 import re
 import sys
@@ -192,6 +193,10 @@ def http_request(base: str, timeout: float = 60.0) -> Request:
                 return response.status, _lower(response.headers.items()), response.read()
         except urllib.error.HTTPError as error:
             return error.code, _lower(error.headers.items()), error.read()
+        except (OSError, http.client.HTTPException) as error:
+            # No answer (refused, reset, DNS, TLS, a timeout): status 0, so the check fails with
+            # its own line rather than a traceback that stops the rest.
+            return 0, {}, repr(error).encode()
 
     return request
 

@@ -133,7 +133,17 @@ Session 17 (2026-11-27), deployment:
     - the commit step run against the repository (`main`'s head and an older green commit accepted; a branch-only commit, a short hash, an unset provider and a red commit refused);
     - the credential file loaded by `google-auth` 2.63.1 and exercised against a stand-in for GitHub's token endpoint.
 
-    The token exchange and the grants need the owner's one-time setup (`docs/deployment.md` §4); the first run with *Check the setup only* verifies them.
+    The token exchange and the grants need the owner's one-time setup (`docs/deployment.md` §4); the first run with *Check the setup only* verifies the sign-in, and the first deploy the rest.
+  - **The review:** an adversarial review with three lenses (trust and grants, GitHub Actions, fail-safety), each finding confirmed by a skeptic, found 14, all taken in (D25, *Review*). Before it, the builder had found that a failed check piped into `tee` would have passed without `pipefail`. The workflow:
+    - deploys only an earlier or current head of `main`, with CI on `main`;
+    - runs no action code (plain `git` in place of `actions/checkout`);
+    - has Google refuse a re-run (`run_attempt`);
+    - lets an old commit borrow `main`'s check script, so a rollback to it works;
+    - rolls back after a failed or cancelled promote too;
+    - removes a stray tag found in the service's spec;
+    - retries each check and reports a request with no answer as a failed check.
+
+    The records state the service grant's reach into settings and cost, the one-provider pool, `main`'s ruleset, the audit log as the durable record, and the pinned traffic after a candidate not kept.
 
 The branch's own lines, brought in by Session 13 (2026-11-03, written on the branch as its Session 10), three items (per-edit speed on large networks, loss laws that are not finite, export's LibreOffice checks), built on `7fcbdb8` (branch `claude/kind-wozniak-oui7h9`; `METHOD_VERSION` 1.6.1, for TSD §12 item 19's refusals):
 - **per-edit speed on large networks** (web; TSD §12 item 20, §4.7, SDD §3.1.4): an edit no longer re-copies, re-writes, re-checks the schema of or re-formats the whole project; a linear pass remains (about 7–10 ms per edit in Node on a 999-component network, 1.1–1.7 ms at 99 components, measured in the review of 2026-11-17). The draft is a plain-data copy (`utils/sharing.ts` `copyData`), what the edit left equal is put back as the stored, frozen objects (`shareUnchanged`), the canonical JSON of frozen parts is kept (`utils/json.ts`), the schema is checked only for the elements that changed (`validate.ts` `schemaValid`, the same answer as the whole check), the graph lookups are indexed once per stored project (`graph.ts`), a strip builds only its element's result rows (`rowsForElement`), and the link is encoded in tasks of about 8 ms (`encodeProjectSteps`, exactly `encodeProject`'s bytes, D3). On a network near the schema's limit (its exact size not recorded; TSD §12 item 20), with five edits measured 7 times each in Chromium against `7fcbdb8` by a harness that was not committed: on desktop the median edit's long tasks went from 140–405 ms to none (single edits still sometimes one of about 50–90 ms); under 4× throttling the medians went from 0.7–2.5 s to 68–229 ms, single phone runs reaching 329–405 ms. An edit in a scenario case is still over the desktop target (its edit code alone 447 → 135 ms in Node); no real phone, Firefox or Safari was measured;

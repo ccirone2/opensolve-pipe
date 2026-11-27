@@ -71,9 +71,9 @@ Then the proofs that fit the change (TSD §10.4 has every command and the baseli
 - the API job (pytest, ruff, mypy; its pytest includes the docs checks);
 - the Web job (`pnpm check`, `pnpm lint`, Vitest);
 - the history-line check, on a pull request;
-- the end-to-end suite on desktop and mobile, each in three shards with its own API and app.
+- the end-to-end suite on desktop and mobile, each in six shards with its own API and app.
 
-The end-to-end suite was CI's critical path: 21–33 min in one job per project on CI's last eight green runs before the shards (2026-11-27), where the API job took 5–9 min and the Web job 4–7. Every test still runs, in exactly one shard.
+The end-to-end suite was CI's critical path: 21–33 min in one job per project on CI's last eight green runs before the shards (2026-11-27), where the API job took 5–9 min and the Web job 4–7. Every test still runs, in exactly one shard. Playwright splits shards by test count, not time, and the heavy tests come last: in three shards the last took 15.1 and 17.0 min against 2.4–3.5 for the first (desktop and mobile, the run on `f1929c1`), hence six.
 
 - **When the suite is skipped.** Its `changes` job skips it only when every changed file is one no browser test or build reads (they read `apps/` alone): `docs/`, `CLAUDE.md`, `README.md`, `.claude/`, `.github/pull_request_template.md` and `.github/workflows/deploy-api.yml`. Anything new under `.github/`, such as a local action `ci.yml` could use, runs it.
   - Renames count under both paths.

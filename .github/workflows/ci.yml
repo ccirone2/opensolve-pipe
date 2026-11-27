@@ -121,21 +121,23 @@ jobs:
           fi
 
   e2e:
-    name: End-to-end (Playwright, ${{ matrix.project }}, ${{ matrix.shard }}/3)
+    name: End-to-end (Playwright, ${{ matrix.project }}, ${{ matrix.shard }}/6)
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
     # Pinned: ubuntu-latest is moving to Ubuntu 26.04, where Playwright 1.56.1 has no
     # Chromium to install. Back to ubuntu-latest with a Playwright that supports 26.04.
     runs-on: ubuntu-24.04
-    # Each Playwright project in three shards, parallel jobs, each with its own API and app:
+    # Each Playwright project in six shards, parallel jobs, each with its own API and app:
     # within one job the suite runs in one worker (the API solves one request per client at a
     # time, playwright.config.ts), so one job per project took 21-33 min, CI's critical path
-    # (docs/workflow.md §4.2). Every test still runs, in exactly one shard.
+    # (docs/workflow.md §4.2). Every test still runs, in exactly one shard. Playwright splits by
+    # test count, not time, and the heavy tests come last: three shards took 2.4-3.5, 6.7-9.3
+    # and 15.1-17.0 min (run on f1929c1), so six.
     strategy:
       fail-fast: false
       matrix:
         project: [desktop, mobile]
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -159,7 +161,7 @@ jobs:
         working-directory: apps/web
       - run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/web
-      - run: pnpm test:e2e --project=${{ matrix.project }} --shard=${{ matrix.shard }}/3
+      - run: pnpm test:e2e --project=${{ matrix.project }} --shard=${{ matrix.shard }}/6
         working-directory: apps/web
         env:
           CI: 'true'

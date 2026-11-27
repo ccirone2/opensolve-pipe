@@ -975,10 +975,13 @@ describe('a pump’s system curve’s vertical part at its FCV’s limit (open-d
 	});
 
 	// The review of open defects round two, WC-1: P1 runs at F1's setpoint only to round-off, so the
-	// readout's default flow (the operating point's) is not the foot's but within the chart's flow
-	// floor of it (Winter's a hair below, single24's a hair above); there the system head is the
-	// foot's range, never a bare head (Winter, on d101793: "System head 21.9 m") nor nothing
-	// (single24's, on d101793).
+	// readout's default flow (the operating point's) need not be the foot's but lies within the
+	// chart's flow floor of it. There the system head is the foot's range, never a bare head (a hair
+	// below the foot, Winter on d101793: "System head 21.9 m") nor nothing (a hair above, single24
+	// on d101793). Winter's duty is a hair below its foot. single24 is solved to 1e-12 (the
+	// recorder's solverOptions, so its fixture is the same on every CPU), which puts its duty
+	// exactly at the foot, so its reading is also taken a hair above and a hair below, inside the
+	// floor: the two sides d101793 got wrong.
 	for (const [name, metric, imperial] of [
 		['winter', '≥ 21.9 m', '≥ 71.84 ft'],
 		['single24', '≥ 20.72 m', '≥ 67.99 ft']
@@ -991,16 +994,25 @@ describe('a pump’s system curve’s vertical part at its FCV’s limit (open-d
 			for (const d of [data, us]) {
 				const foot = d.system!.find((p) => p.bound)!;
 				const at = d.operating!.x;
-				expect(at).not.toBe(foot.x);
+				if (name === 'winter') expect(at).not.toBe(foot.x);
+				else expect(at).toBe(foot.x);
 				expect(Math.abs(at - foot.x)).toBeLessThanOrEqual(d.flowFloor);
+				// A hair is a millionth of the floor: far past round-off, well inside the floor.
+				const hair = d.flowFloor * 1e-6;
+				const flows = name === 'winter' ? [at] : [at, foot.x + hair, foot.x - hair];
+				for (const flow of flows) {
+					expect(
+						chartReadout(d, ['head'], flow).find((i) => i.key === 'system'),
+						`at ${flow}`
+					).toEqual({
+						key: 'system',
+						label: 'System head',
+						value: foot.y,
+						unit: d.headUnit,
+						bound: 'lower'
+					});
+				}
 				const read = chartReadout(d, ['head'], at);
-				expect(read.find((i) => i.key === 'system')).toEqual({
-					key: 'system',
-					label: 'System head',
-					value: foot.y,
-					unit: d.headUnit,
-					bound: 'lower'
-				});
 				// Once, after the pump's head.
 				expect(read.map((i) => i.key)).toEqual(['pump', 'system']);
 				// Beyond the floor below the foot, the line's own head there, no range.

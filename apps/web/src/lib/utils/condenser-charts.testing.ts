@@ -22,6 +22,8 @@ export type CondenserCase = 'base' | 'winter' | 'basin15' | 'p6off' | 'single24'
 
 interface Recorded {
 	edits: { componentId: string; field: string; value: unknown }[];
+	/** The case's solver options over the example's (single24: tolerance 1e-12, the recorder's). */
+	solverOptions?: Partial<Project['settings']['solverOptions']>;
 	scenarios?: Scenario[];
 	scenarioId: string | null;
 	memberIds: string[];
@@ -37,7 +39,7 @@ const cases = fixture.cases as unknown as Record<CondenserCase, Recorded>;
 /** The example as shipped, as the fixture was recorded from it (utils/examples.ts). */
 export const condenserProject = (): Project => structuredClone(fixture.project) as Project;
 
-/** The case's project: the shipped one with the case's edits and scenarios. */
+/** The case's project: the shipped one with the case's edits, solver options and scenarios. */
 export function condenserCaseProject(name: CondenserCase): Project {
 	const c = cases[name];
 	const project = condenserProject();
@@ -45,6 +47,8 @@ export function condenserCaseProject(name: CondenserCase): Project {
 		const component = project.components.find((x) => x.id === e.componentId)!;
 		(component as unknown as Record<string, unknown>)[e.field] = e.value;
 	}
+	if (c.solverOptions)
+		project.settings.solverOptions = { ...project.settings.solverOptions, ...c.solverOptions };
 	if (c.scenarios) project.scenarios = structuredClone(c.scenarios);
 	return project;
 }

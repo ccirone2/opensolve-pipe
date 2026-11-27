@@ -172,26 +172,35 @@ def plugged_branch(cv: float) -> Project:
 
 
 def floating_section(cv: float) -> Project:
-    """R1 (20 m) -> P0 -> V1 (isolated) -> P1 -> V9 -> P5 -> ideal tee T1, whose run feeds D1
-    (0.01 m³/s out) through P2 and whose branch S1 feeds (0.01 m³/s in) through P3: behind the
-    isolated V1 the rest is a floating section, its assigned flows balanced (review of open
-    defects round two, AS-2)."""
+    """R1 (20 m) -> P0 -> V1 (isolated) -> P1 -> ideal tee T1, whose branch S1 supplies 0.01 m³/s
+    through P3 and whose run carries it through P4 -> V9 -> P5 to D1 (0.01 m³/s out): behind the
+    isolated V1 the rest is a floating section, its assigned flows balanced, the solve holding
+    its first node, V1:outlet, at an arbitrary level (review of open defects round two, AS-2).
+    V9 carries D1's flow, so beyond it lies the bridge's own layout, 10 m of 0.1 m pipe to an
+    assigned flow (``bridge``), and its weight is lost at the starting flows past the same
+    closed-form threshold, c > C_STAR (module docstring).
+
+    The review's network had D1 and S1 both beyond V9, which then carries no flow in the steady
+    state: its weight is lost only once round-off moves that zero flow, at an iteration the
+    CPU's last bits choose. Newton iteration 6 with OpenBLAS's SkylakeX kernels, while with its
+    Haswell kernels the same network converged in 85 iterations (CI run 45939994232, reproduced
+    with OPENBLAS_CORETYPE=Haswell). Here the step is singular in iteration 1 under both."""
     isolated = {**valve("V1", 1.0), "status": "isolated"}
     data = project_dict(
         [
             reservoir("R1", level=20.0),
             isolated,
-            valve("V9", cv),
             tee("T1"),
-            assigned_flow("D1", 0.01),
+            valve("V9", cv),
             assigned_flow("S1", -0.01),
+            assigned_flow("D1", 0.01),
         ],
         [
             connection("P0", ("R1", "port_1"), ("V1", "inlet"), pipes=pipes()),
-            connection("P1", ("V1", "outlet"), ("V9", "inlet"), pipes=pipes()),
-            connection("P5", ("V9", "outlet"), ("T1", "run_inlet"), pipes=pipes()),
-            connection("P2", ("T1", "run_outlet"), ("D1", "port_1"), pipes=pipes()),
+            connection("P1", ("V1", "outlet"), ("T1", "run_inlet"), pipes=pipes()),
             connection("P3", ("T1", "branch"), ("S1", "port_1"), pipes=pipes()),
+            connection("P4", ("T1", "run_outlet"), ("V9", "inlet"), pipes=pipes()),
+            connection("P5", ("V9", "outlet"), ("D1", "port_1"), pipes=pipes()),
         ],
         fluid=custom_fluid(RHO, MU),
     )
@@ -323,12 +332,15 @@ def test_the_flag_names_the_lost_weight_with_its_values() -> None:
 def test_a_weight_lost_beside_a_floating_sections_held_level_is_named_in_true_words() -> None:
     """Behind the isolated V1 no reservoir or reference node reaches the rest: the solve holds
     the first node of that floating section, V1:outlet, at an arbitrary level
-    (``gga.FLOATING_REFERENCE_HEAD``), a head its Newton step holds fixed. V9 (Cv 1e-6) alone
-    joins the rest of the section to it, and its weight is lost at V9:outlet in Newton iteration
-    6 (measured; the review's network). The message names V9 in words true of that held level
-    (HEAD: "which reaches a reservoir or reference node only through it", where none is
-    reached), and the plain bridge beyond R1 names V1 in the same words."""
-    project = floating_section(1.0e-6)
+    (``gga.FLOATING_REFERENCE_HEAD``), a head its Newton step holds fixed. V9, its loss
+    coefficient 100 times the closed-form threshold C_STAR, alone joins D1's part of the section
+    to it, and its weight is lost at V9:outlet at the starting flows (``floating_section``). The
+    message names V9 in words true of that held level (d101793: "which reaches a reservoir or
+    reference node only through it", where none is reached), and the plain bridge beyond R1
+    names V1 in the same words."""
+    cv = cv_of(100.0 * C_STAR)
+    assert c_of(cv) > C_STAR
+    project = floating_section(cv)
     built = build_network(project, fluid_properties(project.fluid))
     states = link_states(built, initial_controls(built))
     inner = solve_gga(built.network, states, tolerance=1.0e-9, max_iterations=100)
@@ -341,8 +353,7 @@ def test_a_weight_lost_beside_a_floating_sections_held_level_is_named_in_true_wo
     assert flag.details["singularStepAt"] == "V9"
     assert [t[0] for t in named_terms(message)] == ["V9"]
     assert message.startswith(
-        f"{SINGULAR}: in Newton iteration 6, at the flows after iteration 5, the weight "
-        "1/(dh/dQ) of 'V9' "
+        f"{SINGULAR}: in Newton iteration 1, at the starting flows, the weight 1/(dh/dQ) of 'V9' "
     ), message
     assert message.endswith(ONE), message
     assert "reaches a reservoir or reference node" not in message

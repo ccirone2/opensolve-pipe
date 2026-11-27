@@ -27,7 +27,14 @@ Each case is the shipped project with ``edits`` (component fields set, in order)
 - ``single24``: one pump and one chiller line (P2 to P6 off, F2 to F7 failed closed, no
   scenarios), F1's setpoint the 25th flow of /system-curve's grid (np.linspace(0, 1.58987294928,
   41)[24], the API's default range for P1), with P1's system curve (no limit point: its limit is
-  a grid flow).
+  a grid flow). Solved at the solver tolerance 1e-12 (``solverOptions``, recorded with the
+  case's inputs): at a grid flow exactly at F1's setpoint, FCV's rule (active from its setpoint,
+  with no tolerance) lets the CPU's last bits choose the path, a warm solve that reads the
+  switch or the held-open solve from the initial state. At the default 1e-9 their answers differ
+  by convergence-level noise (D13): the point's openHead 20.72440522458594 against
+  20.724405301425406 m, with OpenBLAS's Haswell and SkylakeX kernels, beyond the fixture's
+  round-off check (CI runs 45907886175 and 45939994232). At 1e-12 every head and openHead of
+  the curve agrees to 1.6e-16 relative under both (measured with OPENBLAS_CORETYPE=Haswell).
 """
 
 import copy
@@ -67,6 +74,7 @@ CASES: dict[str, dict[str, Any]] = {
             *[_edit(f, "status", "failed_closed") for f in ["F2", "F3", "F4", "F5", "F6", "F7"]],
             _edit("F1", "setpoint", GRID[24]),
         ],
+        "solverOptions": {"tolerance": 1.0e-12},
         "scenarios": [],
         "scenarioId": None,
         "systemCurveOf": "P1",
@@ -75,7 +83,7 @@ CASES: dict[str, dict[str, Any]] = {
 }
 
 # What a case was solved from, kept with whatever else it keeps.
-INPUTS = ("edits", "scenarios", "scenarioId", "memberIds")
+INPUTS = ("edits", "solverOptions", "scenarios", "scenarioId", "memberIds")
 
 P6_OFF = {
     "id": "S2",
@@ -93,12 +101,15 @@ def committed_project() -> dict[str, Any]:
 
 
 def case_project(base: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
-    """The shipped project with the case's edits and scenarios."""
+    """The shipped project with the case's edits, solver options and scenarios."""
     project = copy.deepcopy(base)
     for e in case["edits"]:
         next(c for c in project["components"] if c["id"] == e["componentId"])[e["field"]] = e[
             "value"
         ]
+    if "solverOptions" in case:
+        options = project["settings"]["solverOptions"]
+        project["settings"]["solverOptions"] = {**options, **case["solverOptions"]}
     if case.get("scenarios") == "add":
         project["scenarios"] = [*project["scenarios"], P6_OFF]
     elif "scenarios" in case:
@@ -119,6 +130,7 @@ def generate(base: dict[str, Any]) -> dict[str, Any]:
         assert state["converged"], name
         recorded: dict[str, Any] = {
             "edits": case["edits"],
+            **({"solverOptions": case["solverOptions"]} if "solverOptions" in case else {}),
             **({"scenarios": project["scenarios"]} if "scenarios" in case else {}),
             "scenarioId": case["scenarioId"],
             "memberIds": members,

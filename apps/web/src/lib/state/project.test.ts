@@ -555,6 +555,93 @@ describe('results', () => {
 		expect(store.results.stale).toBe(true);
 	});
 
+	it('says why a case waits for an edit: its results current, or its last solve failed with its own error, as Solve all skips it (the owner, 2026-11-27)', async () => {
+		const answers: (() => Promise<SolveResponse>)[] = [];
+		const { store } = setup({ solver: { solve: () => answers.shift()!() } });
+		const answer = () => answers.push(async () => solveResponse());
+		const fail = (error: unknown) =>
+			answers.push(async () => {
+				throw error;
+			});
+		const topology = () => new TopologyError('No fixed-pressure boundary', []);
+		const validation = () => new ValidationError('Invalid', ['body › project › id: bad'], 400);
+		expect(store.waitsForEdit()).toBeNull(); // none yet
+		// A network failure with no response: a retry may help.
+		fail(new NetworkError('Unreachable'));
+		await store.solve();
+		expect(store.waitsForEdit()).toBeNull();
+		expect(store.needsSolve(null)).toBe(true);
+		// The project's own error, with no response: the same project gives it again (Solve all skips
+		// it too); an edit that can change it, not a rename, lets it solve; an undo back waits again.
+		for (const error of [topology(), validation()]) {
+			fail(error);
+			await store.solve();
+			expect(store.results.response).toBeNull();
+			expect(store.waitsForEdit()).toBe('error');
+			expect(store.needsSolve(null)).toBe(false);
+			store.update(rename('Renamed'), 'Rename');
+			expect(store.waitsForEdit()).toBe('error');
+			store.update(lengthen(5), 'Change length');
+			expect(store.waitsForEdit()).toBeNull();
+			store.undo();
+			expect(store.waitsForEdit()).toBe('error');
+		}
+		answer();
+		await store.solve();
+		expect(store.waitsForEdit()).toBe('current');
+		// A rename cannot change them; an edit that can puts them out of date; an undo back to the
+		// project solved makes them current again.
+		store.update(rename('Renamed again'), 'Rename');
+		expect(store.waitsForEdit()).toBe('current');
+		store.update(lengthen(5), 'Change length');
+		expect(store.waitsForEdit()).toBeNull();
+		// The edited project's own error, its earlier response kept out of date: it waits, as Solve
+		// all skips it; a network failure there may pass.
+		fail(topology());
+		await store.solve();
+		expect(store.results.stale).toBe(true);
+		expect(store.waitsForEdit()).toBe('error');
+		fail(new NetworkError('Unreachable'));
+		await store.solve();
+		expect(store.waitsForEdit()).toBeNull();
+		// Undone to the project solved, with that failure recorded: the pane still shows its error
+		// (out of date), which a solve replaces, so it does not wait.
+		store.undo();
+		expect(store.results.response).not.toBeNull();
+		expect(store.results.stale).toBe(false);
+		expect(store.results.error).not.toBeNull();
+		expect(store.results.errorStale).toBe(true);
+		expect(store.waitsForEdit()).toBeNull();
+		answer();
+		await store.solve();
+		expect(store.results.error).toBeNull();
+		expect(store.waitsForEdit()).toBe('current');
+		// The same project's solve fails, its response kept: a retry may help, whatever the error.
+		for (const error of [new NetworkError('Unreachable'), topology(), validation()]) {
+			fail(error);
+			await store.solve();
+			expect(store.results.response).not.toBeNull();
+			expect(store.results.stale).toBe(false);
+			expect(store.results.errorStale).toBe(false);
+			expect(store.waitsForEdit()).toBeNull();
+		}
+		answer();
+		await store.solve();
+		expect(store.waitsForEdit()).toBe('current');
+		// A cancelled solve leaves them as they were.
+		answers.push(() => new Promise<SolveResponse>(() => {}));
+		void store.solve();
+		store.cancelSolve();
+		expect(store.results.cancelled).toBe(true);
+		expect(store.waitsForEdit()).toBe('current');
+		// Another case: by its own results (a scenario never solved).
+		store.update((p) => {
+			p.scenarios = [{ id: 'S1', name: 'Winter', overrides: [] }];
+		}, 'Add scenario');
+		expect(store.waitsForEdit(null)).toBe('current');
+		expect(store.waitsForEdit('S1')).toBeNull();
+	});
+
 	it('keeps results that arrive after an edit, marked stale', async () => {
 		const pending = deferred<SolveResponse>();
 		const { store } = setup({ solver: { solve: () => pending.promise } });

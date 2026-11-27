@@ -6,9 +6,11 @@
 	split, and the choice is remembered in this browser (pane-split.ts). It tells the fields below which case is shown (field-mode.ts): in a
 	scenario only its values, names and display units can be edited. The goal-seek dialog opens
 	over them (from the Results pane's header or a trace). Outside text fields Ctrl/⌘+Z undoes and
-	Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redoes; Ctrl/⌘+Enter solves from anywhere but a dialog, and once the
-	project has scenarios Ctrl/⌘+Shift+Enter runs Solve all, the Scenarios menu's (build-density.md
-	§19), or says why it cannot. Pressed in Build on a narrow screen, either shows Results and gives
+	Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redoes; Ctrl/⌘+Enter solves from anywhere but a dialog, or says why
+	not while the case shown's results are current (the owner, 2026-11-27) or its own error is to
+	fix first, and once the project
+	has scenarios Ctrl/⌘+Shift+Enter runs Solve all, the Scenarios menu's (build-density.md §19), or
+	says why it cannot. Pressed in Build on a narrow screen, either shows Results and gives
 	the focus to the Results tab, so it does not fall to the page with the Build pane hidden.
 -->
 <script lang="ts">
@@ -90,15 +92,19 @@
 		if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
 		const key = event.key.toLowerCase();
 		// Ctrl/⌘+Enter solves, also from a field (its own Enter has stored the value first), but
-		// not inside a dialog, whose fields belong to its own action.
+		// not inside a dialog, whose fields belong to its own action. It follows the header's Solve
+		// (ws.solveState): while it waits for an edit (the results current, the owner, 2026-11-27,
+		// or an error to fix first) it solves nothing and says why, as Solve all's keys and Solve's
+		// press do; with an empty network or a calculation running it does nothing, the header's
+		// Solve saying why.
 		if (key === 'enter' && !event.shiftKey) {
 			if (event.target instanceof Element && event.target.closest('dialog')) return;
 			event.preventDefault();
-			// A held key repeats: one press, one solve.
+			// A held key repeats: one press, one solve (a repeat is ignored, not refused).
 			if (event.repeat) return;
-			if (ws.store.calculating === null && ws.project.components.length) {
-				keepingFocus(() => void ws.solve());
-			}
+			const solve = ws.solveState;
+			if (solve.canRun) keepingFocus(() => void ws.solve());
+			else if (solve.waitsForEdit) ws.notify('info', solve.reason);
 			return;
 		}
 		// Ctrl/⌘+Shift+Enter runs Solve all (build-density.md §19), also from a field, as Ctrl/⌘+Enter

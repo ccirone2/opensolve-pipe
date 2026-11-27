@@ -333,6 +333,22 @@ test("a controlled pump's curve issue: told with its names, and in the server's 
 		'Use a curve whose head rises less steeply with flow there (2·H₀(x) > x·H₀′(x)), or a fixed speed.'
 	);
 
+	// Solve waits while the project's own error is current, as Solve all skips such a case (the
+	// owner, 2026-11-27): a made-up edit that keeps the issue, the suction tank's liquid level 1 m
+	// up, lets it solve again.
+	const solveButton = page.getByRole('button', { name: 'Solve', exact: true });
+	await expect(solveButton).toHaveAttribute('aria-disabled', 'true');
+	await showPane(page, 'Build');
+	await buildPane(page)
+		.getByRole('button', { name: /^Previous/ })
+		.click();
+	await expect(currentHeading(page)).toHaveText('Suction tank');
+	const level = buildPane(page).getByRole('textbox', { name: /^Liquid level/ });
+	await setNumber(buildPane(page), /^Liquid level/, String(Number(await level.inputValue()) + 1));
+	await buildPane(page).getByRole('button', { name: /^Next/ }).click();
+	await expect(currentHeading(page)).toHaveText('Transfer pump');
+	await expect(solveButton).toHaveAttribute('aria-disabled', 'false');
+
 	// Solved again, held until the pump has been given C2.
 	let release: () => void = () => {};
 	const held = new Promise<void>((resolve) => (release = resolve));
@@ -343,7 +359,7 @@ test("a controlled pump's curve issue: told with its names, and in the server's 
 	const answer = page.waitForResponse(
 		(r) => r.url().endsWith('/api/v1/solve') && r.request().method() === 'POST'
 	);
-	await page.getByRole('button', { name: 'Solve', exact: true }).click();
+	await solveButton.click();
 	await showPane(page, 'Build');
 	await buildPane(page)
 		.getByRole('combobox', { name: 'Pump curve' })

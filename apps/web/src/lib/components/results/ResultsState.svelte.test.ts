@@ -190,7 +190,10 @@ describe('results state', () => {
 		render(WorkspaceView, { workspace: ws });
 		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
 		await results().findByRole('heading', { name: 'Converged' });
-		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		// The header's Solve waits while the results are current (the owner, 2026-11-27): the
+		// workspace's own solve, which no control starts on them now, solves the same project.
+		expect(screen.getByRole('button', { name: 'Solve' })).toHaveAttribute('aria-disabled', 'true');
+		void ws.solve();
 		expect(await results().findByText(/could not be reached/)).toBeInTheDocument();
 		expect(results().queryByText(/the project changed after this solve/)).toBeNull();
 		expect(
@@ -198,6 +201,8 @@ describe('results state', () => {
 				/The last solve failed\. The results below are from the previous solve of this same project\./
 			)
 		).toBeInTheDocument();
+		// The words offer a retry: Solve is available.
+		expect(screen.getByRole('button', { name: 'Solve' })).toHaveAttribute('aria-disabled', 'false');
 	});
 
 	it('after an edit and a failed solve: the error first, and the earlier results only on request', async () => {
@@ -273,16 +278,8 @@ describe('results state', () => {
 			'The solve was cancelled before it finished. What is shown below is from an earlier solve.';
 		const tab = () => screen.getByRole('tab', { name: /^Results/ });
 
-		// Solved again unchanged, and cancelled: the results are still current.
-		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solve' }));
-		expect(results().getByRole('status')).toHaveTextContent(
-			/^Solve cancelled\. Last finished solve: converged$/
-		);
-		expect(results().getByText(note)).toBeInTheDocument();
-		expect(results().getByRole('heading', { name: 'Converged' })).toBeInTheDocument();
-		expect(results().queryByText(/Results are out of date/)).toBeNull();
-		expect(tab()).toHaveAccessibleName('Results');
+		// Current: Solve waits (the owner, 2026-11-27), so a solve to cancel follows a change.
+		expect(screen.getByRole('button', { name: 'Solve' })).toHaveAttribute('aria-disabled', 'true');
 
 		// Changed, solved and cancelled: out of date, said as after any change.
 		ws.store.update((p) => {
@@ -308,13 +305,17 @@ describe('results state', () => {
 		);
 		await fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
 		expect(tab()).toHaveAccessibleName('Results (out of date)');
-		// Back to the solved project: current again.
+		// Back to the solved project: the results are still current, as they were.
 		ws.store.undo();
 		await tick();
 		expect(results().queryByText(/Results are out of date/)).toBeNull();
 		expect(results().getByRole('status')).toHaveTextContent(
 			/^Solve cancelled\. Last finished solve: converged$/
 		);
+		expect(results().getByText(note)).toBeInTheDocument();
+		expect(results().getByRole('heading', { name: 'Converged' })).toBeInTheDocument();
+		expect(tab()).toHaveAccessibleName('Results');
+		expect(screen.getByRole('button', { name: 'Solve' })).toHaveAttribute('aria-disabled', 'true');
 	});
 
 	it('after a failed solve and a cancelled one: the failed one is the last that finished', async () => {
@@ -331,7 +332,10 @@ describe('results state', () => {
 		render(WorkspaceView, { workspace: ws });
 		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
 		await results().findByRole('heading', { name: 'Converged' });
-		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		// The header's Solve waits while the results are current (the owner, 2026-11-27): the
+		// workspace's own solve fails on the same project; then Solve, available again, retries.
+		expect(screen.getByRole('button', { name: 'Solve' })).toHaveAttribute('aria-disabled', 'true');
+		void ws.solve();
 		expect(await results().findByText(/could not be reached/)).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
 		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solve' }));
@@ -658,11 +662,13 @@ describe('the notice says where Solve is; the trace’s sheet keeps Solve again 
 			`Results are out of date: the project changed after this solve. These values are from before the change. Press Solve, at the top ${KEYS}, to update them.`
 		);
 		expect(solveAgains()).toHaveLength(0);
-		// Failed, the earlier results of this same project kept.
+		// Failed, the earlier results of this same project kept. The header's Solve waits while
+		// they are current (the owner, 2026-11-27): the workspace's own solve fails.
 		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
 		await vi.waitFor(() => expect(ws.store.results.stale).toBe(false));
 		fail = true;
-		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		expect(screen.getByRole('button', { name: 'Solve' })).toHaveAttribute('aria-disabled', 'true');
+		void ws.solve();
 		await vi.waitFor(() => expect(ws.store.results.error?.kind).toBe('network'));
 		ws.inspect({ kind: 'connection', id: 'L1' });
 		panel = await screen.findByRole('region', { name });

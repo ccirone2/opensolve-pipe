@@ -80,9 +80,11 @@ import {
 	newScenarioDescription,
 	reservedIds,
 	solveAllState,
+	solveState,
 	toRequest,
 	type GoalSeekSetup,
 	type SolveAllState,
+	type SolveState,
 	type WordsContext
 } from '../utils/goal-seek';
 import type { ElementRef } from '../utils/results';
@@ -604,6 +606,21 @@ export class Workspace {
 	/** The project's scenarios. */
 	get scenarios(): readonly Scenario[] {
 		return scenariosOf(this.store.project);
+	}
+
+	/**
+	 * Solve now, the header's: whether it can run and why not (utils/goal-seek.ts solveState). The
+	 * one source for the button, its press and Ctrl/⌘+Enter, read from the store as it is: it
+	 * waits for an edit while the case shown's results are current (the owner, 2026-11-27) or its
+	 * own error is to fix first, as Solve all skips such a case (store.waitsForEdit).
+	 */
+	get solveState(): SolveState {
+		const store = this.store;
+		return solveState({
+			empty: !store.project.components.length,
+			calculating: store.calculating,
+			waits: store.waitsForEdit()
+		});
 	}
 
 	/**

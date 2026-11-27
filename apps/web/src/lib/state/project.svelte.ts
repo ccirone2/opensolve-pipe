@@ -744,6 +744,25 @@ export class ProjectStore {
 		return true;
 	}
 
+	/**
+	 * Why solving a case again (the case shown's by default) would only give what it shows, so
+	 * the header's Solve waits for an edit that can change it (the owner, 2026-11-27;
+	 * WorkspaceHeader.svelte), as Solve all skips the case (needsSolve; D13: the solver is
+	 * deterministic). 'current': a response of the project as it is, with no failure recorded
+	 * since. 'error': the latest solve of the project as it is failed with its own error
+	 * (topology, validation or fluid), with no current response. Null when a solve may change
+	 * what is shown: results missing or out of date, a network error (a retry may help), or a
+	 * failure recorded beside a current response, of this same project (ResultsStateNotice offers
+	 * a retry) or of an edit since undone (the pane still shows its error, which a solve replaces).
+	 * A cancelled solve leaves the results as they were.
+	 */
+	waitsForEdit(caseId: CaseId = this.activeCase): 'current' | 'error' | null {
+		const r = this.#case(caseId).results;
+		if (r.response && !r.stale) return r.error ? null : 'current';
+		if (r.error && r.error.kind !== 'network' && !r.errorStale) return 'error';
+		return null;
+	}
+
 	/** The cases Solve all would solve now, in order: the base first, then the scenarios. */
 	casesToSolve(): CaseId[] {
 		return this.caseIds.filter((id) => this.needsSolve(id));

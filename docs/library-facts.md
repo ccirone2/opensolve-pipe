@@ -1,6 +1,6 @@
 # Verified library facts
 
-Facts about `fluids`, CoolProp, EPANET (via WNTR), Chart.js and Chromium that were not obvious and cost time to find. Read this before writing code against any of them, and re-verify a fact against the installed package's docstrings or source before relying on it. Add a fact here when you find one the hard way; give the package version it was checked at.
+Facts about `fluids`, CoolProp, EPANET (via WNTR), numpy's OpenBLAS, Chart.js and Chromium that were not obvious and cost time to find. Read this before writing code against any of them, and re-verify a fact against the installed package's docstrings or source before relying on it. Add a fact here when you find one the hard way; give the package version it was checked at.
 
 **fluids 1.3.1**
 - `friction_factor()` switches hard to 64/Re at Re 2040. The solver uses its own regimes (`services/solver/friction.py`) and never calls it.
@@ -27,6 +27,13 @@ Facts about `fluids`, CoolProp, EPANET (via WNTR), Chart.js and Chromium that we
 - Use GPM INP units and `accuracy=1e-5` with `headerror`/`flowchange`. `ACCURACY` below 1e-5 is silently clamped.
 - Multi-point pump curves are piecewise linear, so use collinear points to match PCHIP.
 - PRV and PSV settings are heads without velocity head; our setpoints are static pressures. `generate_epanet_cases.py` converts between them by iterating.
+
+**numpy 2.5.4 and scipy 1.18.1 (scipy-openblas 0.3.34)**
+- OpenBLAS picks its kernels for the CPU at run time: AVX-512 ones (SkylakeX) on this container's CPU, AVX2 ones (Haswell) on some GitHub runners. The two round differently, so a solve's last bits differ by runner. That is harmless where Newton converges to round-off, but it changes the path where a status rule has no tolerance. Two of round two's tests passed here and failed on some runners (`docs/proposals/open-defects-2.md`; CI runs 45907886175 and 45939994232):
+  - a system-curve point exactly at an FCV's setpoint: the kernels chose different solves, and their answers differed by convergence-level noise, 7.7·10⁻⁸ m in `openHead` at the default tolerance;
+  - a singular step reached only after round-off moved a zero flow.
+- `OPENBLAS_CORETYPE=Haswell` reproduces such a runner here exactly. `NPY_DISABLE_CPU_FEATURES` (numpy's own SIMD paths) changed neither case.
+- A test that reads a value at an exact switch, or a lost weight after round-off, should be solved to a tolerance where both kernels agree (`tests/fixtures/condenser_charts.py`'s single24, at 1e-12), or built so the outcome does not hang on the last bits (`test_singular_step.py`'s floating section).
 
 **Chart.js 4.5.1**
 - Datasets are drawn from the last to the first in their sorted order (`order`, then index; `_drawDatasets`), so the first dataset is drawn on top; the legend lists them in that sorted order (`_getSortedDatasetMetas`). The Pumps together chart gives other cases' rings `order: -1` to draw them on top, and its image legend sorts them back to the end (slice 4d, `pump-chart-config.ts`).

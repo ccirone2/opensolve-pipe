@@ -194,14 +194,12 @@ test('a cancelled solve keeps the earlier results, out of date once the project 
 	const note =
 		'The solve was cancelled before it finished. What is shown below is from an earlier solve.';
 
-	// Solved again unchanged, and cancelled: the results are still the project's, as they were.
+	// Current: Solve waits for a change (the owner, 2026-11-27), dimmed and still focusable.
+	await expect(solveButton(page)).toHaveAttribute('aria-disabled', 'true');
+	await expect(solveButton(page)).toHaveAccessibleDescription(
+		'The results are current; solve again after an edit that can change them.'
+	);
 	await hold(page, '/api/v1/solve');
-	await solveButton(page).click();
-	await cancelSolve(page).click();
-	await expect(status(page)).toHaveText('Solve cancelled. Last finished solve: converged');
-	await expect(resultsPane(page).getByText(note)).toBeVisible();
-	await expect(resultsPane(page).getByRole('heading', { name: 'Converged' })).toBeVisible();
-	await expect(resultsPane(page).getByText(/Results are out of date/)).toHaveCount(0);
 
 	// Changed (the pump's speed), solved and cancelled: out of date, as after any change.
 	await showPane(page, 'Build');
@@ -220,6 +218,14 @@ test('a cancelled solve keeps the earlier results, out of date once the project 
 	).toBeVisible();
 	await expect(resultsPane(page).getByRole('heading', { name: 'Converged' })).toBeVisible();
 	expect(await sidewaysScroll(page)).toBe(0);
+
+	// The change undone: the results are the project's again, as they were.
+	await page.getByRole('button', { name: /^Undo/ }).click();
+	await expect(status(page)).toHaveText('Solve cancelled. Last finished solve: converged');
+	await expect(resultsPane(page).getByText(note)).toBeVisible();
+	await expect(resultsPane(page).getByRole('heading', { name: 'Converged' })).toBeVisible();
+	await expect(resultsPane(page).getByText(/Results are out of date/)).toHaveCount(0);
+	await expect(solveButton(page)).toHaveAttribute('aria-disabled', 'true');
 });
 
 test('cancel a system curve: the request is aborted, the chart says so, and computes it on request', async ({

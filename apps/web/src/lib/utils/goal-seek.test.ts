@@ -73,6 +73,7 @@ import {
 	runProblems,
 	solveAllReason,
 	solveAllState,
+	solveState,
 	stateChangeText,
 	toleranceBounds,
 	toleranceProblem,
@@ -814,6 +815,56 @@ describe("Run's reasons (§6.8) and the request", () => {
 			reason: 'Add a component to the network first.',
 			hint: hint('2 solves'),
 			passing: false
+		});
+	});
+
+	it("derives Solve's state, the header's, its press's and Ctrl/⌘+Enter's: it waits for an edit while the results are current or the last solve has an error to fix (the owner, 2026-11-27)", () => {
+		const state = (values: Partial<Parameters<typeof solveState>[0]> = {}) =>
+			solveState({ empty: false, calculating: null, waits: null, ...values });
+		const current = 'The results are current; solve again after an edit that can change them.';
+		const error =
+			'The last solve failed with an error to fix first; solve again after an edit that can fix it.';
+		// Nothing running, results missing, out of date, or a failure a retry may help: it can run.
+		expect(state()).toEqual({ canRun: true, reason: '', waitsForEdit: false });
+		// Current, or the last solve of the project as it is failed with its own error (as Solve all
+		// skips the case): it waits, with its reason, which lasts until an edit (a press of it and its
+		// keys say it).
+		expect(state({ waits: 'current' })).toEqual({
+			canRun: false,
+			reason: current,
+			waitsForEdit: true
+		});
+		expect(state({ waits: 'error' })).toEqual({ canRun: false, reason: error, waitsForEdit: true });
+		// A calculation running: it waits; its spinner and Cancel say a solve or Solve all, the
+		// reason beside Cancel a goal seek, whatever the results.
+		for (const calculating of ['solve', 'solveAll'] as const) {
+			for (const waits of [null, 'current', 'error'] as const) {
+				expect(state({ calculating, waits })).toEqual({
+					canRun: false,
+					reason: '',
+					waitsForEdit: false
+				});
+			}
+		}
+		for (const waits of [null, 'current', 'error'] as const) {
+			expect(state({ calculating: 'goalSeek', waits })).toEqual({
+				canRun: false,
+				reason: 'A goal seek is running; Cancel stops it.',
+				waitsForEdit: false
+			});
+		}
+		// An empty network first (it has no results to be current).
+		for (const waits of [null, 'current', 'error'] as const) {
+			expect(state({ empty: true, waits })).toEqual({
+				canRun: false,
+				reason: 'Add a component to the network first.',
+				waitsForEdit: false
+			});
+		}
+		expect(state({ empty: true, calculating: 'goalSeek' })).toEqual({
+			canRun: false,
+			reason: 'Add a component to the network first.',
+			waitsForEdit: false
 		});
 	});
 

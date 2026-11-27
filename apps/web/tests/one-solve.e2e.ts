@@ -25,6 +25,10 @@
  *    one page (WCAG 1.4.10).
  * 7. The Scenarios spinner keeps its 20 px.
  * 8. axe over the menu with the amber badge, Results' E1, Compare's amber line and the trace sheet.
+ * 9. Solve while the results shown are current (the owner, 2026-11-27): unavailable, drawn as Solve
+ *    all is while every case is current, focusable, its reason said; a press (key, pointer, touch)
+ *    and the keys say it and send nothing; an edit or a case out of date brings it back. So it is,
+ *    as Solve all, after the project's own error, until an edit that can fix it.
  */
 import { gunzipSync } from 'node:zlib';
 import AxeBuilder from '@axe-core/playwright';
@@ -35,8 +39,11 @@ import { exampleProject } from '../src/lib/utils/examples';
 import { canonicalJson } from '../src/lib/utils/json';
 import { WEB_ORIGIN } from './servers';
 import {
+	addAfter,
+	addFirst,
 	buildPane,
 	caseMenu,
+	newProject,
 	openCases,
 	resultsPane,
 	resultsView,
@@ -541,11 +548,21 @@ test('on a phone, Ctrl+Shift+Enter from a Build field runs Solve all, and says w
 	expect(again.n).toBe(7);
 	await expect(notice(page, 'status')).toHaveCount(0);
 
-	// Ctrl+Enter from the field, the same way: Results shown, the focus on its tab.
+	// Ctrl+Enter from the field, every case current: never silent, nothing sent, Build kept (the
+	// owner, 2026-11-27: Solve waits while the results shown are current).
 	await showPane(page, 'Build');
-	await buildPane(page)
-		.getByRole('textbox', { name: /^Elevation/ })
-		.focus();
+	const field = buildPane(page).getByRole('textbox', { name: /^Elevation/ });
+	await field.focus();
+	await page.keyboard.press('Control+Enter');
+	await expect(notice(page, 'status')).toHaveText(
+		/^\s*The results are current; solve again after an edit that can change them\.\s*$/
+	);
+	expect(again.n).toBe(7);
+	await expect(field).toBeFocused();
+	// A new value in the field: its Enter stores it, then the solve sends it, the same way as Solve
+	// all: Results shown, the focus on its tab.
+	const value = Number(await field.inputValue());
+	await field.fill(String(value + 1));
 	const answered = page.waitForResponse(
 		(r) => r.url().endsWith('/api/v1/solve') && r.request().method() === 'POST'
 	);
@@ -1144,4 +1161,185 @@ test("axe finds no violation: the menu with the amber badge, E1, Compare's amber
 	const trace = await staleTrace(page, project);
 	await expect(trace.getByRole('button', { name: 'Solve again', exact: true })).toBeVisible();
 	await axeClean(page, 'dialog[open]', "the phone's trace sheet");
+});
+
+// ---- 9. Solve while the results are current (the owner, 2026-11-27) -----------------------------
+
+/**
+ * Each press of a Solve that waits for an edit says `reason` in the info notice: Enter, Space and
+ * Ctrl+Enter with the focus on it (kept there), then a click, or on a phone a tap from Build,
+ * which stays shown. Each notice is dismissed before the next press, so each press is read alone.
+ */
+async function pressesSay(page: Page, solve: Locator, reason: string) {
+	const said = notice(page, 'status');
+	const escaped = reason.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
+	const words = new RegExp('^\\s*' + escaped + '\\s*$');
+	for (const key of ['Enter', 'Space', 'Control+Enter']) {
+		await solve.focus();
+		await page.keyboard.press(key);
+		await expect(said, key).toHaveText(words);
+		await expect(solve, `${key}: the focus kept`).toBeFocused();
+		await said.getByRole('button', { name: 'Dismiss' }).click();
+		await expect(said).toHaveCount(0);
+	}
+	// A pointer press: Playwright's own click waits for an enabled element, which aria-disabled is
+	// not, so it is forced (the browser's events are the same).
+	const touch = !!test.info().project.use.hasTouch;
+	if (touch) {
+		await showPane(page, 'Build');
+		await solve.tap({ force: true });
+	} else {
+		await solve.click({ force: true });
+	}
+	await expect(said, touch ? 'a tap' : 'a click').toHaveText(words);
+	if (touch) {
+		await expect(buildPane(page), 'a tap: Build still shown').toBeVisible();
+		await expect(resultsPane(page)).toBeHidden();
+	}
+	await said.getByRole('button', { name: 'Dismiss' }).click();
+	await expect(said).toHaveCount(0);
+}
+
+/** How a button is drawn: .btn's aria-disabled look dims it and keeps its colours. */
+async function drawnLook(button: Locator) {
+	return button.evaluate((el) => {
+		const style = getComputedStyle(el);
+		return {
+			opacity: style.opacity,
+			cursor: style.cursor,
+			background: style.backgroundColor,
+			color: style.color
+		};
+	});
+}
+
+test('Solve is dimmed while the results shown are current, as Solve all while every case is; an edit or a case out of date brings it back', async ({
+	page
+}) => {
+	test.setTimeout(180_000);
+	const current = 'The results are current; solve again after an edit that can change them.';
+	await open(page, {
+		...exampleProject('pump-transfer')!,
+		scenarios: [{ id: 'S1', name: 'Winter', overrides: [] }]
+	});
+	const solve = headerSolve(page);
+	await expect(solve).toHaveAttribute('aria-disabled', 'false');
+	const lit = await drawnLook(solve);
+	expect(lit.opacity, 'Solve, no results').toBe('1');
+
+	// Every case solved: Solve all and Solve unavailable, drawn alike, each with its reason.
+	await solveAll(page, { done: true });
+	await expect(scenariosButton(page)).toHaveAccessibleName('Scenarios (1)');
+	await openCases(page);
+	const all = solveAllButton(page);
+	await expect(all).toHaveAttribute('aria-disabled', 'true');
+	await expect(all).toHaveAccessibleDescription("Every case's results are current.");
+	const allLook = await drawnLook(all);
+	await page.keyboard.press('Escape');
+	await expect(menuGroup(page)).toBeHidden();
+	await expect(solve).toHaveAttribute('aria-disabled', 'true');
+	await expect(solve).toHaveAccessibleName('Solve Base case');
+	await expect(solve).toHaveAccessibleDescription(current);
+	await expect(solve).toHaveAttribute('title', current);
+	const dim = await drawnLook(solve);
+	expect(dim, 'Solve drawn as Solve all is, every case current').toEqual(allLook);
+	expect(dim.opacity).toBe('0.45');
+	expect(dim.cursor).toBe('not-allowed');
+	expect(dim.background, 'its colours kept').toBe(lit.background);
+	// Hovered, it does not light up.
+	await solve.hover();
+	expect((await drawnLook(solve)).background, 'hovered').toBe(lit.background);
+	await axeClean(page, 'header', 'Solve unavailable, the results current');
+
+	// Focusable; a press, by key, pointer or touch, and the keys send nothing and say why in a
+	// notice, so a touch screen, which shows no title, has the reason too.
+	const sent: string[] = [];
+	const count = (r: { url(): string; method(): string }) => {
+		if (r.url().endsWith('/api/v1/solve') && r.method() === 'POST') sent.push(r.url());
+	};
+	page.on('request', count);
+	await pressesSay(page, solve, current);
+	expect(sent, 'solves sent while the results are current').toEqual([]);
+	page.off('request', count);
+
+	// An edit that can change the results: Solve lit again, its tooltip its shortcut.
+	await showPane(page, 'Build');
+	const level = buildPane(page).getByRole('textbox', { name: /^Liquid level/ });
+	await level.fill(String(Number(await level.inputValue()) + 1));
+	await level.press('Enter');
+	await expect(solve).toHaveAttribute('aria-disabled', 'false');
+	await expect(solve).not.toHaveAttribute('aria-describedby');
+	await expect(solve).toHaveAttribute('title', 'Solve (Ctrl+Enter or ⌘+Enter)');
+	expect((await drawnLook(solve)).opacity, 'Solve, out of date').toBe('1');
+	// Solved: dimmed again. Winter, still out of date: lit there.
+	await solveConverged(page);
+	await expect(solve).toHaveAttribute('aria-disabled', 'true');
+	await openCases(page);
+	await caseMenu(page).selectOption('S1');
+	await expect(menuGroup(page)).toBeHidden();
+	await expect(solve).toHaveAccessibleName('Solve Winter');
+	await expect(solve).toHaveAttribute('aria-disabled', 'false');
+	expect((await drawnLook(solve)).opacity, 'Solve Winter, out of date').toBe('1');
+});
+
+test("after the project's own error Solve waits as Solve all does, drawn alike, its reason said by a press; an edit that can fix it brings it back", async ({
+	page
+}) => {
+	test.setTimeout(180_000);
+	const error =
+		'The last solve failed with an error to fix first; solve again after an edit that can fix it.';
+	// Two valves and no reservoir (topology-error.e2e.ts): the API refuses each case, 422.
+	await newProject(page);
+	await addFirst(page, 'Gate valve', 'Gate valve V1');
+	await addAfter(page, 'Gate valve', 'Gate valve V2');
+	// The link is written after a pause (D3): read it once it holds both valves.
+	await expect.poll(() => linked(page.url()).components.length).toBe(2);
+	await open(page, {
+		...linked(page.url()),
+		scenarios: [{ id: 'S1', name: 'Winter', overrides: [] }]
+	});
+	const solve = headerSolve(page);
+	await expect(solve).toHaveAttribute('aria-disabled', 'false');
+	const lit = await drawnLook(solve);
+	const statuses: number[] = [];
+	page.on('response', (r) => {
+		if (r.url().endsWith('/api/v1/solve') && r.request().method() === 'POST') {
+			statuses.push(r.status());
+		}
+	});
+
+	// Solve all: each case refused, so it waits, its line naming them.
+	await openCases(page);
+	const all = solveAllButton(page);
+	await all.click();
+	await expect.poll(() => statuses).toEqual([422, 422]);
+	await expect(all).toHaveAttribute('aria-disabled', 'true');
+	await expect(all).toHaveAccessibleDescription(
+		'Every case is solved except Base case and Winter, which have an error to fix first.'
+	);
+	const allLook = await drawnLook(all);
+	await page.keyboard.press('Escape');
+	await expect(menuGroup(page)).toBeHidden();
+
+	// Solve, on the case shown, waits too, drawn as Solve all is, its reason with it.
+	await expect(solve).toHaveAttribute('aria-disabled', 'true');
+	await expect(solve).toHaveAccessibleName('Solve Base case');
+	await expect(solve).toHaveAccessibleDescription(error);
+	await expect(solve).toHaveAttribute('title', error);
+	expect(await drawnLook(solve), 'Solve drawn as Solve all is').toEqual(allLook);
+	expect(allLook.background, 'its colours kept').toBe(lit.background);
+	await axeClean(page, 'header', "Solve unavailable, the project's own error");
+	await pressesSay(page, solve, error);
+	expect(statuses, 'solves sent while the error is to fix first').toEqual([422, 422]);
+
+	// An edit that can change the results: the error out of date, Solve lit, and a press sends.
+	await editElevation(page);
+	await expect(solve).toHaveAttribute('aria-disabled', 'false');
+	await expect(solve).not.toHaveAttribute('aria-describedby');
+	await expect(solve).toHaveAttribute('title', 'Solve (Ctrl+Enter or ⌘+Enter)');
+	expect((await drawnLook(solve)).opacity, 'Solve, the error out of date').toBe('1');
+	await solve.click();
+	await expect.poll(() => statuses).toEqual([422, 422, 422]);
+	await expect(solve).toHaveAttribute('aria-disabled', 'true');
+	await expect(solve).toHaveAccessibleDescription(error);
 });

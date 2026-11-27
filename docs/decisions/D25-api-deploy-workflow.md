@@ -58,9 +58,10 @@ The API is deployed by one workflow, `.github/workflows/deploy-api.yml`, started
 
 ### Limits
 
-- **Not verified here.** This session has no Google Cloud access, so the token exchange and the grants are unverified:
-  - The first `check_only` run verifies the sign-in and the read.
-  - The first deploy verifies the push, the tagged deploy and `update-traffic`, with `roles/run.developer` bound on the service alone. Google lists only resource-level grants for these. Whether gcloud also needs a project-level permission (such as `run.operations.get`) is not documented either way. If a run reports one missing, a project-level custom role holding only that permission is the narrow remedy (deployment.md §4).
+- **Verified by the first runs, not here.** This session has no Google Cloud access, so the token exchange and the grants were checked by the workflow's first runs after the merge `322db41` (2026-11-27), each a first attempt started through GitHub's API at the owner's request:
+  - **Run 46054811608, `check_only`:** the sign-in as the deploy account and the read of the service passed. gcloud warns that the account cannot read the project; that is expected, since it holds no project role, and nothing needs it.
+  - **Run 46057952554, the first deploy, of `322db41`:** the push, the tagged deploy and `update-traffic` passed with `roles/run.developer` bound on the service alone, so no project-level permission was needed. The candidate `opensolve-pipe-api-00020-xuq` passed all 7 checks on its tag URL (the site's and a preview's preflight among them), took all traffic in place of `opensolve-pipe-api-00017-sb9`, and passed them again on the service's URL; the rollback was skipped and the tag removed. The service then answered `/api/v1/about` with commit `322db41` and method version 1.6.2.
+  - Google documents only resource-level grants for a deploy. If a later gcloud needs a project-level permission (such as `run.operations.get`), the run names it, and a project-level custom role holding only that permission is the narrow remedy (deployment.md §4).
 - **A candidate not kept pins the traffic.** This covers a failed check or guard, a cancelled run, and a rollback. The traffic stays pinned to the revision that served before, and the service's template is the candidate that was not kept. The next run moves the traffic to its new revision. By hand, a deploy then needs `update-traffic --to-latest`, which deployment.md's block now ends with. A settings change by hand comes only after a deploy: built on the template, it would make a revision of the code that was not kept.
 - **Unchanged:**
   - The manual Cloud Build path (`cloudbuild.yaml`, deployment.md *Redeploying the API*) stays the owner's fallback.

@@ -4656,7 +4656,16 @@ test('a lasting image reason sits with Download image, beside it or under it, ne
 		/ and system curve; operating point /,
 		{ timeout: 60_000 }
 	);
-	// The latest solve did not converge: no image is made of its values, a lasting reason.
+	// The latest solve did not converge: no image is made of its values, a lasting reason. Solve
+	// waits while the results are current (the owner, 2026-11-27): a value changed first (a
+	// made-up suction-tank level).
+	await showPane(page, 'Build');
+	await buildPane(page).getByRole('button', { name: 'Jump to a component' }).click();
+	const jump = page.getByRole('dialog', { name: 'Jump to a component' });
+	await jump.getByRole('button', { name: /^Suction tank/ }).click();
+	await expect(jump).toBeHidden();
+	const level = buildPane(page).getByRole('textbox', { name: /^Liquid level/ });
+	await setNumber(buildPane(page), /^Liquid level/, String(Number(await level.inputValue()) + 1));
 	await page.route('**/api/v1/solve', async (route) => {
 		const response = await route.fetch();
 		const body = await response.json();
@@ -6478,8 +6487,17 @@ test('S6, the CI fix’s review: a sort a fraction of a pixel wider than its tab
 	await showPane(page, 'Results');
 	const nodesView = await resultsView(page, 'Nodes');
 	const nodes = nodesView.getByRole('table').first().locator('xpath=..');
-	// New results while sorted: the header's Solve.
+	// New results while sorted: the header's Solve, which waits while the results are current
+	// (the owner, 2026-11-27), so first a change that alters no value the table shows: the NPSH
+	// margin check switched on in Settings (the example has no pump, and a check never changes a
+	// result, D19).
 	await sortedThenPressed('Nodes', nodes, 'HGL', 0, null, async () => {
+		await page.getByRole('button', { name: 'Settings', exact: true }).click();
+		const settings = page.getByRole('dialog', { name: 'Project settings' });
+		await settings.getByText('Design checks', { exact: true }).click();
+		await settings.getByRole('checkbox', { name: 'NPSH margin' }).check();
+		await settings.getByRole('button', { name: 'Done' }).click();
+		await expect(settings).toBeHidden();
 		await solveConverged(page);
 		await frames(page);
 	});
@@ -7233,11 +7251,18 @@ test('Add cases in one structure: the plan, its fold and its new lines, no Solve
 /** The control "Stop Pump P4 later" in the stop order (STOP_ORDER_WORDS.later). */
 const STOP_P4_LATER = '[data-stop-id="P4"][data-dir="down"]';
 
+/** "Pump lineups table…", at Add cases' foot in every state, gates included (D24 slice L2). */
+const LINEUPS_TABLE = '[data-add-cases] [data-focus-key="table"]';
+
 /**
  * The lineups without their scenarios, solved, the Pumps together card open, as the designers'
  * probes set it (proposals/open-defects-2.md §2 F3): the plan open as drawn, the stop order and
  * both "How … is computed" disclosures opened by their summaries, and the focus on "Stop Pump P4
- * later".
+ * later". Since Solve and Ctrl+Enter wait while the results shown are current (the owner,
+ * 2026-11-27), the keys there say so and withdraw nothing; then a change that alters no value
+ * puts the base's results out of date (the NPSH margin check switched on in Settings: a check
+ * never changes a result, D19), so Add cases shows its gate, and the focus goes to "Pump lineups
+ * table…", which the gate keeps: the button a base solve's withdrawal now starts from.
  */
 async function f3Card(page: Page) {
 	const project = projectOf('lineups');
@@ -7264,8 +7289,36 @@ async function f3Card(page: Page) {
 		if (name !== 'plan') await details.locator(':scope > summary').click();
 		await expect(details, `${name} open`).toHaveAttribute('open', '');
 	}
-	const button = block.locator(STOP_P4_LATER);
-	await expect(button).toHaveAccessibleName('Stop Pump P4 later');
+	const later = block.locator(STOP_P4_LATER);
+	await expect(later).toHaveAccessibleName('Stop Pump P4 later');
+	await later.focus();
+	await expect(later).toBeFocused();
+	await settle(page, 500);
+	// The results current: Ctrl+Enter says why (an info notice, pressed away while it is new) and
+	// sends nothing; nothing is withdrawn and the focus stays.
+	const solves = solveCounter(page);
+	await page.keyboard.press('Control+Enter');
+	const dismiss = page.getByRole('button', { name: 'Dismiss' });
+	const notice = page.getByRole('status').filter({ has: dismiss });
+	await expect(notice).toHaveText(
+		/^\s*The results are current; solve again after an edit that can change them\.\s*$/
+	);
+	await expect(later).toBeFocused();
+	await expect(card.locator('[data-add-cases]')).toHaveCount(1);
+	await notice.getByRole('button', { name: 'Dismiss' }).click({ timeout: 4_000 });
+	await expect(dismiss).toHaveCount(0);
+	expect(solves.n, 'solves sent while the results are current').toBe(0);
+	// Out of date: the gate, under which "Pump lineups table…" takes the focus.
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	const settings = page.getByRole('dialog', { name: 'Project settings' });
+	await settings.getByText('Design checks', { exact: true }).click();
+	await settings.getByRole('checkbox', { name: 'NPSH margin' }).check();
+	await settings.getByRole('button', { name: 'Done' }).click();
+	await expect(settings).toBeHidden();
+	await expect(block).toContainText("The base case's results are out of date");
+	await expect(block.locator('[data-stop-order]')).toHaveCount(0);
+	const button = page.locator(LINEUPS_TABLE);
+	await expect(button).toHaveAccessibleName('Pump lineups table…');
 	await button.focus();
 	await expect(button).toBeFocused();
 	await settle(page, 500);
@@ -7363,12 +7416,12 @@ async function slowGroupSystemCurve(page: Page, ms: number) {
 	});
 }
 
-test('open defects F3: Ctrl+Enter with the focus on “Stop Pump P4 later”: while the card’s sections are withdrawn the focus is on the group figure, then back on the same button at the same offset in the pane, the plan, the stop order and both methods open as left (proposals/open-defects-2.md §2 F3)', async ({
+test('open defects F3: Ctrl+Enter with the focus on “Pump lineups table…”, the base out of date: while the card’s sections are withdrawn the focus is on the group figure, then back on the same button at the same offset in the pane, the plan, the stop order and both methods open as left (proposals/open-defects-2.md §2 F3)', async ({
 	page
 }) => {
 	test.setTimeout(240_000);
 	const { block, button, disclosures } = await f3Card(page);
-	const before = await offsetInPane(page, STOP_P4_LATER);
+	const before = await offsetInPane(page, '[data-focus-key="table"]');
 	await recordWithdrawal(page);
 	await ctrlEnterSolve(page);
 	await expect(block).toBeVisible({ timeout: 120_000 });
@@ -7384,9 +7437,9 @@ test('open defects F3: Ctrl+Enter with the focus on “Stop Pump P4 later”: wh
 			'the focus while Add cases is withdrawn, where it is not the group figure'
 		)
 		.toEqual([]);
-	await expect.soft(button, 'the focus back on "Stop Pump P4 later"').toBeFocused();
-	const after = await offsetInPane(page, STOP_P4_LATER);
-	console.log(`F3 at ${sizeOf(page)}: "Stop Pump P4 later" ${before} px, then ${after} px`);
+	await expect.soft(button, 'the focus back on "Pump lineups table…"').toBeFocused();
+	const after = await offsetInPane(page, '[data-focus-key="table"]');
+	console.log(`F3 at ${sizeOf(page)}: "Pump lineups table…" ${before} px, then ${after} px`);
 	expect
 		.soft(Math.abs(after - before), 'the button at the same offset in the pane, px')
 		.toBeLessThanOrEqual(2);

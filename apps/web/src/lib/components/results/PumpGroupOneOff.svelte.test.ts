@@ -2438,11 +2438,30 @@ describe('a base solve with the focus in Add cases (proposals/open-defects-2.md 
 		await new Promise((r) => setTimeout(r, 0));
 		const later = () => within(block()).getByRole('button', { name: 'Stop Pump PB later' });
 		later().focus();
+		// Solve and Ctrl+Enter wait while the base's results are current (the owner, 2026-11-27):
+		// from the stop order the keys say so and solve nothing, the focus kept; an edit puts the
+		// results out of date first. Add cases then says so (its gate): its plan, the stop order
+		// with it, goes until the base is solved again, and Pump lineups table… stays.
+		await fireEvent.keyDown(later(), { key: 'Enter', ctrlKey: true });
+		expect(ws.notice?.text).toBe(
+			'The results are current; solve again after an edit that can change them.'
+		);
+		expect(calls.filter((c) => c.curve === 'system')).toHaveLength(1);
+		expect(later()).toHaveFocus();
+		ws.store.update((p) => {
+			p.connections[0]!.piping.pipes[0]!.length += 1;
+		}, 'change length');
+		await waitFor(() =>
+			expect(block()).toHaveTextContent(/The base case's results are out of date/)
+		);
+		expect(block().querySelector('[data-stop-order]')).toBeNull();
+		const table = () => within(block()).getByRole('button', { name: 'Pump lineups table…' });
+		table().focus();
 
-		// Ctrl+Enter from the button: the base solved again, its group curve and then its group
+		// Ctrl+Enter from that button: the base solved again, its group curve and then its group
 		// system curve asked for; the block and the methods withdrawn meanwhile, the figure holding
 		// the focus.
-		await fireEvent.keyDown(later(), { key: 'Enter', ctrlKey: true });
+		await fireEvent.keyDown(table(), { key: 'Enter', ctrlKey: true });
 		await waitFor(() => expect(calls.filter((c) => c.curve === 'system')).toHaveLength(2));
 		const figure = within(card()).getByRole('figure');
 		expect(within(card()).queryByRole('region', { name: 'Add cases' })).toBeNull();
@@ -2451,8 +2470,9 @@ describe('a base solve with the focus in Add cases (proposals/open-defects-2.md 
 
 		// Its answer: all back in one flush, as the user left them, the focus on the same button.
 		answer!();
-		await waitFor(() => expect(later()).toHaveFocus());
+		await waitFor(() => expect(table()).toHaveFocus());
 		expect(block().querySelector<HTMLDetailsElement>('[data-stop-order]')!.open).toBe(true);
+		expect(later()).toBeInTheDocument();
 		expect(methods()).toEqual([true, true]);
 	});
 });

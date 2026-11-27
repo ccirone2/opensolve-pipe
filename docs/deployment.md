@@ -182,7 +182,7 @@ Then, on GitHub, under the repository's Settings → Environments:
 - Leave *Required reviewers* off. Claude's sessions act on GitHub as you, so a reviewer rule cannot stop one (it could approve as you), and with *Prevent self-review* you could never approve a run it started. What a run can do is bounded by the grants above, whoever starts it.
 - Optionally, in Google Cloud's console under IAM & Admin → Quotas, lower the project's Cloud Run quotas in `us-central1` (total CPU and memory, and GPUs to 0) to a little above the service's 1 vCPU, 1 GiB and 1 instance. The deploy account cannot raise a quota, so a run could then not raise the service's cost beyond them; the spend cap (§1) bounds it in any case.
 
-Google takes up to about 5 minutes to apply new pools, providers and grants. Then run the workflow once with *Check the setup only* ticked: it signs in, reads the service and builds the image, and deploys nothing. Its log shows the deploy account signed in and the revision serving now. That checks the trust condition and the read; the image push, the deploy and the traffic change are checked by the first real deploy.
+Google takes up to about 5 minutes to apply new pools, providers and grants. Then run the workflow once with *Check the setup only* ticked: it signs in, reads the service and builds the image, and deploys nothing. Its log shows the deploy account signed in and the revision serving now. That checks the trust condition and the read; the image push, the deploy and the traffic change are checked by the first real deploy. (Both passed on 2026-11-27, with the grants above and no project-level permission: D25, *Limits*. The check-only run's gcloud warns that the deploy account cannot read the project; that is expected.)
 
 **Deploying.** Actions → *Deploy API* → *Run workflow*, on `main`. Leave *commit* empty for `main`'s latest, or give an earlier head of `main` (a merge commit on it) whose CI passed on `main`, to go back to it. Or ask Claude. The run's summary lists the commit, the service's settings, the candidate revision, each check, and a rollback if one happened. Only one deploy runs at a time. To try a failed deploy again, start a new run: Google's trust condition refuses a re-run (`run_attempt`), so an old version of the workflow can never run again with the deploy account.
 
@@ -193,5 +193,5 @@ gcloud logging read 'protoPayload.authenticationInfo.principalEmail="api-deploye
   --project=opensolve-pipe-api --freshness=30d --format='table(timestamp,protoPayload.methodName,protoPayload.resourceName)'
 ```
 
-If a first deploy fails on a permission the grants above don't give (Google documents only these grants, each on its resource, for a deploy), the run's log names the permission. Add it alone, as a custom role at project level, rather than a wider role.
+If a deploy fails on a permission the grants above don't give (Google documents only these grants, each on its resource, for a deploy; the first deploy needed no other), the run's log names the permission. Add it alone, as a custom role at project level, rather than a wider role.
 

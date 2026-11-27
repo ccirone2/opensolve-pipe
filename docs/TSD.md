@@ -2056,7 +2056,7 @@ Checked with `wrangler pages dev` 4.149.0 on a build made with `PUBLIC_API_URL` 
   - this workflow file.
 
   The deploy account holds `roles/artifactregistry.writer` on the image repository, `roles/run.developer` on the service, which also reaches its settings and so its cost, and `roles/iam.serviceAccountUser` on the roleless runtime account, and no project role.
-- **Not verified here, with no Google Cloud access:** the token exchange and the grants. The workflow's commit choice, credential file and JSON selections were run here, the credential through `google-auth` 2.63.1 against a stand-in for GitHub's token endpoint (D25, Proof). The first `check_only` run checks the rest. The manual Cloud Build path above stays the owner's fallback.
+- **Verified by its first runs** (2026-11-27, on `322db41`; D25, *Limits*): the token exchange and the grants, which a session cannot reach, with no Google Cloud access. A `check_only` run signed in and read the service. The first deploy pushed, deployed the candidate with no traffic, passed its 7 checks, moved the traffic and passed them again on the service, with no project-level permission. The workflow's commit choice, credential file and JSON selections were run in the session, the credential through `google-auth` 2.63.1 against a stand-in for GitHub's token endpoint (D25, Proof). The manual Cloud Build path above stays the owner's fallback.
 
 ### 11.3 Environment Variables
 

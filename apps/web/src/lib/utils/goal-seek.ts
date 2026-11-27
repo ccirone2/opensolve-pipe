@@ -169,6 +169,64 @@ export function calculatingReason(
 		: `A solve is running; ${cancel}`;
 }
 
+/** What Solve's state is derived from (the store's, as Workspace.solveState passes it). */
+export interface SolveInput {
+	empty: boolean;
+	calculating: Calculating;
+	/** Why the case shown waits for an edit, if it does (store.waitsForEdit()). */
+	waits: 'current' | 'error' | null;
+}
+
+/** Why Solve waits while the case shown's results are current (the owner, 2026-11-27). */
+export const SOLVE_CURRENT_REASON =
+	'The results are current; solve again after an edit that can change them.';
+
+/**
+ * Why Solve waits while the last solve of the project as it is failed with its own error
+ * (topology, validation or fluid), as Solve all skips the case ("which has an error to fix
+ * first"): solved again unchanged, it fails again.
+ */
+export const SOLVE_ERROR_REASON =
+	'The last solve failed with an error to fix first; solve again after an edit that can fix it.';
+
+/**
+ * The header's Solve as it, its press and Ctrl/⌘+Enter show it: whether it can run now, and why
+ * not. It waits for a component, for a calculation to end (one request at a time) and, like
+ * Solve all, for an edit while solving the case shown again would only give what it shows: its
+ * results current (the owner, 2026-11-27), or its own error to fix first. The reasons are said
+ * with it, in the header's way (title and a visually hidden description: the header has no room
+ * for a line at 320 px): an empty network, a goal seek (beside the header's Cancel), and the two
+ * that wait for an edit, which a press of it and its keys also say in a notice, so none is silent
+ * on a touch screen, which shows no title. While a solve or Solve all runs there is no reason:
+ * Solve's spinner and Cancel say it.
+ */
+export interface SolveState {
+	canRun: boolean;
+	/** Why it cannot run ('' when it can, and while a solve or Solve all runs). */
+	reason: string;
+	/** It waits only for an edit (a press of it and Ctrl/⌘+Enter then say the reason). */
+	waitsForEdit: boolean;
+}
+
+/** Solve's state from the store's (Workspace.solveState), one source for the button and its keys. */
+export function solveState(state: SolveInput): SolveState {
+	const waits = !state.empty && state.calculating === null ? state.waits : null;
+	const reason = state.empty
+		? 'Add a component to the network first.'
+		: state.calculating === 'goalSeek'
+			? calculatingReason('goalSeek', 'solve', true)
+			: waits === 'current'
+				? SOLVE_CURRENT_REASON
+				: waits === 'error'
+					? SOLVE_ERROR_REASON
+					: '';
+	return {
+		canRun: !state.empty && state.calculating === null && !waits,
+		reason,
+		waitsForEdit: !!waits
+	};
+}
+
 /** What Solve all's state is derived from (the store's, as Workspace.solveAllState passes it). */
 export interface SolveAllInput {
 	empty: boolean;

@@ -6,7 +6,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NetworkError } from '$lib/api/client';
+import { NetworkError, TopologyError, ValidationError } from '$lib/api/client';
 import type {
 	GoalSeekResponse,
 	Project,
@@ -115,7 +115,13 @@ describe('workspace', () => {
 		expect(solveFn).toHaveBeenCalledTimes(2);
 		const sent = (solveFn.mock.calls[1] as unknown as [Project])[0];
 		expect(sent.components.find((c) => c.id === 'R1')).toMatchObject({ liquidLevel: 4 });
-		// Inside a dialog the keys belong to the dialog.
+		// Inside a dialog the keys belong to the dialog: not solved, nothing said, with the results
+		// out of date (current, they would not solve anywhere: the owner, 2026-11-27).
+		await vi.waitFor(() => expect(ws.store.results.response).not.toBeNull());
+		ws.store.update((p) => {
+			p.connections[0]!.piping.pipes[0]!.length += 1;
+		}, 'change length');
+		expect(ws.store.results.stale).toBe(true);
 		await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 		const dialog = await screen.findByRole('dialog', { name: 'Project settings' });
 		await fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Done' }), {
@@ -123,6 +129,7 @@ describe('workspace', () => {
 			ctrlKey: true
 		});
 		expect(solveFn).toHaveBeenCalledTimes(2);
+		expect(ws.notice).toBeNull();
 	});
 });
 
@@ -619,5 +626,374 @@ describe("the owner's rule: one Solve, one Solve all, at the top (build-density.
 		});
 		expect(screen.getByText(/^This project was opened without results/)).toBeInTheDocument();
 		await oneOfEach('a link opened without results', false);
+	});
+});
+
+describe('Solve while the results shown are current (the owner, 2026-11-27)', () => {
+	/** The reason, Solve's description and title while the results shown are current. */
+	const CURRENT = 'The results are current; solve again after an edit that can change them.';
+	/** The reason while the last solve of the project as it is failed with its own error. */
+	const ERROR =
+		'The last solve failed with an error to fix first; solve again after an edit that can fix it.';
+	const TITLE = 'Solve (Ctrl+Enter or ⌘+Enter)';
+	const solveButton = () => document.querySelector<HTMLButtonElement>('[data-solve-button]')!;
+	/** Unavailable as Solve all is while every case is current: aria-disabled, focusable, said. */
+	function unavailable(what: string, reason = CURRENT) {
+		const solve = solveButton();
+		expect(solve, what).toHaveAttribute('aria-disabled', 'true');
+		expect(solve, what).not.toBeDisabled();
+		expect(solve, what).toHaveAccessibleDescription(reason);
+		expect(solve, what).toHaveAttribute('title', reason);
+	}
+	function available(what: string) {
+		const solve = solveButton();
+		expect(solve, what).toHaveAttribute('aria-disabled', 'false');
+		expect(solve, what).not.toHaveAttribute('aria-describedby');
+		expect(solve, what).toHaveAttribute('title', TITLE);
+	}
+	const longer = (ws: Workspace) =>
+		ws.store.update((p) => {
+			p.connections[0]!.piping.pipes[0]!.length += 1;
+		}, 'change length');
+	/** A solver answering, failing (each kind of error), or holding, as the test sets it. */
+	function programmedSolver() {
+		let mode: 'ok' | 'network' | 'topology' | 'validation' | 'hold' = 'ok';
+		const signals: (AbortSignal | undefined)[] = [];
+		const solve = vi.fn(
+			(_project: Project, _options?: unknown, request?: { signal?: AbortSignal }) => {
+				signals.push(request?.signal);
+				switch (mode) {
+					case 'network':
+						return Promise.reject(
+							new NetworkError('The calculation server could not be reached.', 0)
+						);
+					case 'topology':
+						return Promise.reject(new TopologyError('The network has a problem.', []));
+					case 'validation':
+						return Promise.reject(new ValidationError('A value is out of range.', [], 400));
+					case 'hold':
+						return new Promise<SolveResponse>(() => {});
+					default:
+						return Promise.resolve(response(pumpTransferSolved()));
+				}
+			}
+		);
+		return { solver: { solve }, solve, signals, set: (next: typeof mode) => (mode = next) };
+	}
+
+	it('is unavailable after a solve, focusable, with its reason; an edit that can change the results makes it available; an undo back to the project solved does not', async () => {
+		const s = programmedSolver();
+		const ws = testWorkspace(pumpTransferExample(), { solver: s.solver });
+		render(WorkspaceView, { workspace: ws });
+		available('not solved');
+		await fireEvent.click(solveButton());
+		await vi.waitFor(() => expect(ws.store.results.response).not.toBeNull());
+		await tick();
+		unavailable('after a solve');
+		expect(solveButton()).toHaveAccessibleName('Solve');
+		expect(solveButton()).toHaveAttribute('aria-keyshortcuts', 'Control+Enter Meta+Enter');
+		// The focus stays on it; a press, by pointer or key, sends nothing.
+		solveButton().focus();
+		await fireEvent.click(solveButton(), { detail: 1 });
+		await fireEvent.click(solveButton(), { detail: 0 });
+		await tick();
+		expect(s.solve).toHaveBeenCalledTimes(1);
+		expect(document.activeElement).toBe(solveButton());
+		// A rename cannot change the results: still current.
+		ws.edit((p) => {
+			p.metadata.name = 'Renamed transfer';
+		}, 'rename project');
+		await tick();
+		expect(ws.store.results.stale).toBe(false);
+		unavailable('after a rename');
+		// An edit that can: out of date, Solve available.
+		longer(ws);
+		await tick();
+		expect(ws.store.results.stale).toBe(true);
+		available('out of date');
+		// Undone to the project solved: its results are current again.
+		ws.undo();
+		await tick();
+		expect(ws.store.results.stale).toBe(false);
+		unavailable('undone to the project solved');
+		ws.redo();
+		await tick();
+		available('redone');
+		await fireEvent.click(solveButton());
+		await vi.waitFor(() => expect(s.solve).toHaveBeenCalledTimes(2));
+		await vi.waitFor(() => expect(ws.store.results.stale).toBe(false));
+		await tick();
+		unavailable('solved again');
+	});
+
+	it('a press on it while it waits, by pointer, touch or key, says why in a notice and sends nothing; the second click of a double click says nothing more', async () => {
+		const s = programmedSolver();
+		const ws = testWorkspace(pumpTransferExample(), { solver: s.solver });
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.click(solveButton());
+		await vi.waitFor(() => expect(ws.store.results.response).not.toBeNull());
+		await tick();
+		unavailable('after a solve');
+		expect(ws.notice).toBeNull();
+		// A pointer or touch press (detail 1) and a key's (detail 0): each says why, as Ctrl/⌘+Enter
+		// does, since a touch screen shows no title.
+		for (const detail of [1, 0]) {
+			ws.dismissNotice();
+			await fireEvent.click(solveButton(), { detail });
+			expect(ws.notice, `a click with detail ${detail}`).toMatchObject({
+				kind: 'info',
+				text: CURRENT
+			});
+		}
+		const said = ws.notice!.id;
+		await fireEvent.click(solveButton(), { detail: 2 });
+		expect(ws.notice!.id, 'the second click of a double click').toBe(said);
+		expect(s.solve).toHaveBeenCalledTimes(1);
+		// A calculation running: its spinner and Cancel say it; a press says nothing more, as before.
+		ws.dismissNotice();
+		longer(ws);
+		s.set('hold');
+		await fireEvent.click(solveButton());
+		expect(s.solve).toHaveBeenCalledTimes(2);
+		await fireEvent.click(solveButton(), { detail: 1 });
+		expect(ws.notice, 'a press while a solve runs').toBeNull();
+		expect(s.solve).toHaveBeenCalledTimes(2);
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solve' }));
+	});
+
+	it('an empty network: a press says nothing, as before (its reason is with it, and Build says it)', async () => {
+		const s = programmedSolver();
+		const ws = testWorkspace(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }), {
+			solver: s.solver
+		});
+		render(WorkspaceView, { workspace: ws });
+		expect(solveButton()).toHaveAttribute('aria-disabled', 'true');
+		expect(solveButton()).toHaveAccessibleDescription('Add a component to the network first.');
+		await fireEvent.click(solveButton(), { detail: 1 });
+		await fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
+		expect(ws.notice).toBeNull();
+		expect(s.solve).not.toHaveBeenCalled();
+	});
+
+	it("after a failed solve: available after a network error or a cancel; unavailable after the project's own error, as Solve all, until an edit that can fix it; available with this project's earlier results kept", async () => {
+		const s = programmedSolver();
+		const ws = testWorkspace(pumpTransferExample(), { solver: s.solver });
+		render(WorkspaceView, { workspace: ws });
+		// No results yet. A network error: available, a press retries.
+		let calls = 0;
+		s.set('network');
+		await fireEvent.click(solveButton());
+		calls++;
+		await vi.waitFor(() => expect(ws.store.results.error?.kind).toBe('network'));
+		await tick();
+		expect(ws.store.results.response).toBeNull();
+		available('a network error, no results');
+		// The project's own error: the same project gives it again, so Solve waits, as Solve all
+		// skips the case, its reason with it and said by a press and the keys, nothing sent. A rename
+		// cannot fix it; an edit that can makes it available; an undo back waits again.
+		for (const kind of ['topology', 'validation'] as const) {
+			s.set(kind);
+			await fireEvent.click(solveButton());
+			calls++;
+			await vi.waitFor(() => expect(ws.store.results.error?.kind).toBe(kind));
+			await tick();
+			expect(s.solve).toHaveBeenCalledTimes(calls);
+			expect(ws.store.results.response).toBeNull();
+			unavailable(`a ${kind} error, no results`, ERROR);
+			ws.dismissNotice();
+			await fireEvent.click(solveButton(), { detail: 1 });
+			expect(ws.notice, `a press, a ${kind} error`).toMatchObject({ kind: 'info', text: ERROR });
+			ws.dismissNotice();
+			expect(await fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true })).toBe(false);
+			expect(ws.notice, `Ctrl+Enter, a ${kind} error`).toMatchObject({
+				kind: 'info',
+				text: ERROR
+			});
+			expect(s.solve).toHaveBeenCalledTimes(calls);
+			ws.edit((p) => {
+				p.metadata.name = `Renamed after a ${kind} error`;
+			}, 'rename project');
+			await tick();
+			unavailable(`a ${kind} error, renamed`, ERROR);
+			longer(ws);
+			await tick();
+			available(`a ${kind} error, an edit since`);
+			ws.undo();
+			await tick();
+			unavailable(`a ${kind} error, undone to the project that failed`, ERROR);
+			longer(ws);
+			await tick();
+		}
+		s.set('hold');
+		await fireEvent.click(solveButton());
+		calls++;
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solve' }));
+		await tick();
+		expect(ws.store.results.cancelled).toBe(true);
+		available('cancelled, no results');
+		// Solved; then the same project's solve fails (started by the store: Solve is unavailable),
+		// the earlier results kept: the latest solve failed, so a retry is offered.
+		s.set('ok');
+		await fireEvent.click(solveButton());
+		calls++;
+		await vi.waitFor(() => expect(ws.store.results.response).not.toBeNull());
+		await tick();
+		unavailable('solved');
+		for (const kind of ['network', 'topology', 'validation'] as const) {
+			s.set(kind);
+			await ws.solve();
+			calls++;
+			await tick();
+			expect(ws.store.results.error?.kind).toBe(kind);
+			expect(ws.store.results.response).not.toBeNull();
+			expect(ws.store.results.stale).toBe(false);
+			available(`a ${kind} error, the earlier results of this project kept`);
+		}
+		s.set('ok');
+		await fireEvent.click(solveButton());
+		calls++;
+		await vi.waitFor(() => expect(ws.store.results.error).toBeNull());
+		await tick();
+		expect(s.solve).toHaveBeenCalledTimes(calls);
+		unavailable('solved after the retry');
+		// Out of date, a solve cancelled: available; an undo back to the project solved makes its
+		// results current again, the cancel notwithstanding.
+		longer(ws);
+		await tick();
+		s.set('hold');
+		await fireEvent.click(solveButton());
+		calls++;
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solve' }));
+		await tick();
+		expect(ws.store.results.cancelled).toBe(true);
+		expect(ws.store.results.stale).toBe(true);
+		available('out of date, cancelled');
+		ws.undo();
+		await tick();
+		expect(ws.store.results.cancelled).toBe(true);
+		unavailable('cancelled, undone to the project solved');
+		expect(s.solve).toHaveBeenCalledTimes(calls);
+	});
+
+	it('after a failed solve of an edited project and an undo back to the one solved, stays available: a press replaces the error the pane still shows', async () => {
+		const s = programmedSolver();
+		const ws = testWorkspace(pumpTransferExample(), { solver: s.solver });
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.click(solveButton());
+		await vi.waitFor(() => expect(ws.store.results.response).not.toBeNull());
+		await tick();
+		unavailable('solved');
+		for (const kind of ['network', 'topology'] as const) {
+			longer(ws);
+			await tick();
+			s.set(kind);
+			await fireEvent.click(solveButton());
+			await vi.waitFor(() => expect(ws.store.results.error?.kind).toBe(kind));
+			ws.undo();
+			await tick();
+			expect(ws.store.results.stale).toBe(false);
+			expect(ws.store.results.errorStale).toBe(true);
+			// The pane still shows that error, marked out of date ...
+			const heading = kind === 'network' ? 'No results' : 'The network cannot be solved yet';
+			expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
+			expect(screen.getAllByText(/Last solve: no results, out of date/).length).toBeGreaterThan(0);
+			// ... so Solve is available, and its press solves the project shown again, replacing it.
+			available(`a ${kind} error of an edited project, undone`);
+			s.set('ok');
+			const before = s.solve.mock.calls.length;
+			await fireEvent.click(solveButton());
+			expect(s.solve).toHaveBeenCalledTimes(before + 1);
+			await vi.waitFor(() => expect(ws.store.results.error).toBeNull());
+			await tick();
+			expect(screen.queryByRole('heading', { name: heading })).not.toBeInTheDocument();
+			unavailable(`solved again after the ${kind} error`);
+		}
+	});
+
+	it('follows the case shown: unavailable on a case with current results, available on one out of date or never solved', async () => {
+		const s = programmedSolver();
+		const ws = testWorkspace(
+			withScenarios(pumpTransferExample(), [
+				{ id: 'S1', name: 'Winter', overrides: [] },
+				{ id: 'S2', name: 'Summer', overrides: [] }
+			]),
+			{ solver: s.solver }
+		);
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.click(solveButton());
+		await vi.waitFor(() => expect(ws.store.results.response).not.toBeNull());
+		await tick();
+		unavailable('the base case solved');
+		ws.setCase('S1');
+		await tick();
+		expect(solveButton()).toHaveAccessibleName('Solve Winter');
+		available('Winter, never solved');
+		await ws.solveAll();
+		await tick();
+		unavailable('Winter after Solve all');
+		ws.setCase('S2');
+		await tick();
+		unavailable('Summer after Solve all');
+		// Every case out of date; Summer solved again.
+		longer(ws);
+		await tick();
+		available('Summer out of date');
+		await fireEvent.click(solveButton());
+		await vi.waitFor(() => expect(ws.store.results.stale).toBe(false));
+		await tick();
+		unavailable('Summer solved again');
+		// Switched to a scenario still out of date: available; back: unavailable.
+		ws.setCase('S1');
+		await tick();
+		expect(ws.store.results.stale).toBe(true);
+		available('Winter out of date');
+		ws.setCase('S2');
+		await tick();
+		unavailable('back on Summer');
+		ws.setCase(null);
+		await tick();
+		available('the base case out of date');
+	});
+
+	it('Ctrl/⌘+Enter on current results says why and sends nothing; after an edit it solves', async () => {
+		const s = programmedSolver();
+		const ws = testWorkspace(pumpTransferExample(), { solver: s.solver });
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
+		await vi.waitFor(() => expect(ws.store.results.response).not.toBeNull());
+		await tick();
+		expect(s.solve).toHaveBeenCalledTimes(1);
+		// Current: handled (the browser's own use prevented), said in Solve's words, nothing sent.
+		for (const keys of [
+			{ key: 'Enter', ctrlKey: true },
+			{ key: 'Enter', metaKey: true }
+		]) {
+			ws.dismissNotice();
+			expect(await fireEvent.keyDown(window, keys)).toBe(false);
+			expect(ws.notice).toMatchObject({ kind: 'info', text: CURRENT });
+			expect(s.solve).toHaveBeenCalledTimes(1);
+		}
+		ws.dismissNotice();
+		// A held key's repeats are ignored, not refused: nothing said.
+		expect(await fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true, repeat: true })).toBe(
+			false
+		);
+		expect(ws.notice).toBeNull();
+		// From a field with no new value: still current, said.
+		ws.pane = 'build';
+		await tick();
+		const level = screen.getByRole('textbox', { name: /^Liquid level/ });
+		await fireEvent.keyDown(level, { key: 'Enter', ctrlKey: true });
+		expect(ws.notice).toMatchObject({ kind: 'info', text: CURRENT });
+		expect(s.solve).toHaveBeenCalledTimes(1);
+		ws.dismissNotice();
+		// From a field with a new value: its Enter stores it, the results go out of date, the keys
+		// solve it.
+		await fireEvent.input(level, { target: { value: '4' } });
+		await fireEvent.keyDown(level, { key: 'Enter', metaKey: true });
+		expect(s.solve).toHaveBeenCalledTimes(2);
+		const sent = (s.solve.mock.calls[1] as unknown as [Project])[0];
+		expect(sent.components.find((c) => c.id === 'R1')).toMatchObject({ liquidLevel: 4 });
+		expect(ws.notice).toBeNull();
 	});
 });

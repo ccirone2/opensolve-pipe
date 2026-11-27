@@ -238,6 +238,14 @@ test('the pump chart as a PNG', async ({ page }) => {
 test('unavailable while a solve runs; an out-of-date workbook says so', async ({ page }) => {
 	await openExample(page);
 	await solveAndKeep(page);
+	// Solve waits while the results are current (the owner, 2026-11-27): a value changed first (a
+	// made-up suction-tank level).
+	await showPane(page, 'Build');
+	const suction = page
+		.getByRole('region', { name: 'Build', exact: true })
+		.getByRole('textbox', { name: /^Liquid level/ });
+	await suction.fill(String(Number(await suction.inputValue()) + 1));
+	await suction.press('Enter');
 	// The next solve waits at the network until the test lets it through.
 	let release: () => void = () => {};
 	const held = new Promise<void>((resolve) => (release = resolve));

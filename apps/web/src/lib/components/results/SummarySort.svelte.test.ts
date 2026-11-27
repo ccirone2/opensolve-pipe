@@ -651,10 +651,11 @@ describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits
 	async function solveEachTime(project: Project, solved: () => SolvedState) {
 		// A new solved state from each solve, as the API gives.
 		const solve = vi.fn(() => Promise.resolve(response(solved())));
-		render(WorkspaceView, { workspace: testWorkspace(project, { solver: { solve } }) });
+		const ws = testWorkspace(project, { solver: { solve } });
+		render(WorkspaceView, { workspace: ws });
 		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
 		await results().findByRole('heading', { name: 'Converged' });
-		return solve;
+		return { solve, ws };
 	}
 	/** Uncheck a field in a table's Fields menu, then close the menu. */
 	async function hideField(table: string, field: RegExp) {
@@ -665,9 +666,20 @@ describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits
 		await fireEvent.click(within(menu).getByRole('checkbox', { name: field }));
 		await fireEvent.keyDown(menu, { key: 'Escape' });
 	}
-	/** Solve again from the Summary, then press `view`'s tab (not a link). */
-	async function solveAgainThenOpen(solve: ReturnType<typeof vi.fn>, view: string) {
+	/**
+	 * Solve again from the Summary, then press `view`'s tab (not a link). Solve waits while the
+	 * results are current (the owner, 2026-11-27): an edit puts them out of date first.
+	 */
+	async function solveAgainThenOpen(
+		{ solve, ws }: Awaited<ReturnType<typeof solveEachTime>>,
+		view: string
+	) {
 		await fireEvent.click(results().getByRole('tab', { name: 'Summary' }));
+		ws.store.update((p) => {
+			p.connections[0]!.piping.pipes[0]!.length += 1;
+		}, 'change length');
+		await tick();
+		expect(ws.store.results.stale).toBe(true);
 		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
 		await vi.waitFor(() => expect(solve).toHaveBeenCalledTimes(2));
 		await results().findByRole('heading', { name: 'Converged' });
@@ -679,13 +691,13 @@ describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits
 		const NODES = 'opensolve-pipe:results-fields:Results per component port';
 		localStorage.removeItem(NODES);
 		try {
-			const solve = await solveEachTime(pumpTransferExample(), () => pumpTransferSolved());
+			const solved = await solveEachTime(pumpTransferExample(), () => pumpTransferSolved());
 			await fireEvent.click(results().getByRole('button', { name: 'Nodes, lowest first' }));
 			await tick();
 			expect(columnHeading(/^Pressure/)).toHaveAttribute('aria-sort', 'ascending');
 			await hideField('Results per component port', /^Pressure/);
 			expect(localStorage.getItem(NODES)).toBe('["pressure"]');
-			await solveAgainThenOpen(solve, 'Nodes');
+			await solveAgainThenOpen(solved, 'Nodes');
 			expect(results().getByRole('tab', { name: 'Nodes' })).toHaveAttribute(
 				'aria-selected',
 				'true'
@@ -704,7 +716,7 @@ describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits
 		const project = insertComponentInConnection(base, 'L3', booster);
 		localStorage.removeItem(KEY);
 		try {
-			const solve = await solveEachTime(project, () =>
+			const solved = await solveEachTime(project, () =>
 				pumpTransferSolved({
 					pumpResults: {
 						P1: pumpResult(),
@@ -721,7 +733,7 @@ describe('a Summary link shows the column it sorts by (docs/proposals/pumps-nits
 			);
 			await hideField('Results per pump', /^NPSH margin ratio/);
 			expect(localStorage.getItem(KEY)).toBe('["npshMarginRatio"]');
-			await solveAgainThenOpen(solve, 'Pumps');
+			await solveAgainThenOpen(solved, 'Pumps');
 			expect(results().getByRole('tab', { name: 'Pumps' })).toHaveAttribute(
 				'aria-selected',
 				'true'

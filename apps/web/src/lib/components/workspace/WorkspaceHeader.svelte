@@ -59,6 +59,21 @@
 	so in its tooltip and aria-keyshortcuts. Ctrl/⌘+Shift+Enter runs Solve all once the project has
 	scenarios; the Scenarios title and the menu's Solve all say so.
 
+	Current results (the owner, 2026-11-27: "when the solve is current, make the solve button
+	suppressed in appearance like the solve all button does when all scenarios are current"):
+	while the case shown has results of the project as it is, with no failure recorded since, Solve
+	is unavailable, dimmed as Solve all is while every case is current (.btn's aria-disabled look),
+	and focusable. So it is, as Solve all skips the case, while the last solve of the project as it
+	is failed with its own error (topology, validation or fluid), which it would give again
+	(store.waitsForEdit). Its reason is its title and description, as the empty network's is (the
+	header has no room for a line at 320 px), and a press of it (pointer, touch or key) or
+	Ctrl/⌘+Enter says it in a notice and solves nothing, since a touch screen shows no title. An
+	edit that can change the results, a network error (a retry may help), a failure recorded beside
+	current results (a retry, or an error the pane still shows from an edit since undone), or a case
+	shown whose results are missing or out of date makes it available again; an undo back to the
+	project solved makes its results current again. The panes' Solve again (the trace's sheet) and
+	goal seek's Apply are not affected.
+
 	Goal seek (proposal goal-seek.md §6.8): while one runs, Solve is unavailable with the reason (no
 	spinner: it is not solving) and Cancel ("Cancel goal seek") stops the goal seek, also with its
 	dialog closed. One request at a time: Solve reads the store's `calculating`.
@@ -83,7 +98,6 @@
 	import { fluidChipText } from '$lib/utils/labels';
 	import { stringLimits } from '$lib/utils/schema-bounds';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import { calculatingReason } from '$lib/utils/goal-seek';
 	import CaseMenu from './CaseMenu.svelte';
 	import ProjectLibrary from './ProjectLibrary.svelte';
 	import ScenarioManager from './ScenarioManager.svelte';
@@ -117,15 +131,19 @@
 					? `Cancel solving ${ws.caseName(solvingCase)}`
 					: 'Cancel solve'
 	);
-	const canSolve = $derived(store.calculating === null && !empty);
-	/** Why Solve is unavailable, said with it: an empty network, or a goal seek running. */
-	const solveReason = $derived(
-		empty
-			? 'Add a component to the network first.'
-			: seeking
-				? calculatingReason('goalSeek', 'solve', true)
-				: ''
-	);
+	/**
+	 * Solve now (Workspace.solveState, with Ctrl/⌘+Enter): it waits for a component, for a
+	 * calculation to end, and for an edit while the case shown's results are current (the owner,
+	 * 2026-11-27) or its own error is to fix first.
+	 */
+	const solveNow = $derived(ws.solveState);
+	const canSolve = $derived(solveNow.canRun);
+	/**
+	 * Why Solve is unavailable, said with it (title and description): an empty network, a goal seek
+	 * running, the results current, or an error to fix first (the last two also by a press). None
+	 * while a solve or Solve all runs: its spinner says it.
+	 */
+	const solveReason = $derived(solveNow.reason);
 	/**
 	 * The cases Solve all would solve, for the Scenarios badge (build-density.md §19): none on an
 	 * empty network, where Solve all cannot run (the teal scenario count stays).
@@ -315,8 +333,16 @@
 	/** A click after the first of a double click (or double tap): `detail` counts them. */
 	const repeated = (event: MouseEvent) => event.detail > 1;
 
+	/**
+	 * A press that waits for an edit (the results current, or an error to fix first) says why in
+	 * a notice, as Ctrl/⌘+Enter does: a touch screen shows no title, and the header has no room
+	 * for the reason as a line. With an empty network or a calculation running a press does
+	 * nothing, as before: Build, or Cancel beside it, says why.
+	 */
 	function solve(event: MouseEvent) {
-		if (canSolve && !repeated(event)) void ws.solve();
+		if (repeated(event)) return;
+		if (canSolve) void ws.solve();
+		else if (solveNow.waitsForEdit) ws.notify('info', solveReason);
 	}
 
 	function cancel(event: MouseEvent) {

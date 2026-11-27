@@ -77,6 +77,7 @@ Decisions override the specs and are overridden only by GOALS. Code and tests ci
 | D22 | Project library: pipe specs and K/Cv/Kv entries with sources, referenced by id, resolved in the network build (1.5.0) | [`docs/decisions/D22-project-library.md`](docs/decisions/D22-project-library.md) |
 | D23 | Pressure relief valve, liquids: API 520/526 capacity, the linear lift band as an accepted exception, a closed start (1.6.0) | [`docs/decisions/D23-pressure-relief-valve.md`](docs/decisions/D23-pressure-relief-valve.md) |
 | D24 | Pump lineups: status-only D15 scenarios by number running or each pump off, a stop order, names that follow their pumps, a lineups table in the Scenarios manager, each lineup's own group curve on the group chart; web only | [`docs/decisions/D24-pump-lineups.md`](docs/decisions/D24-pump-lineups.md) |
+| D25 | API deployment: the *Deploy API* workflow, started by hand (Claude only when the owner asks); keyless WIF, a deploy account with three grants on three resources, the candidate checked before it serves | [`docs/decisions/D25-api-deploy-workflow.md`](docs/decisions/D25-api-deploy-workflow.md) |
 
 ---
 

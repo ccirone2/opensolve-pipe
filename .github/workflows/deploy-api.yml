@@ -44,6 +44,11 @@ jobs:
       contents: read # the checkout
       actions: read # CI's runs on the commit
       id-token: write # the OIDC token that Workload Identity Federation exchanges
+    # bash -eo pipefail: a failed check piped into tee fails its step (the default shell, bash -e,
+    # would take tee's success and let an unchecked candidate get the traffic).
+    defaults:
+      run:
+        shell: bash
     env:
       # docs/deployment.md §1's names; a fork changes these lines.
       PROJECT_ID: opensolve-pipe-api
@@ -196,10 +201,11 @@ jobs:
         if: always()
         env:
           TAG: ${{ steps.commit.outputs.tag }}
-          CANDIDATE: ${{ steps.candidate.outputs.revision }}
+          DEPLOYED: ${{ steps.candidate.conclusion != 'skipped' && steps.candidate.outcome != '' }}
         run: |
-          # A candidate that never got the traffic keeps no tag URL.
-          if [ -n "$CANDIDATE" ] && gcloud run services describe "$SERVICE" --format=json 2>/dev/null \
+          # A candidate that never got the traffic keeps no tag URL (whatever step stopped the run).
+          if [ "$DEPLOYED" = true ] && [ -n "$TAG" ] \
+              && gcloud run services describe "$SERVICE" --format=json 2>/dev/null \
               | jq -e --arg tag "$TAG" '.status.traffic[] | select(.tag == $tag)' > /dev/null; then
             gcloud run services update-traffic "$SERVICE" --remove-tags "$TAG" --quiet || true
           fi

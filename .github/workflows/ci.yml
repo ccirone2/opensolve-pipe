@@ -78,7 +78,8 @@ jobs:
 
   # docs/workflow.md §4.2: whether the change needs the end-to-end suite. It is skipped only when
   # every changed file is one no browser test or build reads (they read apps/ alone): docs/,
-  # CLAUDE.md, README.md, .claude/, and .github/ but this file. A push to main runs it always, so
+  # CLAUDE.md, README.md, .claude/, the PR template and deploy-api.yml; anything new under .github/
+  # (a local action this file could use) runs it. A push to main runs it always, so
   # every head of main, and so every commit the deploy may take (D25), has a full run. On any
   # error this job fails, and e2e-result with it: it fails closed.
   changes:
@@ -95,23 +96,24 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
-          BASE_REF: ${{ github.base_ref }}
         run: |
           if [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
             echo "A push to main: every job runs."
             echo "e2e=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # A pull request's merge commit, or a branch's head, against where it left its base.
-          if [ "$EVENT" = pull_request ]; then base="origin/$BASE_REF"; else base=origin/main; fi
-          fork=$(git merge-base "$base" HEAD)
+          # A pull request's merge commit, or a branch's head, against where it left main: main
+          # whatever the PR's base, so a stacked PR retargeted to main (an `edited` event, which
+          # starts no run) was already judged by everything it brings to main.
+          fork=$(git merge-base origin/main HEAD)
           # --no-renames: a file moved out of apps/ is listed under its old path too.
           changed=$(git diff --name-only --no-renames "$fork" HEAD)
           printf 'Changed since %s:\n%s\n' "${fork:0:7}" "$changed"
-          needs=$(grep -vE '^(docs/|\.claude/|CLAUDE\.md$|README\.md$|\.github/)' <<<"$changed" || true)
-          ci=$(grep -E '^\.github/workflows/ci\.yml$' <<<"$changed" || true)
-          if [ -n "$needs$ci" ]; then
-            printf 'The end-to-end suite runs for:\n%s\n' "$needs$ci"
+          skip='^(docs/|\.claude/|CLAUDE\.md$|README\.md$|\.github/pull_request_template\.md$'
+          skip+='|\.github/workflows/deploy-api\.yml$)'
+          needs=$(grep -vE "$skip" <<<"$changed" || true)
+          if [ -n "$needs" ]; then
+            printf 'The end-to-end suite runs for:\n%s\n' "$needs"
             echo "e2e=true" >> "$GITHUB_OUTPUT"
           else
             echo "No file a browser test reads changed: the end-to-end suite is skipped."

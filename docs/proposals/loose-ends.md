@@ -1,6 +1,6 @@
 # Loose ends: an inventory (2026-11-28)
 
-**Status:** proposed (2026-11-28): an inventory for the owner to choose from; nothing here is built.
+**Status:** decided (owner, 2026-11-28): the owner's answers are in §9; A1 (§2) is being built, then §3, §4 and §7's record corrections.
 
 The owner (2026-11-28): "Let's focus on loose ends before we start another major feature. Let's take a structured approach to the loose ends you described at the end of your turn. I didn't understand them because they were overly condensed."
 
@@ -816,3 +816,39 @@ Small record gaps noticed:
 - CS-3's reproduction shows the 'not converged' message naming the PRV as cycling when it is converging slowly. This is not in any record, so it is new.
 
 Likelihood judgements in CS-1 to CS-4 are mine. CS-3's network is ordinary engineering (a PRV discharging through a short spool into a tank). CS-2 needs a static head inside a narrow band (here 30-31 m).
+
+## 9. The owner's answers (2026-11-28)
+
+The owner's words: "yes, start A1 and go with your recommendations. B8- leave for future work. OW-2 mark resolved. OW-9 is completed. OW-8, im too lazy to figure out how to verify, you do it. OW-6 works. CS-11 cannot test yet. OW-7 make the link." The B numbers are the decisions as the session listed them in chat, here by item.
+
+| Item | Answer | What follows |
+|---|---|---|
+| §2 (A1: SC-3, SC-4) | Build it | Being built (tier 3) |
+| B1: OW-1, with CS-5 | The recommendation: S stays on the pumps' suction side whatever the case's flow | Built after §2–§4, tier 3, with CS-5's refusal of a member facing the wrong way; recorded in `pump-groups.md` §14 and the roadmap |
+| B2: CS-2 | The recommendation: keep EPANET 2.2's rule (the owner's decision of 2026-10-23 stands) and fix the words | In §3's slice |
+| B3: OW-3 | Accepted as built | Roadmap updated |
+| B4: OW-4 | Kept as built | Roadmap updated; item 107 was already settled |
+| B5: OW-5 | Accepted as built, with a height budget for the pump card | The budget goes into §4's slice |
+| B6: CS-6 | Left (no one-time correction, D14) | Closed |
+| B7: CS-15 | One walk-through together later | Open, not scheduled |
+| B8: CS-4 | Leave for future work | Roadmap §1 updated |
+| OW-2 | Resolved | `open-defects-2.md` §2 and the roadmap updated |
+| OW-6 | "works" | Recorded in the roadmap's §5 |
+| CS-11 | Cannot be tested yet | Recorded in the roadmap's §5 |
+| OW-7 | Make the link | Done: a 999-component, 1,494-connection ladder (`Phone speed test`), checked to open on the live site in an emulated Pixel 7 (1.9 s) and to solve there (converged, 266 iterations, 7.85 s, method 1.6.2); sent to the owner; result pending |
+| OW-9 | Done by the owner | See below: one of the four required names does not match a check |
+| OW-8 | The session runs the checks | See below |
+
+**OW-9, as set.** *Protect-main* now requires four status checks. Three match checks the workflow reports: *API (pytest, ruff, mypy)*, *Web (svelte-check, lint, vitest)* and *History line*. The fourth, `End-to-end (Playwright, ${{ matrix.project }}, ${{ matrix.shard }}/6)`, is the shard job's name template from `ci.yml`; GitHub reports each shard under its expanded name, such as "End-to-end (Playwright, desktop, 3/6)", so no check ever has that name, and every pull request would wait on it. It should be *End-to-end (Playwright, desktop + mobile)*, the summary job that passes only when every shard did (`workflow.md` §4.2). Until it is changed, `workflow.md` §4's sentence that GitHub does not enforce merge-on-green stays.
+
+**OW-8, the checks after the deploy (TSD §11.4 items 3 to 5)**, run by the session on 2026-11-28 against the service at `322db41`:
+
+- **Item 3, the client address: fails. Every client shares one bucket.** The rate limiter counts `/api/v1/solve` by path whatever the method, so a GET there is counted and answered 405 when allowed, 429 when the bucket is full. The session's container (160.79.106.146) sent 60 invalid bodies (400 each); the 61st, one with `X-Forwarded-For: 203.0.113.7` and a GET all got 429. A second network, Anthropic's fetch service (34.133.39.13), then sent GETs:
+  - while the container's bucket was full: 429, with Retry-After 46 and 44, which is the container's bucket's clock (its first hit about 14 s earlier);
+  - as a control, with nothing held: 405, so its requests reach the app when its bucket is free;
+  - the control's one GET then took one of the container's 60 slots: in the next hold, the container's 60th request within the minute got 429;
+  - with the container's bucket held full without gaps (about three requests a second): both GETs got 429, with Retry-After 35 and 33, again the container's clock.
+
+  So two networks are counted under one key: on the deployed service every user shares one bucket of 60 rate-limited requests a minute and one solve at a time (TSD §11.2). The local check of 2026-10 had the proxy simulated; this is the first check on Cloud Run. The cause needs TSD §11.2's echo service, in the owner's project: is the proxy's address outside the image's `FORWARDED_ALLOW_IPS`, or does Google's front end append its own address after the client's? Since the bucket is shared, the session's three holds also kept every other user's requests out while the bucket was full: about a minute each, about three minutes in all, between 19:39 and 19:48 UTC.
+- **Item 4, the logs:** not reachable without the owner's project; two read-only `gcloud logging read` commands go to the owner with the echo service's.
+- **Item 5, the site: passes** in Chromium at 1280×800 and emulating a Pixel 7. The first example opened and solved (200); every request went to `opensolve-pipe.pages.dev` or the API; no cookies and no `Set-Cookie`; the HTML of `/` and `/p` holds no `cloudflareinsights`, `email-decode` or beacon script; `/p` carries `_headers`' `Cache-Control` with `no-transform`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and `frame-ancestors 'none'`. A physical phone and Safari were not tried (CS-11).

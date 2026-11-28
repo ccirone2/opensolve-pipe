@@ -835,7 +835,7 @@ The owner's words: "yes, start A1 and go with your recommendations. B8- leave fo
 | OW-2 | Resolved | `open-defects-2.md` §2 and the roadmap updated |
 | OW-6 | "works" | Recorded in the roadmap's §5 |
 | CS-11 | Cannot be tested yet | Recorded in the roadmap's §5 |
-| OW-7 | Make the link | Done: a 999-component, 1,494-connection ladder (`Phone speed test`), checked to open on the live site in an emulated Pixel 7 (1.9 s) and to solve there (converged, 266 iterations, 7.85 s, method 1.6.2); sent to the owner; result pending |
+| OW-7 | Make the link | Done: a 999-component, 1,494-connection ladder (`Phone speed test`), checked to open on the live site in an emulated Pixel 7 (1.9 s) and to solve there (converged, 266 iterations, 7.85 s, method 1.6.2). The owner's result (2026-11-28): on an Android phone in Chrome, "neither base or phone test case had any noticable delay when changing pipe length". This also closes WEB-3 |
 | OW-9 | Done by the owner | See below: one of the four required names does not match a check |
 | OW-8 | The session runs the checks | See below |
 
